@@ -355,11 +355,6 @@ a.arch-block:hover {
     radial-gradient(ellipse 60% 50% at 50% 40%, rgba(43, 111, 208, 0.06), transparent),
     radial-gradient(ellipse 40% 30% at 70% 60%, rgba(22, 128, 75, 0.04), transparent);
 }
-[data-theme="light"] .hero-grid {
-  background-image:
-    linear-gradient(rgba(43, 111, 208, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(43, 111, 208, 0.06) 1px, transparent 1px);
-}
 [data-theme="light"] .timeline-marker {
   background: var(--surface);
 }
@@ -391,16 +386,14 @@ a.arch-block:hover {
   pointer-events: none;
 }
 
-/* Subtle grid background for hero */
-.hero-grid {
+/* Mathematical attractor pattern canvas */
+#math-bg {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(91, 160, 245, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(91, 160, 245, 0.03) 1px, transparent 1px);
-  background-size: 4rem 4rem;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 20%, transparent 70%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 20%, transparent 70%);
+  width: 100%;
+  height: 100%;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 15%, transparent 65%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 15%, transparent 65%);
 }
 
 .hero-content {
