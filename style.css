@@ -1,5 +1,6 @@
 /* ============================================================
    seLe4n Website — Pure CSS, No Dependencies
+   v2 — Expanded with tables, code examples, syntax highlighting
    ============================================================ */
 
 /* --- Reset & Base --- */
@@ -29,6 +30,8 @@
   --yellow-dim:  rgba(229, 192, 123, 0.12);
   --red:         #e06c75;
   --red-dim:     rgba(224, 108, 117, 0.12);
+  --purple:      #c678dd;
+  --purple-dim:  rgba(198, 120, 221, 0.12);
 
   /* Typography */
   --font-sans:  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -80,13 +83,15 @@ pre {
   border-radius: var(--radius);
   padding: 1.25rem 1.5rem;
   overflow-x: auto;
-  font-size: 0.875rem;
-  line-height: 1.6;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  tab-size: 2;
 }
 pre code {
   background: none;
   padding: 0;
   color: var(--text-bright);
+  font-size: inherit;
 }
 
 ul {
@@ -102,6 +107,29 @@ img {
 strong {
   color: var(--text-bright);
   font-weight: 600;
+}
+
+em {
+  font-style: italic;
+}
+
+/* --- Skip Link (Accessibility) --- */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  z-index: 200;
+  background: var(--accent);
+  color: var(--bg);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0.75rem;
+  color: var(--bg);
 }
 
 /* --- Container --- */
@@ -229,6 +257,18 @@ strong {
   pointer-events: none;
 }
 
+/* Subtle grid background for hero */
+.hero-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(91, 160, 245, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(91, 160, 245, 0.03) 1px, transparent 1px);
+  background-size: 4rem 4rem;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 20%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 20%, transparent 70%);
+}
+
 .hero-content {
   position: relative;
   z-index: 1;
@@ -311,6 +351,13 @@ strong {
   justify-content: center;
   gap: 1rem;
   flex-wrap: wrap;
+}
+
+.hero-version {
+  margin-top: 2rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
 }
 
 /* --- Buttons --- */
@@ -435,6 +482,30 @@ strong {
   color: var(--text-muted);
 }
 
+/* --- Callout Box --- */
+.callout {
+  background: var(--surface);
+  border: 1px solid var(--accent-dim);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: 2rem 2.5rem;
+  margin: 2rem 0;
+}
+.callout h3 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 1rem;
+}
+.callout p {
+  color: var(--text);
+  line-height: 1.8;
+  margin-bottom: 0.75rem;
+}
+.callout p:last-child {
+  margin-bottom: 0;
+}
+
 /* --- Architecture Diagram --- */
 .arch-diagram {
   margin: 3rem auto;
@@ -477,6 +548,17 @@ strong {
   text-align: center;
   flex: 1;
   min-width: 6rem;
+}
+
+/* File path hints inside architecture blocks */
+.arch-hint {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 0.25rem;
+  letter-spacing: 0;
 }
 
 .arch-api { background: rgba(91, 160, 245, 0.06); }
@@ -537,6 +619,190 @@ strong {
   font-size: 0.9375rem;
   color: var(--text);
   line-height: 1.7;
+}
+
+/* --- Comparison & Data Tables --- */
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.5rem;
+  padding: 0 0.5rem;
+}
+
+.comparison-table,
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  font-size: 0.9375rem;
+}
+
+.comparison-table thead,
+.data-table thead {
+  background: var(--surface-2);
+}
+
+.comparison-table th,
+.data-table th {
+  padding: 0.875rem 1.25rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-table td,
+.data-table td {
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  line-height: 1.6;
+  vertical-align: top;
+}
+
+.comparison-table tbody tr:last-child td,
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.comparison-table tbody tr:hover,
+.data-table tbody tr:hover {
+  background: rgba(91, 160, 245, 0.03);
+}
+
+/* First column in comparison table is a label */
+.comparison-table td:first-child {
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+.comparison-table td:first-child strong {
+  color: var(--text-bright);
+}
+
+/* Third column (seLe4n) gets accent highlight */
+.comparison-table td:nth-child(3) {
+  color: var(--text-bright);
+}
+
+/* API table specific */
+.api-table td:first-child {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+.api-table td:first-child code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* Badges */
+.badge-stable,
+.badge-deprecated {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 1rem;
+  white-space: nowrap;
+}
+.badge-stable {
+  background: var(--green-dim);
+  color: var(--green);
+}
+.badge-deprecated {
+  background: var(--yellow-dim);
+  color: var(--yellow);
+}
+
+/* --- Code Examples --- */
+.code-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.code-example {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.code-header h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--heading);
+}
+.code-file {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.code-example pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  padding: 1.5rem;
+  background: var(--surface);
+}
+
+/* Lean 4 Syntax Highlighting */
+.kw {
+  color: var(--purple);
+  font-weight: 600;
+}
+.ty {
+  color: var(--accent);
+}
+.fn {
+  color: var(--green);
+}
+.cm {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.tac {
+  color: var(--yellow);
+}
+
+/* --- Shortcut Table Section --- */
+.shortcut-table {
+  margin-top: 3rem;
+  max-width: 48rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+.shortcut-table > h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--heading);
+  margin-bottom: 1.5rem;
+  text-align: center;
 }
 
 /* --- Threat Model --- */
@@ -641,7 +907,7 @@ strong {
 
 /* --- Proof Quality --- */
 .proof-quality {
-  margin-top: 1rem;
+  margin-top: 3rem;
 }
 .proof-quality > h3 {
   font-size: 1.25rem;
@@ -904,6 +1170,19 @@ strong {
   line-height: 1.6;
 }
 
+.footer-logo-link {
+  text-decoration: none;
+}
+.footer-logo-link:hover .logo-le4n {
+  color: var(--text-bright);
+}
+
+.footer-meta {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
 .footer-license {
   margin-top: 0.5rem;
 }
@@ -1002,12 +1281,43 @@ strong {
     font-size: 1.625rem;
   }
 
+  /* Callout */
+  .callout {
+    padding: 1.5rem;
+  }
+
   /* Architecture */
   .arch-blocks {
     flex-direction: column;
   }
   .arch-block {
     min-width: auto;
+  }
+
+  /* Tables */
+  .comparison-table,
+  .data-table {
+    font-size: 0.8125rem;
+  }
+  .comparison-table th,
+  .comparison-table td,
+  .data-table th,
+  .data-table td {
+    padding: 0.625rem 0.75rem;
+  }
+  .comparison-table td:first-child {
+    font-size: 0.8125rem;
+  }
+
+  /* Code examples */
+  .code-header {
+    padding: 0.75rem 1rem;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .code-example pre {
+    padding: 1rem;
+    font-size: 0.75rem;
   }
 
   /* File tree */
@@ -1072,6 +1382,18 @@ strong {
   .timeline-item {
     padding-left: 1rem;
   }
+
+  /* Comparison table: stack vertically on very small screens */
+  .comparison-table th:nth-child(2),
+  .comparison-table td:nth-child(2) {
+    display: none;
+  }
+
+  /* Code examples: further reduce padding */
+  .code-example pre {
+    padding: 0.75rem;
+    font-size: 0.6875rem;
+  }
 }
 
 /* --- Accessibility --- */
@@ -1079,6 +1401,7 @@ strong {
   html { scroll-behavior: auto; }
   *, *::before, *::after {
     transition-duration: 0s !important;
+    animation-duration: 0s !important;
   }
 }
 
@@ -1093,4 +1416,37 @@ button:focus-visible {
 ::selection {
   background: rgba(91, 160, 245, 0.3);
   color: var(--heading);
+}
+
+/* --- Print --- */
+@media print {
+  .nav, .hero-bg, .skip-link {
+    display: none;
+  }
+  body {
+    background: #fff;
+    color: #222;
+  }
+  .hero {
+    min-height: auto;
+    padding: 2rem 0;
+  }
+  .section, .section-alt {
+    background: #fff;
+    padding: 1.5rem 0;
+  }
+  a { color: #222; }
+  code { background: #f5f5f5; color: #333; }
+  pre { border-color: #ccc; background: #f9f9f9; }
+  .card, .feature-card, .tier, .threat-card, .quality-card, .code-example {
+    border-color: #ccc;
+    background: #fff;
+  }
+  .comparison-table, .data-table {
+    background: #fff;
+    border-color: #ccc;
+  }
+  .comparison-table th, .data-table th {
+    background: #f5f5f5;
+  }
 }
