@@ -835,7 +835,8 @@ a.arch-block:hover {
 
 /* Badges */
 .badge-stable,
-.badge-deprecated {
+.badge-deprecated,
+.badge-updated {
   display: inline-block;
   font-size: 0.6875rem;
   font-weight: 700;
@@ -852,6 +853,10 @@ a.arch-block:hover {
 .badge-deprecated {
   background: var(--yellow-dim);
   color: var(--yellow);
+}
+.badge-updated {
+  background: var(--purple-dim);
+  color: var(--purple);
 }
 
 /* --- Code Examples --- */

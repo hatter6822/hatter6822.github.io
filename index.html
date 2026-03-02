@@ -170,7 +170,9 @@
             follows an Operations/Invariant split: executable transitions live in
             <code>Operations.lean</code>, and their machine-checked proofs live alongside in
             <code>Invariant.lean</code>. The type-checker enforces that every invariant holds
-            across every operation.
+            across every operation. The IPC subsystem models six distinct thread states
+            including <code>blockedOnCall</code> for call-path scoping &mdash; a semantic
+            distinction that enables reply-target validation at the type level.
           </p>
         </div>
         <div class="card">
@@ -180,8 +182,10 @@
             model is feature-complete with IPC, scheduling, capabilities, memory management,
             information-flow control, and service orchestration. The performance optimization
             portfolio (WS-G) is complete &mdash; all hot paths now use O(1) hash-based structures.
-            Hardware platform bindings for the Raspberry Pi 5 are prepared and awaiting final
-            refinement work (WS-F5&ndash;F8).
+            The WS-H audit remediation portfolio is underway, with WS-H1 (IPC call-path semantic
+            fix) complete &mdash; introducing the <code>blockedOnCall</code> state variant and
+            reply-target scoped validation. Hardware platform bindings for the Raspberry Pi 5
+            are prepared and awaiting final refinement work (WS-F5&ndash;F8).
           </p>
           <p class="card-note">
             Created thoughtfully with the help of Claude and Codex.
@@ -297,8 +301,11 @@
           <p>
             Intrusive dual-queue endpoints with <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener" class="code-link"><code>sendQ</code></a>/<a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener" class="code-link"><code>receiveQ</code></a> and
             per-thread <code>prev</code>/<code>next</code> links for O(1) mid-queue removal.
-            Message transfer via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener" class="code-link"><code>TCB.pendingMessage</code></a> rendezvous. 14 preservation
-            theorems. Legacy single-queue operations deprecated in v0.12.12.
+            Message transfer via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener" class="code-link"><code>TCB.pendingMessage</code></a> rendezvous.
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener" class="code-link"><code>blockedOnCall</code></a> state variant
+            (WS-H1) distinguishes call-blocked senders from plain sends, enabling
+            reply-target scoped <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener" class="code-link"><code>endpointReply</code></a>
+            validation. 14+ preservation theorems. Legacy single-queue operations deprecated in v0.12.12.
           </p>
         </div>
         <div class="card card-compact">
@@ -351,7 +358,7 @@
             <tr>
               <td><strong>IPC queuing</strong></td>
               <td>Intrusive singly-linked list</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener">Dual-queue (sendQ/receiveQ)</a> with O(1) mid-queue removal</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener">Dual-queue (sendQ/receiveQ)</a> with O(1) mid-queue removal; <code>blockedOnCall</code> reply-target scoping</td>
             </tr>
             <tr>
               <td><strong>Scheduling</strong></td>
@@ -441,8 +448,12 @@
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener" class="code-link"><code>sendQ</code></a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener" class="code-link"><code>receiveQ</code></a> lists. Each TCB carries intrusive
             <code>prev</code>/<code>next</code> links enabling O(1) mid-queue removal
             without scanning. Messages flow through <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener" class="code-link"><code>TCB.pendingMessage</code></a> rendezvous
-            with 14 preservation theorems (TPI-D08/D09) and 7 trace anchors. Sentinel ID rejection
-            at IPC boundaries prevents ghost queue entries.
+            with 14+ preservation theorems (TPI-D08/D09) and 7 trace anchors. Sentinel ID rejection
+            at IPC boundaries prevents ghost queue entries. The
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener" class="code-link"><code>blockedOnCall</code></a>
+            state variant (WS-H1) provides semantic distinction between <code>endpointSend</code>
+            and <code>endpointCall</code> senders, enabling reply-target scoped validation
+            in <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener" class="code-link"><code>endpointReply</code></a>.
           </p>
         </div>
 
@@ -606,6 +617,41 @@
 
         <div class="code-example">
           <div class="code-header">
+            <h3>IPC Call-Path Semantics (WS-H1)</h3>
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener" class="code-file">SeLe4n/Model/Object.lean</a> &amp; <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener" class="code-file">SeLe4n/Kernel/IPC/DualQueue.lean</a>
+          </div>
+          <pre><code><span class="cm">-- Six-variant IPC state distinguishes call-blocked from send-blocked</span>
+<span class="kw">inductive</span> <span class="ty">ThreadIpcState</span> <span class="kw">where</span>
+  | ready
+  | blockedOnSend (endpoint : <span class="ty">SeLe4n.ObjId</span>)
+  | blockedOnReceive (endpoint : <span class="ty">SeLe4n.ObjId</span>)
+  | blockedOnNotification (notification : <span class="ty">SeLe4n.ObjId</span>)
+  | blockedOnReply (endpoint : <span class="ty">SeLe4n.ObjId</span>)
+  | blockedOnCall (endpoint : <span class="ty">SeLe4n.ObjId</span>) (replyTo : <span class="ty">SeLe4n.ThreadId</span>)
+
+<span class="cm">-- endpointCall: send then block for reply with caller identity</span>
+<span class="cm">-- Handshake path: transfer msg, block caller as blockedOnCall</span>
+<span class="cm">-- Blocking path: enqueue caller with blockedOnCall (not blockedOnSend)</span>
+<span class="kw">def</span> <span class="fn">endpointCall</span> (endpointId : <span class="ty">SeLe4n.ObjId</span>) (caller : <span class="ty">SeLe4n.ThreadId</span>)
+    (msg : <span class="ty">IpcMessage</span>) : <span class="ty">Kernel Unit</span> := ...
+
+<span class="cm">-- endpointReply: reply-target scoped validation</span>
+<span class="cm">-- Only unblocks threads in blockedOnCall state matching the caller</span>
+<span class="kw">def</span> <span class="fn">endpointReply</span> (target : <span class="ty">SeLe4n.ThreadId</span>) (msg : <span class="ty">IpcMessage</span>)
+    : <span class="ty">Kernel Unit</span> := ...
+
+<span class="cm">-- Machine-checked: call-blocked thread stays blocked until reply</span>
+<span class="kw">theorem</span> <span class="fn">endpointCall_blocked_stays_blocked</span>
+    (st st' : <span class="ty">SystemState</span>) (endpointId : <span class="ty">SeLe4n.ObjId</span>)
+    (caller : <span class="ty">SeLe4n.ThreadId</span>) (msg : <span class="ty">IpcMessage</span>)
+    (hStep : endpointCall endpointId caller msg st = .ok ((), st'))
+    (hTcb : st'.objects[caller.toObjId]? = some (.tcb tcb')) :
+    tcb'.ipcState = .blockedOnCall endpointId caller
+      &or; tcb'.ipcState = .blockedOnReply endpointId := ...</code></pre>
+        </div>
+
+        <div class="code-example">
+          <div class="code-header">
             <h3>Unified Kernel API</h3>
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener" class="code-file">SeLe4n/Kernel/API.lean</a>
           </div>
@@ -665,6 +711,7 @@
             <li><strong>Policy-checked wrappers:</strong> <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener" class="code-link"><code>endpointSendDualChecked</code></a>,
               <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener" class="code-link"><code>cspaceMintChecked</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener" class="code-link"><code>serviceRestartChecked</code></a></li>
             <li><strong>Sentinel ID rejection</strong> at IPC boundaries prevents ghost queue entries</li>
+            <li><strong>Reply-target scoping</strong> (WS-H1): <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener" class="code-link"><code>endpointReply</code></a> validates caller identity via <code>blockedOnCall</code> state</li>
           </ul>
         </div>
       </div>
@@ -810,6 +857,7 @@
               <li>Structural invariants</li>
               <li>End-to-end chains</li>
               <li>Non-interference proofs</li>
+              <li>Call-path blocking guarantees (WS-H1)</li>
             </ul>
           </div>
           <div class="quality-card quality-low">
@@ -825,6 +873,7 @@
               <li>C-01: Tautological proofs &rarr; refactored</li>
               <li>H-01: Non-compositional proofs &rarr; refactored</li>
               <li>H-03: Badge safety gap &rarr; closed</li>
+              <li>WS-H1: IPC call-path semantic bug &rarr; <code>blockedOnCall</code> state + reply-target scoping</li>
             </ul>
           </div>
         </div>
@@ -854,7 +903,7 @@
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener"><code>cspaceMint</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener"><code>cspaceCopy</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener"><code>cspaceMove</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener">Capability</a></td><td><span class="badge-stable">Stable</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener"><code>cspaceMutate</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener"><code>cspaceInsertSlot</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener"><code>cspaceDeleteSlot</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener">Capability</a></td><td><span class="badge-stable">Stable</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener"><code>endpointSendDual</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener"><code>endpointReceiveDual</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener">IPC</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener"><code>endpointReply</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener"><code>endpointCall</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener"><code>endpointReplyRecv</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener">IPC</a></td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener"><code>endpointReply</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener"><code>endpointCall</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener"><code>endpointReplyRecv</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener">IPC</a></td><td><span class="badge-stable">Stable</span> <span class="badge-updated">WS-H1</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Lifecycle/Operations.lean" target="_blank" rel="noopener"><code>retypeFromUntyped</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener">Lifecycle</a></td><td><span class="badge-stable">Stable</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener"><code>serviceStart</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener"><code>serviceStop</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener"><code>serviceRestart</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener">Service</a></td><td><span class="badge-stable">Stable</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener"><code>vspaceMapPage</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener"><code>vspaceUnmapPage</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener"><code>vspaceLookup</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener">VSpace</a></td><td><span class="badge-stable">Stable</span></td></tr>
@@ -900,7 +949,7 @@
           </div>
         </div>
         <div class="tree-group">
-          <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/docs" target="_blank" rel="noopener">docs/</a> <span class="tree-desc">&mdash; Spec, ADRs, threat model, IF roadmap, claim index (14 files + 4 dirs)</span></div>
+          <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/docs" target="_blank" rel="noopener">docs/</a> <span class="tree-desc">&mdash; Spec, ADRs, threat model, IF roadmap, claim index, audits (14+ files + 5 dirs)</span></div>
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/scripts" target="_blank" rel="noopener">scripts/</a> <span class="tree-desc">&mdash; 19 test, CI, and documentation scripts</span></div>
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/tests" target="_blank" rel="noopener">tests/</a> <span class="tree-desc">&mdash; InformationFlowSuite, NegativeStateSuite, TraceSequenceProbe</span></div>
         </div>
@@ -974,7 +1023,7 @@ cd seLe4n</code></pre>
           <p>seLe4n welcomes contributors. Before submitting a PR:</p>
           <ul>
             <li>Read the <a href="https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing Guide</a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener">Development Docs</a></li>
-            <li>Identify which workstream (WS-F5 through F8) your change addresses</li>
+            <li>Identify which workstream (WS-F5&ndash;F8 or WS-H1&ndash;H16) your change addresses</li>
             <li>Run <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_smoke.sh" target="_blank" rel="noopener" class="code-link"><code>./scripts/test_smoke.sh</code></a> at minimum; <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_full.sh" target="_blank" rel="noopener" class="code-link"><code>test_full.sh</code></a> for theorem changes</li>
             <li>Update invariants and theorems together with code changes</li>
             <li>Keep PRs focused on one coherent unit of work</li>
@@ -993,6 +1042,7 @@ cd seLe4n</code></pre>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener">Claim &amp; Evidence Index</a> &mdash; Verification traceability</li>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/PLATFORM_BINDING_ADR.md" target="_blank" rel="noopener">Platform Binding ADR</a> &mdash; Hardware abstraction design</li>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/VSPACE_MEMORY_MODEL_ADR.md" target="_blank" rel="noopener">VSpace ADR</a> &mdash; Memory model decisions</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/audits/AUDIT_v0.12.15_WORKSTREAM_PLAN.md" target="_blank" rel="noopener">WS-H Audit Plan</a> &mdash; v0.12.15 audit remediation (16 workstreams, 56 findings)</li>
           </ul>
         </div>
       </div>
@@ -1005,7 +1055,8 @@ cd seLe4n</code></pre>
       <h2 class="section-title">Roadmap</h2>
       <p class="section-lead">
         Development is organized into workstream portfolios and hardware binding milestones.
-        11 workstreams and 7 milestones are complete. Here is where the project stands.
+        11 workstreams and 7 milestones are complete. The WS-H audit remediation portfolio
+        is actively addressing ~56 findings from two independent v0.12.15 audits.
       </p>
 
       <div class="timeline">
@@ -1062,6 +1113,22 @@ cd seLe4n</code></pre>
               <strong>F6:</strong> Invariant quality &mdash; tautology reclassification, adapter proof hooks.<br>
               <strong>F7:</strong> Testing expansion &mdash; oracle, probe, and fixture coverage.<br>
               <strong>F8:</strong> Cleanup &mdash; dead code removal, legacy/dual-queue resolution.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item active">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>WS-H: v0.12.15 Audit Remediation <span class="timeline-tag tag-active">In Progress</span></h3>
+            <p>
+              16 workstreams across 5 phases addressing ~56 audit findings.
+              <strong>Phase 1 (Critical Correctness):</strong> WS-H1 IPC call-path semantic fix (complete),
+              WS-H2, WS-H3.
+              <strong>Phase 2 (Proof Strengthening):</strong> WS-H4&ndash;H7 including capability invariant
+              redesign and HashMap equality fix.
+              <strong>Phase 3 (Information Flow):</strong> WS-H8&ndash;H10 non-interference coverage extension.
+              <strong>Phase 4 (Model Fidelity):</strong> WS-H11&ndash;H13.
+              <strong>Phase 5 (Quality):</strong> WS-H14&ndash;H16.
             </p>
           </div>
         </div>
@@ -1122,6 +1189,7 @@ cd seLe4n</code></pre>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/TESTING_FRAMEWORK_PLAN.md" target="_blank" rel="noopener">Testing</a></li>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener">Threat Model</a></li>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener">Claims &amp; Evidence</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/audits/AUDIT_v0.12.15_WORKSTREAM_PLAN.md" target="_blank" rel="noopener">WS-H Audit Plan</a></li>
           </ul>
         </div>
         <div class="footer-links">
