@@ -380,6 +380,7 @@ a.arch-block:hover {
 }
 
 .hero-bg {
+  opacity: 0.5;
   position: absolute;
   inset: 0;
   background:
