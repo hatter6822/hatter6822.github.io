@@ -13,9 +13,15 @@ on:
 permissions:
   contents: write
 
+# Prevent overlapping runs from causing merge conflicts
+concurrency:
+  group: sync-sele4n-data
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -28,20 +34,28 @@ jobs:
           REPO="hatter6822/seLe4n"
           RAW="https://raw.githubusercontent.com/${REPO}/main"
 
+          # Portable thousands-separator formatting (locale-independent)
+          format_number() {
+            printf "%d" "$1" | sed -e :a -e 's/\([0-9]\)\([0-9]\{3\}\)\($\|,\)/\1,\2\3/' -e ta
+          }
+
           # 1. Lean toolchain version
-          LEAN_VERSION=$(curl -sf "${RAW}/lean-toolchain" | grep -oP '\d+\.\d+\.\d+' || echo "")
+          LEAN_VERSION=$(curl -sf --max-time 15 "${RAW}/lean-toolchain" \
+            | grep -oP '\d+\.\d+\.\d+' || echo "")
           echo "lean_version=${LEAN_VERSION}" >> "$GITHUB_OUTPUT"
 
           # 2. Project version from lakefile.toml
-          VERSION=$(curl -sf "${RAW}/lakefile.toml" | grep -oP 'version\s*=\s*"\K[^"]+' || echo "")
+          VERSION=$(curl -sf --max-time 15 "${RAW}/lakefile.toml" \
+            | grep -oP 'version\s*=\s*"\K[^"]+' || echo "")
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
           # 3. Count modules, scripts, docs from the git tree
-          TREE=$(gh api "repos/${REPO}/git/trees/main?recursive=1" --jq '.tree[] | select(.type == "blob") | .path')
+          TREE=$(gh api "repos/${REPO}/git/trees/main?recursive=1" \
+            --jq '.tree[] | select(.type == "blob") | .path')
 
-          MODULES=$(echo "$TREE" | grep -cP '^SeLe4n/(?!Testing/).*\.lean$' || echo "0")
-          SCRIPTS=$(echo "$TREE" | grep -cP '^scripts/.*\.sh$' || echo "0")
-          DOCS=$(echo "$TREE" | grep -cP '^docs/.*\.(md|txt)$' || echo "0")
+          MODULES=$(echo "$TREE" | grep -cP '^SeLe4n/(?!Testing/).*\.lean$' || true)
+          SCRIPTS=$(echo "$TREE" | grep -cP '^scripts/.*\.sh$' || true)
+          DOCS=$(echo "$TREE" | grep -cP '^docs/.*\.(md|txt)$' || true)
           BUILD_JOBS=$((MODULES * 2))
           echo "modules=${MODULES}" >> "$GITHUB_OUTPUT"
           echo "scripts=${SCRIPTS}" >> "$GITHUB_OUTPUT"
@@ -50,15 +64,16 @@ jobs:
 
           # 4. Estimate lines from language stats
           LEAN_BYTES=$(gh api "repos/${REPO}/languages" --jq '.Lean // 0')
+          LEAN_BYTES=${LEAN_BYTES:-0}
           if [ "$LEAN_BYTES" -gt 0 ] 2>/dev/null; then
             LINES=$((LEAN_BYTES / 38))
-            LINES_FMT=$(printf "%'d" "$LINES")
+            LINES_FMT=$(format_number "$LINES")
             echo "lines=${LINES_FMT}" >> "$GITHUB_OUTPUT"
           else
             echo "lines=" >> "$GITHUB_OUTPUT"
           fi
 
-          # 5. Count theorems across all proof files
+          # 5. Count theorems across all proof files (fetched in parallel)
           PROOF_FILES=(
             SeLe4n/Kernel/Capability/Invariant.lean
             SeLe4n/Kernel/IPC/Invariant.lean
@@ -87,11 +102,21 @@ jobs:
             SeLe4n/Kernel/Lifecycle/Operations.lean
             SeLe4n/Kernel/Service/Operations.lean
           )
+
+          TMPDIR=$(mktemp -d)
+          for i in "${!PROOF_FILES[@]}"; do
+            ( curl -sf --max-time 15 "${RAW}/${PROOF_FILES[$i]}" 2>/dev/null \
+              | grep -c '^theorem ' > "${TMPDIR}/${i}" 2>/dev/null \
+              || echo 0 > "${TMPDIR}/${i}" ) &
+          done
+          wait
+
           THEOREMS=0
-          for f in "${PROOF_FILES[@]}"; do
-            COUNT=$(curl -sf "${RAW}/${f}" | grep -c '^theorem ' || true)
+          for i in "${!PROOF_FILES[@]}"; do
+            COUNT=$(cat "${TMPDIR}/${i}" 2>/dev/null || echo 0)
             THEOREMS=$((THEOREMS + COUNT))
           done
+          rm -rf "$TMPDIR"
           echo "theorems=${THEOREMS}" >> "$GITHUB_OUTPUT"
 
           # Summary
@@ -102,6 +127,7 @@ jobs:
           echo "| Lean | ${LEAN_VERSION} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Theorems | ${THEOREMS} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Modules | ${MODULES} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Lines | ${LINES_FMT:-n/a} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Scripts | ${SCRIPTS} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Docs | ${DOCS} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Build Jobs | ${BUILD_JOBS} |" >> "$GITHUB_STEP_SUMMARY"
@@ -169,8 +195,5 @@ jobs:
           git commit -m "sync: update static values from seLe4n v${{ steps.fetch.outputs.version }}
 
           Automated sync from GitHub Actions.
-          Theorems: ${{ steps.fetch.outputs.theorems }}
-          Modules: ${{ steps.fetch.outputs.modules }}
-          Scripts: ${{ steps.fetch.outputs.scripts }}
-          Docs: ${{ steps.fetch.outputs.docs }}"
-          git push
+          Theorems: ${{ steps.fetch.outputs.theorems }} | Modules: ${{ steps.fetch.outputs.modules }} | Scripts: ${{ steps.fetch.outputs.scripts }} | Docs: ${{ steps.fetch.outputs.docs }}"
+          git push origin HEAD
