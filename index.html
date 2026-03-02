@@ -37,6 +37,10 @@
 </head>
 <body>
 
+  <div id="bg-canvas-wrap" aria-hidden="true">
+    <canvas id="math-bg"></canvas>
+  </div>
+
   <a href="#about" class="skip-link">Skip to main content</a>
 
   <!-- Navigation -->
@@ -69,9 +73,7 @@
 
   <!-- Hero -->
   <header class="hero" id="hero">
-    <div class="hero-bg" aria-hidden="true">
-      <canvas id="math-bg"></canvas>
-    </div>
+    <div class="hero-bg" aria-hidden="true"></div>
     <div class="container hero-content">      
       <p class="hero-label">Micro-Kernel &middot; Lean 4 &middot; Formally Verified</p>
       <div class="hero-logo" aria-hidden="true">
@@ -1203,9 +1205,10 @@ cd seLe4n</code></pre>
         }
       }
 
-      // --- Mathematical background (Clifford strange attractor) ---
+      // --- Animated mathematical background (Clifford strange attractor) ---
       // Renders overlapping Clifford attractors as a density-mapped point cloud.
-      // x_{n+1} = sin(a·y_n) + c·cos(a·x_n), y_{n+1} = sin(b·x_n) + d·cos(b·y_n)
+      // Canvas is fixed full-viewport; animates with slow drift, scroll parallax,
+      // and CSS hue-rotate for color cycling.
       (function() {
         var canvas = document.getElementById('math-bg');
         if (!canvas) return;
@@ -1213,11 +1216,10 @@ cd seLe4n</code></pre>
         var timer;
 
         function render() {
-          var parent = canvas.parentElement;
           var dpr = Math.min(window.devicePixelRatio || 1, 2);
-          var fw = parent.offsetWidth;
-          var fh = parent.offsetHeight;
-          // Half resolution for performance + natural softness from upscaling
+          var fw = window.innerWidth;
+          var fh = window.innerHeight;
+          // Half resolution for performance + natural softness from CSS upscaling
           var w = Math.max(1, Math.floor(fw * dpr * 0.5));
           var h = Math.max(1, Math.floor(fh * dpr * 0.5));
           canvas.width = w;
@@ -1231,20 +1233,20 @@ cd seLe4n</code></pre>
           var bB = new Float32Array(w * h);
 
           var cx = w * 0.5;
-          var cy = h * 0.45;
-          var sc = Math.min(w, h) * 0.18;
+          var cy = h * 0.5;
+          var sc = Math.min(w, h) * 0.2;
 
           // Three Clifford attractor layers using the site's accent palette
           var layers = [
-            { a: -1.4, b: 1.6, c: 1.0, d: 0.7, n: 150000,
+            { a: -1.4, b: 1.6, c: 1.0, d: 0.7, n: 200000,
               r: isDark ? 91 : 43, g: isDark ? 160 : 111, bl: isDark ? 245 : 208,
               ox: 0, oy: 0 },
-            { a: 1.5, b: -1.8, c: 1.6, d: 0.9, n: 100000,
+            { a: 1.5, b: -1.8, c: 1.6, d: 0.9, n: 140000,
               r: isDark ? 78 : 22, g: isDark ? 201 : 128, bl: isDark ? 137 : 75,
-              ox: w * 0.04, oy: -h * 0.03 },
-            { a: -2.0, b: -2.0, c: -1.2, d: 2.0, n: 80000,
+              ox: w * 0.06, oy: -h * 0.04 },
+            { a: -2.0, b: -2.0, c: -1.2, d: 2.0, n: 110000,
               r: isDark ? 198 : 124, g: isDark ? 120 : 58, bl: isDark ? 221 : 237,
-              ox: -w * 0.03, oy: h * 0.02 }
+              ox: -w * 0.05, oy: h * 0.03 }
           ];
 
           for (var l = 0; l < layers.length; l++) {
@@ -1277,7 +1279,7 @@ cd seLe4n</code></pre>
           // Map density to pixels with log-scale brightness and gamma correction
           var img = ctx.createImageData(w, h);
           var d = img.data;
-          var alpha = isDark ? 0.7 : 0.45;
+          var alpha = isDark ? 0.8 : 0.5;
           var logMax = Math.log(1 + maxV);
 
           for (var i = 0; i < w * h; i++) {
@@ -1308,6 +1310,35 @@ cd seLe4n</code></pre>
             if (m[i].attributeName === 'data-theme') { render(); return; }
           }
         }).observe(document.documentElement, { attributes: true });
+
+        // --- Scroll parallax + slow drift animation ---
+        var startTime = performance.now();
+        var prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        function animate(now) {
+          if (prefersReduced) return; // respect accessibility
+
+          var elapsed = (now - startTime) / 1000; // seconds
+          var scrollY = window.scrollY || window.pageYOffset;
+
+          // Slow organic drift (Lissajous-like motion)
+          var driftX = Math.sin(elapsed * 0.07) * 18 + Math.sin(elapsed * 0.03) * 8;
+          var driftY = Math.cos(elapsed * 0.05) * 12 + Math.cos(elapsed * 0.02) * 6;
+          var driftRot = Math.sin(elapsed * 0.025) * 1.5;
+          var driftScale = 1 + Math.sin(elapsed * 0.04) * 0.03;
+
+          // Scroll parallax: pattern shifts opposite to scroll at 30% rate
+          var parallaxY = -scrollY * 0.3;
+
+          canvas.style.transform =
+            'translate(' + driftX.toFixed(2) + 'px, ' + (driftY + parallaxY).toFixed(2) + 'px) ' +
+            'rotate(' + driftRot.toFixed(3) + 'deg) ' +
+            'scale(' + driftScale.toFixed(4) + ')';
+
+          requestAnimationFrame(animate);
+        }
+
+        requestAnimationFrame(animate);
       })();
 
       // --- Sticky nav background on scroll ---
