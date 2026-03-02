@@ -1,26 +1,38 @@
 /**
  * background-pattern.js
  *
- * GPU-accelerated fractal sphere background — WebGL fragment shader with:
+ * GPU-accelerated fractal diamond background — WebGL fragment shader with:
  *
- *   1. Ray-marched amorphous sphere    — SDF sphere with multi-scale
- *      simplex noise displacement for organic, fractal geometry that
- *      constantly morphs and breathes.
+ *   1. Ray-marched diamond sphere      — SDF sphere with ridged multi-scale
+ *      simplex noise (abs-valued) for angular, crystalline geometry.
+ *      Faceted surface normals simulate a cut gemstone.
  *
  *   2. Cosine colour palettes          — smooth, endless cycling through
  *      blues, teals, purples and greens.  Palette shifts with time.
  *
- *   3. Integrated sparkle layer        — high-frequency noise peaks on
- *      the sphere surface create twinkling bright points.
+ *   3. Diamond scintillation           — facet-dependent flashing that
+ *      varies with viewing angle, replacing smooth sparkle with the
+ *      sharp on/off brilliance of a real diamond.
  *
- *   4. Mouse reactivity                — sphere surface bulges toward
+ *   4. Chromatic dispersion (fire)     — prismatic rainbow shifts near
+ *      edges and specular highlights, simulating diamond's high
+ *      refractive index (n ≈ 2.42) splitting white light.
+ *
+ *   5. Adamantine specular             — three-light setup with very
+ *      tight specular exponents (80–120) for diamond's characteristic
+ *      brilliant, pinpoint reflections.
+ *
+ *   6. Internal crystalline lattice    — ridged noise product hints
+ *      at depth and structure within the diamond substance.
+ *
+ *   7. Mouse reactivity                — sphere surface bulges toward
  *      the cursor with exponentially smoothed tracking.
  *
- *   5. Scroll interaction              — fractal pattern rotates with
+ *   8. Scroll interaction              — fractal pattern rotates with
  *      exponentially smoothed scroll offset for depth.
  *
- *   6. Atmospheric glow                — soft radial falloff around
- *      the sphere for an ethereal, floating appearance.
+ *   9. Doubled opacity                 — 2× alpha for stronger visual
+ *      presence as a crystalline diamond substance.
  *
  * Everything renders every frame on the GPU — no discrete steps,
  * no crossfade hacks, no separate shimmer canvas, no web worker.
@@ -74,13 +86,13 @@
   });
 
   if (!gl) {
-    /* Graceful fallback — static CSS gradient */
+    /* Graceful fallback — static CSS gradient (2× opacity) */
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 80% 60% at 50% 40%,' +
-      'rgba(91,160,245,0.12) 0%,transparent 70%),' +
+      'rgba(91,160,245,0.24) 0%,transparent 70%),' +
       'radial-gradient(ellipse 60% 40% at 30% 70%,' +
-      'rgba(78,201,137,0.08) 0%,transparent 60%)';
+      'rgba(78,201,137,0.16) 0%,transparent 60%)';
     return;
   }
 
@@ -90,8 +102,9 @@
 
   var VERT = 'attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0,1);}';
 
-  /* Fragment shader — ray-marched fractal sphere with cosine
-     colour palette, sparkle overlay, and atmospheric glow.
+  /* Fragment shader — ray-marched fractal diamond sphere with
+     faceted normals, adamantine specular, chromatic dispersion,
+     scintillation, internal lattice, and crystalline glow.
      Every visual element evolves continuously with u_time.      */
   var FRAG = [
     /* ── precision ── */
@@ -161,11 +174,13 @@
     '}',
 
     /* ─────────────────────────────────────────────────────────
-       FBM — 3 octaves of simplex noise
+       Ridged FBM — 4 octaves of abs(simplex noise).
+       abs() folds the noise so zero-crossings become sharp
+       ridges, naturally forming diamond-shaped geometry.
        ───────────────────────────────────────────────────────── */
     'float fbm(vec3 p){',
     '  float f=0.0,a=0.5;',
-    '  for(int i=0;i<3;i++){f+=a*snoise(p);p=p*2.03+0.13;a*=0.47;}',
+    '  for(int i=0;i<4;i++){f+=a*abs(snoise(p));p=p*2.17+0.31;a*=0.44;}',
     '  return f;',
     '}',
 
@@ -177,9 +192,10 @@
     '}',
 
     /* ─────────────────────────────────────────────────────────
-       Scene SDF — fractal sphere
-       Sphere with multi-scale noise displacement, breathing
-       radius, scroll-driven rotation, and mouse-reactive bulge.
+       Scene SDF — fractal diamond sphere
+       Sphere with ridged multi-scale noise displacement for
+       angular crystalline geometry.  Breathing radius, scroll-
+       driven rotation, and mouse-reactive bulge.
        ───────────────────────────────────────────────────────── */
     'float map(vec3 pos){',
     '  float r=length(pos);',
@@ -199,10 +215,12 @@
     '  vec3 rn=vec3(n.x*cy+n.z*sy,n.y,-n.x*sy+n.z*cy);',
     '  rn=vec3(rn.x,rn.y*cx-rn.z*sx,rn.y*sx+rn.z*cx);',
 
-    /* Multi-scale fractal displacement — two octaves of
-       simplex noise at different scales and speeds */
-    '  float d=snoise(rn*2.0+t*0.12)*0.30',
-    '         +snoise(rn*4.5+t*0.18)*0.12;',
+    /* Multi-scale diamond displacement — abs() folds noise
+       into angular ridged geometry; three octaves for fractal
+       depth.  V-shaped valleys form the diamond lattice. */
+    '  float d=abs(snoise(rn*2.0+t*0.10))*0.28',
+    '         +abs(snoise(rn*4.5+t*0.15))*0.14',
+    '         +abs(snoise(rn*9.0+t*0.08))*0.06;',
 
     /* Mouse bulge — surface reaches toward cursor.
        pow(_, 5) keeps the bulge localised. */
@@ -264,7 +282,13 @@
     '    vec3 nor=calcN(pos);',
     '    vec3 sn=normalize(pos);',
 
-    /* Rotated coordinates for colour and sparkle —
+    /* Facet the surface normal — quantise into discrete planes
+       to simulate the flat facets of a cut diamond.  Mix factor
+       blends smooth and faceted normals for a refined finish. */
+    '    vec3 qn=floor(nor*5.0+0.5)/5.0;',
+    '    nor=normalize(mix(nor,qn,0.55));',
+
+    /* Rotated coordinates for colour and scintillation —
        same rotation as in map() for consistency */
     '    float ay=t*0.05+u_scroll*1.0;',
     '    float ax=sin(t*0.03)*0.2+u_scroll*0.4;',
@@ -272,71 +296,107 @@
     '    vec3 rn=vec3(sn.x*cy+sn.z*sy,sn.y,-sn.x*sy+sn.z*cy);',
     '    rn=vec3(rn.x,rn.y*cx-rn.z*sx,rn.y*sx+rn.z*cx);',
 
-    /* Dual-light setup — key + fill */
+    /* Triple-light setup — key, fill, and rim for
+       diamond brilliance (adamantine luster) */
     '    vec3 l1=normalize(vec3(0.6,0.8,-0.5));',
     '    vec3 l2=normalize(vec3(-0.4,-0.3,-0.7));',
+    '    vec3 l3=normalize(vec3(0.0,-0.7,-0.6));',
     '    float dif1=max(dot(nor,l1),0.0);',
     '    float dif2=max(dot(nor,l2),0.0);',
+    '    float dif3=max(dot(nor,l3),0.0);',
 
-    /* Specular highlights */
+    /* Diamond specular — very tight exponents (80–120)
+       for the pinpoint brilliance of adamantine luster */
     '    vec3 h1=normalize(l1-rd);',
-    '    float sp1=pow(max(dot(nor,h1),0.0),48.0);',
+    '    float sp1=pow(max(dot(nor,h1),0.0),120.0);',
     '    vec3 h2=normalize(l2-rd);',
-    '    float sp2=pow(max(dot(nor,h2),0.0),32.0);',
+    '    float sp2=pow(max(dot(nor,h2),0.0),80.0);',
+    '    vec3 h3=normalize(l3-rd);',
+    '    float sp3=pow(max(dot(nor,h3),0.0),96.0);',
 
-    /* Sparkle — high-frequency noise peaks on surface
-       create twinkling bright points that cluster organically */
-    '    float spk=snoise(rn*25.0+t*4.0);',
-    '    spk=smoothstep(0.72,0.95,spk);',
-    '    spk*=smoothstep(-0.2,0.5,snoise(rn*8.0+t*0.8));',
+    /* Diamond scintillation — faceted flashing that depends on
+       viewing angle and facet identity.  Each discrete cell in
+       the 6³ grid flashes independently, like a real gemstone
+       rotating under a light source.                           */
+    '    vec3 fid=floor(rn*6.0)+0.5;',
+    '    float facetSeed=snoise(fid);',
+    '    float scint=sin(facetSeed*30.0+t*2.5+dot(nor,rd)*8.0);',
+    '    scint=smoothstep(0.55,0.85,scint);',
+    '    scint*=smoothstep(0.2,0.7,abs(snoise(rn*12.0)));',
 
-    /* Colour — cosine palette driven by fractal pattern
-       and elapsed time for continuous colour shifting.
+    /* Colour — cosine palette driven by ridged fractal pattern.
+       Ridged FBM creates sharp crystalline colour boundaries.
        Dark palette:  deep blue → teal → purple
-       Light palette: softer / more pastel variant       */
-    '    float ci=fbm(rn*2.0+t*0.04)*0.55+t*0.015;',
+       Light palette: softer / more pastel variant               */
+    '    float ci=fbm(rn*2.0+t*0.04)*0.60+t*0.015;',
 
     '    vec3 dc=pal(ci,',
     '      vec3(0.30,0.40,0.60),',
-    '      vec3(0.30,0.30,0.30),',
+    '      vec3(0.35,0.32,0.32),',
     '      vec3(0.70,0.80,1.00),',
     '      vec3(0.55,0.65,0.75));',
 
     '    vec3 lc=pal(ci,',
     '      vec3(0.45,0.52,0.55),',
-    '      vec3(0.22,0.22,0.25),',
+    '      vec3(0.25,0.24,0.27),',
     '      vec3(0.70,0.80,1.00),',
     '      vec3(0.55,0.65,0.75));',
 
     '    vec3 bc=mix(dc,lc,u_theme);',
 
-    /* Compose lighting */
-    '    col=bc*(0.25+dif1*0.5+dif2*0.2);',
-    '    col+=sp1*mix(vec3(0.7,0.85,1.0),vec3(0.9,0.95,1.0),u_theme)*0.4;',
-    '    col+=sp2*mix(vec3(0.5,0.6,0.9),vec3(0.7,0.75,0.85),u_theme)*0.2;',
-    '    col+=spk*vec3(1.0,0.97,0.92)*0.7;',
+    /* Diamond fire — chromatic dispersion near edges.
+       Prismatic rainbow shifts simulate a high refractive
+       index (n ≈ 2.42) splitting white light into spectral
+       colours.  Phase-shifted RGB sines for the rainbow. */
+    '    float va=pow(1.0-max(dot(nor,-rd),0.0),2.5);',
+    '    vec3 fire=vec3(',
+    '      0.5+0.5*sin(va*12.0+t*0.5),',
+    '      0.5+0.5*sin(va*12.0+t*0.5+2.094),',
+    '      0.5+0.5*sin(va*12.0+t*0.5+4.189)',
+    '    )*va*0.35;',
 
-    /* Fresnel rim glow — ethereal edge lighting */
-    '    float fres=pow(1.0-max(dot(nor,-rd),0.0),3.0);',
-    '    col+=fres*mix(vec3(0.3,0.5,0.8),vec3(0.5,0.6,0.7),u_theme)*0.5;',
+    /* Internal crystalline lattice — ridged noise product
+       hints at depth and structure within the diamond.
+       The product of two abs-noise octaves creates a web
+       of bright lines where both octaves peak together. */
+    '    float lattice=abs(snoise(pos*5.0+t*0.03));',
+    '    lattice*=abs(snoise(pos*10.0-t*0.02));',
 
-    '    alpha=smoothstep(8.0,2.0,td)*mix(0.7,0.45,u_theme);',
+    /* Compose lighting — higher contrast, more brilliance */
+    '    col=bc*(0.20+dif1*0.55+dif2*0.22+dif3*0.15);',
+    '    col+=lattice*bc*0.12;',
+    '    col+=fire;',
+    '    col+=sp1*mix(vec3(0.8,0.9,1.0),vec3(0.95,0.97,1.0),u_theme)*0.55;',
+    '    col+=sp2*mix(vec3(0.6,0.7,0.95),vec3(0.8,0.82,0.9),u_theme)*0.30;',
+    '    col+=sp3*mix(vec3(0.7,0.8,0.95),vec3(0.85,0.88,0.92),u_theme)*0.35;',
+    '    col+=scint*vec3(1.0,0.98,0.94)*0.85;',
+
+    /* Fresnel rim — sharper falloff (pow 2.5) and brighter,
+       matching diamond's high refractive index and total
+       internal reflection that creates bright edge flashes */
+    '    float fres=pow(1.0-max(dot(nor,-rd),0.0),2.5);',
+    '    col+=fres*mix(vec3(0.4,0.6,0.9),vec3(0.6,0.65,0.75),u_theme)*0.65;',
+
+    /* Alpha — doubled opacity for diamond-substance presence.
+       Dark: 0.7 → 1.0 (clamped), Light: 0.45 → 0.9 */
+    '    alpha=smoothstep(8.0,2.0,td)*mix(1.0,0.9,u_theme);',
     '  }',
 
-    /* Atmospheric glow — soft radial falloff for rays that
-       miss the sphere but pass close.  Cubic falloff + faint
-       scattered sparkles in the glow region.                   */
+    /* Crystalline halo — radial falloff around the diamond form.
+       Doubled intensity (0.4→0.7) and alpha (0.20→0.40) for
+       the stronger visual presence of the diamond substance.
+       Scattered sparkles in the glow region shimmer brighter. */
     '  if(!hit&&cdist<3.0){',
     '    float glow=smoothstep(3.0,0.5,cdist);',
     '    glow=glow*glow*glow;',
-    '    vec3 gc=mix(vec3(0.15,0.25,0.50),vec3(0.30,0.35,0.45),u_theme);',
-    '    col+=gc*glow*0.4;',
-    '    alpha+=glow*mix(0.20,0.12,u_theme);',
+    '    vec3 gc=mix(vec3(0.18,0.28,0.55),vec3(0.32,0.38,0.48),u_theme);',
+    '    col+=gc*glow*0.7;',
+    '    alpha+=glow*mix(0.40,0.24,u_theme);',
 
     '    float gs=snoise(vec3(uv*40.0,t*2.5));',
-    '    gs=smoothstep(0.85,0.98,gs)*glow;',
-    '    col+=gs*mix(vec3(0.6,0.75,1.0),vec3(0.8,0.85,0.9),u_theme)*0.3;',
-    '    alpha+=gs*0.1;',
+    '    gs=smoothstep(0.82,0.96,gs)*glow;',
+    '    col+=gs*mix(vec3(0.6,0.75,1.0),vec3(0.8,0.85,0.9),u_theme)*0.5;',
+    '    alpha+=gs*0.18;',
     '  }',
 
     /* ── Final — premultiplied alpha for CSS compositing ──── */
@@ -375,11 +435,11 @@
 
   var prog = createProgram(VERT, FRAG);
   if (!prog) {
-    /* Shader failed — static CSS gradient fallback */
+    /* Shader failed — static CSS gradient fallback (2× opacity) */
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 80% 60% at 50% 40%,' +
-      'rgba(91,160,245,0.12) 0%,transparent 70%)';
+      'rgba(91,160,245,0.24) 0%,transparent 70%)';
     return;
   }
 
