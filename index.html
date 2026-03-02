@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>seLe4n — A Micro-Kernel Written in Lean 4</title>
+  <meta name="description" content="seLe4n is a formally verified micro-kernel written entirely in Lean 4 with 574 machine-checked theorems, zero sorry, zero axiom. Inspired by seL4 architecture, targeting Raspberry Pi 5.">
+  <meta name="keywords" content="seLe4n, microkernel, Lean 4, formal verification, seL4, operating system, kernel, Raspberry Pi 5, theorem proving">
+  <meta name="theme-color" content="#0a0e17">
+
+  <meta property="og:title" content="seLe4n — A Micro-Kernel Written in Lean 4">
+  <meta property="og:description" content="Formally verified micro-kernel with 574 machine-checked theorems. Zero sorry, zero axiom.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://sele4n.org">
+
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f9e0;</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="#hero" class="nav-logo">
+        <span class="logo-se">se</span><span class="logo-le4n">Le4n</span>
+      </a>
+      <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="nav-links">
+        <li><a href="#about">About</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#verification">Verification</a></li>
+        <li><a href="#getting-started">Get Started</a></li>
+        <li><a href="https://github.com/hatter6822/seLe4n" class="nav-cta" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header class="hero" id="hero">
+    <div class="hero-bg"></div>
+    <div class="container hero-content">
+      <p class="hero-label">Micro-Kernel &middot; Lean 4 &middot; Formally Verified</p>
+      <h1 class="hero-title">
+        <span class="logo-se">se</span><span class="logo-le4n">Le4n</span>
+      </h1>
+      <p class="hero-subtitle">
+        Every kernel transition is an executable pure function.<br>
+        Every invariant is machine-checked by the Lean type-checker.
+      </p>
+      <p class="hero-tagline">Zero <code>sorry</code>. Zero <code>axiom</code>.</p>
+
+      <div class="hero-stats">
+        <div class="stat">
+          <span class="stat-value">574</span>
+          <span class="stat-label">Proven Theorems</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">21,641</span>
+          <span class="stat-label">Lines of Lean 4</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">40</span>
+          <span class="stat-label">Kernel Modules</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">0</span>
+          <span class="stat-label">Admitted Proofs</span>
+        </div>
+      </div>
+
+      <div class="hero-actions">
+        <a href="#about" class="btn btn-primary">Learn More</a>
+        <a href="https://github.com/hatter6822/seLe4n" class="btn btn-secondary" target="_blank" rel="noopener">View Source</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- About -->
+  <section class="section" id="about">
+    <div class="container">
+      <h2 class="section-title">What is seLe4n?</h2>
+      <p class="section-lead">
+        seLe4n is a micro-kernel written entirely in <strong>Lean 4</strong> with machine-checked proofs,
+        inspired by the <a href="https://sel4.systems/" target="_blank" rel="noopener">seL4</a> architecture.
+        It targets the <strong>Raspberry Pi 5</strong> as its first hardware platform.
+      </p>
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>Why a Micro-Kernel?</h3>
+          <p>
+            Micro-kernels minimize the trusted computing base by running only essential services in kernel space.
+            This architectural choice reduces attack surface and makes formal verification tractable &mdash;
+            every line of kernel code can be reasoned about mathematically.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Why Lean 4?</h3>
+          <p>
+            Lean 4 is both a programming language and an interactive theorem prover. seLe4n leverages this
+            duality: the kernel is executable code whose properties are machine-checked at compile time.
+            No separate specification language, no trusted translation step.
+          </p>
+        </div>
+        <div class="card">
+          <h3>What Makes It Different?</h3>
+          <p>
+            Unlike seL4 which uses C + Isabelle/HOL, seLe4n unifies implementation and proof in a single
+            language. Every state transition is a pure function. The type-checker enforces that every
+            invariant holds across every operation &mdash; with zero <code>sorry</code> and zero <code>axiom</code>.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Project Status</h3>
+          <p>
+            seLe4n is an active research project at version <strong>0.12.15</strong>. The kernel model is
+            feature-complete with IPC, scheduling, capabilities, memory management, and information-flow
+            control. Hardware platform bindings for the Raspberry Pi 5 are in progress.
+          </p>
+          <p class="card-note">
+            Created thoughtfully with the help of Claude and Codex.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section class="section section-alt" id="architecture">
+    <div class="container">
+      <h2 class="section-title">Architecture</h2>
+      <p class="section-lead">
+        seLe4n follows a <strong>layered contract model</strong> with a consistent
+        <strong>Operations/Invariant split</strong> pattern: executable transitions live in
+        <code>Operations.lean</code>, and their proofs live in <code>Invariant.lean</code>.
+      </p>
+
+      <div class="arch-diagram">
+        <div class="arch-layer arch-api">
+          <div class="arch-layer-label">API Surface</div>
+          <div class="arch-block">Kernel API</div>
+        </div>
+        <div class="arch-layer arch-core">
+          <div class="arch-layer-label">Core Subsystems</div>
+          <div class="arch-blocks">
+            <div class="arch-block">Scheduler</div>
+            <div class="arch-block">Capability</div>
+            <div class="arch-block">IPC</div>
+            <div class="arch-block">Lifecycle</div>
+            <div class="arch-block">Service</div>
+          </div>
+        </div>
+        <div class="arch-layer arch-security">
+          <div class="arch-layer-label">Security</div>
+          <div class="arch-blocks">
+            <div class="arch-block">Policy</div>
+            <div class="arch-block">Projection</div>
+            <div class="arch-block">Enforcement</div>
+          </div>
+        </div>
+        <div class="arch-layer arch-hw">
+          <div class="arch-layer-label">Hardware Abstraction</div>
+          <div class="arch-blocks">
+            <div class="arch-block">VSpace</div>
+            <div class="arch-block">VSpaceBackend</div>
+            <div class="arch-block">Adapter</div>
+          </div>
+        </div>
+        <div class="arch-layer arch-model">
+          <div class="arch-layer-label">Foundations</div>
+          <div class="arch-blocks">
+            <div class="arch-block">Object Model</div>
+            <div class="arch-block">State</div>
+            <div class="arch-block">Prelude</div>
+            <div class="arch-block">Machine</div>
+          </div>
+        </div>
+        <div class="arch-layer arch-platform">
+          <div class="arch-layer-label">Platform</div>
+          <div class="arch-blocks">
+            <div class="arch-block">Contract</div>
+            <div class="arch-block">Simulator</div>
+            <div class="arch-block">RPi5</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-3">
+        <div class="card card-compact">
+          <h4>Prelude &amp; Machine</h4>
+          <p>
+            Typed identifiers (<code>ThreadId</code>, <code>ObjId</code>, <code>CPtr</code>),
+            the <code>KernelM</code> monad, register files, memory model, and timer configuration.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>Object Model</h4>
+          <p>
+            TCB structures with intrusive queue links, endpoints, notifications, CNodes,
+            untyped memory objects, and VSpace roots &mdash; all stored in hash-based maps for O(1) access.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>Kernel State</h4>
+          <p>
+            The central <code>KernelState</code> record aggregating all object stores, scheduler queues,
+            CDT, ASID tables, and platform configuration into a single immutable snapshot.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>Platform Layer</h4>
+          <p>
+            The <code>PlatformBinding</code> typeclass defines runtime, boot, and interrupt boundary
+            contracts. Concrete bindings exist for a simulator and the Raspberry Pi 5.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>Kernel API</h4>
+          <p>
+            The single entry point for system calls, dispatching to subsystem operations and
+            ensuring all transitions preserve the global invariant bundle.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>Operations/Invariant Split</h4>
+          <p>
+            Each subsystem separates executable logic from proofs. Operations define <em>what</em>
+            the kernel does; invariants prove <em>why</em> it is correct.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="section" id="features">
+    <div class="container">
+      <h2 class="section-title">Key Innovations</h2>
+      <p class="section-lead">
+        seLe4n introduces several architectural improvements over traditional micro-kernel designs,
+        with a focus on O(1) data structures and machine-checked correctness.
+      </p>
+
+      <div class="features-grid">
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <h3>O(1) Everywhere</h3>
+          <p>
+            All hot paths use hash-based structures: object stores, run queues, CNode slots,
+            VSpace mappings, IPC queues, ASID tables, and CDT child lookups.
+            14 performance audit findings eliminated.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+          </div>
+          <h3>Priority-Bucketed Scheduler</h3>
+          <p>
+            A <code>RunQueue</code> backed by <code>HashMap Priority (List ThreadId)</code>
+            with domain-aware EDF scheduling. O(1) priority-bucketed enqueue, dequeue,
+            and mid-queue removal.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <h3>Intrusive Dual-Queue IPC</h3>
+          <p>
+            Inspired by Linux kernel queue design: O(1) mid-queue removal via intrusive
+            <code>prev</code>/<code>next</code> links on TCBs. Send and receive queues with
+            full message transfer semantics.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <h3>Capability Derivation Tree</h3>
+          <p>
+            Node-stable CDT with a <code>childMap</code> HashMap for O(1) slot transfer and
+            revocation. Strict error reporting prevents silent capability leaks.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          </div>
+          <h3>N-Domain Information Flow</h3>
+          <p>
+            Parameterized security framework with two-dimensional labels. 15 non-interference
+            theorems covering all kernel operations. Precomputed observability sets for O(1)
+            projection lookups.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <h3>Service Orchestration</h3>
+          <p>
+            Graph-based component lifecycle management with O(n+e) DFS cycle detection.
+            Dependency-aware startup, shutdown, and restart with service health tracking.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <h3>VSpace Abstraction</h3>
+          <p>
+            HashMap-based virtual address space management with round-trip mapping theorems.
+            48-bit VA / 44-bit PA address space for RPi5. Backend-independent design via
+            <code>VSpaceBackend</code> adapter.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          </div>
+          <h3>Untyped Memory Retype</h3>
+          <p>
+            Objects are carved from untyped memory with watermark tracking.
+            10+ preservation theorems and 6 negative-state tests ensure
+            type-safe object creation.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Security -->
+  <section class="section section-alt" id="security">
+    <div class="container">
+      <h2 class="section-title">Security Model</h2>
+      <p class="section-lead">
+        Security is not an afterthought &mdash; it is woven into every layer of seLe4n through
+        formal information-flow control, capability-based access, and a rigorous threat model.
+      </p>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>Information Flow Control</h3>
+          <p>
+            seLe4n implements a parameterized N-domain information-flow framework with
+            two-dimensional security labels. The system provides:
+          </p>
+          <ul>
+            <li><strong>15 non-interference theorems</strong> &mdash; 12 standalone + 3 enforcement bridges</li>
+            <li><strong>7-field <code>ObservableState</code></strong> projection covering full kernel state</li>
+            <li><strong>Precomputed observability</strong> via <code>HashSet</code> for O(1) projection lookups</li>
+            <li><strong>17 operations classified</strong> by enforcement level</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Capability-Based Access</h3>
+          <p>
+            All resource access is mediated through capabilities stored in CNode slots.
+            The capability derivation tree (CDT) tracks all relationships:
+          </p>
+          <ul>
+            <li><strong>O(1) slot operations</strong> via HashMap-backed CNodes</li>
+            <li><strong>Strict revocation</strong> with explicit error reporting</li>
+            <li><strong>Node-stable CDT</strong> with <code>childMap</code> indexing</li>
+            <li><strong>Slot-reuse safety</strong> checks preventing dangling capabilities</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="threat-model">
+        <h3>Threat Model</h3>
+        <div class="grid grid-2">
+          <div class="threat-card">
+            <h4>Protected Assets</h4>
+            <ul>
+              <li>Formal semantics and proof artifacts</li>
+              <li>Executable evidence (traces and tier scripts)</li>
+              <li>Supply-chain bootstrap infrastructure</li>
+            </ul>
+          </div>
+          <div class="threat-card">
+            <h4>Security Boundaries</h4>
+            <ul>
+              <li><strong>Repository &harr; Contributors:</strong> Expanded <code>.gitignore</code> secret denylist</li>
+              <li><strong>Local &harr; Remote:</strong> SHA-256 verified installer downloads</li>
+              <li><strong>Policy &harr; CI:</strong> Tier-3 anchor checks against workflow semantics</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Verification -->
+  <section class="section" id="verification">
+    <div class="container">
+      <h2 class="section-title">Verification &amp; Testing</h2>
+      <p class="section-lead">
+        seLe4n employs a multi-tiered verification strategy combining Lean's type-checker
+        with runtime testing, ensuring correctness from proof to execution.
+      </p>
+
+      <div class="tiers">
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 0</span>
+            <h3>Hygiene</h3>
+          </div>
+          <p>
+            Forbidden-marker scans ensure zero <code>sorry</code> and zero <code>axiom</code>
+            across all production code. Documentation link validation and sync checks.
+          </p>
+          <code class="tier-script">./scripts/test_tier0_hygiene.sh</code>
+        </div>
+
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 1</span>
+            <h3>Build</h3>
+          </div>
+          <p>
+            Full Lean compilation across 84 parallel build jobs. All 574 theorems are
+            type-checked. If it compiles, the proofs hold.
+          </p>
+          <code class="tier-script">./scripts/test_tier1_build.sh</code>
+        </div>
+
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 2</span>
+            <h3>Runtime</h3>
+          </div>
+          <p>
+            Trace sequence probes, negative-state suite (malformed input rejection),
+            and information-flow runtime checks. Validates executable behavior matches
+            formal semantics.
+          </p>
+          <code class="tier-script">./scripts/test_tier2_negative.sh</code>
+        </div>
+
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 3</span>
+            <h3>Invariant Surface</h3>
+          </div>
+          <p>
+            Anchors every named theorem and invariant to the proof surface. Ensures no
+            proof regressions across refactoring. The full correctness gate.
+          </p>
+          <code class="tier-script">./scripts/test_tier3_invariant_surface.sh</code>
+        </div>
+
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 4</span>
+            <h3>Nightly</h3>
+          </div>
+          <p>
+            Determinism checks, experimental feature validation, and long-running
+            invariant probes. Catches subtle regressions that slip through faster tiers.
+          </p>
+          <code class="tier-script">./scripts/test_nightly.sh</code>
+        </div>
+      </div>
+
+      <div class="proof-quality">
+        <h3>Proof Quality Classification</h3>
+        <div class="grid grid-3">
+          <div class="quality-card quality-high">
+            <h4>High Assurance</h4>
+            <ul>
+              <li>Substantive preservation</li>
+              <li>Compositional preservation</li>
+              <li>Structural invariants</li>
+              <li>End-to-end chains</li>
+              <li>Non-interference proofs</li>
+            </ul>
+          </div>
+          <div class="quality-card quality-low">
+            <h4>Low Assurance</h4>
+            <ul>
+              <li>Error-case preservation</li>
+              <li>Trivially true for unchanged state returns</li>
+            </ul>
+          </div>
+          <div class="quality-card quality-resolved">
+            <h4>Resolved Issues</h4>
+            <ul>
+              <li>C-01: Tautological proofs &rarr; refactored</li>
+              <li>H-01: Non-compositional proofs &rarr; refactored</li>
+              <li>H-03: Badge safety gap &rarr; closed</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Project Structure -->
+  <section class="section section-alt" id="structure">
+    <div class="container">
+      <h2 class="section-title">Project Structure</h2>
+      <p class="section-lead">
+        The codebase is organized into 40 Lean modules following a consistent pattern,
+        with comprehensive documentation and multi-tier test scripts.
+      </p>
+
+      <div class="file-tree">
+        <div class="tree-root">seLe4n/</div>
+        <div class="tree-group">
+          <div class="tree-dir">SeLe4n/</div>
+          <div class="tree-children">
+            <div class="tree-dir">Kernel/</div>
+            <div class="tree-children">
+              <div class="tree-file">API.lean <span class="tree-desc">&mdash; System call entry point</span></div>
+              <div class="tree-dir">Architecture/ <span class="tree-desc">&mdash; VSpace, Adapter, Assumptions</span></div>
+              <div class="tree-dir">Capability/ <span class="tree-desc">&mdash; CSpace operations &amp; CDT invariants</span></div>
+              <div class="tree-dir">IPC/ <span class="tree-desc">&mdash; Dual-queue IPC &amp; message transfer</span></div>
+              <div class="tree-dir">InformationFlow/ <span class="tree-desc">&mdash; Policy, Projection, Enforcement</span></div>
+              <div class="tree-dir">Lifecycle/ <span class="tree-desc">&mdash; Object creation &amp; destruction</span></div>
+              <div class="tree-dir">Scheduler/ <span class="tree-desc">&mdash; RunQueue &amp; priority scheduling</span></div>
+              <div class="tree-dir">Service/ <span class="tree-desc">&mdash; Component orchestration</span></div>
+            </div>
+            <div class="tree-dir">Model/ <span class="tree-desc">&mdash; Object.lean, State.lean</span></div>
+            <div class="tree-dir">Platform/ <span class="tree-desc">&mdash; Contract, Sim, RPi5 bindings</span></div>
+            <div class="tree-dir">Testing/ <span class="tree-desc">&mdash; Harnesses, fixtures, state builders</span></div>
+          </div>
+        </div>
+        <div class="tree-group">
+          <div class="tree-dir">docs/ <span class="tree-desc">&mdash; Specifications, ADRs, threat model, roadmaps</span></div>
+          <div class="tree-dir">scripts/ <span class="tree-desc">&mdash; 19 test &amp; CI scripts</span></div>
+          <div class="tree-dir">tests/ <span class="tree-desc">&mdash; InformationFlow, NegativeState, TraceSequence suites</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Getting Started -->
+  <section class="section" id="getting-started">
+    <div class="container">
+      <h2 class="section-title">Getting Started</h2>
+      <p class="section-lead">
+        Whether you want to explore the kernel model, contribute proofs, or understand
+        the architecture &mdash; here is how to get up and running.
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h3>Clone the Repository</h3>
+            <pre><code>git clone https://github.com/hatter6822/seLe4n.git
+cd seLe4n</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h3>Set Up the Lean Environment</h3>
+            <p>The setup script installs <code>elan</code> (the Lean version manager) and the correct Lean 4.28.0 toolchain with SHA-256 verified downloads.</p>
+            <pre><code>./scripts/setup_lean_env.sh</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h3>Build &amp; Verify</h3>
+            <p>Build the entire kernel. All 574 theorems are checked during compilation.</p>
+            <pre><code>lake build</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h3>Run Tests</h3>
+            <p>Start with the smoke test for quick validation, then run the full suite.</p>
+            <pre><code># Quick validation (Tiers 0-2)
+./scripts/test_smoke.sh
+
+# Full verification (Tiers 0-3)
+./scripts/test_full.sh</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>Contributing</h3>
+          <p>seLe4n welcomes contributors. Before submitting a PR:</p>
+          <ul>
+            <li>Read the <a href="https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing Guide</a></li>
+            <li>Identify which workstream (WS-F5 through F8) your change addresses</li>
+            <li>Run <code>./scripts/test_smoke.sh</code> at minimum</li>
+            <li>Update invariants and theorems together with code changes</li>
+            <li>Keep PRs focused on one coherent unit of work</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Documentation</h3>
+          <p>Comprehensive docs live in the <code>docs/</code> directory:</p>
+          <ul>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener">Development Guide</a> &mdash; Workflow and standards</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/TESTING_FRAMEWORK_PLAN.md" target="_blank" rel="noopener">Testing Framework</a> &mdash; Tier organization</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener">Threat Model</a> &mdash; Security boundaries</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/INFORMATION_FLOW_ROADMAP.md" target="_blank" rel="noopener">Information Flow Roadmap</a> &mdash; NI proof status</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener">Claim &amp; Evidence Index</a> &mdash; Verification claims</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Workstreams / Roadmap -->
+  <section class="section section-alt" id="roadmap">
+    <div class="container">
+      <h2 class="section-title">Roadmap</h2>
+      <p class="section-lead">
+        seLe4n's development is organized into workstream portfolios. Here is the current
+        status and what lies ahead.
+      </p>
+
+      <div class="timeline">
+        <div class="timeline-item done">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>WS-B through WS-E <span class="timeline-tag">Complete</span></h3>
+            <p>Historical portfolio closure. Foundation work from v0.9.0 onward establishing
+            core kernel model, initial proofs, and testing infrastructure.</p>
+          </div>
+        </div>
+        <div class="timeline-item done">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>WS-F1&ndash;F4: Critical Audit Remediation <span class="timeline-tag">Complete</span></h3>
+            <p>
+              Intrusive dual-queue IPC, untyped memory retype, CDT strict revocation,
+              information-flow completeness, and proof gap closure.
+              All high-priority audit findings resolved.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item done">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>WS-G: Performance Optimization <span class="timeline-tag">Complete</span></h3>
+            <p>
+              Migrated all hot paths to O(1) hash-based structures. 14 performance audit
+              findings eliminated. 400+ theorems re-verified after data structure migration.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item active">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>WS-F5&ndash;F8: Refinement <span class="timeline-tag tag-active">In Progress</span></h3>
+            <p>
+              Model fidelity improvements (badge bitmask, per-thread registers),
+              invariant quality refinement, testing expansion, and code cleanup.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item future">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>H3: Hardware Binding <span class="timeline-tag tag-future">Upcoming</span></h3>
+            <p>
+              Raspberry Pi 5 platform bindings with hardware-validated contracts.
+              48-bit VA / 44-bit PA address space. Runtime, boot, and interrupt
+              boundary contracts via <code>PlatformBinding</code> typeclass.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item future">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>IF-M5: Platform Integration <span class="timeline-tag tag-future">Upcoming</span></h3>
+            <p>
+              Map model observability assumptions to RPi5 adapter obligations.
+              Document unresolved security debt for side-channel follow-up.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <span class="logo-se">se</span><span class="logo-le4n">Le4n</span>
+          <p>A micro-kernel written in Lean 4 with machine-checked proofs.</p>
+          <p class="footer-license">Licensed under <a href="https://github.com/hatter6822/seLe4n/blob/main/LICENSE" target="_blank" rel="noopener">GPLv3</a></p>
+        </div>
+        <div class="footer-links">
+          <h4>Project</h4>
+          <ul>
+            <li><a href="https://github.com/hatter6822/seLe4n" target="_blank" rel="noopener">Source Code</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/issues" target="_blank" rel="noopener">Issues</a></li>
+          </ul>
+        </div>
+        <div class="footer-links">
+          <h4>Documentation</h4>
+          <ul>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener">Development</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/TESTING_FRAMEWORK_PLAN.md" target="_blank" rel="noopener">Testing</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener">Threat Model</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener">Claims &amp; Evidence</a></li>
+          </ul>
+        </div>
+        <div class="footer-links">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="https://lean-lang.org/" target="_blank" rel="noopener">Lean 4</a></li>
+            <li><a href="https://sel4.systems/" target="_blank" rel="noopener">seL4 Foundation</a></li>
+            <li><a href="https://www.raspberrypi.com/products/raspberry-pi-5/" target="_blank" rel="noopener">Raspberry Pi 5</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>v0.12.15 &middot; Built with Lean 4.28.0</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Mobile navigation toggle
+    (function() {
+      var toggle = document.getElementById('nav-toggle');
+      var links = document.getElementById('nav-links');
+      if (!toggle || !links) return;
+      toggle.addEventListener('click', function() {
+        links.classList.toggle('open');
+        toggle.classList.toggle('open');
+      });
+      // Close menu on link click
+      var items = links.querySelectorAll('a');
+      for (var i = 0; i < items.length; i++) {
+        items[i].addEventListener('click', function() {
+          links.classList.remove('open');
+          toggle.classList.remove('open');
+        });
+      }
+    })();
+
+    // Sticky nav background on scroll
+    (function() {
+      var nav = document.getElementById('nav');
+      if (!nav) return;
+      window.addEventListener('scroll', function() {
+        if (window.scrollY > 40) {
+          nav.classList.add('scrolled');
+        } else {
+          nav.classList.remove('scrolled');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
