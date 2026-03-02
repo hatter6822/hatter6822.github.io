@@ -1,19 +1,20 @@
 /**
  * background-pattern.js
  *
- * Animated mathematical background using evolving Clifford strange attractors.
- * Renders overlapping attractor density clouds on a tall canvas that scrolls
- * with the page, creating a living, depth-aware backdrop.
+ * Animated mathematical background — Clifford strange attractors with shimmer.
  *
- * Features:
- *   - 5 attractor clusters distributed vertically for scroll-aware visuals
- *   - Smooth proportional scroll-following (background drifts with the page)
- *   - Organic Lissajous drift animation (x / y / rotation / scale)
- *   - Dual-canvas crossfade for seamless pattern morphing (every 6 s)
- *   - Off-thread rendering via inline Web Worker
- *   - Theme-aware coloring (dark / light)
- *   - Accessibility: respects prefers-reduced-motion
- *   - Responsive: adapts to resize and theme changes
+ * Layer 1 — Attractor pattern  (heavy, off-thread, re-rendered every 6 s)
+ *           5 clusters distributed vertically on a 3× tall canvas.
+ *           Dual-canvas crossfade for seamless morphing.
+ *
+ * Layer 2 — Shimmer overlay  (lightweight, 60 fps, main thread)
+ *           Soft glowing particles that twinkle across the viewport.
+ *           Reacts to scroll velocity for subtle responsiveness.
+ *
+ * Motion is frame-rate-independent via exponential smoothing, so scroll-
+ * following and drift feel identically smooth at 30, 60, or 120 fps.
+ *
+ * Supports dark/light themes, prefers-reduced-motion, resize, theme change.
  */
 (function () {
   'use strict';
@@ -21,18 +22,21 @@
   /* ═══════════════════════════════════════════════════════════
      Configuration
      ═══════════════════════════════════════════════════════════ */
-  var HEIGHT_SCALE      = 3;       // Canvas is rendered 3× viewport tall
-  var RES_SCALE         = 0.4;     // 40 % of native res (soft, performant)
-  var MOVER_CSS_HEIGHT  = 3.5;     // Matches CSS height: 350 %
-  var EVOLVE_INTERVAL   = 6000;    // Morph cycle (ms)
+  var HEIGHT_SCALE     = 3;        // attractor canvas: 3× viewport tall
+  var RES_SCALE        = 0.4;      // 40 % of native (soft + performant)
+  var MOVER_CSS_HEIGHT = 3.5;      // matches CSS height: 350 %
+  var EVOLVE_INTERVAL  = 6000;     // attractor morph cycle (ms)
+  var SCROLL_SMOOTH    = 7;        // exponential smoothing rate (Hz)
+  var SHIMMER_COUNT    = 65;       // number of sparkle particles
 
   /* ═══════════════════════════════════════════════════════════
-     DOM references
+     DOM
      ═══════════════════════════════════════════════════════════ */
+  var wrap    = document.getElementById('bg-canvas-wrap');
   var canvasA = document.getElementById('math-bg-a');
   var canvasB = document.getElementById('math-bg-b');
   var mover   = document.getElementById('bg-canvas-mover');
-  if (!canvasA || !canvasB || !mover) return;
+  if (!wrap || !canvasA || !canvasB || !mover) return;
 
   var ctxA = canvasA.getContext('2d');
   var ctxB = canvasB.getContext('2d');
@@ -40,21 +44,27 @@
   /* ═══════════════════════════════════════════════════════════
      State
      ═══════════════════════════════════════════════════════════ */
-  var w = 0, h = 0;                // canvas pixel dimensions
+  var w = 0, h = 0;                  // attractor canvas pixel size
   var activeSlot     = 'a';
   var pendingRender  = false;
   var worker         = null;
   var evolutionTimer = null;
   var resizeTimer    = null;
   var startTime      = performance.now();
-  var smoothScrollY  = 0;          // spring-smoothed scroll offset
-  var scrollVel      = 0;          // scroll spring velocity
+  var prevTime       = startTime;
+  var smoothScrollY  = 0;
+  var lastRawScrollY = 0;
 
   var prefersReduced = window.matchMedia &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  /* shimmer */
+  var shimmerCanvas, shimmerCtx;
+  var sW = 0, sH = 0;               // shimmer viewport dimensions
+  var particles = [];
+
   /* ═══════════════════════════════════════════════════════════
-     Inline Web Worker — computes attractors off the main thread
+     Inline Web Worker — computes attractor off the main thread
      ═══════════════════════════════════════════════════════════ */
   var workerCode = function () {
     self.onmessage = function (e) {
@@ -63,17 +73,15 @@
       var heightScale = d.heightScale;
       var size = w * h;
 
-      // Accumulation buffers (one per colour channel)
       var bR = new Float32Array(size);
       var bG = new Float32Array(size);
       var bB = new Float32Array(size);
 
-      var cx   = w * 0.5;
-      var viewH = h / heightScale;               // one viewport in pixels
-      var sc   = Math.min(w, viewH) * 0.24;      // base attractor scale
-      var t    = time / 1000;
+      var cx    = w * 0.5;
+      var viewH = h / heightScale;
+      var sc    = Math.min(w, viewH) * 0.24;
+      var t     = time / 1000;
 
-      /* ── 5 attractor clusters, spread vertically ─────────── */
       var clusters = [
         { cy: h * 0.10, a: -1.4, b:  1.6, c:  1.0, d:  0.7, n: 90000, sm: 1.00 },
         { cy: h * 0.30, a:  1.5, b: -1.8, c:  1.6, d:  0.9, n: 82000, sm: 0.95 },
@@ -81,8 +89,6 @@
         { cy: h * 0.70, a:  1.7, b:  1.2, c: -1.4, d: -1.6, n: 78000, sm: 0.92 },
         { cy: h * 0.90, a: -1.1, b:  1.9, c:  0.8, d: -1.3, n: 68000, sm: 1.00 }
       ];
-
-      /* Per-cluster oscillation frequencies and amplitudes */
       var freqs = [
         { a: 0.083, b: 0.097, c: 0.071, d: 0.061 },
         { a: 0.073, b: 0.089, c: 0.067, d: 0.079 },
@@ -97,8 +103,6 @@
         { a: 0.14, b: 0.10, c: 0.13, d: 0.07 },
         { a: 0.11, b: 0.13, c: 0.09, d: 0.12 }
       ];
-
-      /* Theme-aware palette (3 colours cycled across 5 clusters) */
       var palette = [
         { r: isDark ? 91 : 43,   g: isDark ? 160 : 111, b: isDark ? 245 : 208 },
         { r: isDark ? 78 : 22,   g: isDark ? 201 : 128, b: isDark ? 137 : 75  },
@@ -107,38 +111,31 @@
 
       var colorPhase = t * 0.03;
 
-      /* ── Iterate each cluster ────────────────────────────── */
       for (var cl = 0; cl < clusters.length; cl++) {
         var C = clusters[cl], F = freqs[cl], A = amps[cl];
         var col     = palette[cl % palette.length];
         var localSc = sc * C.sm;
 
-        // Evolving Clifford parameters
         var a  = C.a + Math.sin(t * F.a) * A.a;
         var b  = C.b + Math.cos(t * F.b) * A.b;
         var c  = C.c + Math.sin(t * F.c) * A.c;
         var dd = C.d + Math.cos(t * F.d) * A.d;
 
-        // Colour shift
         var shift = Math.sin(colorPhase + cl * 1.257) * 0.14;
         var cr = Math.max(0, Math.min(255, col.r * (1 + shift)));
         var cg = Math.max(0, Math.min(255, col.g * (1 - shift * 0.5)));
         var cb = Math.max(0, Math.min(255, col.b * (1 + shift * 0.3)));
 
-        // Per-cluster horizontal wander
         var ox = Math.sin(cl * 2.4 + t * 0.013) * w * 0.07;
-
-        var n = C.n;
-        var x = 0.1, y = 0.1;
+        var n  = C.n;
+        var x  = 0.1, y = 0.1;
         for (var i = 0; i < n; i++) {
           var nx = Math.sin(a * y) + c * Math.cos(a * x);
           var ny = Math.sin(b * x) + dd * Math.cos(b * y);
           x = nx; y = ny;
-          if (i < 50) continue;                     // skip transient
-
+          if (i < 50) continue;
           var px = (cx + ox + x * localSc) | 0;
           var py = (C.cy + y * localSc) | 0;
-
           if (px >= 0 && px < w && py >= 0 && py < h) {
             var idx = py * w + px;
             bR[idx] += cr;
@@ -148,7 +145,6 @@
         }
       }
 
-      /* ── Log-scale normalisation + gamma correction ──────── */
       var maxV = 0;
       for (var i = 0; i < size; i++) {
         var v = bR[i] + bG[i] + bB[i];
@@ -176,7 +172,6 @@
     };
   };
 
-  /* Create worker from inline function (Blob URL) */
   try {
     var blob    = new Blob(['(' + workerCode.toString() + ')()'], { type: 'text/javascript' });
     var blobUrl = URL.createObjectURL(blob);
@@ -185,7 +180,7 @@
   } catch (e) { worker = null; }
 
   /* ═══════════════════════════════════════════════════════════
-     Canvas sizing — half-res × HEIGHT_SCALE
+     Canvas sizing
      ═══════════════════════════════════════════════════════════ */
   function setupCanvases() {
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -193,6 +188,107 @@
     h = Math.max(1, Math.floor(window.innerHeight * dpr * RES_SCALE * HEIGHT_SCALE));
     canvasA.width  = w; canvasA.height = h;
     canvasB.width  = w; canvasB.height = h;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     Shimmer canvas sizing  (viewport-sized, crisp DPI)
+     ═══════════════════════════════════════════════════════════ */
+  function setupShimmer() {
+    if (!shimmerCanvas) {
+      shimmerCanvas = document.createElement('canvas');
+      shimmerCanvas.id = 'shimmer-layer';
+      wrap.appendChild(shimmerCanvas);
+      shimmerCtx = shimmerCanvas.getContext('2d');
+    }
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    sW = window.innerWidth;
+    sH = window.innerHeight;
+    shimmerCanvas.width  = Math.floor(sW * dpr);
+    shimmerCanvas.height = Math.floor(sH * dpr);
+    shimmerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     Shimmer particle system
+     ═══════════════════════════════════════════════════════════ */
+  function spawnParticle(stagger) {
+    var p = {
+      x:     Math.random() * sW,
+      y:     Math.random() * sH,
+      r:     0.5 + Math.random() * 2.0,        // radius 0.5–2.5 px
+      phase: Math.random() * 6.2832,            // random twinkle phase
+      freq:  1.2 + Math.random() * 3.0,         // twinkle Hz
+      vx:    (Math.random() - 0.5) * 0.2,       // slow horizontal drift
+      vy:    (Math.random() - 0.5) * 0.12,      // slow vertical drift
+      ci:    Math.floor(Math.random() * 3),      // colour index
+      life:  0,
+      ttl:   3 + Math.random() * 5              // 3–8 s lifetime
+    };
+    if (stagger) p.life = Math.random() * p.ttl; // stagger at init
+    return p;
+  }
+
+  function initParticles() {
+    particles = [];
+    for (var i = 0; i < SHIMMER_COUNT; i++) {
+      particles.push(spawnParticle(true));
+    }
+  }
+
+  function renderShimmer(elapsed, dt, scrollDelta) {
+    shimmerCtx.clearRect(0, 0, sW, sH);
+
+    var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+    var colors = isDark
+      ? ['91,160,245', '78,201,137', '198,120,221']
+      : ['43,111,208', '22,128,75',  '124,58,237'];
+    var peak = isDark ? 0.65 : 0.40;
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      p.life += dt;
+
+      // respawn expired particles
+      if (p.life >= p.ttl) { particles[i] = spawnParticle(false); continue; }
+
+      // smooth bell-curve fade envelope  (0 → 1 → 0  over lifetime)
+      var envelope = Math.sin(p.life / p.ttl * 3.1416);
+
+      // high-freq twinkle with slight non-linearity for sparkle character
+      var raw     = 0.5 + 0.5 * Math.sin(elapsed * p.freq * 6.2832 + p.phase);
+      var twinkle = 0.3 + 0.7 * raw * raw;
+
+      var alpha = envelope * twinkle * peak;
+      if (alpha < 0.008) continue;
+
+      // drift + gentle scroll reaction
+      p.x += p.vx + scrollDelta * -0.02;
+      p.y += p.vy;
+
+      // viewport wrap
+      if (p.x < -10) p.x += sW + 20;
+      else if (p.x > sW + 10) p.x -= sW + 20;
+      if (p.y < -10) p.y += sH + 20;
+      else if (p.y > sH + 10) p.y -= sH + 20;
+
+      var c = colors[p.ci];
+
+      // core sparkle dot
+      shimmerCtx.globalAlpha = alpha;
+      shimmerCtx.fillStyle = 'rgb(' + c + ')';
+      shimmerCtx.beginPath();
+      shimmerCtx.arc(p.x, p.y, p.r, 0, 6.2832);
+      shimmerCtx.fill();
+
+      // soft glow halo  (only on brighter / larger particles)
+      if (alpha > 0.12 && p.r > 0.8) {
+        shimmerCtx.globalAlpha = alpha * 0.10;
+        shimmerCtx.beginPath();
+        shimmerCtx.arc(p.x, p.y, p.r * 4, 0, 6.2832);
+        shimmerCtx.fill();
+      }
+    }
+    shimmerCtx.globalAlpha = 1;
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -218,7 +314,7 @@
   }
 
   /* ═══════════════════════════════════════════════════════════
-     Main-thread fallback (browsers without Worker support)
+     Main-thread fallback  (same algorithm as worker)
      ═══════════════════════════════════════════════════════════ */
   function renderFallback(ctx, time, isDark) {
     var size = w * h;
@@ -226,10 +322,10 @@
     var bG = new Float32Array(size);
     var bB = new Float32Array(size);
 
-    var cx   = w * 0.5;
+    var cx    = w * 0.5;
     var viewH = h / HEIGHT_SCALE;
-    var sc   = Math.min(w, viewH) * 0.24;
-    var t    = time / 1000;
+    var sc    = Math.min(w, viewH) * 0.24;
+    var t     = time / 1000;
 
     var clusters = [
       { cy: h * 0.10, a: -1.4, b:  1.6, c:  1.0, d:  0.7, n: 90000, sm: 1.00 },
@@ -335,55 +431,61 @@
     var nextSlot = activeSlot === 'a' ? 'b' : 'a';
     renderSlot(nextSlot, performance.now(), function () {
       showSlot(nextSlot);
-      activeSlot  = nextSlot;
+      activeSlot    = nextSlot;
       pendingRender = false;
     });
   }
 
   /* ═══════════════════════════════════════════════════════════
-     Animation loop — organic drift + scroll-following
+     Animation loop — drift + scroll-following + shimmer
+     All motion uses delta-time for frame-rate independence.
      ═══════════════════════════════════════════════════════════ */
   function animate(now) {
     if (prefersReduced) return;
 
+    var dt      = Math.min(0.1, (now - prevTime) / 1000);   // cap 100 ms
+    prevTime    = now;
     var elapsed = (now - startTime) / 1000;
     var scrollY = window.scrollY || window.pageYOffset;
+    var scrollDelta = scrollY - lastRawScrollY;
+    lastRawScrollY  = scrollY;
 
-    /* ── Organic Lissajous drift ────────────────────────────
-       Two sine waves per axis for natural, non-repeating motion.
-       Rotation and breathing add an extra layer of subtle life. */
-    var driftX   = Math.sin(elapsed * 0.067) * 16 + Math.sin(elapsed * 0.031) * 8;
-    var driftY   = Math.cos(elapsed * 0.053) * 10 + Math.cos(elapsed * 0.019) * 5;
-    var driftRot = Math.sin(elapsed * 0.023) * 1.2;
-    var driftSc  = 1 + Math.sin(elapsed * 0.037) * 0.025;
+    /* ── Organic Lissajous drift — 3 harmonics per axis ────
+       Slower frequencies + 3rd harmonic make the motion feel
+       deeper and more natural than a simple 2-sine wobble.  */
+    var driftX = Math.sin(elapsed * 0.061) * 12
+               + Math.sin(elapsed * 0.029) * 6
+               + Math.sin(elapsed * 0.011) * 3;
+    var driftY = Math.cos(elapsed * 0.047) * 8
+               + Math.cos(elapsed * 0.019) * 4
+               + Math.cos(elapsed * 0.007) * 2;
+    var driftRot = Math.sin(elapsed * 0.021) * 0.8;
+    var driftSc  = 1 + Math.sin(elapsed * 0.033) * 0.015;
 
-    /* ── Scroll-proportional mapping ────────────────────────
-       Maps page scroll position to canvas translation so the
-       background pattern genuinely follows the user down the
-       page.  Uses a spring-damper for buttery smoothness.
-
-       The CSS mover is 350 % viewport tall with a -15 % top
-       offset, giving (350 - 100) % = 250 % of extra height.
-       We use 82 % of that as usable travel (rest is buffer). */
+    /* ── Scroll-following — exponential smoothing ──────────
+       Uses  smooth += (target - smooth) * (1 - e^(-rate*dt))
+       which is critically damped and frame-rate independent.
+       At SCROLL_SMOOTH = 7 Hz the response reaches ~99 % of
+       target in ≈ 0.66 s — responsive yet buttery.          */
     var docH      = document.documentElement.scrollHeight;
     var viewH     = window.innerHeight;
     var maxScroll = Math.max(1, docH - viewH);
+    var scrollFrac   = Math.min(1, scrollY / maxScroll);
+    var usableTravel = viewH * (MOVER_CSS_HEIGHT - 1) * 0.82;
+    var targetScrollY = -scrollFrac * usableTravel;
 
-    var scrollFraction = Math.min(1, scrollY / maxScroll);
-    var usableTravel   = viewH * (MOVER_CSS_HEIGHT - 1) * 0.82;
-    var targetScrollY  = -scrollFraction * usableTravel;
+    var smoothing = 1 - Math.exp(-SCROLL_SMOOTH * dt);
+    smoothScrollY += (targetScrollY - smoothScrollY) * smoothing;
 
-    // Spring-damper: 80 % damping, 10 % spring constant
-    scrollVel    = scrollVel * 0.80 + (targetScrollY - smoothScrollY) * 0.10;
-    smoothScrollY += scrollVel;
-
-    /* ── Compose transform ──────────────────────────────────
-       GPU-accelerated via translate3d.  Drift + scroll + rotate + scale. */
+    /* ── Compose GPU-accelerated transform ─────────────── */
     mover.style.transform =
       'translate3d(' + driftX.toFixed(1) + 'px,' +
       (driftY + smoothScrollY).toFixed(1) + 'px,0) ' +
       'rotate(' + driftRot.toFixed(2) + 'deg) ' +
       'scale(' + driftSc.toFixed(4) + ')';
+
+    /* ── Shimmer ────────────────────────────────────────── */
+    renderShimmer(elapsed, dt, scrollDelta);
 
     requestAnimationFrame(animate);
   }
@@ -392,29 +494,37 @@
      Initialisation
      ═══════════════════════════════════════════════════════════ */
   setupCanvases();
+
+  if (!prefersReduced) {
+    setupShimmer();
+    initParticles();
+  }
+
   renderSlot('a', performance.now(), function () {
     showSlot('a');
     if (!prefersReduced) {
       evolutionTimer = setInterval(evolve, EVOLVE_INTERVAL);
     }
   });
+
   if (!prefersReduced) {
     requestAnimationFrame(animate);
   }
 
   /* ═══════════════════════════════════════════════════════════
-     Resize — debounced re-render at new dimensions
+     Resize — debounced, re-renders attractor + shimmer
      ═══════════════════════════════════════════════════════════ */
   window.addEventListener('resize', function () {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function () {
       setupCanvases();
+      if (!prefersReduced) setupShimmer();
       renderSlot(activeSlot, performance.now());
     }, 250);
   });
 
   /* ═══════════════════════════════════════════════════════════
-     Theme change — re-render with updated colour palette
+     Theme change — re-render with updated palette
      ═══════════════════════════════════════════════════════════ */
   new MutationObserver(function (mutations) {
     for (var i = 0; i < mutations.length; i++) {
