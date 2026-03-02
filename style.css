@@ -314,7 +314,7 @@ em {
   margin-bottom: 2rem;
 }
 .hero-logo .logo-img {
-  height: clamp(8rem, 20vw, 13rem);
+  height: clamp(16rem, 40vw, 26rem);
 }
 
 .footer-logo .logo-img {
