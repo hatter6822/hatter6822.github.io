@@ -31,8 +31,14 @@
  *   8. Scroll interaction              — fractal pattern rotates with
  *      exponentially smoothed scroll offset for depth.
  *
- *   9. Doubled opacity                 — 2× alpha for stronger visual
- *      presence as a crystalline diamond substance.
+ *   9. 4× opacity                      — quadrupled alpha and colour
+ *      intensity for strong crystalline-substance presence.
+ *
+ *  10. Cursor glow and sparkle         — the diamond surface brightens
+ *      near the mouse with diffuse glow, amplified scintillation,
+ *      and a cursor-directed specular flash.  Floating sparkle
+ *      particles and a soft radial glow haze surround the cursor
+ *      in all regions (surface, halo, and empty space).
  *
  * Everything renders every frame on the GPU — no discrete steps,
  * no crossfade hacks, no separate shimmer canvas, no web worker.
@@ -86,13 +92,13 @@
   });
 
   if (!gl) {
-    /* Graceful fallback — static CSS gradient (2× opacity) */
+    /* Graceful fallback — static CSS gradient (4× opacity) */
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 80% 60% at 50% 40%,' +
-      'rgba(91,160,245,0.24) 0%,transparent 70%),' +
+      'rgba(91,160,245,0.48) 0%,transparent 70%),' +
       'radial-gradient(ellipse 60% 40% at 30% 70%,' +
-      'rgba(78,201,137,0.16) 0%,transparent 60%)';
+      'rgba(78,201,137,0.32) 0%,transparent 60%)';
     return;
   }
 
@@ -362,42 +368,82 @@
     '    float lattice=abs(snoise(pos*5.0+t*0.03));',
     '    lattice*=abs(snoise(pos*10.0-t*0.02));',
 
-    /* Compose lighting — higher contrast, more brilliance */
-    '    col=bc*(0.20+dif1*0.55+dif2*0.22+dif3*0.15);',
-    '    col+=lattice*bc*0.12;',
+    /* Compose lighting — 4× visual presence (doubled twice).
+       Boosted ambient, diffuse, specular, and scintillation
+       for thick crystalline-substance rendering. */
+    '    col=bc*(0.28+dif1*0.70+dif2*0.30+dif3*0.22);',
+    '    col+=lattice*bc*0.20;',
     '    col+=fire;',
-    '    col+=sp1*mix(vec3(0.8,0.9,1.0),vec3(0.95,0.97,1.0),u_theme)*0.55;',
-    '    col+=sp2*mix(vec3(0.6,0.7,0.95),vec3(0.8,0.82,0.9),u_theme)*0.30;',
-    '    col+=sp3*mix(vec3(0.7,0.8,0.95),vec3(0.85,0.88,0.92),u_theme)*0.35;',
-    '    col+=scint*vec3(1.0,0.98,0.94)*0.85;',
+    '    col+=sp1*mix(vec3(0.8,0.9,1.0),vec3(0.95,0.97,1.0),u_theme)*0.80;',
+    '    col+=sp2*mix(vec3(0.6,0.7,0.95),vec3(0.8,0.82,0.9),u_theme)*0.45;',
+    '    col+=sp3*mix(vec3(0.7,0.8,0.95),vec3(0.85,0.88,0.92),u_theme)*0.50;',
+    '    col+=scint*vec3(1.0,0.98,0.94)*1.2;',
 
-    /* Fresnel rim — sharper falloff (pow 2.5) and brighter,
-       matching diamond's high refractive index and total
-       internal reflection that creates bright edge flashes */
+    /* Fresnel rim — doubled for strong edge brilliance */
     '    float fres=pow(1.0-max(dot(nor,-rd),0.0),2.5);',
-    '    col+=fres*mix(vec3(0.4,0.6,0.9),vec3(0.6,0.65,0.75),u_theme)*0.65;',
+    '    col+=fres*mix(vec3(0.4,0.6,0.9),vec3(0.6,0.65,0.75),u_theme)*0.95;',
 
-    /* Alpha — doubled opacity for diamond-substance presence.
-       Dark: 0.7 → 1.0 (clamped), Light: 0.45 → 0.9 */
-    '    alpha=smoothstep(8.0,2.0,td)*mix(1.0,0.9,u_theme);',
+    /* ── Cursor-proximity surface glow ─────────────────────
+       When the mouse is near a surface fragment the diamond
+       brightens: diffuse glow, amplified scintillation, and
+       a specular flash as if the cursor were a point light.  */
+    '    vec2 cm=(uv-u_mouse)*vec2(asp,1.0);',
+    '    float crd=length(cm);',
+    '    float cpx=exp(-crd*crd*10.0);',
+    /* Diffuse glow — soft warm brightening near cursor */
+    '    vec3 cld=normalize(vec3(-cm,-0.5));',
+    '    float cdif=max(dot(nor,cld),0.0);',
+    '    col+=cdif*cpx*bc*0.35;',
+    /* Amplify existing scintillation near cursor */
+    '    col+=cpx*scint*vec3(1.0,0.98,0.94)*0.70;',
+    /* Cursor specular — sharp pinpoint flash (half-vector) */
+    '    vec3 ch=normalize(cld-rd);',
+    '    float cks=pow(max(dot(nor,ch),0.0),80.0);',
+    '    col+=cks*cpx*vec3(1.0,0.97,0.93)*0.70;',
+
+    /* Alpha — full opacity on both themes (4× from original) */
+    '    alpha=smoothstep(8.0,2.0,td);',
     '  }',
 
-    /* Crystalline halo — radial falloff around the diamond form.
-       Doubled intensity (0.4→0.7) and alpha (0.20→0.40) for
-       the stronger visual presence of the diamond substance.
-       Scattered sparkles in the glow region shimmer brighter. */
+    /* Crystalline halo — doubled glow intensity and alpha.
+       Stronger scattering for thick diamond-substance atmosphere
+       with brighter sparkle grains in the glow region. */
     '  if(!hit&&cdist<3.0){',
     '    float glow=smoothstep(3.0,0.5,cdist);',
     '    glow=glow*glow*glow;',
     '    vec3 gc=mix(vec3(0.18,0.28,0.55),vec3(0.32,0.38,0.48),u_theme);',
-    '    col+=gc*glow*0.7;',
-    '    alpha+=glow*mix(0.40,0.24,u_theme);',
+    '    col+=gc*glow*1.2;',
+    '    alpha+=glow*mix(0.80,0.48,u_theme);',
 
     '    float gs=snoise(vec3(uv*40.0,t*2.5));',
     '    gs=smoothstep(0.82,0.96,gs)*glow;',
-    '    col+=gs*mix(vec3(0.6,0.75,1.0),vec3(0.8,0.85,0.9),u_theme)*0.5;',
-    '    alpha+=gs*0.18;',
+    '    col+=gs*mix(vec3(0.6,0.75,1.0),vec3(0.8,0.85,0.9),u_theme)*0.85;',
+    '    alpha+=gs*0.36;',
     '  }',
+
+    /* ── Cursor glow and sparkle ──────────────────────────
+       Soft radial glow haze and high-frequency sparkle
+       particles near the mouse.  Visible everywhere —
+       on the surface, in the halo, and in empty space —
+       so the cursor always trails light and sparkle. */
+    '  vec2 cm2=(uv-u_mouse)*vec2(asp,1.0);',
+    '  float cd2=length(cm2);',
+    '  float cg2=exp(-cd2*cd2*12.0);',
+
+    /* Glow haze — Gaussian² for soft radial falloff */
+    '  vec3 chc=mix(vec3(0.30,0.50,0.90),vec3(0.55,0.60,0.75),u_theme);',
+    '  col+=cg2*cg2*chc*0.45;',
+    '  alpha+=cg2*cg2*mix(0.20,0.12,u_theme);',
+
+    /* Sparkle particles — high-frequency noise masked by
+       cursor proximity.  Only the top ~12 % of noise values
+       produce bright points, giving sparse diamond dust. */
+    '  float csk=snoise(vec3(uv*80.0,t*5.0));',
+    '  csk=smoothstep(0.70,0.95,csk)*cg2;',
+    '  col+=csk*vec3(1.0,0.97,0.90)*0.85;',
+    '  alpha+=csk*0.32;',
+
+    '  alpha=min(alpha,1.0);',
 
     /* ── Final — premultiplied alpha for CSS compositing ──── */
     '  gl_FragColor=vec4(col*alpha,alpha);',
@@ -435,11 +481,11 @@
 
   var prog = createProgram(VERT, FRAG);
   if (!prog) {
-    /* Shader failed — static CSS gradient fallback (2× opacity) */
+    /* Shader failed — static CSS gradient fallback (4× opacity) */
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 80% 60% at 50% 40%,' +
-      'rgba(91,160,245,0.24) 0%,transparent 70%)';
+      'rgba(91,160,245,0.48) 0%,transparent 70%)';
     return;
   }
 
