@@ -83,19 +83,19 @@
 
       <div class="hero-stats">
         <div class="stat">
-          <span class="stat-value">574</span>
+          <span class="stat-value" data-live="theorems">574</span>
           <span class="stat-label">Proven Theorems</span>
         </div>
         <div class="stat">
-          <span class="stat-value">21,641</span>
+          <span class="stat-value" data-live="lines">21,641</span>
           <span class="stat-label">Lines of Lean 4</span>
         </div>
         <div class="stat">
-          <span class="stat-value">40</span>
+          <span class="stat-value" data-live="modules">40</span>
           <span class="stat-label">Kernel Modules</span>
         </div>
         <div class="stat">
-          <span class="stat-value">0</span>
+          <span class="stat-value" data-live="admitted">0</span>
           <span class="stat-label">Admitted Proofs</span>
         </div>
       </div>
@@ -105,7 +105,7 @@
         <a href="https://github.com/hatter6822/seLe4n" class="btn btn-secondary" target="_blank" rel="noopener">View Source</a>
       </div>
 
-      <p class="hero-version">v0.12.15 &middot; Lean 4.28.0 &middot; GPLv3</p>
+      <p class="hero-version">v<span data-live="version">0.12.15</span> &middot; Lean <span data-live="lean-version">4.28.0</span> &middot; GPLv3</p>
     </div>
   </header>
 
@@ -176,7 +176,7 @@
         <div class="card">
           <h3>Project Status</h3>
           <p>
-            seLe4n is an active research project at version <strong>0.12.15</strong>. The kernel
+            seLe4n is an active research project at version <strong data-live="version">0.12.15</strong>. The kernel
             model is feature-complete with IPC, scheduling, capabilities, memory management,
             information-flow control, and service orchestration. The performance optimization
             portfolio (WS-G) is complete &mdash; all hot paths now use O(1) hash-based structures.
@@ -199,7 +199,7 @@
         seLe4n follows a <strong>layered contract model</strong>. Each subsystem separates
         executable logic (<code>Operations.lean</code>) from machine-checked proofs
         (<code>Invariant.lean</code>). Layers compose upward into a unified
-        <code>apiInvariantBundle</code> that covers the entire kernel.
+        <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener" class="code-link"><code>apiInvariantBundle</code></a> that covers the entire kernel.
       </p>
 
       <div class="arch-diagram" role="img" aria-label="seLe4n architecture diagram showing layered subsystems from API surface down to platform bindings">
@@ -346,42 +346,42 @@
             <tr>
               <td><strong>Data structures</strong></td>
               <td>Linked lists, sequential lookups</td>
-              <td>HashMap/HashSet everywhere &mdash; O(1) hot paths</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Prelude.lean" target="_blank" rel="noopener">HashMap/HashSet everywhere</a> &mdash; O(1) hot paths</td>
             </tr>
             <tr>
               <td><strong>IPC queuing</strong></td>
               <td>Intrusive singly-linked list</td>
-              <td>Dual-queue (sendQ/receiveQ) with O(1) mid-queue removal</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener">Dual-queue (sendQ/receiveQ)</a> with O(1) mid-queue removal</td>
             </tr>
             <tr>
               <td><strong>Scheduling</strong></td>
               <td>Priority-based round-robin</td>
-              <td>Priority + EDF with domain-aware partitioning</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener">Priority + EDF</a> with domain-aware partitioning</td>
             </tr>
             <tr>
               <td><strong>CDT</strong></td>
               <td>Mutable doubly-linked list</td>
-              <td>Node-stable with HashMap childMap, O(1) slot transfer</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener">Node-stable with HashMap childMap</a>, O(1) slot transfer</td>
             </tr>
             <tr>
               <td><strong>Information flow</strong></td>
               <td>Binary high/low partition</td>
-              <td>N-domain two-dimensional labels with per-endpoint policies</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener">N-domain two-dimensional labels</a> with per-endpoint policies</td>
             </tr>
             <tr>
               <td><strong>Service management</strong></td>
               <td>No kernel-level concept</td>
-              <td>Dependency graph with DFS cycle detection</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener">Dependency graph</a> with DFS cycle detection</td>
             </tr>
             <tr>
               <td><strong>Revocation</strong></td>
               <td>Silent error handling</td>
-              <td>Strict variant reporting first failure with context</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener">Strict variant</a> reporting first failure with context</td>
             </tr>
             <tr>
               <td><strong>State model</strong></td>
               <td>Mutable C structures</td>
-              <td>Immutable records, pure functional transitions</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/State.lean" target="_blank" rel="noopener">Immutable records</a>, pure functional transitions</td>
             </tr>
           </tbody>
         </table>
@@ -670,7 +670,7 @@
       </div>
 
       <div class="threat-model">
-        <h3>Threat Model &amp; Security Boundaries</h3>
+        <h3><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener" class="code-link">Threat Model</a> &amp; Security Boundaries</h3>
         <div class="grid grid-3">
           <div class="threat-card">
             <h4>Protected Assets</h4>
@@ -693,8 +693,8 @@
           <div class="threat-card">
             <h4>Security Controls</h4>
             <ul>
-              <li>Expanded <code>.gitignore</code> secret/artifact denylist</li>
-              <li>SHA-256 verified <code>elan</code> installer downloads</li>
+              <li>Expanded <a href="https://github.com/hatter6822/seLe4n/blob/main/.gitignore" target="_blank" rel="noopener" class="code-link"><code>.gitignore</code></a> secret/artifact denylist</li>
+              <li>SHA-256 verified <a href="https://github.com/leanprover/elan" target="_blank" rel="noopener" class="code-link"><code>elan</code></a> installer downloads</li>
               <li>Tier-3 anchor checks against CI workflow semantics</li>
               <li>Non-blocking CodeQL security baseline</li>
             </ul>
@@ -724,7 +724,7 @@
             across all production code. Documentation link validation, sync checks, and
             formatting enforcement. The first line of defense.
           </p>
-          <code class="tier-script">./scripts/test_tier0_hygiene.sh</code>
+          <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_tier0_hygiene.sh" target="_blank" rel="noopener" class="tier-script">./scripts/test_tier0_hygiene.sh</a>
         </div>
 
         <div class="tier">
@@ -733,11 +733,11 @@
             <h3>Build</h3>
           </div>
           <p>
-            Full Lean compilation across 84 parallel build jobs. All 574 theorems are
+            Full Lean compilation across <span data-live="build-jobs">84</span> parallel build jobs. All <span data-live="theorems">574</span> theorems are
             type-checked. Every invariant proof, every bridge lemma, every preservation
             theorem is verified by the Lean type-checker. If it compiles, the proofs hold.
           </p>
-          <code class="tier-script">./scripts/test_tier1_build.sh</code>
+          <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_tier1_build.sh" target="_blank" rel="noopener" class="tier-script">./scripts/test_tier1_build.sh</a>
         </div>
 
         <div class="tier">
@@ -751,7 +751,7 @@
             endpoints, and CSpace mutations. Information-flow runtime checks verify
             enforcement wrappers.
           </p>
-          <code class="tier-script">./scripts/test_tier2_negative.sh &amp;&amp; ./scripts/test_tier2_trace.sh</code>
+          <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_tier2_negative.sh" target="_blank" rel="noopener" class="tier-script">./scripts/test_tier2_negative.sh</a> &amp;&amp; <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_tier2_trace.sh" target="_blank" rel="noopener" class="tier-script">./scripts/test_tier2_trace.sh</a>
         </div>
 
         <div class="tier">
@@ -765,7 +765,7 @@
             are backed by actual code. Ensures no proof regressions across refactoring.
             The full correctness gate for PRs.
           </p>
-          <code class="tier-script">./scripts/test_tier3_invariant_surface.sh</code>
+          <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_tier3_invariant_surface.sh" target="_blank" rel="noopener" class="tier-script">./scripts/test_tier3_invariant_surface.sh</a>
         </div>
 
         <div class="tier">
@@ -778,7 +778,7 @@
             invariant probes. Fixture-backed oracle testing. Catches subtle regressions
             that slip through faster tiers.
           </p>
-          <code class="tier-script">./scripts/test_nightly.sh</code>
+          <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_nightly.sh" target="_blank" rel="noopener" class="tier-script">./scripts/test_nightly.sh</a>
         </div>
       </div>
 
@@ -790,10 +790,10 @@
               <tr><th>Command</th><th>Tiers</th><th>Use Case</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>./scripts/test_fast.sh</code></td><td>0 + 1</td><td>CI &mdash; hygiene and build only</td></tr>
-              <tr><td><code>./scripts/test_smoke.sh</code></td><td>0 + 1 + 2</td><td>Minimum PR requirement</td></tr>
-              <tr><td><code>./scripts/test_full.sh</code></td><td>0 + 1 + 2 + 3</td><td>Full verification &mdash; invariant/theorem changes</td></tr>
-              <tr><td><code>./scripts/test_nightly.sh</code></td><td>0 + 1 + 2 + 3 + 4</td><td>Nightly CI &mdash; determinism + experimental</td></tr>
+              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_fast.sh" target="_blank" rel="noopener"><code>./scripts/test_fast.sh</code></a></td><td>0 + 1</td><td>CI &mdash; hygiene and build only</td></tr>
+              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_smoke.sh" target="_blank" rel="noopener"><code>./scripts/test_smoke.sh</code></a></td><td>0 + 1 + 2</td><td>Minimum PR requirement</td></tr>
+              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_full.sh" target="_blank" rel="noopener"><code>./scripts/test_full.sh</code></a></td><td>0 + 1 + 2 + 3</td><td>Full verification &mdash; invariant/theorem changes</td></tr>
+              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_nightly.sh" target="_blank" rel="noopener"><code>./scripts/test_nightly.sh</code></a></td><td>0 + 1 + 2 + 3 + 4</td><td>Nightly CI &mdash; determinism + experimental</td></tr>
             </tbody>
           </table>
         </div>
@@ -872,8 +872,8 @@
     <div class="container">
       <h2 class="section-title">Project Structure</h2>
       <p class="section-lead">
-        40 Lean modules organized with a consistent Operations/Invariant pattern,
-        19 test and CI scripts, and 14 documentation files with specifications, ADRs, and roadmaps.
+        <span data-live="modules">40</span> Lean modules organized with a consistent Operations/Invariant pattern,
+        <span data-live="scripts">19</span> test and CI scripts, and <span data-live="docs">14</span> documentation files with specifications, ADRs, and roadmaps.
       </p>
 
       <div class="file-tree">
@@ -932,10 +932,10 @@ cd seLe4n</code></pre>
           <div class="step-content">
             <h3>Set Up the Lean Environment</h3>
             <p>
-              The setup script installs <code>elan</code> (the Lean version manager) with
-              <strong>SHA-256 checksum verification</strong> and the pinned Lean 4.28.0 toolchain.
+              The setup script installs <a href="https://github.com/leanprover/elan" target="_blank" rel="noopener" class="code-link"><code>elan</code></a> (the Lean version manager) with
+              <strong>SHA-256 checksum verification</strong> and the pinned Lean <span data-live="lean-version">4.28.0</span> toolchain.
             </p>
-            <pre><code>./scripts/setup_lean_env.sh</code></pre>
+            <pre><code><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/setup_lean_env.sh" target="_blank" rel="noopener">./scripts/setup_lean_env.sh</a></code></pre>
           </div>
         </div>
 
@@ -944,8 +944,8 @@ cd seLe4n</code></pre>
           <div class="step-content">
             <h3>Build &amp; Verify</h3>
             <p>
-              Build the entire kernel. All 574 theorems are checked during compilation
-              across 84 parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
+              Build the entire kernel. All <span data-live="theorems">574</span> theorems are checked during compilation
+              across <span data-live="build-jobs">84</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
             </p>
             <pre><code>lake build</code></pre>
           </div>
@@ -975,7 +975,7 @@ cd seLe4n</code></pre>
           <ul>
             <li>Read the <a href="https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing Guide</a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener">Development Docs</a></li>
             <li>Identify which workstream (WS-F5 through F8) your change addresses</li>
-            <li>Run <code>./scripts/test_smoke.sh</code> at minimum; <code>test_full.sh</code> for theorem changes</li>
+            <li>Run <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_smoke.sh" target="_blank" rel="noopener" class="code-link"><code>./scripts/test_smoke.sh</code></a> at minimum; <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_full.sh" target="_blank" rel="noopener" class="code-link"><code>test_full.sh</code></a> for theorem changes</li>
             <li>Update invariants and theorems together with code changes</li>
             <li>Keep PRs focused on one coherent unit of work</li>
             <li>State transitions must have explicit success or failure outcomes</li>
@@ -983,7 +983,7 @@ cd seLe4n</code></pre>
         </div>
         <div class="card">
           <h3>Documentation</h3>
-          <p>Comprehensive docs live in the <code>docs/</code> directory:</p>
+          <p>Comprehensive docs live in the <a href="https://github.com/hatter6822/seLe4n/tree/main/docs" target="_blank" rel="noopener" class="code-link"><code>docs/</code></a> directory:</p>
           <ul>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/spec/SELE4N_SPEC.md" target="_blank" rel="noopener">Master Specification</a> &mdash; Complete kernel design</li>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener">Development Guide</a> &mdash; Workflow and standards</li>
@@ -1035,7 +1035,7 @@ cd seLe4n</code></pre>
             <p>
               Intrusive dual-queue IPC with message transfer verification.
               Untyped memory retype with watermark tracking.
-              Information-flow completeness &mdash; 7-field <code>ObservableState</code> projection.
+              Information-flow completeness &mdash; 7-field <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean" target="_blank" rel="noopener" class="code-link"><code>ObservableState</code></a> projection.
               Proof gap closure across all operations.
             </p>
           </div>
@@ -1102,7 +1102,7 @@ cd seLe4n</code></pre>
             <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark">
           </a>
           <p>A micro-kernel written in Lean 4 with machine-checked proofs.</p>
-          <p class="footer-meta">v0.12.15 &middot; Lean 4.28.0</p>
+          <p class="footer-meta">v<span data-live="version">0.12.15</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
           <p class="footer-license">Licensed under <a href="https://github.com/hatter6822/seLe4n/blob/main/LICENSE" target="_blank" rel="noopener">GPLv3</a></p>
         </div>
         <div class="footer-links">
@@ -1218,6 +1218,191 @@ cd seLe4n</code></pre>
           }
         });
       }
+
+      // --- Live data from GitHub ---
+      // Fetches repo metadata and updates [data-live] elements.
+      // Caches in sessionStorage for 30 minutes. No dependencies.
+      // Falls back gracefully — static values remain if fetch fails.
+      (function() {
+        var REPO = 'hatter6822/seLe4n';
+        var RAW = 'https://raw.githubusercontent.com/' + REPO + '/main/';
+        var API = 'https://api.github.com/repos/' + REPO;
+        var CACHE_KEY = 'sele4n-live';
+        var CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+        function getCached() {
+          try {
+            var raw = sessionStorage.getItem(CACHE_KEY);
+            if (!raw) return null;
+            var obj = JSON.parse(raw);
+            if (Date.now() - obj.ts > CACHE_TTL) return null;
+            return obj.data;
+          } catch (e) { return null; }
+        }
+
+        function setCache(data) {
+          try {
+            sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+          } catch (e) {}
+        }
+
+        function update(key, value) {
+          var els = document.querySelectorAll('[data-live="' + key + '"]');
+          for (var i = 0; i < els.length; i++) {
+            if (els[i].textContent !== String(value)) {
+              els[i].textContent = value;
+            }
+          }
+        }
+
+        function applyData(d) {
+          if (d.version) update('version', d.version);
+          if (d.leanVersion) update('lean-version', d.leanVersion);
+          if (d.modules) update('modules', d.modules);
+          if (d.lines) update('lines', d.lines);
+          if (d.theorems) update('theorems', d.theorems);
+          if (d.scripts) update('scripts', d.scripts);
+          if (d.docs) update('docs', d.docs);
+          if (d.buildJobs) update('build-jobs', d.buildJobs);
+          // Update JSON-LD version
+          if (d.version) {
+            var ld = document.querySelector('script[type="application/ld+json"]');
+            if (ld) {
+              try {
+                var obj = JSON.parse(ld.textContent);
+                obj.version = d.version;
+                ld.textContent = JSON.stringify(obj, null, 2);
+              } catch (e) {}
+            }
+          }
+        }
+
+        function fetchText(url) {
+          return fetch(url).then(function(r) {
+            if (!r.ok) throw new Error(r.status);
+            return r.text();
+          });
+        }
+
+        function fetchJSON(url) {
+          return fetch(url).then(function(r) {
+            if (!r.ok) throw new Error(r.status);
+            return r.json();
+          });
+        }
+
+        function formatNumber(n) {
+          return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        }
+
+        function fetchLiveData() {
+          var data = {};
+          var tasks = [];
+
+          // 1. Lean toolchain version (raw — no rate limit)
+          tasks.push(
+            fetchText(RAW + 'lean-toolchain').then(function(text) {
+              // Format: "leanprover/lean4:v4.28.0" or "leanprover/lean4:4.28.0"
+              var m = text.match(/(\d+\.\d+\.\d+)/);
+              if (m) data.leanVersion = m[1];
+            }).catch(function() {})
+          );
+
+          // 2. Project version from lakefile.lean (raw — no rate limit)
+          tasks.push(
+            fetchText(RAW + 'lakefile.lean').then(function(text) {
+              var m = text.match(/version\s*:=\s*"([^"]+)"/);
+              if (m) data.version = m[1];
+            }).catch(function() {})
+          );
+
+          // 3. Repo tree — count modules, scripts, docs (1 API call)
+          tasks.push(
+            fetchJSON(API + '/git/trees/main?recursive=1').then(function(tree) {
+              if (!tree.tree) return;
+              var modules = 0, scripts = 0, docs = 0, buildJobs = 0;
+              for (var i = 0; i < tree.tree.length; i++) {
+                var p = tree.tree[i].path;
+                if (tree.tree[i].type !== 'blob') continue;
+                if (p.match(/^SeLe4n\/.*\.lean$/) && !p.match(/^SeLe4n\/Testing\//)) modules++;
+                if (p.match(/^scripts\//) && p.match(/\.sh$/)) scripts++;
+                if (p.match(/^docs\//) && p.match(/\.(md|txt)$/)) docs++;
+              }
+              data.modules = modules;
+              data.scripts = scripts;
+              data.docs = docs;
+              // Build jobs = 2× modules (rough heuristic)
+              data.buildJobs = modules * 2;
+            }).catch(function() {})
+          );
+
+          // 4. Language stats — estimate lines (1 API call)
+          tasks.push(
+            fetchJSON(API + '/languages').then(function(langs) {
+              if (langs && langs['Lean']) {
+                // ~38 bytes per line for Lean (avg line length)
+                data.lines = formatNumber(Math.round(langs['Lean'] / 38));
+              }
+            }).catch(function() {})
+          );
+
+          // 5. Count theorems from key invariant/proof files (raw — no rate limit)
+          // Fetch a few major proof files and count 'theorem ' declarations
+          var proofFiles = [
+            'SeLe4n/Kernel/Capability/Invariant.lean',
+            'SeLe4n/Kernel/IPC/Invariant.lean',
+            'SeLe4n/Kernel/Scheduler/Invariant.lean',
+            'SeLe4n/Kernel/Lifecycle/Invariant.lean',
+            'SeLe4n/Kernel/Service/Invariant.lean',
+            'SeLe4n/Kernel/InformationFlow/Invariant.lean',
+            'SeLe4n/Kernel/InformationFlow/Policy.lean',
+            'SeLe4n/Kernel/InformationFlow/Projection.lean',
+            'SeLe4n/Kernel/InformationFlow/Enforcement.lean',
+            'SeLe4n/Kernel/Architecture/VSpace.lean',
+            'SeLe4n/Kernel/Architecture/Assumptions.lean',
+            'SeLe4n/Kernel/API.lean',
+            'SeLe4n/Prelude.lean',
+            'SeLe4n/Kernel/Capability/Operations.lean',
+            'SeLe4n/Kernel/IPC/Operations.lean',
+            'SeLe4n/Kernel/IPC/DualQueue.lean',
+            'SeLe4n/Kernel/Scheduler/Operations.lean',
+            'SeLe4n/Kernel/Scheduler/RunQueue.lean'
+          ];
+          var theoremCount = 0;
+          var theoremTasks = proofFiles.map(function(f) {
+            return fetchText(RAW + f).then(function(text) {
+              // Count lines starting with 'theorem ' (Lean 4 theorem declarations)
+              var matches = text.match(/^theorem /gm);
+              if (matches) theoremCount += matches.length;
+            }).catch(function() {});
+          });
+          tasks.push(
+            Promise.all(theoremTasks).then(function() {
+              if (theoremCount > 0) data.theorems = theoremCount;
+            })
+          );
+
+          return Promise.all(tasks).then(function() { return data; });
+        }
+
+        // Run on page load
+        var cached = getCached();
+        if (cached) {
+          applyData(cached);
+        } else {
+          fetchLiveData().then(function(data) {
+            // Only cache and apply if we got at least some data
+            var hasData = false;
+            for (var k in data) { if (data.hasOwnProperty(k)) { hasData = true; break; } }
+            if (hasData) {
+              setCache(data);
+              applyData(data);
+            }
+          }).catch(function() {
+            // Silently fail — static values remain
+          });
+        }
+      })();
     })();
   </script>
 </body>

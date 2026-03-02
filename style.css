@@ -1551,6 +1551,24 @@ button:focus-visible {
   color: var(--heading);
 }
 
+/* --- Live Data Transitions --- */
+[data-live] {
+  transition: opacity 0.3s;
+}
+[data-live].updating {
+  opacity: 0.4;
+}
+
+/* Tier scripts as links */
+a.tier-script {
+  text-decoration: none;
+  transition: color 0.2s, border-color 0.2s;
+}
+a.tier-script:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* --- Print --- */
 @media print {
   .nav, .hero-bg, .skip-link {
