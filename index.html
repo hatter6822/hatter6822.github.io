@@ -70,7 +70,7 @@
   <!-- Hero -->
   <header class="hero" id="hero">
     <div class="hero-bg" aria-hidden="true">
-      <div class="hero-grid"></div>
+      <canvas id="math-bg"></canvas>
     </div>
     <div class="container hero-content">      
       <p class="hero-label">Micro-Kernel &middot; Lean 4 &middot; Formally Verified</p>
@@ -1202,6 +1202,113 @@ cd seLe4n</code></pre>
           });
         }
       }
+
+      // --- Mathematical background (Clifford strange attractor) ---
+      // Renders overlapping Clifford attractors as a density-mapped point cloud.
+      // x_{n+1} = sin(a·y_n) + c·cos(a·x_n), y_{n+1} = sin(b·x_n) + d·cos(b·y_n)
+      (function() {
+        var canvas = document.getElementById('math-bg');
+        if (!canvas) return;
+        var ctx = canvas.getContext('2d');
+        var timer;
+
+        function render() {
+          var parent = canvas.parentElement;
+          var dpr = Math.min(window.devicePixelRatio || 1, 2);
+          var fw = parent.offsetWidth;
+          var fh = parent.offsetHeight;
+          // Half resolution for performance + natural softness from upscaling
+          var w = Math.max(1, Math.floor(fw * dpr * 0.5));
+          var h = Math.max(1, Math.floor(fh * dpr * 0.5));
+          canvas.width = w;
+          canvas.height = h;
+
+          var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+
+          // Density buffers per color channel
+          var bR = new Float32Array(w * h);
+          var bG = new Float32Array(w * h);
+          var bB = new Float32Array(w * h);
+
+          var cx = w * 0.5;
+          var cy = h * 0.45;
+          var sc = Math.min(w, h) * 0.18;
+
+          // Three Clifford attractor layers using the site's accent palette
+          var layers = [
+            { a: -1.4, b: 1.6, c: 1.0, d: 0.7, n: 150000,
+              r: isDark ? 91 : 43, g: isDark ? 160 : 111, bl: isDark ? 245 : 208,
+              ox: 0, oy: 0 },
+            { a: 1.5, b: -1.8, c: 1.6, d: 0.9, n: 100000,
+              r: isDark ? 78 : 22, g: isDark ? 201 : 128, bl: isDark ? 137 : 75,
+              ox: w * 0.04, oy: -h * 0.03 },
+            { a: -2.0, b: -2.0, c: -1.2, d: 2.0, n: 80000,
+              r: isDark ? 198 : 124, g: isDark ? 120 : 58, bl: isDark ? 221 : 237,
+              ox: -w * 0.03, oy: h * 0.02 }
+          ];
+
+          for (var l = 0; l < layers.length; l++) {
+            var p = layers[l];
+            var x = 0.1, y = 0.1;
+            for (var i = 0; i < p.n; i++) {
+              var nx = Math.sin(p.a * y) + p.c * Math.cos(p.a * x);
+              var ny = Math.sin(p.b * x) + p.d * Math.cos(p.b * y);
+              x = nx; y = ny;
+              if (i < 50) continue; // skip transient
+              var px = Math.floor(cx + p.ox + x * sc);
+              var py = Math.floor(cy + p.oy + y * sc);
+              if (px >= 0 && px < w && py >= 0 && py < h) {
+                var idx = py * w + px;
+                bR[idx] += p.r;
+                bG[idx] += p.g;
+                bB[idx] += p.bl;
+              }
+            }
+          }
+
+          // Find max density for normalization
+          var maxV = 0;
+          for (var i = 0; i < w * h; i++) {
+            var v = bR[i] + bG[i] + bB[i];
+            if (v > maxV) maxV = v;
+          }
+          if (maxV === 0) return;
+
+          // Map density to pixels with log-scale brightness and gamma correction
+          var img = ctx.createImageData(w, h);
+          var d = img.data;
+          var alpha = isDark ? 0.7 : 0.45;
+          var logMax = Math.log(1 + maxV);
+
+          for (var i = 0; i < w * h; i++) {
+            var total = bR[i] + bG[i] + bB[i];
+            if (total > 0) {
+              var t = Math.log(1 + total) / logMax;
+              t = Math.pow(t, 0.65);
+              var j = i * 4;
+              d[j]     = Math.min(255, (bR[i] / total * 255 * t + 0.5) | 0);
+              d[j + 1] = Math.min(255, (bG[i] / total * 255 * t + 0.5) | 0);
+              d[j + 2] = Math.min(255, (bB[i] / total * 255 * t + 0.5) | 0);
+              d[j + 3] = Math.min(255, (t * 255 * alpha + 0.5) | 0);
+            }
+          }
+
+          ctx.putImageData(img, 0, 0);
+        }
+
+        render();
+
+        window.addEventListener('resize', function() {
+          clearTimeout(timer);
+          timer = setTimeout(render, 250);
+        });
+
+        new MutationObserver(function(m) {
+          for (var i = 0; i < m.length; i++) {
+            if (m[i].attributeName === 'data-theme') { render(); return; }
+          }
+        }).observe(document.documentElement, { attributes: true });
+      })();
 
       // --- Sticky nav background on scroll ---
       var nav = document.getElementById('nav');
