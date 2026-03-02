@@ -295,7 +295,7 @@ em {
 
 /* --- Logo Image --- */
 .logo-img {
-  height: 2rem;
+  height: 4rem;
   width: auto;
   display: block;
 }
@@ -314,11 +314,11 @@ em {
   margin-bottom: 2rem;
 }
 .hero-logo .logo-img {
-  height: clamp(4rem, 10vw, 6.5rem);
+  height: clamp(8rem, 20vw, 13rem);
 }
 
 .footer-logo .logo-img {
-  height: 2rem;
+  height: 4rem;
 }
 
 /* --- Code Links (interactive references) --- */
