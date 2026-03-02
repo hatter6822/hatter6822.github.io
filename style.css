@@ -71,6 +71,7 @@
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  background: var(--bg);
 }
 
 body {
@@ -78,7 +79,7 @@ body {
   font-size: 1rem;
   line-height: 1.7;
   color: var(--text);
-  background: var(--bg);
+  background: transparent;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -368,6 +369,7 @@ a.arch-block:hover {
 /* --- Hero --- */
 .hero {
   position: relative;
+  z-index: 1;
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -386,14 +388,33 @@ a.arch-block:hover {
   pointer-events: none;
 }
 
-/* Mathematical attractor pattern canvas */
+/* Animated background canvas wrapper — fixed behind all content */
+#bg-canvas-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 #math-bg {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 15%, transparent 65%);
-  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 45%, black 15%, transparent 65%);
+  /* Oversized so drift animation doesn't reveal edges */
+  width: 140%;
+  height: 140%;
+  top: -20%;
+  left: -20%;
+  opacity: 0.6;
+  animation: bg-hue 45s linear infinite;
+  will-change: transform, filter;
+}
+
+@keyframes bg-hue {
+  from { filter: hue-rotate(0deg) brightness(1); }
+  25%  { filter: hue-rotate(90deg) brightness(1.1); }
+  50%  { filter: hue-rotate(180deg) brightness(1); }
+  75%  { filter: hue-rotate(270deg) brightness(0.9); }
+  to   { filter: hue-rotate(360deg) brightness(1); }
 }
 
 .hero-content {
@@ -524,10 +545,19 @@ a.arch-block:hover {
 
 /* --- Sections --- */
 .section {
+  position: relative;
+  z-index: 1;
   padding: var(--section-pad);
+  background: rgba(10, 14, 23, 0.88);
+}
+[data-theme="light"] .section {
+  background: rgba(248, 249, 252, 0.88);
 }
 .section-alt {
-  background: var(--bg-alt);
+  background: rgba(15, 20, 32, 0.92);
+}
+[data-theme="light"] .section-alt {
+  background: rgba(240, 242, 247, 0.92);
 }
 
 .section-title {
@@ -1270,9 +1300,14 @@ a.arch-block:hover {
 
 /* --- Footer --- */
 .footer {
-  background: var(--bg-alt);
+  position: relative;
+  z-index: 1;
+  background: rgba(15, 20, 32, 0.92);
   border-top: 1px solid var(--border);
   padding: 4rem 0 2rem;
+}
+[data-theme="light"] .footer {
+  background: rgba(240, 242, 247, 0.92);
 }
 
 .footer-grid {
@@ -1533,6 +1568,11 @@ a.arch-block:hover {
     transition-duration: 0s !important;
     animation-duration: 0s !important;
   }
+  #math-bg {
+    animation: none !important;
+    transform: none !important;
+    filter: none !important;
+  }
 }
 
 /* Focus styles */
@@ -1568,7 +1608,7 @@ a.tier-script:hover {
 
 /* --- Print --- */
 @media print {
-  .nav, .hero-bg, .skip-link {
+  .nav, .hero-bg, .skip-link, #bg-canvas-wrap {
     display: none;
   }
   body {
