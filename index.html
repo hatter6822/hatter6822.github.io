@@ -15,6 +15,12 @@
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f9e0;</text></svg>">
   <link rel="stylesheet" href="style.css">
+  <script>
+    (function(){var t;try{t=localStorage.getItem('sele4n-theme')}catch(e){}
+    if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);
+    else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:light)').matches)document.documentElement.setAttribute('data-theme','light');
+    })();
+  </script>
 
   <script type="application/ld+json">
   {

@@ -303,6 +303,10 @@ em {
 .logo-img-light { display: none; }
 [data-theme="light"] .logo-img-dark { display: none; }
 [data-theme="light"] .logo-img-light { display: block; }
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) .logo-img-dark { display: none; }
+  html:not([data-theme]) .logo-img-light { display: block; }
+}
 
 .hero-logo {
   display: flex;
