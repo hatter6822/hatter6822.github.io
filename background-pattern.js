@@ -1,22 +1,26 @@
 /**
  * background-pattern.js
  *
- * GPU-accelerated flowing background — WebGL fragment shader with:
+ * GPU-accelerated fractal sphere background — WebGL fragment shader with:
  *
- *   1. Domain-warped 3D simplex noise   — deeply organic, continuously
- *      morphing shapes (ink-in-water / aurora borealis aesthetic).
+ *   1. Ray-marched amorphous sphere    — SDF sphere with multi-scale
+ *      simplex noise displacement for organic, fractal geometry that
+ *      constantly morphs and breathes.
  *
- *   2. Cosine colour palettes           — smooth, endless cycling through
- *      blues, teals, purples and greens. Palette shifts with time.
+ *   2. Cosine colour palettes          — smooth, endless cycling through
+ *      blues, teals, purples and greens.  Palette shifts with time.
  *
- *   3. Integrated sparkle layer          — high-frequency noise peaks
- *      create twinkling bright points that cluster organically.
+ *   3. Integrated sparkle layer        — high-frequency noise peaks on
+ *      the sphere surface create twinkling bright points.
  *
- *   4. Scroll parallax                   — exponentially smoothed,
- *      frame-rate-independent scroll offset for depth.
+ *   4. Mouse reactivity                — sphere surface bulges toward
+ *      the cursor with exponentially smoothed tracking.
  *
- *   5. Organic drift                     — multi-harmonic Lissajous
- *      coordinate offset computed entirely in the shader.
+ *   5. Scroll interaction              — fractal pattern rotates with
+ *      exponentially smoothed scroll offset for depth.
+ *
+ *   6. Atmospheric glow                — soft radial falloff around
+ *      the sphere for an ethereal, floating appearance.
  *
  * Everything renders every frame on the GPU — no discrete steps,
  * no crossfade hacks, no separate shimmer canvas, no web worker.
@@ -30,8 +34,9 @@
   /* ═══════════════════════════════════════════════════════════
      Configuration
      ═══════════════════════════════════════════════════════════ */
-  var RES_SCALE    = 0.45;   // fraction of native resolution (soft + fast)
-  var SCROLL_SMOOTH = 7;     // exponential smoothing rate (Hz)
+  var RES_SCALE     = 0.4;    // fraction of native resolution
+  var SCROLL_SMOOTH = 7;      // exponential smoothing rate (Hz)
+  var MOUSE_SMOOTH  = 5;      // mouse smoothing rate (Hz)
 
   /* ═══════════════════════════════════════════════════════════
      DOM
@@ -47,9 +52,6 @@
 
   /* ═══════════════════════════════════════════════════════════
      Reconfigure DOM for single-canvas WebGL
-     — Neutralise the mover (no CSS transform animation needed)
-     — Use canvas A as the WebGL surface
-     — Hide canvas B (crossfade no longer needed)
      ═══════════════════════════════════════════════════════════ */
   mover.style.cssText =
     'position:absolute;top:0;left:0;width:100%;height:100%;opacity:1;will-change:auto;';
@@ -88,9 +90,9 @@
 
   var VERT = 'attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0,1);}';
 
-  /* Fragment shader — domain-warped simplex noise with cosine
-     colour palette and sparkle overlay.  Every visual element
-     evolves continuously with u_time — zero discrete steps.    */
+  /* Fragment shader — ray-marched fractal sphere with cosine
+     colour palette, sparkle overlay, and atmospheric glow.
+     Every visual element evolves continuously with u_time.      */
   var FRAG = [
     /* ── precision ── */
     '#ifdef GL_FRAGMENT_PRECISION_HIGH',
@@ -104,6 +106,7 @@
     'uniform float u_time;',
     'uniform float u_scroll;',
     'uniform float u_theme;',
+    'uniform vec2 u_mouse;',
 
     /* ─────────────────────────────────────────────────────────
        3D Simplex Noise  (Ashima Arts — MIT licence)
@@ -174,6 +177,55 @@
     '}',
 
     /* ─────────────────────────────────────────────────────────
+       Scene SDF — fractal sphere
+       Sphere with multi-scale noise displacement, breathing
+       radius, scroll-driven rotation, and mouse-reactive bulge.
+       ───────────────────────────────────────────────────────── */
+    'float map(vec3 pos){',
+    '  float r=length(pos);',
+    '  float t=u_time;',
+
+    /* Breathing radius — slow multi-harmonic pulse */
+    '  float radius=0.9+sin(t*0.15)*0.05+sin(t*0.08)*0.03;',
+    '  float sph=r-radius;',
+
+    '  vec3 n=pos/max(r,0.001);',
+
+    /* Rotate noise coordinates by time + scroll for
+       continuous pattern evolution and scroll reactivity */
+    '  float ay=t*0.05+u_scroll*1.0;',
+    '  float ax=sin(t*0.03)*0.2+u_scroll*0.4;',
+    '  float cy=cos(ay),sy=sin(ay),cx=cos(ax),sx=sin(ax);',
+    '  vec3 rn=vec3(n.x*cy+n.z*sy,n.y,-n.x*sy+n.z*cy);',
+    '  rn=vec3(rn.x,rn.y*cx-rn.z*sx,rn.y*sx+rn.z*cx);',
+
+    /* Multi-scale fractal displacement — two octaves of
+       simplex noise at different scales and speeds */
+    '  float d=snoise(rn*2.0+t*0.12)*0.30',
+    '         +snoise(rn*4.5+t*0.18)*0.12;',
+
+    /* Mouse bulge — surface reaches toward cursor.
+       pow(_, 5) keeps the bulge localised. */
+    '  vec2 ms=(u_mouse-0.5)*2.0;',
+    '  ms.x*=u_res.x/u_res.y;',
+    '  vec3 md=normalize(vec3(ms,-1.0));',
+    '  d+=pow(max(0.0,dot(n,md)),5.0)*0.25;',
+
+    '  return sph-d;',
+    '}',
+
+    /* ─────────────────────────────────────────────────────────
+       Normal via central differences  (6 map evaluations)
+       ───────────────────────────────────────────────────────── */
+    'vec3 calcN(vec3 p){',
+    '  float e=0.003;',
+    '  return normalize(vec3(',
+    '    map(p+vec3(e,0,0))-map(p-vec3(e,0,0)),',
+    '    map(p+vec3(0,e,0))-map(p-vec3(0,e,0)),',
+    '    map(p+vec3(0,0,e))-map(p-vec3(0,0,e))));',
+    '}',
+
+    /* ─────────────────────────────────────────────────────────
        Main
        ───────────────────────────────────────────────────────── */
     'void main(){',
@@ -181,70 +233,113 @@
     '  float asp=u_res.x/u_res.y;',
     '  float t=u_time;',
 
-    /* Coordinate space: aspect-corrected, centred, with scroll parallax.
-       Pattern moves at 60 % of page scroll speed for depth.            */
-    '  vec2 p=vec2((uv.x-0.5)*asp, uv.y-0.5+u_scroll*0.6);',
+    /* Ray setup — perspective camera looking at origin */
+    '  vec2 p=(uv-0.5)*vec2(asp,1.0);',
+    '  vec3 ro=vec3(0.0,0.0,-3.5);',
+    '  vec3 rd=normalize(vec3(p,1.2));',
 
-    /* Organic Lissajous drift — 2 harmonics per axis baked into coords
-       so the pattern itself flows, not just the container.              */
-    '  p+=vec2(sin(t*0.053)*0.12+sin(t*0.024)*0.06,',
-    '          cos(t*0.041)*0.08+cos(t*0.017)*0.04);',
+    /* Bounding sphere test — skip ray march for rays
+       that clearly miss (closest approach > 2.0) */
+    '  float tb=dot(-ro,rd);',
+    '  vec3 cp=ro+rd*tb;',
+    '  float cdist=length(cp);',
 
-    /* ── Domain warping (two rounds) ──────────────────────────
-       First warp: two FBM lookups offset the coordinate field.
-       Second warp: use first-round output to distort further.
-       Final FBM: the deeply warped result → organic flow.      */
-    '  float q1=fbm(vec3(p*1.6, t*0.11));',
-    '  float q2=fbm(vec3(p*1.6+5.2, t*0.09));',
-    '  vec2 q=vec2(q1,q2);',
+    '  vec3 col=vec3(0.0);',
+    '  float alpha=0.0;',
+    '  bool hit=false;',
+    '  float td=0.0;',
 
-    '  float r1=fbm(vec3(p+3.2*q+vec2(1.7,9.2), t*0.07));',
-    '  float r2=fbm(vec3(p+3.2*q+vec2(8.3,2.8), t*0.08));',
-    '  float f=fbm(vec3(p+2.8*vec2(r1,r2), t*0.05));',
+    '  if(cdist<2.0){',
+    '    td=max(0.0,tb-2.0);',
+    '    for(int i=0;i<48;i++){',
+    '      float d=map(ro+rd*td);',
+    '      if(d<0.001){hit=true;break;}',
+    '      if(td>8.0)break;',
+    '      td+=d*0.7;',
+    '    }',
+    '  }',
 
-    /* ── Colour ───────────────────────────────────────────────
-       Cosine palette input drifts with both pattern shape
-       and elapsed time → continuous colour shifting.
+    '  if(hit){',
+    '    vec3 pos=ro+rd*td;',
+    '    vec3 nor=calcN(pos);',
+    '    vec3 sn=normalize(pos);',
 
-       Dark  palette cycles:  deep blue → teal → purple
-       Light palette:         softer / more pastel variant       */
-    '  float ci=f*0.55+length(q)*0.2+t*0.012;',
+    /* Rotated coordinates for colour and sparkle —
+       same rotation as in map() for consistency */
+    '    float ay=t*0.05+u_scroll*1.0;',
+    '    float ax=sin(t*0.03)*0.2+u_scroll*0.4;',
+    '    float cy=cos(ay),sy=sin(ay),cx=cos(ax),sx=sin(ax);',
+    '    vec3 rn=vec3(sn.x*cy+sn.z*sy,sn.y,-sn.x*sy+sn.z*cy);',
+    '    rn=vec3(rn.x,rn.y*cx-rn.z*sx,rn.y*sx+rn.z*cx);',
 
-    '  vec3 dc=pal(ci,',
-    '    vec3(0.30,0.40,0.60),',
-    '    vec3(0.30,0.30,0.30),',
-    '    vec3(0.70,0.80,1.00),',
-    '    vec3(0.55,0.65,0.75));',
+    /* Dual-light setup — key + fill */
+    '    vec3 l1=normalize(vec3(0.6,0.8,-0.5));',
+    '    vec3 l2=normalize(vec3(-0.4,-0.3,-0.7));',
+    '    float dif1=max(dot(nor,l1),0.0);',
+    '    float dif2=max(dot(nor,l2),0.0);',
 
-    '  vec3 lc=pal(ci,',
-    '    vec3(0.45,0.52,0.55),',
-    '    vec3(0.22,0.22,0.25),',
-    '    vec3(0.70,0.80,1.00),',
-    '    vec3(0.55,0.65,0.75));',
+    /* Specular highlights */
+    '    vec3 h1=normalize(l1-rd);',
+    '    float sp1=pow(max(dot(nor,h1),0.0),48.0);',
+    '    vec3 h2=normalize(l2-rd);',
+    '    float sp2=pow(max(dot(nor,h2),0.0),32.0);',
 
-    '  vec3 col=mix(dc,lc,u_theme);',
+    /* Sparkle — high-frequency noise peaks on surface
+       create twinkling bright points that cluster organically */
+    '    float spk=snoise(rn*25.0+t*4.0);',
+    '    spk=smoothstep(0.72,0.95,spk);',
+    '    spk*=smoothstep(-0.2,0.5,snoise(rn*8.0+t*0.8));',
 
-    /* ── Sparkles ─────────────────────────────────────────────
-       High-frequency noise thresholded near its peaks creates
-       small bright points that appear / disappear organically.
-       A lower-frequency noise modulates clustering.             */
-    '  float sp=snoise(vec3(uv*38.0, t*2.2));',
-    '  sp=smoothstep(0.80,0.96,sp);',
-    '  sp*=smoothstep(-0.3,0.5,snoise(vec3(uv*10.0, t*0.6)));',
-    '  col+=sp*mix(vec3(0.7,0.85,1.0),vec3(0.9,0.95,1.0),sp)*0.45;',
+    /* Colour — cosine palette driven by fractal pattern
+       and elapsed time for continuous colour shifting.
+       Dark palette:  deep blue → teal → purple
+       Light palette: softer / more pastel variant       */
+    '    float ci=fbm(rn*2.0+t*0.04)*0.55+t*0.015;',
 
-    /* ── Intensity envelope ───────────────────────────────────
-       Pattern density drives base intensity.  Edge fade prevents
-       hard cuts; radial vignette adds subtle depth.              */
-    '  float intensity=smoothstep(-0.5,0.7,f)*0.65+0.35;',
+    '    vec3 dc=pal(ci,',
+    '      vec3(0.30,0.40,0.60),',
+    '      vec3(0.30,0.30,0.30),',
+    '      vec3(0.70,0.80,1.00),',
+    '      vec3(0.55,0.65,0.75));',
 
-    '  float edge=smoothstep(0.0,0.15,',
-    '    min(min(uv.x,1.0-uv.x),min(uv.y,1.0-uv.y)));',
-    '  float vig=1.0-length(uv-0.5)*0.4;',
-    '  intensity*=edge*vig;',
+    '    vec3 lc=pal(ci,',
+    '      vec3(0.45,0.52,0.55),',
+    '      vec3(0.22,0.22,0.25),',
+    '      vec3(0.70,0.80,1.00),',
+    '      vec3(0.55,0.65,0.75));',
 
-    /* ── Final alpha — premultiplied for CSS compositing ───── */
-    '  float alpha=intensity*mix(0.65,0.38,u_theme);',
+    '    vec3 bc=mix(dc,lc,u_theme);',
+
+    /* Compose lighting */
+    '    col=bc*(0.25+dif1*0.5+dif2*0.2);',
+    '    col+=sp1*mix(vec3(0.7,0.85,1.0),vec3(0.9,0.95,1.0),u_theme)*0.4;',
+    '    col+=sp2*mix(vec3(0.5,0.6,0.9),vec3(0.7,0.75,0.85),u_theme)*0.2;',
+    '    col+=spk*vec3(1.0,0.97,0.92)*0.7;',
+
+    /* Fresnel rim glow — ethereal edge lighting */
+    '    float fres=pow(1.0-max(dot(nor,-rd),0.0),3.0);',
+    '    col+=fres*mix(vec3(0.3,0.5,0.8),vec3(0.5,0.6,0.7),u_theme)*0.5;',
+
+    '    alpha=smoothstep(8.0,2.0,td)*mix(0.7,0.45,u_theme);',
+    '  }',
+
+    /* Atmospheric glow — soft radial falloff for rays that
+       miss the sphere but pass close.  Cubic falloff + faint
+       scattered sparkles in the glow region.                   */
+    '  if(!hit&&cdist<3.0){',
+    '    float glow=smoothstep(3.0,0.5,cdist);',
+    '    glow=glow*glow*glow;',
+    '    vec3 gc=mix(vec3(0.15,0.25,0.50),vec3(0.30,0.35,0.45),u_theme);',
+    '    col+=gc*glow*0.4;',
+    '    alpha+=glow*mix(0.20,0.12,u_theme);',
+
+    '    float gs=snoise(vec3(uv*40.0,t*2.5));',
+    '    gs=smoothstep(0.85,0.98,gs)*glow;',
+    '    col+=gs*mix(vec3(0.6,0.75,1.0),vec3(0.8,0.85,0.9),u_theme)*0.3;',
+    '    alpha+=gs*0.1;',
+    '  }',
+
+    /* ── Final — premultiplied alpha for CSS compositing ──── */
     '  gl_FragColor=vec4(col*alpha,alpha);',
     '}'
   ].join('\n');
@@ -292,9 +387,6 @@
 
   /* ═══════════════════════════════════════════════════════════
      Geometry — fullscreen triangle (single draw, zero overdraw)
-     A triangle with verts at (−1,−1), (3,−1), (−1,3) clips to
-     a perfect viewport-filling quad — more efficient than a
-     two-triangle quad because there is no shared diagonal edge.
      ═══════════════════════════════════════════════════════════ */
   var buf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -312,6 +404,7 @@
   var uTime   = gl.getUniformLocation(prog, 'u_time');
   var uScroll = gl.getUniformLocation(prog, 'u_scroll');
   var uTheme  = gl.getUniformLocation(prog, 'u_theme');
+  var uMouse  = gl.getUniformLocation(prog, 'u_mouse');
 
   /* ═══════════════════════════════════════════════════════════
      State
@@ -321,20 +414,23 @@
   var cw = 0, ch = 0;
 
   /* Initialise smooth scroll to current position so there is
-     no jarring jump if the page loads mid-scroll (back/forward). */
+     no jarring jump if the page loads mid-scroll. */
   var initScrollY  = window.scrollY || window.pageYOffset || 0;
   var initDocH     = document.documentElement.scrollHeight;
   var initViewH    = window.innerHeight;
   var initMaxScr   = Math.max(1, initDocH - initViewH);
   var smoothScrollY = Math.max(0, Math.min(1, initScrollY / initMaxScr));
 
+  /* Mouse state — default to centre so the sphere has a
+     subtle forward bulge even before the cursor moves. */
+  var mouseX = 0.5, mouseY = 0.5;
+  var smoothMouseX = 0.5, smoothMouseY = 0.5;
+
   var resizeTimer = null;
   var running     = !prefersReduced;
 
   /* ═══════════════════════════════════════════════════════════
      Canvas sizing
-     Render at a fraction of native resolution for a soft,
-     dreamy quality while keeping shader cost low.
      ═══════════════════════════════════════════════════════════ */
   function resize() {
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -361,6 +457,7 @@
     gl.uniform1f(uTime, 0.0);
     gl.uniform1f(uScroll, smoothScrollY);
     gl.uniform1f(uTheme, getTheme());
+    gl.uniform2f(uMouse, 0.5, 0.5);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -375,10 +472,7 @@
     prevTime    = now;
     var elapsed = (now - startTime) / 1000;
 
-    /* ── Exponential-smoothed scroll fraction ────────────────
-       Uses  s += (target − s) × (1 − e^(−rate × dt))
-       which is frame-rate-independent and critically damped.
-       At 7 Hz the response reaches 99 % in ≈ 0.66 s.         */
+    /* ── Exponential-smoothed scroll fraction ──────────────── */
     var scrollY  = window.scrollY || window.pageYOffset || 0;
     var docH     = document.documentElement.scrollHeight;
     var viewH    = window.innerHeight;
@@ -387,11 +481,17 @@
     var k        = 1 - Math.exp(-SCROLL_SMOOTH * dt);
     smoothScrollY += (scrollFr - smoothScrollY) * k;
 
+    /* ── Exponential-smoothed mouse position ──────────────── */
+    var km = 1 - Math.exp(-MOUSE_SMOOTH * dt);
+    smoothMouseX += (mouseX - smoothMouseX) * km;
+    smoothMouseY += (mouseY - smoothMouseY) * km;
+
     /* ── Uniforms ─────────────────────────────────────────── */
     gl.uniform2f(uRes, cw, ch);
     gl.uniform1f(uTime, elapsed);
     gl.uniform1f(uScroll, smoothScrollY);
     gl.uniform1f(uTheme, getTheme());
+    gl.uniform2f(uMouse, smoothMouseX, smoothMouseY);
 
     /* ── Draw ─────────────────────────────────────────────── */
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -424,8 +524,7 @@
   });
 
   /* ═══════════════════════════════════════════════════════════
-     Theme change — uniform updates on next frame automatically,
-     but for reduced-motion we need an explicit re-render.
+     Theme change
      ═══════════════════════════════════════════════════════════ */
   new MutationObserver(function (mutations) {
     for (var i = 0; i < mutations.length; i++) {
@@ -437,8 +536,28 @@
   }).observe(document.documentElement, { attributes: true });
 
   /* ═══════════════════════════════════════════════════════════
+     Mouse / touch tracking
+     Normalised to [0, 1] with Y flipped for GL coordinates.
+     ═══════════════════════════════════════════════════════════ */
+  document.addEventListener('mousemove', function (e) {
+    mouseX = e.clientX / window.innerWidth;
+    mouseY = 1.0 - e.clientY / window.innerHeight;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function (e) {
+    if (e.touches.length > 0) {
+      mouseX = e.touches[0].clientX / window.innerWidth;
+      mouseY = 1.0 - e.touches[0].clientY / window.innerHeight;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', function () {
+    mouseX = 0.5;
+    mouseY = 0.5;
+  }, { passive: true });
+
+  /* ═══════════════════════════════════════════════════════════
      WebGL context loss / restore
-     Handles GPU driver resets gracefully.
      ═══════════════════════════════════════════════════════════ */
   canvasA.addEventListener('webglcontextlost', function (e) {
     e.preventDefault();
@@ -462,6 +581,7 @@
     uTime   = gl.getUniformLocation(prog, 'u_time');
     uScroll = gl.getUniformLocation(prog, 'u_scroll');
     uTheme  = gl.getUniformLocation(prog, 'u_theme');
+    uMouse  = gl.getUniformLocation(prog, 'u_mouse');
 
     resize();
     running = !prefersReduced;
