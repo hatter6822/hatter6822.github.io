@@ -314,6 +314,7 @@ em {
   display: flex;
   justify-content: center;
   margin-bottom: 2rem;
+  filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.65));
 }
 .hero-logo .logo-img {
   height: clamp(24rem, 60vw, 39rem);
@@ -434,6 +435,7 @@ a.arch-block:hover {
   letter-spacing: 0.15em;
   color: var(--accent);
   margin-bottom: 1.5rem;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
 }
 
 .hero-title {
@@ -456,6 +458,7 @@ a.arch-block:hover {
   max-width: 38rem;
   margin: 0 auto 1rem;
   line-height: 1.8;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
 }
 
 .hero-tagline {
