@@ -31,7 +31,7 @@
  *   8. Scroll interaction              — fractal pattern rotates with
  *      exponentially smoothed scroll offset for depth.
  *
- *   9. 4× opacity                      — quadrupled alpha and colour
+ *   9. 8× opacity                      — octupled alpha and colour
  *      intensity for strong crystalline-substance presence.
  *
  *  10. Cursor glow and sparkle         — the diamond surface brightens
@@ -92,13 +92,13 @@
   });
 
   if (!gl) {
-    /* Graceful fallback — static CSS gradient (4× opacity) */
+    /* Graceful fallback — static CSS gradient (8× opacity) */
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 80% 60% at 50% 40%,' +
-      'rgba(91,160,245,0.48) 0%,transparent 70%),' +
+      'rgba(91,160,245,0.96) 0%,transparent 70%),' +
       'radial-gradient(ellipse 60% 40% at 30% 70%,' +
-      'rgba(78,201,137,0.32) 0%,transparent 60%)';
+      'rgba(78,201,137,0.64) 0%,transparent 60%)';
     return;
   }
 
@@ -368,7 +368,7 @@
     '    float lattice=abs(snoise(pos*5.0+t*0.03));',
     '    lattice*=abs(snoise(pos*10.0-t*0.02));',
 
-    /* Compose lighting — 4× visual presence (doubled twice).
+    /* Compose lighting — 8× visual presence (doubled thrice).
        Boosted ambient, diffuse, specular, and scintillation
        for thick crystalline-substance rendering. */
     '    col=bc*(0.28+dif1*0.70+dif2*0.30+dif3*0.22);',
@@ -401,7 +401,7 @@
     '    float cks=pow(max(dot(nor,ch),0.0),80.0);',
     '    col+=cks*cpx*vec3(1.0,0.97,0.93)*0.70;',
 
-    /* Alpha — full opacity on both themes (4× from original) */
+    /* Alpha — full opacity on both themes (8× from original) */
     '    alpha=smoothstep(8.0,2.0,td);',
     '  }',
 
@@ -443,7 +443,7 @@
     '  col+=csk*vec3(1.0,0.97,0.90)*0.85;',
     '  alpha+=csk*0.32;',
 
-    '  alpha=min(alpha,1.0);',
+    '  alpha=min(alpha*2.0,1.0);',
 
     /* ── Final — premultiplied alpha for CSS compositing ──── */
     '  gl_FragColor=vec4(col*alpha,alpha);',
@@ -481,11 +481,11 @@
 
   var prog = createProgram(VERT, FRAG);
   if (!prog) {
-    /* Shader failed — static CSS gradient fallback (4× opacity) */
+    /* Shader failed — static CSS gradient fallback (8× opacity) */
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 80% 60% at 50% 40%,' +
-      'rgba(91,160,245,0.48) 0%,transparent 70%)';
+      'rgba(91,160,245,0.96) 0%,transparent 70%)';
     return;
   }
 
