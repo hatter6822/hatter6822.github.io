@@ -397,14 +397,16 @@ a.arch-block:hover {
   overflow: hidden;
 }
 
-/* Mover carries drift + parallax transforms; oversized to hide edges */
+/* Mover carries drift + scroll-following transforms; oversized to hide edges.
+   Height: 350 % gives 250 % extra runway for scroll travel.
+   The background-pattern.js maps page scroll proportionally to translateY. */
 #bg-canvas-mover {
   position: absolute;
   width: 140%;
-  height: 140%;
-  top: -20%;
+  height: 350%;
+  top: -15%;
   left: -20%;
-  opacity: 0.6;
+  opacity: 0.55;
   will-change: transform;
 }
 
