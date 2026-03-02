@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>seLe4n — A Micro-Kernel Written in Lean 4</title>
+  <meta name="description" content="seLe4n is a formally verified micro-kernel written entirely in Lean 4 with 574 machine-checked theorems, zero sorry, zero axiom. Inspired by seL4, targeting Raspberry Pi 5.">
+  <meta name="keywords" content="seLe4n, microkernel, Lean 4, formal verification, seL4, operating system, kernel, Raspberry Pi 5, theorem proving, capability, IPC">
+  <meta name="theme-color" content="#0a0e17">
+
+  <meta property="og:title" content="seLe4n — A Micro-Kernel Written in Lean 4">
+  <meta property="og:description" content="Formally verified micro-kernel with 574 machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://sele4n.org">
+
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f9e0;</text></svg>">
+  <link rel="stylesheet" href="style.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareSourceCode",
+    "name": "seLe4n",
+    "description": "A formally verified micro-kernel written in Lean 4 with machine-checked proofs",
+    "codeRepository": "https://github.com/hatter6822/seLe4n",
+    "programmingLanguage": "Lean 4",
+    "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+    "version": "0.12.15"
+  }
+  </script>
+</head>
+<body>
+
+  <a href="#about" class="skip-link">Skip to main content</a>
+
+  <!-- Navigation -->
+  <nav class="nav" id="nav" aria-label="Main navigation">
+    <div class="nav-inner">
+      <a href="#hero" class="nav-logo" aria-label="seLe4n home">
+        <span class="logo-se">se</span><span class="logo-le4n">Le4n</span>
+      </a>
+      <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="nav-links" role="list">
+        <li><a href="#about">About</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#comparison">vs seL4</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#code">Code</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#verification">Verification</a></li>
+        <li><a href="#getting-started">Get Started</a></li>
+        <li><a href="https://github.com/hatter6822/seLe4n" class="nav-cta" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header class="hero" id="hero">
+    <div class="hero-bg" aria-hidden="true">
+      <div class="hero-grid"></div>
+    </div>
+    <div class="container hero-content">
+      <p class="hero-label">Micro-Kernel &middot; Lean 4 &middot; Formally Verified</p>
+      <h1 class="hero-title">
+        <span class="logo-se">se</span><span class="logo-le4n">Le4n</span>
+      </h1>
+      <p class="hero-subtitle">
+        Every kernel transition is an executable pure function.<br>
+        Every invariant is machine-checked by the Lean type-checker.
+      </p>
+      <p class="hero-tagline">Zero <code>sorry</code>. Zero <code>axiom</code>.</p>
+
+      <div class="hero-stats">
+        <div class="stat">
+          <span class="stat-value">574</span>
+          <span class="stat-label">Proven Theorems</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">21,641</span>
+          <span class="stat-label">Lines of Lean 4</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">40</span>
+          <span class="stat-label">Kernel Modules</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">0</span>
+          <span class="stat-label">Admitted Proofs</span>
+        </div>
+      </div>
+
+      <div class="hero-actions">
+        <a href="#about" class="btn btn-primary">Learn More</a>
+        <a href="https://github.com/hatter6822/seLe4n" class="btn btn-secondary" target="_blank" rel="noopener">View Source</a>
+      </div>
+
+      <p class="hero-version">v0.12.15 &middot; Lean 4.28.0 &middot; GPLv3</p>
+    </div>
+  </header>
+
+  <!-- About -->
+  <main>
+  <section class="section" id="about">
+    <div class="container">
+      <h2 class="section-title">What is seLe4n?</h2>
+      <p class="section-lead">
+        seLe4n is a micro-kernel written entirely in <strong>Lean 4</strong> with machine-checked proofs,
+        inspired by the <a href="https://sel4.systems/" target="_blank" rel="noopener">seL4</a> architecture.
+        It targets the <strong>Raspberry Pi 5</strong> (ARM64 / BCM2712) as its first hardware platform.
+      </p>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>Why a Micro-Kernel?</h3>
+          <p>
+            Micro-kernels minimize the trusted computing base by running only essential services
+            in kernel space &mdash; scheduling, IPC, capability management, and memory control.
+            Everything else (drivers, filesystems, networking) runs in user space. This reduces
+            attack surface and makes formal verification tractable: every line of kernel code
+            can be reasoned about mathematically.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Why Lean 4?</h3>
+          <p>
+            Lean 4 is both a general-purpose programming language <em>and</em> an interactive
+            theorem prover. seLe4n leverages this duality: the kernel is executable code whose
+            properties are machine-checked at compile time. There is no separate specification
+            language, no trusted translation step, and no semantic gap between the model and the
+            running code. If it compiles, the proofs hold.
+          </p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <h3>How It Works: Pure Functional Kernel Transitions</h3>
+        <p>
+          In seLe4n, every kernel operation is a <strong>pure function</strong> from state to state.
+          The entire kernel state &mdash; object stores, scheduler queues, capabilities, IPC queues,
+          ASID tables &mdash; is captured in a single immutable <code>SystemState</code> record. Every
+          system call takes the current state and returns a new state (or an error). There is no
+          mutable global state, no side effects, and no hidden control flow.
+        </p>
+        <p>
+          This is made possible by the <code>KernelM</code> monad, defined as
+          <code>&#963; &rarr; Except &#949; (&#945; &times; &#963;)</code> &mdash; a state-transformer
+          with explicit error handling. Every transition is deterministic: given the same input state
+          and system call, you always get the same output state. This determinism is what makes
+          formal verification not just possible, but practical.
+        </p>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>What Makes It Different?</h3>
+          <p>
+            Unlike seL4 which uses C for implementation and Isabelle/HOL for proofs, seLe4n
+            <strong>unifies implementation and proof in a single language</strong>. Each subsystem
+            follows an Operations/Invariant split: executable transitions live in
+            <code>Operations.lean</code>, and their machine-checked proofs live alongside in
+            <code>Invariant.lean</code>. The type-checker enforces that every invariant holds
+            across every operation.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Project Status</h3>
+          <p>
+            seLe4n is an active research project at version <strong>0.12.15</strong>. The kernel
+            model is feature-complete with IPC, scheduling, capabilities, memory management,
+            information-flow control, and service orchestration. The performance optimization
+            portfolio (WS-G) is complete &mdash; all hot paths now use O(1) hash-based structures.
+            Hardware platform bindings for the Raspberry Pi 5 are prepared and awaiting final
+            refinement work (WS-F5&ndash;F8).
+          </p>
+          <p class="card-note">
+            Created thoughtfully with the help of Claude and Codex.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section class="section section-alt" id="architecture">
+    <div class="container">
+      <h2 class="section-title">Architecture</h2>
+      <p class="section-lead">
+        seLe4n follows a <strong>layered contract model</strong>. Each subsystem separates
+        executable logic (<code>Operations.lean</code>) from machine-checked proofs
+        (<code>Invariant.lean</code>). Layers compose upward into a unified
+        <code>apiInvariantBundle</code> that covers the entire kernel.
+      </p>
+
+      <div class="arch-diagram" role="img" aria-label="seLe4n architecture diagram showing layered subsystems from API surface down to platform bindings">
+        <div class="arch-layer arch-api">
+          <div class="arch-layer-label">API Surface</div>
+          <div class="arch-block">Kernel API <span class="arch-hint">SeLe4n/Kernel/API.lean</span></div>
+        </div>
+        <div class="arch-layer arch-core">
+          <div class="arch-layer-label">Core Subsystems</div>
+          <div class="arch-blocks">
+            <div class="arch-block">Scheduler</div>
+            <div class="arch-block">Capability</div>
+            <div class="arch-block">IPC</div>
+            <div class="arch-block">Lifecycle</div>
+            <div class="arch-block">Service</div>
+          </div>
+        </div>
+        <div class="arch-layer arch-security">
+          <div class="arch-layer-label">Information Flow</div>
+          <div class="arch-blocks">
+            <div class="arch-block">Policy</div>
+            <div class="arch-block">Projection</div>
+            <div class="arch-block">Enforcement</div>
+          </div>
+        </div>
+        <div class="arch-layer arch-hw">
+          <div class="arch-layer-label">Hardware Abstraction</div>
+          <div class="arch-blocks">
+            <div class="arch-block">VSpace</div>
+            <div class="arch-block">VSpaceBackend</div>
+            <div class="arch-block">Adapter</div>
+          </div>
+        </div>
+        <div class="arch-layer arch-model">
+          <div class="arch-layer-label">Foundations</div>
+          <div class="arch-blocks">
+            <div class="arch-block">Object Model</div>
+            <div class="arch-block">State</div>
+            <div class="arch-block">Prelude</div>
+            <div class="arch-block">Machine</div>
+          </div>
+        </div>
+        <div class="arch-layer arch-platform">
+          <div class="arch-layer-label">Platform Bindings</div>
+          <div class="arch-blocks">
+            <div class="arch-block">Contract</div>
+            <div class="arch-block">Simulator</div>
+            <div class="arch-block">RPi5</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-3">
+        <div class="card card-compact">
+          <h4>Prelude &amp; Machine</h4>
+          <p>
+            13 typed identifiers (<code>ObjId</code>, <code>ThreadId</code>, <code>CPtr</code>,
+            <code>Slot</code>, <code>ASID</code>, <code>VAddr</code>, <code>PAddr</code>, etc.)
+            each with <code>Hashable</code> + <code>LawfulHashable</code> instances. The
+            <code>KernelM</code> monad, register files, memory regions, and timer configuration.
+            Sentinel value 0 reserved for <code>ObjId</code>, <code>ThreadId</code>,
+            <code>ServiceId</code>, and <code>CPtr</code> with identity theorems.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>Object Model &amp; State</h4>
+          <p>
+            8 kernel object types: <code>Untyped</code>, <code>CNode</code>,
+            <code>VSpaceRoot</code>, <code>TCB</code>, <code>Endpoint</code>,
+            <code>Notification</code>, <code>IrqHandler</code>, <code>Service</code>.
+            The <code>SystemState</code> record aggregates all stores into a single
+            immutable snapshot &mdash; <code>HashMap</code>-backed for O(1) access everywhere.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>Scheduler</h4>
+          <p>
+            <code>RunQueue</code> backed by <code>HashMap Priority (List ThreadId)</code>
+            with <code>HashSet ThreadId</code> membership index. Priority + EDF scheduling
+            with domain-aware partitioning. <code>flat_wf</code> structural invariant.
+            O(1) insert, remove, contains, and priority-bucketed candidate selection.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>Capability &amp; CDT</h4>
+          <p>
+            CNode slots backed by <code>HashMap Slot Capability</code> for O(1) operations.
+            Node-stable Capability Derivation Tree with <code>childMap : HashMap CdtNodeId
+            (List CdtNodeId)</code>. Strict revocation error reporting via
+            <code>cspaceRevokeCdtStrict</code>. Slot-reuse safety checks.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>IPC &amp; Dual-Queue</h4>
+          <p>
+            Intrusive dual-queue endpoints with <code>sendQ</code>/<code>receiveQ</code> and
+            per-thread <code>prev</code>/<code>next</code> links for O(1) mid-queue removal.
+            Message transfer via <code>TCB.pendingMessage</code> rendezvous. 14 preservation
+            theorems. Legacy single-queue operations deprecated in v0.12.12.
+          </p>
+        </div>
+        <div class="card card-compact">
+          <h4>Platform Layer</h4>
+          <p>
+            <code>PlatformBinding</code> typeclass defines runtime, boot, and interrupt
+            boundary contracts. <code>ExtendedBootBoundaryContract</code> adds platform
+            boot fields. Concrete bindings for a simulator and the Raspberry Pi 5
+            (BCM2712 memory map, GIC-400 constants, ARM64 config, 48-bit VA / 44-bit PA).
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison -->
+  <section class="section" id="comparison">
+    <div class="container">
+      <h2 class="section-title">seLe4n vs seL4</h2>
+      <p class="section-lead">
+        seLe4n preserves seL4's capability-based security model while introducing
+        architectural improvements enabled by the Lean 4 proof framework.
+      </p>
+
+      <div class="table-wrap">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>Domain</th>
+              <th>seL4</th>
+              <th>seLe4n</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Language</strong></td>
+              <td>C + assembly; proofs in Isabelle/HOL</td>
+              <td>Lean 4 for both implementation and proofs</td>
+            </tr>
+            <tr>
+              <td><strong>Verification gap</strong></td>
+              <td>Separate spec &rarr; C refinement chain</td>
+              <td>Zero gap &mdash; proofs live alongside code</td>
+            </tr>
+            <tr>
+              <td><strong>Data structures</strong></td>
+              <td>Linked lists, sequential lookups</td>
+              <td>HashMap/HashSet everywhere &mdash; O(1) hot paths</td>
+            </tr>
+            <tr>
+              <td><strong>IPC queuing</strong></td>
+              <td>Intrusive singly-linked list</td>
+              <td>Dual-queue (sendQ/receiveQ) with O(1) mid-queue removal</td>
+            </tr>
+            <tr>
+              <td><strong>Scheduling</strong></td>
+              <td>Priority-based round-robin</td>
+              <td>Priority + EDF with domain-aware partitioning</td>
+            </tr>
+            <tr>
+              <td><strong>CDT</strong></td>
+              <td>Mutable doubly-linked list</td>
+              <td>Node-stable with HashMap childMap, O(1) slot transfer</td>
+            </tr>
+            <tr>
+              <td><strong>Information flow</strong></td>
+              <td>Binary high/low partition</td>
+              <td>N-domain two-dimensional labels with per-endpoint policies</td>
+            </tr>
+            <tr>
+              <td><strong>Service management</strong></td>
+              <td>No kernel-level concept</td>
+              <td>Dependency graph with DFS cycle detection</td>
+            </tr>
+            <tr>
+              <td><strong>Revocation</strong></td>
+              <td>Silent error handling</td>
+              <td>Strict variant reporting first failure with context</td>
+            </tr>
+            <tr>
+              <td><strong>State model</strong></td>
+              <td>Mutable C structures</td>
+              <td>Immutable records, pure functional transitions</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="section section-alt" id="features">
+    <div class="container">
+      <h2 class="section-title">Key Innovations</h2>
+      <p class="section-lead">
+        seLe4n introduces architectural improvements across every subsystem,
+        with a focus on O(1) data structures and machine-checked correctness.
+        The WS-G performance portfolio eliminated all 14 audit findings.
+      </p>
+
+      <div class="features-grid">
+
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <h3>O(1) Everywhere</h3>
+          <p>
+            Every hot-path data structure uses <code>Std.HashMap</code> or <code>Std.HashSet</code>:
+            object stores, run queues, CNode slots, VSpace mappings, IPC queues, ASID tables,
+            CDT child lookups, notification waiters, and service dependency graphs.
+            All 13 typed identifiers have <code>Hashable</code> + <code>LawfulHashable</code>
+            instances. 14 performance audit findings eliminated across 9 workstreams (WS-G1&ndash;G9).
+            400+ theorems re-verified after the data structure migration.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+          </div>
+          <h3>Priority-Bucketed Scheduler</h3>
+          <p>
+            The <code>RunQueue</code> is backed by <code>HashMap Priority (List ThreadId)</code>
+            with a <code>HashSet ThreadId</code> membership index. Domain-aware EDF scheduling
+            ensures threads only run in their assigned security domain. The <code>flat_wf</code>
+            structural invariant is maintained across all operations. <code>chooseBestInBucket</code>
+            reduces candidate selection from O(t) to O(k) where k is the bucket size. 13 bridge
+            lemmas and 30+ IPC invariant proofs were migrated during the restructure.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <h3>Intrusive Dual-Queue IPC</h3>
+          <p>
+            Inspired by Linux kernel queue design. Endpoints maintain separate
+            <code>sendQ</code> and <code>receiveQ</code> lists. Each TCB carries intrusive
+            <code>prev</code>/<code>next</code> links enabling O(1) mid-queue removal
+            without scanning. Messages flow through <code>TCB.pendingMessage</code> rendezvous
+            with 14 preservation theorems (TPI-D08/D09) and 7 trace anchors. Sentinel ID rejection
+            at IPC boundaries prevents ghost queue entries.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <h3>Capability Derivation Tree</h3>
+          <p>
+            Node-stable CDT with <code>childMap : HashMap CdtNodeId (List CdtNodeId)</code>
+            for O(1) slot transfer and revocation. <code>descendantsOf</code> runs in O(N+E).
+            Strict revocation via <code>cspaceRevokeCdtStrict</code> reports the first failure
+            with full context rather than silently swallowing errors. Bidirectional
+            <code>childMapConsistent</code> invariant with preservation proofs ensures the
+            index stays synchronized with the underlying edge set.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          </div>
+          <h3>N-Domain Information Flow</h3>
+          <p>
+            Parameterized security framework with two-dimensional labels (confidentiality +
+            integrity). <code>DomainFlowPolicy</code> supports arbitrary domain counts and
+            flow topologies with proven reflexivity and transitivity. <code>GenericLabelingContext</code>
+            assigns domains to objects, threads, endpoints, and services. Per-endpoint flow
+            policy overrides via <code>EndpointFlowPolicy</code>. The legacy 2&times;2 lattice
+            embeds into a 4-domain linear lattice with proven semantics preservation.
+            15 non-interference theorems, 7-field <code>ObservableState</code> projection,
+            precomputed <code>HashSet</code>-based observability for O(1) lookups.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <h3>Service Orchestration</h3>
+          <p>
+            First-class kernel service concept &mdash; a feature seL4 lacks entirely.
+            Graph-based component lifecycle management with O(n+e) DFS cycle detection
+            using <code>HashSet ServiceId</code>. Dependency-aware startup, shutdown,
+            and restart with service health tracking. Acyclic policy enforcement prevents
+            circular dependencies at the kernel level.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <h3>VSpace &amp; Memory</h3>
+          <p>
+            Virtual address space management with <code>HashMap VAddr PAddr</code> mappings.
+            Round-trip mapping theorems and universal <code>noVirtualOverlap_trivial</code>
+            proof (trivially true via HashMap key uniqueness). Backend-independent design
+            via <code>VSpaceBackend</code> adapter pattern. Untyped memory retype with
+            watermark tracking, 10+ preservation theorems, and 6 negative-state tests.
+            48-bit VA / 44-bit PA address space for RPi5.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          </div>
+          <h3>Composable Invariant Bundles</h3>
+          <p>
+            Each subsystem proves its own invariant bundle. Bundles compose upward:
+            <code>coreIpcInvariantBundle</code>,
+            <code>ipcSchedulerCouplingInvariantBundle</code>,
+            <code>lifecycleCompositionInvariantBundle</code>, and
+            <code>vspaceInvariantBundle</code> all roll up into
+            <code>proofLayerInvariantBundle</code>, exposed as the unified
+            <code>apiInvariantBundle</code>. A base-case theorem proves the
+            bundle holds for the default (empty) state.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Code Examples -->
+  <section class="section" id="code">
+    <div class="container">
+      <h2 class="section-title">Inside the Code</h2>
+      <p class="section-lead">
+        seLe4n is written in idiomatic Lean 4. Here are representative excerpts from the
+        actual kernel source, showing how types, operations, and proofs work together.
+      </p>
+
+      <div class="code-examples">
+
+        <div class="code-example">
+          <div class="code-header">
+            <h3>Security Policy: Two-Dimensional Labels</h3>
+            <span class="code-file">SeLe4n/Kernel/InformationFlow/Policy.lean</span>
+          </div>
+          <pre><code><span class="kw">inductive</span> <span class="ty">Confidentiality</span> <span class="kw">where</span>
+  | low
+  | high
+  <span class="kw">deriving</span> Repr, DecidableEq
+
+<span class="kw">inductive</span> <span class="ty">Integrity</span> <span class="kw">where</span>
+  | untrusted
+  | trusted
+  <span class="kw">deriving</span> Repr, DecidableEq
+
+<span class="kw">structure</span> <span class="ty">SecurityLabel</span> <span class="kw">where</span>
+  confidentiality : <span class="ty">Confidentiality</span>
+  integrity : <span class="ty">Integrity</span>
+
+<span class="cm">-- Combined policy: confidentiality flows up, integrity flows down</span>
+<span class="kw">def</span> <span class="fn">securityFlowsTo</span> (src dst : <span class="ty">SecurityLabel</span>) : <span class="ty">Bool</span> :=
+  confidentialityFlowsTo src.confidentiality dst.confidentiality &amp;&amp;
+    integrityFlowsTo dst.integrity src.integrity
+
+<span class="cm">-- Machine-checked: flow relation is transitive</span>
+<span class="kw">theorem</span> <span class="fn">securityFlowsTo_trans</span>
+    (a b c : <span class="ty">SecurityLabel</span>)
+    (h&#x2081; : securityFlowsTo a b = <span class="kw">true</span>)
+    (h&#x2082; : securityFlowsTo b c = <span class="kw">true</span>) :
+    securityFlowsTo a c = <span class="kw">true</span> := <span class="kw">by</span>
+  <span class="tac">cases</span> a <span class="kw">with</span>
+  | mk ac ai =&gt;
+      <span class="tac">cases</span> b <span class="kw">with</span>
+      | mk bc bi =&gt;
+          <span class="tac">cases</span> c <span class="kw">with</span>
+          | mk cc ci =&gt;
+              <span class="tac">simp</span> [securityFlowsTo] <span class="kw">at</span> h&#x2081; h&#x2082; &#x22A2;
+              <span class="tac">exact</span> And.intro
+                (confidentialityFlowsTo_trans ac bc cc h&#x2081;.left h&#x2082;.left)
+                (integrityFlowsTo_trans ci bi ai h&#x2082;.right h&#x2081;.right)</code></pre>
+        </div>
+
+        <div class="code-example">
+          <div class="code-header">
+            <h3>N-Domain Flow Policy</h3>
+            <span class="code-file">SeLe4n/Kernel/InformationFlow/Policy.lean</span>
+          </div>
+          <pre><code><span class="cm">-- Parameterized flow policy supporting arbitrary domain counts</span>
+<span class="kw">structure</span> <span class="ty">DomainFlowPolicy</span> <span class="kw">where</span>
+  canFlow : <span class="ty">SecurityDomain</span> &rarr; <span class="ty">SecurityDomain</span> &rarr; <span class="ty">Bool</span>
+
+<span class="cm">-- Well-formedness: reflexive + transitive</span>
+<span class="kw">def</span> <span class="ty">DomainFlowPolicy</span>.<span class="fn">wellFormed</span> (p : <span class="ty">DomainFlowPolicy</span>) : <span class="ty">Prop</span> :=
+  p.isReflexive &and; p.isTransitive
+
+<span class="cm">-- Linear order: domain a can flow to domain b iff a.id &le; b.id</span>
+<span class="kw">def</span> <span class="ty">DomainFlowPolicy</span>.<span class="fn">linearOrder</span> : <span class="ty">DomainFlowPolicy</span> :=
+  { canFlow := <span class="kw">fun</span> src dst =&gt; decide (src.id &le; dst.id) }
+
+<span class="cm">-- Proven well-formed</span>
+<span class="kw">theorem</span> <span class="ty">DomainFlowPolicy</span>.<span class="fn">linearOrder_wellFormed</span> :
+    <span class="ty">DomainFlowPolicy</span>.linearOrder.wellFormed :=
+  &langle;linearOrder_reflexive, linearOrder_transitive&rangle;</code></pre>
+        </div>
+
+        <div class="code-example">
+          <div class="code-header">
+            <h3>Unified Kernel API</h3>
+            <span class="code-file">SeLe4n/Kernel/API.lean</span>
+          </div>
+          <pre><code><span class="cm">-- The unified API invariant bundle aliases the composed</span>
+<span class="cm">-- proof-layer bundle from all subsystems</span>
+<span class="kw">abbrev</span> <span class="fn">apiInvariantBundle</span> :=
+    Architecture.proofLayerInvariantBundle
+
+<span class="cm">-- Base case: the default (empty) state satisfies</span>
+<span class="cm">-- the entire invariant bundle</span>
+<span class="kw">theorem</span> <span class="fn">apiInvariantBundle_default</span> :
+    apiInvariantBundle (<span class="kw">default</span> : <span class="ty">SystemState</span>) :=
+  Architecture.default_system_state_proofLayerInvariantBundle</code></pre>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Security -->
+  <section class="section section-alt" id="security">
+    <div class="container">
+      <h2 class="section-title">Security Model</h2>
+      <p class="section-lead">
+        Security is woven into every layer of seLe4n through formal information-flow control,
+        capability-based access mediation, and a documented threat model.
+      </p>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>Information Flow Control</h3>
+          <p>
+            seLe4n implements a parameterized N-domain information-flow framework. The system
+            supports both the legacy 2&times;2 confidentiality/integrity lattice and arbitrary
+            domain topologies via <code>DomainFlowPolicy</code>:
+          </p>
+          <ul>
+            <li><strong>15 non-interference theorems</strong> &mdash; 12 standalone + 3 enforcement bridges</li>
+            <li><strong>7-field <code>ObservableState</code></strong> projection covering full kernel state</li>
+            <li><strong>Precomputed observability</strong> via <code>HashSet</code> for O(1) projection lookups</li>
+            <li><strong>17 operations classified</strong> by enforcement level</li>
+            <li><strong>Per-endpoint flow policies</strong> for fine-grained overrides</li>
+            <li><strong>Legacy embedding theorem</strong> proves the generic system subsumes the original</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Capability-Based Access</h3>
+          <p>
+            All resource access is mediated through capabilities stored in CNode slots.
+            The capability derivation tree tracks all parent-child relationships:
+          </p>
+          <ul>
+            <li><strong>O(1) slot operations</strong> via HashMap-backed CNodes</li>
+            <li><strong>Strict revocation</strong> with explicit error reporting and context</li>
+            <li><strong>Node-stable CDT</strong> with <code>childMap</code> HashMap index</li>
+            <li><strong>Slot-reuse safety</strong> checks preventing dangling capabilities</li>
+            <li><strong>Policy-checked wrappers:</strong> <code>endpointSendDualChecked</code>,
+              <code>cspaceMintChecked</code>, <code>serviceRestartChecked</code></li>
+            <li><strong>Sentinel ID rejection</strong> at IPC boundaries prevents ghost queue entries</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="threat-model">
+        <h3>Threat Model &amp; Security Boundaries</h3>
+        <div class="grid grid-3">
+          <div class="threat-card">
+            <h4>Protected Assets</h4>
+            <ul>
+              <li>Formal semantics and proof artifacts</li>
+              <li>Executable evidence (traces and tier scripts)</li>
+              <li>Supply-chain bootstrap infrastructure</li>
+              <li>Lean toolchain integrity</li>
+            </ul>
+          </div>
+          <div class="threat-card">
+            <h4>Threat Actors</h4>
+            <ul>
+              <li><strong>External attacker:</strong> Public repo access, dependency injection</li>
+              <li><strong>Upstream compromise:</strong> Altered installer delivery</li>
+              <li><strong>Accidental insider:</strong> Secret commits, stale docs</li>
+              <li><strong>Fork CI:</strong> Limited upload permissions</li>
+            </ul>
+          </div>
+          <div class="threat-card">
+            <h4>Security Controls</h4>
+            <ul>
+              <li>Expanded <code>.gitignore</code> secret/artifact denylist</li>
+              <li>SHA-256 verified <code>elan</code> installer downloads</li>
+              <li>Tier-3 anchor checks against CI workflow semantics</li>
+              <li>Non-blocking CodeQL security baseline</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Verification -->
+  <section class="section" id="verification">
+    <div class="container">
+      <h2 class="section-title">Verification &amp; Testing</h2>
+      <p class="section-lead">
+        seLe4n employs a multi-tiered verification strategy combining Lean's type-checker
+        with runtime testing, ensuring correctness from proof to execution.
+      </p>
+
+      <div class="tiers">
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 0</span>
+            <h3>Hygiene</h3>
+          </div>
+          <p>
+            Forbidden-marker scans ensure zero <code>sorry</code> and zero <code>axiom</code>
+            across all production code. Documentation link validation, sync checks, and
+            formatting enforcement. The first line of defense.
+          </p>
+          <code class="tier-script">./scripts/test_tier0_hygiene.sh</code>
+        </div>
+
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 1</span>
+            <h3>Build</h3>
+          </div>
+          <p>
+            Full Lean compilation across 84 parallel build jobs. All 574 theorems are
+            type-checked. Every invariant proof, every bridge lemma, every preservation
+            theorem is verified by the Lean type-checker. If it compiles, the proofs hold.
+          </p>
+          <code class="tier-script">./scripts/test_tier1_build.sh</code>
+        </div>
+
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 2</span>
+            <h3>Runtime</h3>
+          </div>
+          <p>
+            Trace sequence probes validate executable behavior against formal semantics.
+            The negative-state suite tests malformed input rejection across IPC, capabilities,
+            endpoints, and CSpace mutations. Information-flow runtime checks verify
+            enforcement wrappers.
+          </p>
+          <code class="tier-script">./scripts/test_tier2_negative.sh &amp;&amp; ./scripts/test_tier2_trace.sh</code>
+        </div>
+
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 3</span>
+            <h3>Invariant Surface</h3>
+          </div>
+          <p>
+            Anchors every named theorem and invariant to the proof surface. Verifies that
+            all documented claims in the <a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener">Claim &amp; Evidence Index</a>
+            are backed by actual code. Ensures no proof regressions across refactoring.
+            The full correctness gate for PRs.
+          </p>
+          <code class="tier-script">./scripts/test_tier3_invariant_surface.sh</code>
+        </div>
+
+        <div class="tier">
+          <div class="tier-header">
+            <span class="tier-badge">Tier 4</span>
+            <h3>Nightly</h3>
+          </div>
+          <p>
+            Determinism checks, experimental feature validation, and long-running
+            invariant probes. Fixture-backed oracle testing. Catches subtle regressions
+            that slip through faster tiers.
+          </p>
+          <code class="tier-script">./scripts/test_nightly.sh</code>
+        </div>
+      </div>
+
+      <div class="shortcut-table">
+        <h3>Test Shortcuts</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Command</th><th>Tiers</th><th>Use Case</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>./scripts/test_fast.sh</code></td><td>0 + 1</td><td>CI &mdash; hygiene and build only</td></tr>
+              <tr><td><code>./scripts/test_smoke.sh</code></td><td>0 + 1 + 2</td><td>Minimum PR requirement</td></tr>
+              <tr><td><code>./scripts/test_full.sh</code></td><td>0 + 1 + 2 + 3</td><td>Full verification &mdash; invariant/theorem changes</td></tr>
+              <tr><td><code>./scripts/test_nightly.sh</code></td><td>0 + 1 + 2 + 3 + 4</td><td>Nightly CI &mdash; determinism + experimental</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="proof-quality">
+        <h3>Proof Quality Classification</h3>
+        <div class="grid grid-3">
+          <div class="quality-card quality-high">
+            <h4>High Assurance</h4>
+            <ul>
+              <li>Substantive preservation</li>
+              <li>Compositional preservation</li>
+              <li>Structural invariants</li>
+              <li>End-to-end chains</li>
+              <li>Non-interference proofs</li>
+            </ul>
+          </div>
+          <div class="quality-card quality-low">
+            <h4>Low Assurance</h4>
+            <ul>
+              <li>Error-case preservation</li>
+              <li>Trivially true for unchanged state returns</li>
+            </ul>
+          </div>
+          <div class="quality-card quality-resolved">
+            <h4>Resolved Findings</h4>
+            <ul>
+              <li>C-01: Tautological proofs &rarr; refactored</li>
+              <li>H-01: Non-compositional proofs &rarr; refactored</li>
+              <li>H-03: Badge safety gap &rarr; closed</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- API Reference -->
+  <section class="section section-alt" id="api">
+    <div class="container">
+      <h2 class="section-title">API Surface</h2>
+      <p class="section-lead">
+        The kernel exposes a stable public API through <code>SeLe4n/Kernel/API.lean</code>.
+        All entry points are classified by subsystem and stability.
+      </p>
+
+      <div class="table-wrap">
+        <table class="data-table api-table">
+          <thead>
+            <tr><th>Entry Point</th><th>Subsystem</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>schedule</code>, <code>handleYield</code></td><td>Scheduler</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>timerTick</code></td><td>Scheduler</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>scheduleDomain</code>, <code>switchDomain</code></td><td>Scheduler</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>cspaceLookupSlot</code>, <code>cspaceLookupPath</code></td><td>Capability</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>cspaceMint</code>, <code>cspaceCopy</code>, <code>cspaceMove</code></td><td>Capability</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>cspaceMutate</code>, <code>cspaceInsertSlot</code>, <code>cspaceDeleteSlot</code></td><td>Capability</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>endpointSendDual</code>, <code>endpointReceiveDual</code></td><td>IPC</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>endpointReply</code>, <code>endpointCall</code>, <code>endpointReplyRecv</code></td><td>IPC</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>retypeFromUntyped</code></td><td>Lifecycle</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>serviceStart</code>, <code>serviceStop</code>, <code>serviceRestart</code></td><td>Service</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>vspaceMapPage</code>, <code>vspaceUnmapPage</code>, <code>vspaceLookup</code></td><td>VSpace</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>endpointSendDualChecked</code></td><td>Info-flow</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>cspaceMintChecked</code>, <code>serviceRestartChecked</code></td><td>Info-flow</td><td><span class="badge-stable">Stable</span></td></tr>
+            <tr><td><code>endpointSend</code>, <code>endpointReceive</code></td><td>IPC (legacy)</td><td><span class="badge-deprecated">Deprecated</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Project Structure -->
+  <section class="section" id="structure">
+    <div class="container">
+      <h2 class="section-title">Project Structure</h2>
+      <p class="section-lead">
+        40 Lean modules organized with a consistent Operations/Invariant pattern,
+        19 test and CI scripts, and 14 documentation files with specifications, ADRs, and roadmaps.
+      </p>
+
+      <div class="file-tree">
+        <div class="tree-root">seLe4n/</div>
+        <div class="tree-group">
+          <div class="tree-dir">SeLe4n/</div>
+          <div class="tree-children">
+            <div class="tree-file">Prelude.lean <span class="tree-desc">&mdash; 13 typed identifiers, KernelM monad, HashMap bridges</span></div>
+            <div class="tree-file">Machine.lean <span class="tree-desc">&mdash; Register file, memory regions, MachineConfig</span></div>
+            <div class="tree-dir">Kernel/</div>
+            <div class="tree-children">
+              <div class="tree-file">API.lean <span class="tree-desc">&mdash; System call entry point, apiInvariantBundle</span></div>
+              <div class="tree-dir">Architecture/ <span class="tree-desc">&mdash; VSpace, VSpaceBackend, Adapter, Assumptions (6 files)</span></div>
+              <div class="tree-dir">Capability/ <span class="tree-desc">&mdash; Operations.lean, Invariant.lean (92KB of proofs)</span></div>
+              <div class="tree-dir">IPC/ <span class="tree-desc">&mdash; DualQueue.lean, Operations.lean, Invariant.lean (223KB)</span></div>
+              <div class="tree-dir">InformationFlow/ <span class="tree-desc">&mdash; Policy, Projection, Enforcement, Invariant</span></div>
+              <div class="tree-dir">Lifecycle/ <span class="tree-desc">&mdash; Object creation, destruction, retype operations</span></div>
+              <div class="tree-dir">Scheduler/ <span class="tree-desc">&mdash; RunQueue, Operations, Invariant</span></div>
+              <div class="tree-dir">Service/ <span class="tree-desc">&mdash; Dependency graph operations &amp; invariants</span></div>
+            </div>
+            <div class="tree-dir">Model/ <span class="tree-desc">&mdash; Object.lean (41KB), State.lean (35KB)</span></div>
+            <div class="tree-dir">Platform/ <span class="tree-desc">&mdash; Contract.lean, Sim/, RPi5/</span></div>
+            <div class="tree-dir">Testing/ <span class="tree-desc">&mdash; MainTraceHarness, InvariantChecks, StateBuilder, Fixtures</span></div>
+          </div>
+        </div>
+        <div class="tree-group">
+          <div class="tree-dir">docs/ <span class="tree-desc">&mdash; Spec, ADRs, threat model, IF roadmap, claim index (14 files + 4 dirs)</span></div>
+          <div class="tree-dir">scripts/ <span class="tree-desc">&mdash; 19 test, CI, and documentation scripts</span></div>
+          <div class="tree-dir">tests/ <span class="tree-desc">&mdash; InformationFlowSuite, NegativeStateSuite, TraceSequenceProbe</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Getting Started -->
+  <section class="section section-alt" id="getting-started">
+    <div class="container">
+      <h2 class="section-title">Getting Started</h2>
+      <p class="section-lead">
+        Whether you want to explore the kernel model, contribute proofs, or understand
+        the architecture &mdash; here is how to get up and running.
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-number" aria-hidden="true">1</div>
+          <div class="step-content">
+            <h3>Clone the Repository</h3>
+            <pre><code>git clone https://github.com/hatter6822/seLe4n.git
+cd seLe4n</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number" aria-hidden="true">2</div>
+          <div class="step-content">
+            <h3>Set Up the Lean Environment</h3>
+            <p>
+              The setup script installs <code>elan</code> (the Lean version manager) with
+              <strong>SHA-256 checksum verification</strong> and the pinned Lean 4.28.0 toolchain.
+            </p>
+            <pre><code>./scripts/setup_lean_env.sh</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number" aria-hidden="true">3</div>
+          <div class="step-content">
+            <h3>Build &amp; Verify</h3>
+            <p>
+              Build the entire kernel. All 574 theorems are checked during compilation
+              across 84 parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
+            </p>
+            <pre><code>lake build</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number" aria-hidden="true">4</div>
+          <div class="step-content">
+            <h3>Run Tests</h3>
+            <p>Start with the smoke test (minimum for PRs), then run the full suite for invariant work.</p>
+            <pre><code><span class="cm"># Minimum PR requirement (Tiers 0-2)</span>
+./scripts/test_smoke.sh
+
+<span class="cm"># Full verification (Tiers 0-3)</span>
+./scripts/test_full.sh
+
+<span class="cm"># Quick CI check (Tiers 0-1 only)</span>
+./scripts/test_fast.sh</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h3>Contributing</h3>
+          <p>seLe4n welcomes contributors. Before submitting a PR:</p>
+          <ul>
+            <li>Read the <a href="https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing Guide</a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener">Development Docs</a></li>
+            <li>Identify which workstream (WS-F5 through F8) your change addresses</li>
+            <li>Run <code>./scripts/test_smoke.sh</code> at minimum; <code>test_full.sh</code> for theorem changes</li>
+            <li>Update invariants and theorems together with code changes</li>
+            <li>Keep PRs focused on one coherent unit of work</li>
+            <li>State transitions must have explicit success or failure outcomes</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Documentation</h3>
+          <p>Comprehensive docs live in the <code>docs/</code> directory:</p>
+          <ul>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/spec/SELE4N_SPEC.md" target="_blank" rel="noopener">Master Specification</a> &mdash; Complete kernel design</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener">Development Guide</a> &mdash; Workflow and standards</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/TESTING_FRAMEWORK_PLAN.md" target="_blank" rel="noopener">Testing Framework</a> &mdash; Tier organization</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener">Threat Model</a> &mdash; Security boundaries</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/INFORMATION_FLOW_ROADMAP.md" target="_blank" rel="noopener">IF Roadmap</a> &mdash; Non-interference proof status</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener">Claim &amp; Evidence Index</a> &mdash; Verification traceability</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/PLATFORM_BINDING_ADR.md" target="_blank" rel="noopener">Platform Binding ADR</a> &mdash; Hardware abstraction design</li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/VSPACE_MEMORY_MODEL_ADR.md" target="_blank" rel="noopener">VSpace ADR</a> &mdash; Memory model decisions</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Roadmap -->
+  <section class="section" id="roadmap">
+    <div class="container">
+      <h2 class="section-title">Roadmap</h2>
+      <p class="section-lead">
+        Development is organized into workstream portfolios and hardware binding milestones.
+        11 workstreams and 7 milestones are complete. Here is where the project stands.
+      </p>
+
+      <div class="timeline">
+        <div class="timeline-item done">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>M1&ndash;M7: Semantic Foundations <span class="timeline-tag">Complete</span></h3>
+            <p>Scheduler semantics, capability/CSpace operations, IPC seeds, waiting handshake,
+            lifecycle/retype, capability composition, service graphs, architecture boundary
+            assumptions, and initial audit remediation.</p>
+          </div>
+        </div>
+        <div class="timeline-item done">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>WS-B through WS-E: Audit Portfolios <span class="timeline-tag">Complete</span></h3>
+            <p>Four complete audit portfolios: WS-B comprehensive audit (11 workstreams),
+            WS-C model/docs/maintainability (8 workstreams), WS-D test validity and
+            proof gaps (6 workstreams), WS-E test/CI and kernel hardening (6 workstreams).
+            All findings closed.</p>
+          </div>
+        </div>
+        <div class="timeline-item done">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>WS-F1&ndash;F4: Critical Audit Remediation <span class="timeline-tag">Complete</span></h3>
+            <p>
+              Intrusive dual-queue IPC with message transfer verification.
+              Untyped memory retype with watermark tracking.
+              Information-flow completeness &mdash; 7-field <code>ObservableState</code> projection.
+              Proof gap closure across all operations.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item done">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>WS-G: Performance Optimization <span class="timeline-tag">Complete</span></h3>
+            <p>
+              9 workstreams (G1&ndash;G9) migrating all hot paths to O(1) hash-based structures.
+              14 performance audit findings eliminated. Typed identifier Hashable instances,
+              object store HashMap, ASID resolution table, RunQueue restructure, CNode slot HashMap,
+              VSpace mapping HashMap, IPC dual-queue + notification, graph traversal optimization,
+              and information-flow projection optimization. 400+ theorems re-verified.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item active">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>WS-F5&ndash;F8: Refinement <span class="timeline-tag tag-active">In Progress</span></h3>
+            <p>
+              <strong>F5:</strong> Model fidelity &mdash; badge bitmask, per-thread registers, multi-level CSpace.<br>
+              <strong>F6:</strong> Invariant quality &mdash; tautology reclassification, adapter proof hooks.<br>
+              <strong>F7:</strong> Testing expansion &mdash; oracle, probe, and fixture coverage.<br>
+              <strong>F8:</strong> Cleanup &mdash; dead code removal, legacy/dual-queue resolution.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item future">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>H3: Raspberry Pi 5 Platform Binding <span class="timeline-tag tag-future">Upcoming</span></h3>
+            <p>
+              Structural foundation is in place: <code>PlatformBinding</code> typeclass,
+              <code>MachineConfig</code>, <code>VSpaceBackend</code>, RPi5 stubs with BCM2712
+              memory map and GIC-400 constants. 48-bit VA / 44-bit PA address space.
+              Blocked on WS-F closure.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item future">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>H4 &amp; IF-M5: Evidence Convergence <span class="timeline-tag tag-future">Planned</span></h3>
+            <p>
+              Proof-to-platform convergence. Map model observability assumptions to RPi5
+              adapter obligations. Document unresolved security debt for side-channel follow-up.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="#hero" class="footer-logo-link">
+            <span class="logo-se">se</span><span class="logo-le4n">Le4n</span>
+          </a>
+          <p>A micro-kernel written in Lean 4 with machine-checked proofs.</p>
+          <p class="footer-meta">v0.12.15 &middot; Lean 4.28.0</p>
+          <p class="footer-license">Licensed under <a href="https://github.com/hatter6822/seLe4n/blob/main/LICENSE" target="_blank" rel="noopener">GPLv3</a></p>
+        </div>
+        <div class="footer-links">
+          <h4>Project</h4>
+          <ul>
+            <li><a href="https://github.com/hatter6822/seLe4n" target="_blank" rel="noopener">Source Code</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/issues" target="_blank" rel="noopener">Issues</a></li>
+          </ul>
+        </div>
+        <div class="footer-links">
+          <h4>Documentation</h4>
+          <ul>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/spec/SELE4N_SPEC.md" target="_blank" rel="noopener">Specification</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener">Development</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/TESTING_FRAMEWORK_PLAN.md" target="_blank" rel="noopener">Testing</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener">Threat Model</a></li>
+            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener">Claims &amp; Evidence</a></li>
+          </ul>
+        </div>
+        <div class="footer-links">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="https://lean-lang.org/" target="_blank" rel="noopener">Lean 4</a></li>
+            <li><a href="https://sel4.systems/" target="_blank" rel="noopener">seL4 Foundation</a></li>
+            <li><a href="https://www.raspberrypi.com/products/raspberry-pi-5/" target="_blank" rel="noopener">Raspberry Pi 5</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>seLe4n &middot; Created thoughtfully with the help of Claude and Codex</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      // Mobile navigation toggle
+      var toggle = document.getElementById('nav-toggle');
+      var links = document.getElementById('nav-links');
+      if (toggle && links) {
+        toggle.addEventListener('click', function() {
+          var open = links.classList.toggle('open');
+          toggle.classList.toggle('open');
+          toggle.setAttribute('aria-expanded', open);
+        });
+        var items = links.querySelectorAll('a');
+        for (var i = 0; i < items.length; i++) {
+          items[i].addEventListener('click', function() {
+            links.classList.remove('open');
+            toggle.classList.remove('open');
+            toggle.setAttribute('aria-expanded', 'false');
+          });
+        }
+      }
+
+      // Sticky nav background on scroll
+      var nav = document.getElementById('nav');
+      if (nav) {
+        var ticking = false;
+        window.addEventListener('scroll', function() {
+          if (!ticking) {
+            window.requestAnimationFrame(function() {
+              if (window.scrollY > 40) {
+                nav.classList.add('scrolled');
+              } else {
+                nav.classList.remove('scrolled');
+              }
+              ticking = false;
+            });
+            ticking = true;
+          }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
