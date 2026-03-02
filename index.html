@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>seLe4n — A Micro-Kernel Written in Lean 4</title>
-  <meta name="description" content="seLe4n is a formally verified micro-kernel written entirely in Lean 4 with 574 machine-checked theorems, zero sorry, zero axiom. Inspired by seL4, targeting Raspberry Pi 5.">
+  <meta name="description" content="seLe4n is a formally verified micro-kernel written entirely in Lean 4 with 577 machine-checked theorems, zero sorry, zero axiom. Inspired by seL4, targeting Raspberry Pi 5.">
   <meta name="keywords" content="seLe4n, microkernel, Lean 4, formal verification, seL4, operating system, kernel, Raspberry Pi 5, theorem proving, capability, IPC">
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
 
   <meta property="og:title" content="seLe4n — A Micro-Kernel Written in Lean 4">
-  <meta property="og:description" content="Formally verified micro-kernel with 574 machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
+  <meta property="og:description" content="Formally verified micro-kernel with 577 machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sele4n.org">
 
@@ -31,7 +31,7 @@
     "codeRepository": "https://github.com/hatter6822/seLe4n",
     "programmingLanguage": "Lean 4",
     "license": "https://www.gnu.org/licenses/gpl-3.0.html",
-    "version": "0.12.15"
+    "version": "0.12.16"
   }
   </script>
 </head>
@@ -91,7 +91,7 @@
 
       <div class="hero-stats">
         <div class="stat">
-          <span class="stat-value" data-live="theorems">574</span>
+          <span class="stat-value" data-live="theorems">577</span>
           <span class="stat-label">Proven Theorems</span>
         </div>
         <div class="stat">
@@ -99,7 +99,7 @@
           <span class="stat-label">Lines of Lean 4</span>
         </div>
         <div class="stat">
-          <span class="stat-value" data-live="modules">40</span>
+          <span class="stat-value" data-live="modules">35</span>
           <span class="stat-label">Kernel Modules</span>
         </div>
         <div class="stat">
@@ -113,7 +113,7 @@
         <a href="https://github.com/hatter6822/seLe4n" class="btn btn-secondary" target="_blank" rel="noopener">View Source</a>
       </div>
 
-      <p class="hero-version">v<span data-live="version">0.12.15</span> &middot; Lean <span data-live="lean-version">4.28.0</span> &middot; GPLv3</p>
+      <p class="hero-version">v<span data-live="version">0.12.16</span> &middot; Lean <span data-live="lean-version">4.28.0</span> &middot; GPLv3</p>
     </div>
   </header>
 
@@ -184,7 +184,7 @@
         <div class="card">
           <h3>Project Status</h3>
           <p>
-            seLe4n is an active research project at version <strong data-live="version">0.12.15</strong>. The kernel
+            seLe4n is an active research project at version <strong data-live="version">0.12.16</strong>. The kernel
             model is feature-complete with IPC, scheduling, capabilities, memory management,
             information-flow control, and service orchestration. The performance optimization
             portfolio (WS-G) is complete &mdash; all hot paths now use O(1) hash-based structures.
@@ -741,7 +741,7 @@
             <h3>Build</h3>
           </div>
           <p>
-            Full Lean compilation across <span data-live="build-jobs">84</span> parallel build jobs. All <span data-live="theorems">574</span> theorems are
+            Full Lean compilation across <span data-live="build-jobs">70</span> parallel build jobs. All <span data-live="theorems">577</span> theorems are
             type-checked. Every invariant proof, every bridge lemma, every preservation
             theorem is verified by the Lean type-checker. If it compiles, the proofs hold.
           </p>
@@ -880,8 +880,8 @@
     <div class="container">
       <h2 class="section-title">Project Structure</h2>
       <p class="section-lead">
-        <span data-live="modules">40</span> Lean modules organized with a consistent Operations/Invariant pattern,
-        <span data-live="scripts">19</span> test and CI scripts, and <span data-live="docs">14</span> documentation files with specifications, ADRs, and roadmaps.
+        <span data-live="modules">35</span> Lean modules organized with a consistent Operations/Invariant pattern,
+        <span data-live="scripts">17</span> test and CI scripts, and <span data-live="docs">97</span> documentation files with specifications, ADRs, and roadmaps.
       </p>
 
       <div class="file-tree">
@@ -952,8 +952,8 @@ cd seLe4n</code></pre>
           <div class="step-content">
             <h3>Build &amp; Verify</h3>
             <p>
-              Build the entire kernel. All <span data-live="theorems">574</span> theorems are checked during compilation
-              across <span data-live="build-jobs">84</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
+              Build the entire kernel. All <span data-live="theorems">577</span> theorems are checked during compilation
+              across <span data-live="build-jobs">70</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
             </p>
             <pre><code>lake build</code></pre>
           </div>
@@ -1110,7 +1110,7 @@ cd seLe4n</code></pre>
             <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark">
           </a>
           <p>A micro-kernel written in Lean 4 with machine-checked proofs.</p>
-          <p class="footer-meta">v<span data-live="version">0.12.15</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
+          <p class="footer-meta">v<span data-live="version">0.12.16</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
           <p class="footer-license">Licensed under <a href="https://github.com/hatter6822/seLe4n/blob/main/LICENSE" target="_blank" rel="noopener">GPLv3</a></p>
         </div>
         <div class="footer-links">
@@ -1317,10 +1317,10 @@ cd seLe4n</code></pre>
             }).catch(function() {})
           );
 
-          // 2. Project version from lakefile.lean (raw — no rate limit)
+          // 2. Project version from lakefile.toml (raw — no rate limit)
           tasks.push(
-            fetchText(RAW + 'lakefile.lean').then(function(text) {
-              var m = text.match(/version\s*:=\s*"([^"]+)"/);
+            fetchText(RAW + 'lakefile.toml').then(function(text) {
+              var m = text.match(/version\s*=\s*"([^"]+)"/);
               if (m) data.version = m[1];
             }).catch(function() {})
           );
@@ -1369,13 +1369,21 @@ cd seLe4n</code></pre>
             'SeLe4n/Kernel/InformationFlow/Enforcement.lean',
             'SeLe4n/Kernel/Architecture/VSpace.lean',
             'SeLe4n/Kernel/Architecture/Assumptions.lean',
+            'SeLe4n/Kernel/Architecture/Adapter.lean',
+            'SeLe4n/Kernel/Architecture/Invariant.lean',
+            'SeLe4n/Kernel/Architecture/VSpaceInvariant.lean',
             'SeLe4n/Kernel/API.lean',
             'SeLe4n/Prelude.lean',
+            'SeLe4n/Machine.lean',
+            'SeLe4n/Model/Object.lean',
+            'SeLe4n/Model/State.lean',
             'SeLe4n/Kernel/Capability/Operations.lean',
             'SeLe4n/Kernel/IPC/Operations.lean',
             'SeLe4n/Kernel/IPC/DualQueue.lean',
             'SeLe4n/Kernel/Scheduler/Operations.lean',
-            'SeLe4n/Kernel/Scheduler/RunQueue.lean'
+            'SeLe4n/Kernel/Scheduler/RunQueue.lean',
+            'SeLe4n/Kernel/Lifecycle/Operations.lean',
+            'SeLe4n/Kernel/Service/Operations.lean'
           ];
           var theoremCount = 0;
           var theoremTasks = proofFiles.map(function(f) {
