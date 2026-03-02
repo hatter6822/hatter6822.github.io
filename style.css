@@ -316,6 +316,10 @@ em {
   margin-bottom: 2rem;
   filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.65));
 }
+
+html:not([data-theme="light"]) .hero-logo {
+  filter: drop-shadow(0 8px 32px rgba(0, 0, 0, 0.75));
+}
 .hero-logo .logo-img {
   height: clamp(24rem, 60vw, 39rem);
 }
@@ -438,6 +442,10 @@ a.arch-block:hover {
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
 }
 
+html:not([data-theme="light"]) .hero-label {
+  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+}
+
 .hero-title {
   font-size: clamp(3rem, 8vw, 6rem);
   font-weight: 800;
@@ -459,6 +467,10 @@ a.arch-block:hover {
   margin: 0 auto 1rem;
   line-height: 1.8;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+}
+
+html:not([data-theme="light"]) .hero-subtitle {
+  text-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
 }
 
 .hero-tagline {
