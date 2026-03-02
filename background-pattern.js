@@ -31,7 +31,7 @@
  *   8. Scroll interaction              — fractal pattern rotates with
  *      exponentially smoothed scroll offset for depth.
  *
- *   9. Quarter-alpha cap                — final alpha quartered (×0.25 ceiling)
+ *   9. Half-alpha cap                   — final alpha halved (×0.5 ceiling)
  *      for a subtle, see-through crystalline background.
  *
  *  10. Cursor glow and sparkle         — the diamond surface brightens
@@ -92,13 +92,13 @@
   });
 
   if (!gl) {
-    /* Graceful fallback — static CSS gradient (quartered alpha) */
+    /* Graceful fallback — static CSS gradient (halved alpha) */
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 80% 60% at 50% 40%,' +
-      'rgba(91,160,245,0.24) 0%,transparent 70%),' +
+      'rgba(91,160,245,0.48) 0%,transparent 70%),' +
       'radial-gradient(ellipse 60% 40% at 30% 70%,' +
-      'rgba(78,201,137,0.16) 0%,transparent 60%)';
+      'rgba(78,201,137,0.32) 0%,transparent 60%)';
     return;
   }
 
@@ -400,7 +400,7 @@
     '    float cks=pow(max(dot(nor,ch),0.0),80.0);',
     '    col+=cks*cpx*vec3(1.0,0.97,0.93)*0.70;',
 
-    /* Alpha — distance-based fade; quartered below for transparency */
+    /* Alpha — distance-based fade; halved below for transparency */
     '    alpha=smoothstep(8.0,2.0,td);',
     '  }',
 
@@ -442,7 +442,7 @@
     '  col+=csk*vec3(1.0,0.97,0.90)*0.85;',
     '  alpha+=csk*0.32;',
 
-    '  alpha=min(alpha,1.0)*0.25;',
+    '  alpha=min(alpha,1.0)*0.5;',
 
     /* ── Final — premultiplied alpha for CSS compositing ──── */
     '  gl_FragColor=vec4(col*alpha,alpha);',
@@ -480,11 +480,11 @@
 
   var prog = createProgram(VERT, FRAG);
   if (!prog) {
-    /* Shader failed — static CSS gradient fallback (quartered alpha) */
+    /* Shader failed — static CSS gradient fallback (halved alpha) */
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 80% 60% at 50% 40%,' +
-      'rgba(91,160,245,0.24) 0%,transparent 70%)';
+      'rgba(91,160,245,0.48) 0%,transparent 70%)';
     return;
   }
 
