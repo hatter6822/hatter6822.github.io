@@ -353,8 +353,8 @@ a.arch-block:hover {
 /* Light theme overrides for backgrounds */
 [data-theme="light"] .hero-bg {
   background:
-    radial-gradient(ellipse 60% 50% at 50% 40%, rgba(43, 111, 208, 0.24), transparent),
-    radial-gradient(ellipse 40% 30% at 70% 60%, rgba(22, 128, 75, 0.16), transparent);
+    radial-gradient(ellipse 60% 50% at 50% 40%, rgba(43, 111, 208, 0.12), transparent),
+    radial-gradient(ellipse 40% 30% at 70% 60%, rgba(22, 128, 75, 0.08), transparent);
 }
 [data-theme="light"] .timeline-marker {
   background: var(--surface);
@@ -384,8 +384,8 @@ a.arch-block:hover {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 50% 40%, rgba(91, 160, 245, 0.32), transparent),
-    radial-gradient(ellipse 40% 30% at 70% 60%, rgba(78, 201, 137, 0.16), transparent);
+    radial-gradient(ellipse 60% 50% at 50% 40%, rgba(91, 160, 245, 0.16), transparent),
+    radial-gradient(ellipse 40% 30% at 70% 60%, rgba(78, 201, 137, 0.08), transparent);
   pointer-events: none;
 }
 
