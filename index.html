@@ -13,7 +13,16 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sele4n.org">
 
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="seLe4n — A Micro-Kernel Written in Lean 4">
+  <meta name="twitter:description" content="Formally verified micro-kernel with 577 machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
+
+  <link rel="canonical" href="https://sele4n.org">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f9e0;</text></svg>">
+
+  <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
+  <link rel="dns-prefetch" href="https://api.github.com">
+
   <link rel="stylesheet" href="style.css">
   <script>
     (function(){var t;try{t=localStorage.getItem('sele4n-theme')}catch(e){}
@@ -40,7 +49,6 @@
   <div id="bg-canvas-wrap" aria-hidden="true">
     <div id="bg-canvas-mover">
       <canvas id="math-bg-a" class="math-bg-layer"></canvas>
-      <canvas id="math-bg-b" class="math-bg-layer"></canvas>
     </div>
   </div>
 
@@ -50,8 +58,8 @@
   <nav class="nav" id="nav" aria-label="Main navigation">
     <div class="nav-inner">
       <a href="#hero" class="nav-logo" aria-label="seLe4n home">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="seLe4n" class="logo-img logo-img-light">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="seLe4n" class="logo-img logo-img-light" width="160" height="64">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark" width="160" height="64">
       </a>
       <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links">
         <span></span><span></span><span></span>
@@ -80,8 +88,8 @@
     <div class="container hero-content">      
       <p class="hero-label">Micro-Kernel &middot; Lean 4 &middot; Formally Verified</p>
       <div class="hero-logo" aria-hidden="true">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="" class="logo-img logo-img-light">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="" class="logo-img logo-img-dark">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="" class="logo-img logo-img-light" fetchpriority="high">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="" class="logo-img logo-img-dark" fetchpriority="high">
       </div>
       <p class="hero-subtitle">
         Every kernel transition is an executable pure function.<br>
@@ -335,9 +343,9 @@
         <table class="comparison-table">
           <thead>
             <tr>
-              <th>Domain</th>
-              <th>seL4</th>
-              <th>seLe4n</th>
+              <th scope="col">Domain</th>
+              <th scope="col">seL4</th>
+              <th scope="col">seLe4n</th>
             </tr>
           </thead>
           <tbody>
@@ -795,7 +803,7 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead>
-              <tr><th>Command</th><th>Tiers</th><th>Use Case</th></tr>
+              <tr><th scope="col">Command</th><th scope="col">Tiers</th><th scope="col">Use Case</th></tr>
             </thead>
             <tbody>
               <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_fast.sh" target="_blank" rel="noopener"><code>./scripts/test_fast.sh</code></a></td><td>0 + 1</td><td>CI &mdash; hygiene and build only</td></tr>
@@ -852,7 +860,7 @@
       <div class="table-wrap">
         <table class="data-table api-table">
           <thead>
-            <tr><th>Entry Point</th><th>Subsystem</th><th>Status</th></tr>
+            <tr><th scope="col">Entry Point</th><th scope="col">Subsystem</th><th scope="col">Status</th></tr>
           </thead>
           <tbody>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener"><code>schedule</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener"><code>handleYield</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener">Scheduler</a></td><td><span class="badge-stable">Stable</span></td></tr>
@@ -1106,8 +1114,8 @@ cd seLe4n</code></pre>
       <div class="footer-grid">
         <div class="footer-brand">
           <a href="#hero" class="footer-logo-link footer-logo">
-            <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="seLe4n" class="logo-img logo-img-light">
-            <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark">
+            <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="seLe4n" class="logo-img logo-img-light" loading="lazy" width="160" height="64">
+            <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark" loading="lazy" width="160" height="64">
           </a>
           <p>A micro-kernel written in Lean 4 with machine-checked proofs.</p>
           <p class="footer-meta">v<span data-live="version">0.12.16</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
@@ -1150,6 +1158,8 @@ cd seLe4n</code></pre>
   <script>
     (function() {
       // --- Theme toggle ---
+      // Initial theme is set in <head> to prevent FOUC.
+      // This block handles runtime toggling and system preference changes.
       var themeToggle = document.getElementById('theme-toggle');
       var themeColorMeta = document.getElementById('theme-color-meta');
       var root = document.documentElement;
@@ -1162,13 +1172,10 @@ cd seLe4n</code></pre>
         try { localStorage.setItem('sele4n-theme', theme); } catch (e) {}
       }
 
-      // Initialize theme from localStorage or system preference
-      var saved = null;
-      try { saved = localStorage.getItem('sele4n-theme'); } catch (e) {}
-      if (saved === 'light' || saved === 'dark') {
-        setTheme(saved);
-      } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-        setTheme('light');
+      // Sync meta tag with theme already set by head script
+      var currentTheme = root.getAttribute('data-theme');
+      if (currentTheme && themeColorMeta) {
+        themeColorMeta.setAttribute('content', currentTheme === 'light' ? '#f8f9fc' : '#0a0e17');
       }
 
       if (themeToggle) {
@@ -1178,7 +1185,6 @@ cd seLe4n</code></pre>
         });
       }
 
-      // Listen for system preference changes
       if (window.matchMedia) {
         window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(e) {
           var saved = null;
@@ -1208,7 +1214,6 @@ cd seLe4n</code></pre>
         }
       }
 
-
       // --- Sticky nav background on scroll ---
       var nav = document.getElementById('nav');
       if (nav) {
@@ -1216,26 +1221,24 @@ cd seLe4n</code></pre>
         window.addEventListener('scroll', function() {
           if (!ticking) {
             window.requestAnimationFrame(function() {
-              if (window.scrollY > 40) {
-                nav.classList.add('scrolled');
-              } else {
-                nav.classList.remove('scrolled');
-              }
+              nav.classList.toggle('scrolled', window.scrollY > 40);
               ticking = false;
             });
             ticking = true;
           }
-        });
+        }, { passive: true });
       }
 
       // --- Live data from GitHub ---
       // Fetches repo metadata and updates [data-live] elements.
-      // Caches in sessionStorage for 30 minutes. No dependencies.
+      // Deferred to avoid blocking initial render. Cached in
+      // sessionStorage for 30 min. 5 requests (down from 30).
       // Falls back gracefully — static values remain if fetch fails.
       (function() {
         var REPO = 'hatter6822/seLe4n';
         var RAW = 'https://raw.githubusercontent.com/' + REPO + '/main/';
         var API = 'https://api.github.com/repos/' + REPO;
+        var SEARCH = 'https://api.github.com/search/code';
         var CACHE_KEY = 'sele4n-live';
         var CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
@@ -1273,7 +1276,6 @@ cd seLe4n</code></pre>
           if (d.scripts) update('scripts', d.scripts);
           if (d.docs) update('docs', d.docs);
           if (d.buildJobs) update('build-jobs', d.buildJobs);
-          // Update JSON-LD version
           if (d.version) {
             var ld = document.querySelector('script[type="application/ld+json"]');
             if (ld) {
@@ -1311,7 +1313,6 @@ cd seLe4n</code></pre>
           // 1. Lean toolchain version (raw — no rate limit)
           tasks.push(
             fetchText(RAW + 'lean-toolchain').then(function(text) {
-              // Format: "leanprover/lean4:v4.28.0" or "leanprover/lean4:4.28.0"
               var m = text.match(/(\d+\.\d+\.\d+)/);
               if (m) data.leanVersion = m[1];
             }).catch(function() {})
@@ -1329,18 +1330,17 @@ cd seLe4n</code></pre>
           tasks.push(
             fetchJSON(API + '/git/trees/main?recursive=1').then(function(tree) {
               if (!tree.tree) return;
-              var modules = 0, scripts = 0, docs = 0, buildJobs = 0;
+              var modules = 0, scripts = 0, docs = 0;
               for (var i = 0; i < tree.tree.length; i++) {
                 var p = tree.tree[i].path;
                 if (tree.tree[i].type !== 'blob') continue;
-                if (p.match(/^SeLe4n\/.*\.lean$/) && !p.match(/^SeLe4n\/Testing\//)) modules++;
-                if (p.match(/^scripts\//) && p.match(/\.sh$/)) scripts++;
-                if (p.match(/^docs\//) && p.match(/\.(md|txt)$/)) docs++;
+                if (/^SeLe4n\/.*\.lean$/.test(p) && !/^SeLe4n\/Testing\//.test(p)) modules++;
+                if (/^scripts\/.*\.sh$/.test(p)) scripts++;
+                if (/^docs\/.*\.(md|txt)$/.test(p)) docs++;
               }
               data.modules = modules;
               data.scripts = scripts;
               data.docs = docs;
-              // Build jobs = 2× modules (rough heuristic)
               data.buildJobs = modules * 2;
             }).catch(function() {})
           );
@@ -1349,79 +1349,46 @@ cd seLe4n</code></pre>
           tasks.push(
             fetchJSON(API + '/languages').then(function(langs) {
               if (langs && langs['Lean']) {
-                // ~38 bytes per line for Lean (avg line length)
                 data.lines = formatNumber(Math.round(langs['Lean'] / 38));
               }
             }).catch(function() {})
           );
 
-          // 5. Count theorems from key invariant/proof files (raw — no rate limit)
-          // Fetch a few major proof files and count 'theorem ' declarations
-          var proofFiles = [
-            'SeLe4n/Kernel/Capability/Invariant.lean',
-            'SeLe4n/Kernel/IPC/Invariant.lean',
-            'SeLe4n/Kernel/Scheduler/Invariant.lean',
-            'SeLe4n/Kernel/Lifecycle/Invariant.lean',
-            'SeLe4n/Kernel/Service/Invariant.lean',
-            'SeLe4n/Kernel/InformationFlow/Invariant.lean',
-            'SeLe4n/Kernel/InformationFlow/Policy.lean',
-            'SeLe4n/Kernel/InformationFlow/Projection.lean',
-            'SeLe4n/Kernel/InformationFlow/Enforcement.lean',
-            'SeLe4n/Kernel/Architecture/VSpace.lean',
-            'SeLe4n/Kernel/Architecture/Assumptions.lean',
-            'SeLe4n/Kernel/Architecture/Adapter.lean',
-            'SeLe4n/Kernel/Architecture/Invariant.lean',
-            'SeLe4n/Kernel/Architecture/VSpaceInvariant.lean',
-            'SeLe4n/Kernel/API.lean',
-            'SeLe4n/Prelude.lean',
-            'SeLe4n/Machine.lean',
-            'SeLe4n/Model/Object.lean',
-            'SeLe4n/Model/State.lean',
-            'SeLe4n/Kernel/Capability/Operations.lean',
-            'SeLe4n/Kernel/IPC/Operations.lean',
-            'SeLe4n/Kernel/IPC/DualQueue.lean',
-            'SeLe4n/Kernel/Scheduler/Operations.lean',
-            'SeLe4n/Kernel/Scheduler/RunQueue.lean',
-            'SeLe4n/Kernel/Lifecycle/Operations.lean',
-            'SeLe4n/Kernel/Service/Operations.lean'
-          ];
-          var theoremCount = 0;
-          var theoremTasks = proofFiles.map(function(f) {
-            return fetchText(RAW + f).then(function(text) {
-              // Count lines starting with 'theorem ' (Lean 4 theorem declarations)
-              var matches = text.match(/^theorem /gm);
-              if (matches) theoremCount += matches.length;
-            }).catch(function() {});
-          });
+          // 5. Theorem count via code search (1 API call replaces 26 file fetches)
           tasks.push(
-            Promise.all(theoremTasks).then(function() {
-              if (theoremCount > 0) data.theorems = theoremCount;
-            })
+            fetchJSON(SEARCH + '?q=%22theorem+%22+repo:' + REPO + '+language:lean').then(function(res) {
+              if (res && res.total_count > 0) data.theorems = res.total_count;
+            }).catch(function() {})
           );
 
           return Promise.all(tasks).then(function() { return data; });
         }
 
-        // Run on page load
-        var cached = getCached();
-        if (cached) {
-          applyData(cached);
-        } else {
+        // Defer fetching to after initial render
+        function run() {
+          var cached = getCached();
+          if (cached) {
+            applyData(cached);
+            return;
+          }
           fetchLiveData().then(function(data) {
-            // Only cache and apply if we got at least some data
             var hasData = false;
             for (var k in data) { if (data.hasOwnProperty(k)) { hasData = true; break; } }
             if (hasData) {
               setCache(data);
               applyData(data);
             }
-          }).catch(function() {
-            // Silently fail — static values remain
-          });
+          }).catch(function() {});
+        }
+
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(run);
+        } else {
+          setTimeout(run, 1);
         }
       })();
     })();
   </script>
-  <script src="background-pattern.js"></script>
+  <script src="background-pattern.js" defer></script>
 </body>
 </html>

@@ -61,9 +61,8 @@
      ═══════════════════════════════════════════════════════════ */
   var wrap    = document.getElementById('bg-canvas-wrap');
   var canvasA = document.getElementById('math-bg-a');
-  var canvasB = document.getElementById('math-bg-b');
   var mover   = document.getElementById('bg-canvas-mover');
-  if (!wrap || !canvasA || !canvasB || !mover) return;
+  if (!wrap || !canvasA || !mover) return;
 
   var prefersReduced = window.matchMedia &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -73,7 +72,6 @@
      ═══════════════════════════════════════════════════════════ */
   mover.style.cssText =
     'position:absolute;top:0;left:0;width:100%;height:100%;opacity:1;will-change:auto;';
-  canvasB.style.display = 'none';
   canvasA.style.transition = 'none';
   canvasA.style.opacity = '1';
   canvasA.style.willChange = 'auto';
