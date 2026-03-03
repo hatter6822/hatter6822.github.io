@@ -9,10 +9,11 @@
 
   var REPO = "hatter6822/seLe4n";
   var API = "https://api.github.com/repos/" + REPO;
+  var RAW = "https://raw.githubusercontent.com/" + REPO + "/";
   var REF = "main";
   var CACHE_KEY = "sele4n-live-v2";
   var CACHE_TTL = 6 * 60 * 60 * 1000;
-  var DATA_SCHEMA_VERSION = 2;
+  var DATA_SCHEMA_VERSION = 4;
 
   var FETCH_TIMEOUT_MS = 8000;
   var FETCH_OPTIONS = {
@@ -257,6 +258,10 @@
     };
   }
 
+  function formatNumber(n) {
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+
   function mergeData(base, patch) {
     var out = {};
     var key;
@@ -303,6 +308,49 @@
     });
   }
 
+  function parseCurrentStateMetrics(readmeText) {
+    if (!readmeText) return {};
+
+    var metrics = {};
+    var rows = readmeText.split(/\r?\n/);
+    for (var i = 0; i < rows.length; i++) {
+      var cells = rows[i].split('|');
+      if (cells.length < 3) continue;
+
+      var metric = (cells[1] || '').toLowerCase();
+      var value = (cells[2] || '').trim();
+
+      if (metric.indexOf('version') !== -1) {
+        var version = value.match(/\d+\.\d+\.\d+/);
+        if (version) metrics.version = version[0];
+      }
+
+      if (metric.indexOf('production loc') !== -1) {
+        var lines = value.match(/\d[\d,]*/);
+        if (lines) metrics.lines = lines[0];
+      }
+
+      if (metric.indexOf('theorem') !== -1) {
+        var theorems = value.match(/\d[\d,]*/);
+        if (theorems) metrics.theorems = Number(theorems[0].replace(/,/g, ''));
+      }
+
+      if (metric.indexOf('build job') !== -1) {
+        var buildJobs = value.match(/\d[\d,]*/);
+        if (buildJobs) metrics.buildJobs = Number(buildJobs[0].replace(/,/g, ''));
+      }
+    }
+
+    return metrics;
+  }
+
+  function fetchText(url) {
+    return fetchWithTimeout(url).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.text();
+    });
+  }
+
   function fetchLiveData() {
     var data = {};
 
@@ -319,15 +367,40 @@
         if (!Array.isArray(tree)) return;
 
         var modules = 0;
+        var scripts = 0;
+        var docs = 0;
         for (var i = 0; i < tree.length; i++) {
           var item = tree[i];
           if (!item || item.type !== "blob") continue;
           var path = item.path || "";
-          if (/^SeLe4n\/.*\.lean$/.test(path) && !/^SeLe4n\/Testing\//.test(path)) modules += 1;
+          if (/^SeLe4n\/Kernel\/.*\.lean$/.test(path)) modules += 1;
+          if (/^scripts\/.*\.sh$/.test(path)) scripts += 1;
+          if (/^docs\/.*\.(md|txt)$/.test(path)) docs += 1;
         }
 
         data.modules = modules;
-        data.buildJobs = modules * 2;
+        data.scripts = scripts;
+        data.docs = docs;
+      }).catch(function () {}),
+      fetchJSON(API + "/languages").then(function (langs) {
+        if (!langs || typeof langs.Lean !== "number") return;
+        data.lines = formatNumber(Math.round(langs.Lean / 38));
+      }).catch(function () {}),
+      fetchText(RAW + REF + "/README.md").then(function (readmeText) {
+        var metrics = parseCurrentStateMetrics(readmeText);
+        if (metrics.version) data.version = metrics.version;
+        if (metrics.lines) data.lines = metrics.lines;
+        if (typeof metrics.theorems === "number" && metrics.theorems > 0) data.theorems = metrics.theorems;
+        if (typeof metrics.buildJobs === "number" && metrics.buildJobs > 0) data.buildJobs = metrics.buildJobs;
+      }).catch(function () {}),
+      fetchText(RAW + REF + "/lean-toolchain").then(function (toolchainText) {
+        var toolchainMatch = toolchainText && toolchainText.match(/(\d+\.\d+\.\d+)/);
+        if (toolchainMatch) data.leanVersion = toolchainMatch[1];
+      }).catch(function () {}),
+      fetchText(RAW + REF + "/lakefile.toml").then(function (lakefileText) {
+        if (data.version) return;
+        var versionMatch = lakefileText && lakefileText.match(/version\s*=\s*"([^"]+)"/);
+        if (versionMatch) data.version = versionMatch[1];
       }).catch(function () {})
     ];
 

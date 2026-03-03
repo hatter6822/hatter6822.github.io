@@ -41,6 +41,11 @@ function parseCurrentStateMetrics(readmeText) {
     const metric = cells[1]?.toLowerCase() ?? '';
     const value = cells[2] ?? '';
 
+    if (metric.includes('version')) {
+      const version = value.match(/\d+\.\d+\.\d+/);
+      if (version) metrics.version = version[0];
+    }
+
     if (metric.includes('production loc')) {
       const loc = value.match(/\d[\d,]*/);
       if (loc) metrics.lines = loc[0];
@@ -49,6 +54,11 @@ function parseCurrentStateMetrics(readmeText) {
     if (metric.includes('theorem')) {
       const theoremCount = value.match(/\d[\d,]*/);
       if (theoremCount) metrics.theorems = Number(theoremCount[0].replace(/,/g, ''));
+    }
+
+    if (metric.includes('build job')) {
+      const buildJobs = value.match(/\d[\d,]*/);
+      if (buildJobs) metrics.buildJobs = Number(buildJobs[0].replace(/,/g, ''));
     }
   }
 
@@ -70,9 +80,9 @@ const toolchainMatch = toolchain.match(/(\d+\.\d+\.\d+)/);
 if (toolchainMatch) data.leanVersion = toolchainMatch[1];
 
 const versionMatch = lakefile.match(/version\s*=\s*"([^"]+)"/);
-if (versionMatch) data.version = versionMatch[1];
-
 const currentStateMetrics = parseCurrentStateMetrics(readme);
+if (currentStateMetrics.version) data.version = currentStateMetrics.version;
+else if (versionMatch) data.version = versionMatch[1];
 
 let modules = 0;
 let scripts = 0;
@@ -81,13 +91,13 @@ let theoremCount = 0;
 for (const item of tree.tree ?? []) {
   if (item.type !== 'blob') continue;
   const p = item.path;
-  if (/^SeLe4n\/.*\.lean$/.test(p) && !/^SeLe4n\/Testing\//.test(p)) modules += 1;
+  if (/^SeLe4n\/Kernel\/.*\.lean$/.test(p)) modules += 1;
   if (/^scripts\/.*\.sh$/.test(p)) scripts += 1;
   if (/^docs\/.*\.(md|txt)$/.test(p)) docs += 1;
 }
 
 const leanPaths = (tree.tree ?? [])
-  .filter((item) => item.type === 'blob' && /^SeLe4n\/.*\.lean$/.test(item.path) && !/^SeLe4n\/Testing\//.test(item.path));
+  .filter((item) => item.type === 'blob' && /^SeLe4n\/Kernel\/.*\.lean$/.test(item.path));
 
 for (const item of leanPaths) {
   const blob = await fetchJson(`${API}/git/blobs/${item.sha}`);
@@ -99,9 +109,10 @@ for (const item of leanPaths) {
 data.modules = modules;
 data.scripts = scripts;
 data.docs = docs;
-data.buildJobs = modules * 2;
+if (typeof currentStateMetrics.buildJobs === 'number' && currentStateMetrics.buildJobs > 0) data.buildJobs = currentStateMetrics.buildJobs;
+else data.buildJobs = modules * 2;
 
-if (typeof currentStateMetrics.theorems === "number" && currentStateMetrics.theorems > 0) data.theorems = currentStateMetrics.theorems;
+if (typeof currentStateMetrics.theorems === 'number' && currentStateMetrics.theorems > 0) data.theorems = currentStateMetrics.theorems;
 else if (theoremCount > 0) data.theorems = theoremCount;
 
 if (currentStateMetrics.lines) data.lines = currentStateMetrics.lines;
