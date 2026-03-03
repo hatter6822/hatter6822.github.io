@@ -41,7 +41,7 @@
     "codeRepository": "https://github.com/hatter6822/seLe4n",
     "programmingLanguage": "Lean 4",
     "license": "https://www.gnu.org/licenses/gpl-3.0.html",
-    "version": "0.12.16"
+    "version": "0.13.0"
   }
   </script>
 </head>
@@ -108,7 +108,7 @@
           <span class="stat-label">Lines of Lean 4</span>
         </div>
         <div class="stat">
-          <span class="stat-value" data-live="modules">35</span>
+          <span class="stat-value" data-live="modules">23</span>
           <span class="stat-label">Kernel Modules</span>
         </div>
         <div class="stat">
@@ -122,7 +122,7 @@
         <a href="https://github.com/hatter6822/seLe4n" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">View Source</a>
       </div>
 
-      <p class="hero-version">v<span data-live="version">0.12.16</span> &middot; Lean <span data-live="lean-version">4.28.0</span> &middot; GPLv3</p>
+      <p class="hero-version">v<span data-live="version">0.13.0</span> &middot; Lean <span data-live="lean-version">4.28.0</span> &middot; GPLv3</p>
     </div>
   </header>
 
@@ -193,7 +193,7 @@
         <div class="card">
           <h3>Project Status</h3>
           <p>
-            seLe4n is an active research project at version <strong data-live="version">0.12.16</strong>. The kernel
+            seLe4n is an active research project at version <strong data-live="version">0.13.0</strong>. The kernel
             model is feature-complete with IPC, scheduling, capabilities, memory management,
             information-flow control, and service orchestration. The performance optimization
             portfolio (WS-G) is complete &mdash; all hot paths now use O(1) hash-based structures.
@@ -750,7 +750,7 @@
             <h3>Build</h3>
           </div>
           <p>
-            Full Lean compilation across <span data-live="build-jobs">70</span> parallel build jobs. All <span data-live="theorems">734</span> theorems are
+            Full Lean compilation across <span data-live="build-jobs">84</span> parallel build jobs. All <span data-live="theorems">734</span> theorems are
             type-checked. Every invariant proof, every bridge lemma, every preservation
             theorem is verified by the Lean type-checker. If it compiles, the proofs hold.
           </p>
@@ -889,7 +889,7 @@
     <div class="container">
       <h2 class="section-title">Project Structure</h2>
       <p class="section-lead">
-        <span data-live="modules">35</span> Lean modules organized with a consistent Operations/Invariant pattern,
+        <span data-live="modules">23</span> kernel modules organized with a consistent Operations/Invariant pattern,
         <span data-live="scripts">17</span> test and CI scripts, and <span data-live="docs">97</span> documentation files with specifications, ADRs, and roadmaps.
       </p>
 
@@ -962,7 +962,7 @@ cd seLe4n</code></pre>
             <h3>Build &amp; Verify</h3>
             <p>
               Build the entire kernel. All <span data-live="theorems">734</span> theorems are checked during compilation
-              across <span data-live="build-jobs">70</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
+              across <span data-live="build-jobs">84</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
             </p>
             <pre><code>lake build</code></pre>
           </div>
@@ -1119,7 +1119,7 @@ cd seLe4n</code></pre>
             <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark" loading="lazy" width="160" height="64">
           </a>
           <p>A microkernel written in Lean 4 with machine-checked proofs.</p>
-          <p class="footer-meta">v<span data-live="version">0.12.16</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
+          <p class="footer-meta">v<span data-live="version">0.13.0</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
           <p class="footer-license">Licensed under <a href="https://github.com/hatter6822/seLe4n/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">GPLv3</a></p>
         </div>
         <div class="footer-links">
