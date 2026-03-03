@@ -156,27 +156,29 @@
     var toggle = document.getElementById("nav-toggle");
     var links = document.getElementById("nav-links");
 
+    function setNavState(open) {
+      if (!toggle || !links) return;
+      links.classList.toggle("open", open);
+      toggle.classList.toggle("open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      document.body.classList.toggle("nav-open", open);
+    }
+
     if (toggle && links) {
       toggle.addEventListener("click", function () {
-        var open = links.classList.toggle("open");
-        toggle.classList.toggle("open");
-        toggle.setAttribute("aria-expanded", open);
+        setNavState(!links.classList.contains("open"));
       });
 
       var items = links.querySelectorAll("a");
       for (var i = 0; i < items.length; i++) {
         items[i].addEventListener("click", function () {
-          links.classList.remove("open");
-          toggle.classList.remove("open");
-          toggle.setAttribute("aria-expanded", "false");
+          setNavState(false);
         });
       }
 
       document.addEventListener("keydown", function (event) {
         if (event.key !== "Escape") return;
-        links.classList.remove("open");
-        toggle.classList.remove("open");
-        toggle.setAttribute("aria-expanded", "false");
+        setNavState(false);
       });
     }
 
@@ -339,6 +341,8 @@
   function refreshLiveData() {
     var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     if (conn && conn.saveData) return;
+
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-data: reduce)").matches) return;
 
     var cached = getCached();
     if (cached) {
