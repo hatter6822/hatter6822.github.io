@@ -1,0 +1,16 @@
+{
+  "version": "0.12.16",
+  "leanVersion": "4.28.0",
+  "modules": 35,
+  "lines": "21,641",
+  "theorems": 577,
+  "scripts": 17,
+  "docs": 97,
+  "buildJobs": 70,
+  "admitted": 0,
+  "commitSha": "main",
+  "updatedAt": "",
+  "sourceRepo": "hatter6822/seLe4n",
+  "sourceRef": "main",
+  "generatedAt": "2026-03-03T00:00:00Z"
+}

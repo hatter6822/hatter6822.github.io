@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  var FALLBACK = {
+  var STATIC_FALLBACK = {
     version: "0.12.16",
     leanVersion: "4.28.0",
     modules: 35,
@@ -15,11 +15,13 @@
     updatedAt: ""
   };
 
+  var DATA_ENDPOINT = "data/site-data.json";
+
   var REPO = "hatter6822/seLe4n";
   var RAW = "https://raw.githubusercontent.com/" + REPO + "/main/";
   var API = "https://api.github.com/repos/" + REPO;
-  var CACHE_KEY = "sele4n-live";
-  var CACHE_TTL = 30 * 60 * 1000;
+  var CACHE_KEY = "sele4n-live-v2";
+  var CACHE_TTL = 6 * 60 * 60 * 1000;
 
   var FETCH_TIMEOUT_MS = 8000;
   var FETCH_OPTIONS = {
@@ -232,7 +234,7 @@
 
   function getCached() {
     try {
-      var raw = sessionStorage.getItem(CACHE_KEY);
+      var raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
       var obj = JSON.parse(raw);
       if (Date.now() - obj.ts > CACHE_TTL) return null;
@@ -244,8 +246,34 @@
 
   function setCache(data) {
     try {
-      sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
     } catch (e) {}
+  }
+
+  function normalizeBundledData(data) {
+    if (!data || typeof data !== "object") return null;
+
+    return {
+      version: data.version,
+      leanVersion: data.leanVersion,
+      modules: data.modules,
+      lines: data.lines,
+      theorems: data.theorems,
+      scripts: data.scripts,
+      docs: data.docs,
+      buildJobs: data.buildJobs,
+      admitted: data.admitted,
+      commitSha: data.commitSha,
+      updatedAt: data.updatedAt
+    };
+  }
+
+  function fetchBundledData() {
+    return fetchJSON(DATA_ENDPOINT).then(function (payload) {
+      var normalized = normalizeBundledData(payload);
+      if (!normalized) throw new Error("Invalid bundled data");
+      return normalized;
+    });
   }
 
   function fetchWithTimeout(url) {
@@ -401,6 +429,11 @@
       return;
     }
 
+    fetchBundledData().then(function (bundled) {
+      setCache(bundled);
+      applyData(bundled);
+    }).catch(function () {});
+
     fetchLiveData().then(function (data) {
       setCache(data);
       applyData(data);
@@ -425,7 +458,7 @@
     }
   }
 
-  applyData(FALLBACK);
+  applyData(STATIC_FALLBACK);
   setupTheme();
   setupNav();
   hardenExternalLinks();
