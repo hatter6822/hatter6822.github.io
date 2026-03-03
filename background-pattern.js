@@ -73,6 +73,38 @@
   var saveData = !!(conn && conn.saveData);
   var lowMemory = typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 2;
   var compactViewport = Math.min(window.innerWidth, window.innerHeight) < 640;
+  var coarsePointer = window.matchMedia &&
+    window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  var mobileViewport = compactViewport || coarsePointer;
+
+  /* Mobile browsers often fire resize events when the URL bar
+     hides on first scroll, which can cause abrupt background
+     rescaling. Keep a stable viewport baseline and only accept
+     larger geometry changes (e.g. orientation shifts). */
+  var stableViewW = window.innerWidth;
+  var stableViewH = window.innerHeight;
+
+  function getViewportSize() {
+    var width = window.innerWidth;
+    var height = window.innerHeight;
+
+    if (!mobileViewport) {
+      stableViewW = width;
+      stableViewH = height;
+      return { width: width, height: height };
+    }
+
+    var widthDelta = Math.abs(width - stableViewW);
+    var heightDelta = Math.abs(height - stableViewH);
+    var orientationChanged = (width > height) !== (stableViewW > stableViewH);
+
+    if (orientationChanged || widthDelta > 80 || heightDelta > 160) {
+      stableViewW = width;
+      stableViewH = height;
+    }
+
+    return { width: stableViewW, height: stableViewH };
+  }
 
   /* Mobile should still get the animated background; we only
      lower render resolution to keep GPU load manageable. */
@@ -564,7 +596,7 @@
      no jarring jump if the page loads mid-scroll. */
   var initScrollY  = window.scrollY || window.pageYOffset || 0;
   var initDocH     = document.documentElement.scrollHeight;
-  var initViewH    = window.innerHeight;
+  var initViewH    = getViewportSize().height;
   var initMaxScr   = Math.max(1, initDocH - initViewH);
   var smoothScrollY = Math.max(0, Math.min(1, initScrollY / initMaxScr));
 
@@ -580,9 +612,10 @@
      Canvas sizing
      ═══════════════════════════════════════════════════════════ */
   function resize() {
+    var viewport = getViewportSize();
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
-    cw = Math.max(1, Math.floor(window.innerWidth  * dpr * RES_SCALE));
-    ch = Math.max(1, Math.floor(window.innerHeight * dpr * RES_SCALE));
+    cw = Math.max(1, Math.floor(viewport.width  * dpr * RES_SCALE));
+    ch = Math.max(1, Math.floor(viewport.height * dpr * RES_SCALE));
     canvasA.width  = cw;
     canvasA.height = ch;
     gl.viewport(0, 0, cw, ch);
@@ -623,7 +656,7 @@
     /* ── Exponential-smoothed scroll fraction ──────────────── */
     var scrollY  = window.scrollY || window.pageYOffset || 0;
     var docH     = document.documentElement.scrollHeight;
-    var viewH    = window.innerHeight;
+    var viewH    = getViewportSize().height;
     var maxScr   = Math.max(1, docH - viewH);
     var scrollFr = Math.max(0, Math.min(1, scrollY / maxScr));
     var k        = 1 - Math.exp(-SCROLL_SMOOTH * dt);
@@ -689,14 +722,16 @@
      Normalised to [0, 1] with Y flipped for GL coordinates.
      ═══════════════════════════════════════════════════════════ */
   document.addEventListener('mousemove', function (e) {
-    mouseX = e.clientX / window.innerWidth;
-    mouseY = 1.0 - e.clientY / window.innerHeight;
+    var viewport = getViewportSize();
+    mouseX = Math.max(0, Math.min(1, e.clientX / viewport.width));
+    mouseY = Math.max(0, Math.min(1, 1.0 - e.clientY / viewport.height));
   }, { passive: true });
 
   document.addEventListener('touchmove', function (e) {
     if (e.touches.length > 0) {
-      mouseX = e.touches[0].clientX / window.innerWidth;
-      mouseY = 1.0 - e.touches[0].clientY / window.innerHeight;
+      var viewport = getViewportSize();
+      mouseX = Math.max(0, Math.min(1, e.touches[0].clientX / viewport.width));
+      mouseY = Math.max(0, Math.min(1, 1.0 - e.touches[0].clientY / viewport.height));
     }
   }, { passive: true });
 
