@@ -463,7 +463,7 @@ a.arch-block:hover {
 }
 
 .math-bg-layer.active {
-  opacity: 1;
+  opacity: 0.5;
 }
 
 .hero-content {
