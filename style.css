@@ -547,7 +547,7 @@ html:not([data-theme="light"]) .hero-subtitle {
 .stat-label {
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--text-muted);
+  color: var(--text-bright);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-top: 0.25rem;
