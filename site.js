@@ -20,6 +20,15 @@
   var CACHE_KEY = "sele4n-live";
   var CACHE_TTL = 30 * 60 * 1000;
 
+  var FETCH_TIMEOUT_MS = 8000;
+  var FETCH_OPTIONS = {
+    credentials: "omit",
+    cache: "no-store",
+    mode: "cors",
+    redirect: "error",
+    referrerPolicy: "no-referrer"
+  };
+
   function formatNumber(n) {
     return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
@@ -151,16 +160,34 @@
     } catch (e) {}
   }
 
+  function fetchWithTimeout(url) {
+    var controller = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = null;
+
+    if (controller) {
+      timer = setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS);
+    }
+
+    var options = Object.assign({}, FETCH_OPTIONS);
+    if (controller) options.signal = controller.signal;
+
+    return fetch(url, options).finally(function () {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
   function fetchText(url) {
-    return fetch(url).then(function (r) {
+    return fetchWithTimeout(url).then(function (r) {
       if (!r.ok) throw new Error(r.status);
       return r.text();
     });
   }
 
   function fetchJSON(url) {
-    return fetch(url).then(function (r) {
+    return fetchWithTimeout(url).then(function (r) {
       if (!r.ok) throw new Error(r.status);
+      var contentType = r.headers.get("content-type") || "";
+      if (contentType.indexOf("application/json") === -1) throw new Error("Unexpected content type");
       return r.json();
     });
   }
@@ -230,9 +257,21 @@
     }).catch(function () {});
   }
 
+  function hardenExternalLinks() {
+    var anchors = document.querySelectorAll('a[target="_blank"]');
+    for (var i = 0; i < anchors.length; i++) {
+      var rel = anchors[i].getAttribute("rel") || "";
+      var tokens = rel.split(/\s+/).filter(Boolean);
+      if (tokens.indexOf("noopener") === -1) tokens.push("noopener");
+      if (tokens.indexOf("noreferrer") === -1) tokens.push("noreferrer");
+      anchors[i].setAttribute("rel", tokens.join(" "));
+    }
+  }
+
   applyData(FALLBACK);
   setupTheme();
   setupNav();
+  hardenExternalLinks();
 
   if (typeof requestIdleCallback === "function") requestIdleCallback(refreshLiveData);
   else setTimeout(refreshLiveData, 1);
