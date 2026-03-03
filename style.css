@@ -238,6 +238,10 @@ em {
   color: var(--text-bright);
   background: var(--accent-glow);
 }
+.nav-links a[aria-current="page"] {
+  color: var(--text-bright);
+  background: var(--accent-glow);
+}
 
 .nav-links a.nav-cta {
   background: var(--accent);

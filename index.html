@@ -4,18 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>seLe4n — A Micro-Kernel Written in Lean 4</title>
-  <meta name="description" content="seLe4n is a formally verified micro-kernel written entirely in Lean 4 with 577 machine-checked theorems, zero sorry, zero axiom. Inspired by seL4, targeting Raspberry Pi 5.">
+  <meta name="description" content="seLe4n is a formally verified micro-kernel written entirely in Lean 4 with machine-checked proofs, zero sorry, zero axiom. Inspired by seL4, targeting Raspberry Pi 5.">
   <meta name="keywords" content="seLe4n, microkernel, Lean 4, formal verification, seL4, operating system, kernel, Raspberry Pi 5, theorem proving, capability, IPC">
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
 
   <meta property="og:title" content="seLe4n — A Micro-Kernel Written in Lean 4">
-  <meta property="og:description" content="Formally verified micro-kernel with 577 machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
+  <meta property="og:description" content="Formally verified micro-kernel with machine-checked proofs. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sele4n.org">
 
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="seLe4n — A Micro-Kernel Written in Lean 4">
-  <meta name="twitter:description" content="Formally verified micro-kernel with 577 machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
+  <meta name="twitter:description" content="Formally verified micro-kernel with machine-checked proofs. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
 
   <link rel="canonical" href="https://sele4n.org">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f9e0;</text></svg>">
@@ -51,14 +51,14 @@
     </div>
   </div>
 
-  <a href="#about" class="skip-link">Skip to main content</a>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
 
   <!-- Navigation -->
   <nav class="nav" id="nav" aria-label="Main navigation">
     <div class="nav-inner">
       <a href="#hero" class="nav-logo" aria-label="seLe4n home">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="seLe4n" class="logo-img logo-img-light" width="160" height="64">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark" width="160" height="64">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="seLe4n" class="logo-img logo-img-light" width="160" height="64" decoding="async" fetchpriority="high">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark" width="160" height="64" decoding="async" fetchpriority="high">
       </a>
       <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links">
         <span></span><span></span><span></span>
@@ -87,8 +87,8 @@
     <div class="container hero-content">      
       <p class="hero-label">Micro-Kernel &middot; Lean 4 &middot; Formally Verified</p>
       <div class="hero-logo" aria-hidden="true">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="" class="logo-img logo-img-light" fetchpriority="high">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="" class="logo-img logo-img-dark" fetchpriority="high">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="" class="logo-img logo-img-light" fetchpriority="high" decoding="async">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="" class="logo-img logo-img-dark" fetchpriority="high" decoding="async">
       </div>
       <p class="hero-subtitle">
         Every kernel transition is an executable pure function.<br>
@@ -125,7 +125,7 @@
   </header>
 
   <!-- About -->
-  <main>
+  <main id="main-content">
   <section class="section" id="about">
     <div class="container">
       <h2 class="section-title">What is seLe4n?</h2>
@@ -1149,7 +1149,11 @@ cd seLe4n</code></pre>
         </div>
       </div>
       <div class="footer-bottom">
-        <p>seLe4n &middot; Created thoughtfully with the help of Claude and Codex</p>
+        <p>
+          seLe4n &middot; Created thoughtfully with the help of Claude and Codex &middot;
+          Commit <span data-live="commit-sha">main</span> &middot;
+          Updated <time data-live="updated-at" datetime="">live from repository</time>
+        </p>
       </div>
     </div>
   </footer>
