@@ -28,11 +28,39 @@ function countTheorems(text) {
   return m ? m.length : 0;
 }
 
+function parseCurrentStateMetrics(readmeText) {
+  if (!readmeText) return {};
+
+  const metrics = {};
+  const rows = readmeText.split(/\r?\n/);
+
+  for (const row of rows) {
+    const cells = row.split('|').map((cell) => cell.trim());
+    if (cells.length < 3) continue;
+
+    const metric = cells[1]?.toLowerCase() ?? '';
+    const value = cells[2] ?? '';
+
+    if (metric.includes('production loc')) {
+      const loc = value.match(/\d[\d,]*/);
+      if (loc) metrics.lines = loc[0];
+    }
+
+    if (metric.includes('theorem')) {
+      const theoremCount = value.match(/\d[\d,]*/);
+      if (theoremCount) metrics.theorems = Number(theoremCount[0].replace(/,/g, ''));
+    }
+  }
+
+  return metrics;
+}
+
 const data = JSON.parse(await readFile(OUT_FILE, 'utf8'));
 
-const [toolchain, lakefile, tree, langs, commit] = await Promise.all([
+const [toolchain, lakefile, readme, tree, langs, commit] = await Promise.all([
   fetchText(`${RAW}lean-toolchain`),
   fetchText(`${RAW}lakefile.toml`),
+  fetchText(`${RAW}README.md`),
   fetchJson(`${API}/git/trees/${REF}?recursive=1`),
   fetchJson(`${API}/languages`),
   fetchJson(`${API}/commits/${REF}`)
@@ -43,6 +71,8 @@ if (toolchainMatch) data.leanVersion = toolchainMatch[1];
 
 const versionMatch = lakefile.match(/version\s*=\s*"([^"]+)"/);
 if (versionMatch) data.version = versionMatch[1];
+
+const currentStateMetrics = parseCurrentStateMetrics(readme);
 
 let modules = 0;
 let scripts = 0;
@@ -70,8 +100,12 @@ data.modules = modules;
 data.scripts = scripts;
 data.docs = docs;
 data.buildJobs = modules * 2;
-if (theoremCount > 0) data.theorems = theoremCount;
-if (langs?.Lean) data.lines = formatNumber(Math.round(langs.Lean / 38));
+
+if (typeof currentStateMetrics.theorems === "number" && currentStateMetrics.theorems > 0) data.theorems = currentStateMetrics.theorems;
+else if (theoremCount > 0) data.theorems = theoremCount;
+
+if (currentStateMetrics.lines) data.lines = currentStateMetrics.lines;
+else if (langs?.Lean) data.lines = formatNumber(Math.round(langs.Lean / 38));
 if (commit?.sha) data.commitSha = commit.sha.slice(0, 7);
 if (commit?.commit?.author?.date) data.updatedAt = commit.commit.author.date;
 data.generatedAt = new Date().toISOString();
