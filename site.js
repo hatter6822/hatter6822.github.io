@@ -10,7 +10,9 @@
     scripts: 17,
     docs: 97,
     buildJobs: 70,
-    admitted: 0
+    admitted: 0,
+    commitSha: "main",
+    updatedAt: ""
   };
 
   var REPO = "hatter6822/seLe4n";
@@ -33,12 +35,40 @@
     return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
 
+  var LIVE_NODE_CACHE = Object.create(null);
+
   function update(key, value) {
     if (value === undefined || value === null || value === "") return;
-    var els = document.querySelectorAll('[data-live="' + key + '"]');
+    var els = LIVE_NODE_CACHE[key];
+    if (!els) {
+      els = document.querySelectorAll('[data-live="' + key + '"]');
+      LIVE_NODE_CACHE[key] = els;
+    }
+
     for (var i = 0; i < els.length; i++) {
       var next = String(value);
       if (els[i].textContent !== next) els[i].textContent = next;
+
+      if (els[i].tagName === "TIME") {
+        els[i].dateTime = value;
+      }
+    }
+  }
+
+  function updateMetadata(data) {
+    if (!data.theorems) return;
+
+    var summary = "Formally verified micro-kernel with " + data.theorems + " machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.";
+    var selectors = [
+      'meta[name="description"]',
+      'meta[property="og:description"]',
+      'meta[name="twitter:description"]'
+    ];
+
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (!el) continue;
+      el.setAttribute("content", summary);
     }
   }
 
@@ -52,6 +82,26 @@
     update("docs", data.docs);
     update("build-jobs", data.buildJobs);
     update("admitted", data.admitted);
+    update("commit-sha", data.commitSha);
+
+    if (data.updatedAt) {
+      var updatedDate = new Date(data.updatedAt);
+      if (!Number.isNaN(updatedDate.getTime())) {
+        var updatedNodes = document.querySelectorAll('[data-live="updated-at"]');
+        var displayDate = updatedDate.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric"
+        });
+
+        for (var i = 0; i < updatedNodes.length; i++) {
+          updatedNodes[i].textContent = displayDate;
+          if (updatedNodes[i].tagName === "TIME") updatedNodes[i].dateTime = updatedDate.toISOString();
+        }
+      }
+    }
+
+    updateMetadata(data);
 
     if (!data.version) return;
     var ld = document.querySelector('script[type="application/ld+json"]');
@@ -60,6 +110,7 @@
     try {
       var obj = JSON.parse(ld.textContent);
       obj.version = data.version;
+      if (data.updatedAt) obj.dateModified = data.updatedAt;
       ld.textContent = JSON.stringify(obj, null, 2);
     } catch (e) {}
   }
@@ -120,6 +171,13 @@
           toggle.setAttribute("aria-expanded", "false");
         });
       }
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") return;
+        links.classList.remove("open");
+        toggle.classList.remove("open");
+        toggle.setAttribute("aria-expanded", "false");
+      });
     }
 
     var nav = document.getElementById("nav");
@@ -140,6 +198,35 @@
       });
       ticking = true;
     }, { passive: true });
+
+    if (typeof IntersectionObserver === "function") {
+      var sectionLinks = nav.querySelectorAll('a[href^="#"]');
+      var sectionMap = Object.create(null);
+
+      for (var i = 0; i < sectionLinks.length; i++) {
+        var href = sectionLinks[i].getAttribute("href");
+        if (!href || href === "#") continue;
+        sectionMap[href.slice(1)] = sectionLinks[i];
+      }
+
+      var observer = new IntersectionObserver(function (entries) {
+        for (var j = 0; j < entries.length; j++) {
+          var entry = entries[j];
+          var link = sectionMap[entry.target.id];
+          if (!link || !entry.isIntersecting) continue;
+
+          for (var id in sectionMap) {
+            sectionMap[id].removeAttribute("aria-current");
+          }
+          link.setAttribute("aria-current", "page");
+        }
+      }, { rootMargin: "-30% 0px -60% 0px", threshold: 0.01 });
+
+      for (var id in sectionMap) {
+        var section = document.getElementById(id);
+        if (section) observer.observe(section);
+      }
+    }
   }
 
   function getCached() {
@@ -233,6 +320,14 @@
         if (langs && langs.Lean) data.lines = formatNumber(Math.round(langs.Lean / 38));
       }).catch(function () {}),
 
+      fetchJSON(API + "/commits/main").then(function (commit) {
+        if (!commit) return;
+        if (commit.sha) data.commitSha = commit.sha.slice(0, 7);
+        if (commit.commit && commit.commit.author && commit.commit.author.date) {
+          data.updatedAt = commit.commit.author.date;
+        }
+      }).catch(function () {}),
+
       fetchJSON(SEARCH + "?q=%22theorem+%22+repo:" + REPO + "+language:lean").then(function (res) {
         if (res && typeof res.total_count === "number") data.theorems = res.total_count;
       }).catch(function () {})
@@ -260,6 +355,13 @@
   function hardenExternalLinks() {
     var anchors = document.querySelectorAll('a[target="_blank"]');
     for (var i = 0; i < anchors.length; i++) {
+      var isExternal = false;
+      try {
+        var parsed = new URL(anchors[i].href, window.location.href);
+        isExternal = parsed.origin !== window.location.origin;
+      } catch (e) {}
+      if (!isExternal) continue;
+
       var rel = anchors[i].getAttribute("rel") || "";
       var tokens = rel.split(/\s+/).filter(Boolean);
       if (tokens.indexOf("noopener") === -1) tokens.push("noopener");
