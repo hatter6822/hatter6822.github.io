@@ -395,11 +395,6 @@
   }
 
   function refreshLiveData() {
-    var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    if (conn && conn.saveData) return;
-
-    if (window.matchMedia && window.matchMedia("(prefers-reduced-data: reduce)").matches) return;
-
     var cached = getCached();
     if (cached) {
       applyData(cached);
