@@ -9,9 +9,10 @@
 
   var REPO = "hatter6822/seLe4n";
   var API = "https://api.github.com/repos/" + REPO;
+  var REF = "main";
   var CACHE_KEY = "sele4n-live-v2";
   var CACHE_TTL = 6 * 60 * 60 * 1000;
-  var DATA_SCHEMA_VERSION = 1;
+  var DATA_SCHEMA_VERSION = 2;
 
   var FETCH_TIMEOUT_MS = 8000;
   var FETCH_OPTIONS = {
@@ -306,12 +307,27 @@
     var data = {};
 
     var tasks = [
-      fetchJSON(API + "/commits/main").then(function (commit) {
+      fetchJSON(API + "/commits/" + REF).then(function (commit) {
         if (!commit) return;
         if (commit.sha) data.commitSha = commit.sha.slice(0, 7);
         if (commit.commit && commit.commit.author && commit.commit.author.date) {
           data.updatedAt = commit.commit.author.date;
         }
+      }).catch(function () {}),
+      fetchJSON(API + "/git/trees/" + REF + "?recursive=1").then(function (treePayload) {
+        var tree = treePayload && treePayload.tree;
+        if (!Array.isArray(tree)) return;
+
+        var modules = 0;
+        for (var i = 0; i < tree.length; i++) {
+          var item = tree[i];
+          if (!item || item.type !== "blob") continue;
+          var path = item.path || "";
+          if (/^SeLe4n\/.*\.lean$/.test(path) && !/^SeLe4n\/Testing\//.test(path)) modules += 1;
+        }
+
+        data.modules = modules;
+        data.buildJobs = modules * 2;
       }).catch(function () {})
     ];
 
