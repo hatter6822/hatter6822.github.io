@@ -12,13 +12,13 @@
 
 :root {
   /* Colors */
-  --bg:          #0a0e17;
-  --bg-alt:      #0f1420;
-  --surface:     #151b2b;
-  --surface-2:   #1a2235;
-  --border:      #232d42;
-  --text:        #c8cdd8;
-  --text-muted:  #7a8299;
+  --bg:          #080c15;
+  --bg-alt:      #0d1320;
+  --surface:     #141c2d;
+  --surface-2:   #192338;
+  --border:      #2a3550;
+  --text:        #d8deea;
+  --text-muted:  #99a4bf;
   --text-bright: #e8ecf4;
   --heading:     #f0f2f8;
   --accent:      #5ba0f5;
@@ -33,18 +33,18 @@
   --purple:      #c678dd;
   --purple-dim:  rgba(198, 120, 221, 0.12);
   --bg-pattern:
-    radial-gradient(ellipse 80% 60% at 50% 40%, rgba(91, 160, 245, 0.2), transparent 72%),
-    radial-gradient(ellipse 60% 40% at 30% 72%, rgba(78, 201, 137, 0.14), transparent 65%),
-    linear-gradient(180deg, rgba(10, 14, 23, 0.3), rgba(10, 14, 23, 0.15));
+    radial-gradient(ellipse 80% 60% at 50% 40%, rgba(91, 160, 245, 0.11), transparent 72%),
+    radial-gradient(ellipse 60% 40% at 30% 72%, rgba(78, 201, 137, 0.08), transparent 65%),
+    linear-gradient(180deg, rgba(8, 12, 21, 0.55), rgba(8, 12, 21, 0.3));
 
   /* Typography */
   --font-sans:  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono:  "SFMono-Regular", "Cascadia Code", "Fira Code", Consolas, "Liberation Mono", Menlo, monospace;
 
   /* Layout */
-  --section-bg:     rgba(10, 14, 23, 0.88);
-  --section-alt-bg: rgba(15, 20, 32, 0.92);
-  --footer-bg:      rgba(15, 20, 32, 0.92);
+  --section-bg:     rgba(8, 12, 21, 0.94);
+  --section-alt-bg: rgba(13, 19, 32, 0.95);
+  --footer-bg:      rgba(13, 19, 32, 0.96);
 
   /* Spacing */
   --section-pad: 5rem 0;
@@ -104,7 +104,7 @@ body {
   background: transparent;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   overflow-x: clip;
 }
 
@@ -209,7 +209,7 @@ em {
   padding-right: env(safe-area-inset-right);
 }
 .nav.scrolled {
-  background: rgba(10, 14, 23, 0.92);
+  background: rgba(8, 12, 21, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   box-shadow: 0 1px 0 var(--border);
