@@ -53,6 +53,7 @@
      Configuration
      ═══════════════════════════════════════════════════════════ */
   var RES_SCALE     = 0.4;    // fraction of native resolution
+  var ALPHA_SCALE   = 0.25;   // global opacity cap multiplier
   var SCROLL_SMOOTH = 7;      // exponential smoothing rate (Hz)
   var MOUSE_SMOOTH  = 5;      // mouse smoothing rate (Hz)
 
@@ -77,15 +78,21 @@
      lower render resolution to keep GPU load manageable. */
   if (compactViewport) {
     RES_SCALE = 0.3;
+    ALPHA_SCALE = 0.36;
   }
 
-  if (prefersReduced || prefersReducedData || saveData || lowMemory) {
+  if (lowMemory) {
+    RES_SCALE = Math.min(RES_SCALE, 0.22);
+    ALPHA_SCALE = Math.max(ALPHA_SCALE, 0.34);
+  }
+
+  if (prefersReduced || prefersReducedData || saveData) {
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 75% 55% at 50% 35%,' +
-      'rgba(91,160,245,0.22) 0%,transparent 72%),' +
+      'rgba(91,160,245,0.30) 0%,transparent 72%),' +
       'radial-gradient(ellipse 55% 40% at 30% 70%,' +
-      'rgba(78,201,137,0.16) 0%,transparent 64%)';
+      'rgba(78,201,137,0.22) 0%,transparent 64%)';
     return;
   }
 
@@ -159,6 +166,7 @@
     'uniform float u_scroll;',
     'uniform float u_theme;',
     'uniform vec2 u_mouse;',
+    'uniform float u_alpha_scale;',
 
     /* ─────────────────────────────────────────────────────────
        3D Simplex Noise  (Ashima Arts — MIT licence)
@@ -475,7 +483,7 @@
     '  col+=csk*vec3(1.0,0.97,0.90)*0.85;',
     '  alpha+=csk*0.32;',
 
-    '  alpha=min(alpha,1.0)*0.25;',
+    '  alpha=min(alpha,1.0)*u_alpha_scale;',
 
     /* ── Final — premultiplied alpha for CSS compositing ──── */
     '  gl_FragColor=vec4(col*alpha,alpha);',
@@ -543,6 +551,7 @@
   var uScroll = gl.getUniformLocation(prog, 'u_scroll');
   var uTheme  = gl.getUniformLocation(prog, 'u_theme');
   var uMouse  = gl.getUniformLocation(prog, 'u_mouse');
+  var uAlpha  = gl.getUniformLocation(prog, 'u_alpha_scale');
 
   /* ═══════════════════════════════════════════════════════════
      State
@@ -596,6 +605,7 @@
     gl.uniform1f(uScroll, smoothScrollY);
     gl.uniform1f(uTheme, getTheme());
     gl.uniform2f(uMouse, 0.5, 0.5);
+    gl.uniform1f(uAlpha, ALPHA_SCALE);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -630,6 +640,7 @@
     gl.uniform1f(uScroll, smoothScrollY);
     gl.uniform1f(uTheme, getTheme());
     gl.uniform2f(uMouse, smoothMouseX, smoothMouseY);
+    gl.uniform1f(uAlpha, ALPHA_SCALE);
 
     /* ── Draw ─────────────────────────────────────────────── */
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -720,6 +731,7 @@
     uScroll = gl.getUniformLocation(prog, 'u_scroll');
     uTheme  = gl.getUniformLocation(prog, 'u_theme');
     uMouse  = gl.getUniformLocation(prog, 'u_mouse');
+    uAlpha  = gl.getUniformLocation(prog, 'u_alpha_scale');
 
     resize();
     running = !prefersReduced;
