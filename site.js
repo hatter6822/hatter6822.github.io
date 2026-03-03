@@ -58,7 +58,7 @@
   function updateMetadata(data) {
     if (!data.theorems) return;
 
-    var summary = "Formally verified micro-kernel with " + data.theorems + " machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.";
+    var summary = "Formally verified microkernel with " + data.theorems + " machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.";
     var selectors = [
       'meta[name="description"]',
       'meta[property="og:description"]',
