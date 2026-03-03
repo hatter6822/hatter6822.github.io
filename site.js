@@ -2,17 +2,7 @@
   "use strict";
 
   var STATIC_FALLBACK = {
-    version: "0.12.16",
-    leanVersion: "4.28.0",
-    modules: 35,
-    lines: "21,641",
-    theorems: 577,
-    scripts: 17,
-    docs: 97,
-    buildJobs: 70,
-    admitted: 0,
-    commitSha: "main",
-    updatedAt: ""
+    admitted: 0
   };
 
   var DATA_ENDPOINT = "data/site-data.json";
@@ -268,6 +258,19 @@
     };
   }
 
+  function mergeData(base, patch) {
+    var out = {};
+    var key;
+
+    for (key in base) out[key] = base[key];
+    for (key in patch) {
+      if (patch[key] === undefined || patch[key] === null || patch[key] === "") continue;
+      out[key] = patch[key];
+    }
+
+    return out;
+  }
+
   function fetchBundledData() {
     return fetchJSON(DATA_ENDPOINT).then(function (payload) {
       var normalized = normalizeBundledData(payload);
@@ -308,63 +311,6 @@
     });
   }
 
-  function decodeBase64Utf8(base64) {
-    var binary = atob(base64.replace(/\s/g, ""));
-    var bytes = new Uint8Array(binary.length);
-
-    for (var i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-
-    if (typeof TextDecoder === "function") {
-      return new TextDecoder("utf-8").decode(bytes);
-    }
-
-    var text = "";
-    for (var j = 0; j < bytes.length; j++) text += String.fromCharCode(bytes[j]);
-    return decodeURIComponent(escape(text));
-  }
-
-  function countTheoremDeclarations(text) {
-    var matches = text.match(/(?:^|\n)\s*(?:private\s+|protected\s+)?theorem\s+/g);
-    return matches ? matches.length : 0;
-  }
-
-  function fetchTheoremCountFromTree(treeItems) {
-    var leanBlobs = [];
-
-    for (var i = 0; i < treeItems.length; i++) {
-      var item = treeItems[i];
-      if (item.type !== "blob") continue;
-      if (!/^SeLe4n\/.*\.lean$/.test(item.path) || /^SeLe4n\/Testing\//.test(item.path)) continue;
-      if (!item.sha) continue;
-      leanBlobs.push(item.sha);
-    }
-
-    if (!leanBlobs.length) return Promise.resolve(null);
-
-    var index = 0;
-    var theoremCount = 0;
-    var workers = [];
-    var limit = Math.min(6, leanBlobs.length);
-
-    var worker = function () {
-      if (index >= leanBlobs.length) return Promise.resolve();
-      var sha = leanBlobs[index++];
-
-      return fetchJSON(API + "/git/blobs/" + sha).then(function (blob) {
-        if (!blob || !blob.content || blob.encoding !== "base64") return;
-        theoremCount += countTheoremDeclarations(decodeBase64Utf8(blob.content));
-      }).catch(function () {}).then(worker);
-    };
-
-    for (var j = 0; j < limit; j++) workers.push(worker());
-
-    return Promise.all(workers).then(function () {
-      return theoremCount > 0 ? theoremCount : null;
-    });
-  }
-
   function fetchLiveData() {
     var data = { admitted: 0 };
 
@@ -400,10 +346,6 @@
         data.scripts = scripts;
         data.docs = docs;
         data.buildJobs = modules * 2;
-
-        return fetchTheoremCountFromTree(tree.tree).then(function (theoremCount) {
-          if (typeof theoremCount === "number") data.theorems = theoremCount;
-        });
       }).catch(function () {}),
 
       fetchJSON(API + "/languages").then(function (langs) {
@@ -423,20 +365,23 @@
   }
 
   function refreshLiveData() {
+    var baseline = STATIC_FALLBACK;
     var cached = getCached();
     if (cached) {
-      applyData(cached);
-      return;
+      baseline = mergeData(baseline, cached);
+      applyData(baseline);
     }
 
     fetchBundledData().then(function (bundled) {
-      setCache(bundled);
-      applyData(bundled);
+      baseline = mergeData(baseline, bundled);
+      setCache(baseline);
+      applyData(baseline);
     }).catch(function () {});
 
     fetchLiveData().then(function (data) {
-      setCache(data);
-      applyData(data);
+      baseline = mergeData(baseline, data);
+      setCache(baseline);
+      applyData(baseline);
     }).catch(function () {});
   }
 
