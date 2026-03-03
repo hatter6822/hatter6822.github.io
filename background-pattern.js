@@ -66,6 +66,22 @@
 
   var prefersReduced = window.matchMedia &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var prefersReducedData = window.matchMedia &&
+    window.matchMedia('(prefers-reduced-data: reduce)').matches;
+  var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  var saveData = !!(conn && conn.saveData);
+  var lowMemory = typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 2;
+  var compactViewport = Math.min(window.innerWidth, window.innerHeight) < 640;
+
+  if (prefersReduced || prefersReducedData || saveData || lowMemory || compactViewport) {
+    canvasA.style.display = 'none';
+    mover.style.background =
+      'radial-gradient(ellipse 75% 55% at 50% 35%,' +
+      'rgba(91,160,245,0.14) 0%,transparent 70%),' +
+      'radial-gradient(ellipse 55% 40% at 30% 70%,' +
+      'rgba(78,201,137,0.1) 0%,transparent 60%)';
+    return;
+  }
 
   /* ═══════════════════════════════════════════════════════════
      Reconfigure DOM for single-canvas WebGL
