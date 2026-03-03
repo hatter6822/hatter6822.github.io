@@ -73,13 +73,19 @@
   var lowMemory = typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 2;
   var compactViewport = Math.min(window.innerWidth, window.innerHeight) < 640;
 
-  if (prefersReduced || prefersReducedData || saveData || lowMemory || compactViewport) {
+  /* Mobile should still get the animated background; we only
+     lower render resolution to keep GPU load manageable. */
+  if (compactViewport) {
+    RES_SCALE = 0.3;
+  }
+
+  if (prefersReduced || prefersReducedData || saveData || lowMemory) {
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 75% 55% at 50% 35%,' +
-      'rgba(91,160,245,0.14) 0%,transparent 70%),' +
+      'rgba(91,160,245,0.22) 0%,transparent 72%),' +
       'radial-gradient(ellipse 55% 40% at 30% 70%,' +
-      'rgba(78,201,137,0.1) 0%,transparent 60%)';
+      'rgba(78,201,137,0.16) 0%,transparent 64%)';
     return;
   }
 
@@ -102,17 +108,30 @@
     antialias: false,
     depth: false,
     stencil: false,
-    preserveDrawingBuffer: false
+    preserveDrawingBuffer: false,
+    powerPreference: compactViewport ? 'low-power' : 'high-performance'
   });
+
+  if (!gl) {
+    gl = canvasA.getContext('experimental-webgl', {
+      alpha: true,
+      premultipliedAlpha: true,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      preserveDrawingBuffer: false,
+      powerPreference: compactViewport ? 'low-power' : 'high-performance'
+    });
+  }
 
   if (!gl) {
     /* Graceful fallback — static CSS gradient (quartered alpha) */
     canvasA.style.display = 'none';
     mover.style.background =
       'radial-gradient(ellipse 80% 60% at 50% 40%,' +
-      'rgba(91,160,245,0.24) 0%,transparent 70%),' +
+      'rgba(91,160,245,0.28) 0%,transparent 72%),' +
       'radial-gradient(ellipse 60% 40% at 30% 70%,' +
-      'rgba(78,201,137,0.16) 0%,transparent 60%)';
+      'rgba(78,201,137,0.2) 0%,transparent 64%)';
     return;
   }
 
