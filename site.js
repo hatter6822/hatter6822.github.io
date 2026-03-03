@@ -8,10 +8,10 @@
   var DATA_ENDPOINT = "data/site-data.json";
 
   var REPO = "hatter6822/seLe4n";
-  var RAW = "https://raw.githubusercontent.com/" + REPO + "/main/";
   var API = "https://api.github.com/repos/" + REPO;
   var CACHE_KEY = "sele4n-live-v2";
   var CACHE_TTL = 6 * 60 * 60 * 1000;
+  var DATA_SCHEMA_VERSION = 1;
 
   var FETCH_TIMEOUT_MS = 8000;
   var FETCH_OPTIONS = {
@@ -21,10 +21,6 @@
     redirect: "error",
     referrerPolicy: "no-referrer"
   };
-
-  function formatNumber(n) {
-    return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  }
 
   var LIVE_NODE_CACHE = Object.create(null);
 
@@ -227,6 +223,7 @@
       var raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
       var obj = JSON.parse(raw);
+      if (obj.schema !== DATA_SCHEMA_VERSION) return null;
       if (Date.now() - obj.ts > CACHE_TTL) return null;
       return obj.data;
     } catch (e) {
@@ -236,7 +233,7 @@
 
   function setCache(data) {
     try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ schema: DATA_SCHEMA_VERSION, ts: Date.now(), data: data }));
     } catch (e) {}
   }
 
@@ -254,7 +251,8 @@
       buildJobs: data.buildJobs,
       admitted: data.admitted,
       commitSha: data.commitSha,
-      updatedAt: data.updatedAt
+      updatedAt: data.updatedAt,
+      generatedAt: data.generatedAt
     };
   }
 
@@ -295,13 +293,6 @@
     });
   }
 
-  function fetchText(url) {
-    return fetchWithTimeout(url).then(function (r) {
-      if (!r.ok) throw new Error(r.status);
-      return r.text();
-    });
-  }
-
   function fetchJSON(url) {
     return fetchWithTimeout(url).then(function (r) {
       if (!r.ok) throw new Error(r.status);
@@ -312,46 +303,9 @@
   }
 
   function fetchLiveData() {
-    var data = { admitted: 0 };
+    var data = {};
 
     var tasks = [
-      fetchText(RAW + "lean-toolchain").then(function (text) {
-        var m = text.match(/(\d+\.\d+\.\d+)/);
-        if (m) data.leanVersion = m[1];
-      }).catch(function () {}),
-
-      fetchText(RAW + "lakefile.toml").then(function (text) {
-        var m = text.match(/version\s*=\s*"([^"]+)"/);
-        if (m) data.version = m[1];
-      }).catch(function () {}),
-
-      fetchJSON(API + "/git/trees/main?recursive=1").then(function (tree) {
-        if (!tree.tree) return;
-
-        var modules = 0;
-        var scripts = 0;
-        var docs = 0;
-
-        for (var i = 0; i < tree.tree.length; i++) {
-          var item = tree.tree[i];
-          if (item.type !== "blob") continue;
-
-          var p = item.path;
-          if (/^SeLe4n\/.*\.lean$/.test(p) && !/^SeLe4n\/Testing\//.test(p)) modules++;
-          if (/^scripts\/.*\.sh$/.test(p)) scripts++;
-          if (/^docs\/.*\.(md|txt)$/.test(p)) docs++;
-        }
-
-        data.modules = modules;
-        data.scripts = scripts;
-        data.docs = docs;
-        data.buildJobs = modules * 2;
-      }).catch(function () {}),
-
-      fetchJSON(API + "/languages").then(function (langs) {
-        if (langs && langs.Lean) data.lines = formatNumber(Math.round(langs.Lean / 38));
-      }).catch(function () {}),
-
       fetchJSON(API + "/commits/main").then(function (commit) {
         if (!commit) return;
         if (commit.sha) data.commitSha = commit.sha.slice(0, 7);
