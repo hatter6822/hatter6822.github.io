@@ -14,102 +14,56 @@
     referrerPolicy: "no-referrer"
   };
 
-  var CACHE_KEY = "sele4n-code-map-v2";
+  var CACHE_KEY = "sele4n-code-map-v3";
   var CACHE_TTL_MS = 60 * 60 * 1000;
-  var CACHE_SCHEMA = 2;
   var FETCH_CONCURRENCY = 8;
-
-  var LIVE_NODE_CACHE = Object.create(null);
+  var FETCH_TIMEOUT_MS = 9000;
+  var NODE_CACHE = Object.create(null);
 
   var state = {
-    files: [],
-    directories: [],
-    modules: [],
-    moduleMap: Object.create(null),
-    moduleMeta: Object.create(null),
-    importsTo: Object.create(null),
-    importsFrom: Object.create(null),
-    externalImportsFrom: Object.create(null),
-    theoremPairs: [],
-    theoremTotals: {
-      totalTheorems: 0,
-      theoremModules: 0,
-      pairCount: 0,
-      linkedPairCount: 0
-    },
-    selectedModule: null,
-    activeFilterText: "",
-    activeLayerFilter: "all"
+    files: [], directories: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
+    importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
+    theoremPairs: [], selectedModule: null, selectedPair: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot"
   };
 
-  function updateMapMetric(key, value) {
-    var nodes = LIVE_NODE_CACHE[key];
-    if (!nodes) {
-      nodes = document.querySelectorAll('[data-map="' + key + '"]');
-      LIVE_NODE_CACHE[key] = nodes;
+  function setStatus(text, isError) {
+    var el = document.getElementById("map-status");
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle("error", Boolean(isError));
+  }
+
+  function updateMetric(key, value) {
+    var els = NODE_CACHE[key];
+    if (!els) {
+      els = document.querySelectorAll('[data-map="' + key + '"]');
+      NODE_CACHE[key] = els;
     }
-    for (var i = 0; i < nodes.length; i++) nodes[i].textContent = String(value);
+    for (var i = 0; i < els.length; i++) els[i].textContent = String(value);
   }
 
-  function updateStatus(message, isError) {
-    var status = document.getElementById("map-status");
-    if (!status) return;
-    status.textContent = message;
-    status.classList.toggle("error", Boolean(isError));
-  }
+  function safeFetch(url, asText) {
+    var ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = null;
+    if (ctrl) timer = setTimeout(function () { ctrl.abort(); }, FETCH_TIMEOUT_MS);
 
-  function safeFetchJSON(url) {
-    return fetch(url, FETCH_OPTIONS).then(function (res) {
+    var opts = ctrl ? Object.assign({}, FETCH_OPTIONS, { signal: ctrl.signal }) : FETCH_OPTIONS;
+    return fetch(url, opts).then(function (res) {
+      if (timer) clearTimeout(timer);
       if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
+      return asText ? res.text() : res.json();
+    }).catch(function (error) {
+      if (timer) clearTimeout(timer);
+      throw error;
     });
   }
 
-
-  function safeFetchText(url) {
-    return fetch(url, FETCH_OPTIONS).then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.text();
-    });
+  function sanitizeModuleName(value) {
+    return /^[A-Za-z0-9_.]+$/.test(value) ? value : "";
   }
 
-  function setTheme(theme) {
-    var root = document.documentElement;
-    var themeColorMeta = document.getElementById("theme-color-meta");
-    root.setAttribute("data-theme", theme);
-    try { localStorage.setItem("sele4n-theme", theme); } catch (e) {}
-    if (themeColorMeta) themeColorMeta.setAttribute("content", theme === "light" ? "#f8f9fc" : "#0a0e17");
-  }
-
-  function setupTheme() {
-    var root = document.documentElement;
-    var toggle = document.getElementById("theme-toggle");
-    if (!root.getAttribute("data-theme")) setTheme("dark");
-
-    if (toggle) {
-      toggle.addEventListener("click", function () {
-        var current = root.getAttribute("data-theme") || "dark";
-        setTheme(current === "dark" ? "light" : "dark");
-      });
-    }
-  }
-
-  function hardenExternalLinks() {
-    var anchors = document.querySelectorAll('a[target="_blank"]');
-    for (var i = 0; i < anchors.length; i++) {
-      var isExternal = false;
-      try {
-        var parsed = new URL(anchors[i].href, window.location.href);
-        isExternal = parsed.origin !== window.location.origin;
-      } catch (e) {}
-      if (!isExternal) continue;
-
-      var rel = anchors[i].getAttribute("rel") || "";
-      var tokens = rel.split(/\s+/).filter(Boolean);
-      if (tokens.indexOf("noopener") === -1) tokens.push("noopener");
-      if (tokens.indexOf("noreferrer") === -1) tokens.push("noreferrer");
-      anchors[i].setAttribute("rel", tokens.join(" "));
-    }
+  function moduleFromPath(path) {
+    return path.replace(/\.lean$/, "").replace(/\//g, ".");
   }
 
   function classifyLayer(moduleName) {
@@ -120,367 +74,326 @@
     return "other";
   }
 
-  function moduleFromPath(path) {
-    return path.replace(/\.lean$/, "").replace(/\//g, ".");
-  }
-
-  function isInternalModule(moduleName) {
-    return Object.prototype.hasOwnProperty.call(state.moduleMap, moduleName);
-  }
-
-  function detectModuleKind(moduleName) {
+  function moduleKind(moduleName) {
     if (/\.Operations$/.test(moduleName)) return "operations";
     if (/\.Invariant$/.test(moduleName)) return "invariant";
     return "other";
   }
 
-  function moduleBaseName(moduleName) {
+  function moduleBase(moduleName) {
     return moduleName.replace(/\.(Operations|Invariant)$/, "");
   }
 
-  function parseImportTokens(line) {
-    var importLine = line.slice(7).split("--")[0].trim();
-    if (!importLine) return [];
-    return importLine.split(/\s+/).filter(Boolean);
-  }
-
-  function countTheoremDecls(sourceText) {
-    var matches = sourceText.match(/^\s*(?:theorem|lemma)\s+[\w'.`]+/gm);
+  function theoremCount(text) {
+    var matches = text.match(/^\s*(?:theorem|lemma)\s+[\w'.`]+/gm);
     return matches ? matches.length : 0;
   }
 
-  function parseModule(moduleName, sourceText) {
-    var imports = [];
+  function parseModule(name, sourceText) {
+    var lines = sourceText.split(/\r?\n/);
     var seenInternal = Object.create(null);
     var seenExternal = Object.create(null);
-    var externalImports = [];
-    var lines = sourceText.split(/\r?\n/);
+    var imports = [];
+    var external = [];
 
     for (var i = 0; i < lines.length; i++) {
-      var trimmed = lines[i].trim();
-      if (trimmed.indexOf("import ") !== 0) continue;
-
-      var deps = parseImportTokens(trimmed);
+      var line = lines[i].trim();
+      if (line.indexOf("import ") !== 0) continue;
+      var depLine = line.slice(7).split("--")[0].trim();
+      if (!depLine) continue;
+      var deps = depLine.split(/\s+/);
       for (var j = 0; j < deps.length; j++) {
-        var dep = deps[j];
-        if (isInternalModule(dep)) {
-          if (seenInternal[dep]) continue;
-          seenInternal[dep] = true;
-          imports.push(dep);
-        } else {
-          if (seenExternal[dep]) continue;
+        var dep = sanitizeModuleName(deps[j]);
+        if (!dep) continue;
+        if (Object.prototype.hasOwnProperty.call(state.moduleMap, dep)) {
+          if (!seenInternal[dep]) {
+            seenInternal[dep] = true;
+            imports.push(dep);
+          }
+        } else if (!seenExternal[dep]) {
           seenExternal[dep] = true;
-          externalImports.push(dep);
+          external.push(dep);
         }
       }
     }
 
-    state.importsFrom[moduleName] = imports;
-    state.externalImportsFrom[moduleName] = externalImports;
-
+    state.importsFrom[name] = imports;
+    state.externalImportsFrom[name] = external;
     for (var k = 0; k < imports.length; k++) {
-      var target = imports[k];
-      if (!state.importsTo[target]) state.importsTo[target] = [];
-      state.importsTo[target].push(moduleName);
+      if (!state.importsTo[imports[k]]) state.importsTo[imports[k]] = [];
+      state.importsTo[imports[k]].push(name);
     }
 
-    var kind = detectModuleKind(moduleName);
-    var base = moduleBaseName(moduleName);
-    var theoremCount = countTheoremDecls(sourceText);
-    var meta = state.moduleMeta[moduleName] || {};
-    meta.layer = classifyLayer(moduleName);
-    meta.kind = kind;
-    meta.base = base;
-    meta.theorems = theoremCount;
-    state.moduleMeta[moduleName] = meta;
-  }
-
-  function countImports(moduleName) {
-    var outgoing = state.importsFrom[moduleName] || [];
-    var incoming = state.importsTo[moduleName] || [];
-    return {
-      incoming: incoming.length,
-      outgoing: outgoing.length,
-      total: incoming.length + outgoing.length
+    state.moduleMeta[name] = {
+      layer: classifyLayer(name),
+      kind: moduleKind(name),
+      base: moduleBase(name),
+      theorems: theoremCount(sourceText)
     };
   }
 
-  function computeTheoremPairs() {
-    var groups = Object.create(null);
-    var totals = {
-      totalTheorems: 0,
-      theoremModules: 0,
-      pairCount: 0,
-      linkedPairCount: 0
-    };
-
-    for (var i = 0; i < state.modules.length; i++) {
-      var moduleName = state.modules[i];
-      var meta = state.moduleMeta[moduleName] || {};
-      var theoremCount = meta.theorems || 0;
-      totals.totalTheorems += theoremCount;
-      if (theoremCount > 0) totals.theoremModules += 1;
-
-      if (meta.kind !== "operations" && meta.kind !== "invariant") continue;
-      if (!groups[meta.base]) groups[meta.base] = {};
-      groups[meta.base][meta.kind] = moduleName;
-    }
-
-    var pairs = [];
-    for (var base in groups) {
-      var operationsModule = groups[base].operations || "";
-      var invariantModule = groups[base].invariant || "";
-      if (!operationsModule && !invariantModule) continue;
-
-      var invImportsOps = false;
-      if (invariantModule && operationsModule) {
-        var deps = state.importsFrom[invariantModule] || [];
-        invImportsOps = deps.indexOf(operationsModule) !== -1;
-      }
-
-      pairs.push({
-        base: base,
-        operationsModule: operationsModule,
-        invariantModule: invariantModule,
-        operationsPath: operationsModule ? state.moduleMap[operationsModule] : "",
-        invariantPath: invariantModule ? state.moduleMap[invariantModule] : "",
-        operationsTheorems: operationsModule && state.moduleMeta[operationsModule] ? state.moduleMeta[operationsModule].theorems : 0,
-        invariantTheorems: invariantModule && state.moduleMeta[invariantModule] ? state.moduleMeta[invariantModule].theorems : 0,
-        invariantImportsOperations: invImportsOps
-      });
-    }
-
-    pairs.sort(function (a, b) {
-      var ta = (a.operationsTheorems || 0) + (a.invariantTheorems || 0);
-      var tb = (b.operationsTheorems || 0) + (b.invariantTheorems || 0);
-      if (tb !== ta) return tb - ta;
-      return a.base.localeCompare(b.base);
-    });
-
-    totals.pairCount = pairs.length;
-    for (var j = 0; j < pairs.length; j++) {
-      if (pairs[j].operationsModule && pairs[j].invariantModule && pairs[j].invariantImportsOperations) totals.linkedPairCount += 1;
-    }
-
-    state.theoremPairs = pairs;
-    state.theoremTotals = totals;
+  function moduleDegree(name) {
+    var incoming = (state.importsTo[name] || []).length;
+    var outgoing = (state.importsFrom[name] || []).length;
+    var meta = state.moduleMeta[name] || {};
+    var theorems = meta.theorems || 0;
+    var score = incoming * 2 + outgoing + theorems * 3;
+    return { incoming: incoming, outgoing: outgoing, total: incoming + outgoing, theorems: theorems, score: score };
   }
 
-  function updateStats() {
-    var importEdges = 0;
-    for (var i = 0; i < state.modules.length; i++) {
-      importEdges += (state.importsFrom[state.modules[i]] || []).length;
-    }
+  function appendList(panel, title, items, limit) {
+    var h = document.createElement("h3");
+    h.className = "section-title-sm";
+    h.textContent = title;
+    panel.appendChild(h);
 
-    updateMapMetric("files", state.files.length);
-    updateMapMetric("directories", state.directories.length);
-    updateMapMetric("leanModules", state.modules.length);
-    updateMapMetric("importEdges", importEdges);
-    updateMapMetric("theorems", state.theoremTotals.totalTheorems || 0);
-    updateMapMetric("proofPairs", state.theoremTotals.pairCount || 0);
-    updateMapMetric("linkedPairs", state.theoremTotals.linkedPairCount || 0);
-  }
-
-  function renderFocusOptions() {
-    var select = document.getElementById("focus-select");
-    if (!select) return;
-
-    while (select.options.length > 1) select.remove(1);
-
-    var options = ["model", "kernel", "security", "platform", "other"];
-    for (var i = 0; i < options.length; i++) {
-      var opt = document.createElement("option");
-      opt.value = options[i];
-      opt.textContent = options[i][0].toUpperCase() + options[i].slice(1);
-      select.appendChild(opt);
-    }
-  }
-
-  function appendList(panel, titleText, items, maxItems) {
-    var title = document.createElement("h3");
-    title.className = "section-title-sm";
-    title.textContent = titleText;
-    panel.appendChild(title);
-
-    var list = document.createElement("ul");
-    list.className = "detail-list";
-
+    var ul = document.createElement("ul");
+    ul.className = "detail-list";
+    var max = Math.min(items.length, limit || items.length);
     if (!items.length) {
       var empty = document.createElement("li");
       empty.textContent = "(none)";
-      list.appendChild(empty);
+      ul.appendChild(empty);
     } else {
-      var limit = Math.min(maxItems || items.length, items.length);
-      for (var i = 0; i < limit; i++) {
+      for (var i = 0; i < max; i++) {
         var li = document.createElement("li");
         li.textContent = items[i];
-        list.appendChild(li);
+        ul.appendChild(li);
       }
-      if (items.length > limit) {
+      if (items.length > max) {
         var more = document.createElement("li");
-        more.textContent = "… and " + (items.length - limit) + " more";
-        list.appendChild(more);
+        more.textContent = "… and " + (items.length - max) + " more";
+        ul.appendChild(more);
       }
     }
-
-    panel.appendChild(list);
+    panel.appendChild(ul);
   }
 
-  function relatedProofModules(moduleName) {
-    var meta = state.moduleMeta[moduleName] || {};
-    var base = meta.base || moduleBaseName(moduleName);
-    var operationsModule = base + ".Operations";
-    var invariantModule = base + ".Invariant";
-    var list = [];
-
-    if (isInternalModule(operationsModule) && operationsModule !== moduleName) list.push(operationsModule);
-    if (isInternalModule(invariantModule) && invariantModule !== moduleName) list.push(invariantModule);
-
-    return list;
+  function relatedProofModules(name) {
+    var base = moduleBase(name);
+    var ops = base + ".Operations";
+    var inv = base + ".Invariant";
+    var out = [];
+    if (state.moduleMap[ops] && ops !== name) out.push(ops);
+    if (state.moduleMap[inv] && inv !== name) out.push(inv);
+    return out;
   }
 
-  function renderDetails(moduleName) {
+  function renderDetails(name) {
     var panel = document.getElementById("details-panel");
-    if (!panel || !moduleName) return;
+    if (!panel || !name) return;
+    state.selectedModule = name;
 
-    state.selectedModule = moduleName;
-
-    var outgoing = state.importsFrom[moduleName] || [];
-    var incoming = state.importsTo[moduleName] || [];
-    var external = state.externalImportsFrom[moduleName] || [];
-    var modulePath = state.moduleMap[moduleName] || "Unknown path";
-    var meta = state.moduleMeta[moduleName] || {};
-    var related = relatedProofModules(moduleName);
+    var meta = state.moduleMeta[name] || {};
+    var degree = moduleDegree(name);
+    var modulePath = state.moduleMap[name] || "Unknown";
 
     panel.innerHTML = "";
-
     var title = document.createElement("h2");
     title.className = "section-title-sm";
-    title.textContent = moduleName;
-
-    var path = document.createElement("p");
-    path.className = "panel-note";
-    path.textContent = modulePath;
-
-    var metaInfo = document.createElement("p");
-    metaInfo.className = "panel-note";
-    metaInfo.textContent = "Layer: " + (meta.layer || "other") + " | Kind: " + (meta.kind || "other") + " | Theorem declarations: " + (meta.theorems || 0);
-
-    var fan = document.createElement("p");
-    fan.className = "panel-note";
-    fan.textContent = "Fan-in: " + incoming.length + " | Fan-out: " + outgoing.length + " | External imports: " + external.length;
-
+    title.textContent = name;
     panel.appendChild(title);
-    panel.appendChild(path);
-    panel.appendChild(metaInfo);
-    panel.appendChild(fan);
 
-    appendList(panel, "Related proof modules", related, 8);
-    appendList(panel, "Imports (internal)", outgoing, 60);
-    appendList(panel, "Imported by", incoming, 60);
-    appendList(panel, "External imports", external, 30);
-  }
-
-  function renderGraph() {
-    var wrap = document.getElementById("graph-wrap");
-    if (!wrap) return;
-
-    var query = (state.activeFilterText || "").trim().toLowerCase();
-    var layerFilter = state.activeLayerFilter || "all";
-
-    wrap.innerHTML = "";
-
-    var grid = document.createElement("div");
-    grid.className = "bubble-grid";
-
-    var ranked = state.modules.slice().sort(function (a, b) {
-      return countImports(b).total - countImports(a).total;
-    });
-
-    for (var i = 0; i < ranked.length; i++) {
-      var moduleName = ranked[i];
-      var meta = state.moduleMeta[moduleName] || {};
-      var layer = meta.layer || classifyLayer(moduleName);
-      var modulePath = state.moduleMap[moduleName] || "";
-
-      if (layerFilter !== "all" && layer !== layerFilter) continue;
-      if (query && moduleName.toLowerCase().indexOf(query) === -1 && modulePath.toLowerCase().indexOf(query) === -1) continue;
-
-      var degree = countImports(moduleName);
-      var bubble = document.createElement("button");
-      bubble.type = "button";
-      bubble.className = "bubble layer-" + layer + (state.selectedModule === moduleName ? " selected" : "");
-      bubble.style.minHeight = Math.min(10.5, 4.7 + degree.total * 0.17) + "rem";
-      bubble.textContent = moduleName.split(".").slice(-1)[0] + " (" + degree.total + ")";
-      bubble.title = moduleName;
-      bubble.setAttribute("aria-label", moduleName + ", total degree " + degree.total + ", theorems " + (meta.theorems || 0));
-      bubble.addEventListener("click", (function (name) {
-        return function () {
-          renderDetails(name);
-          renderAll();
-        };
-      })(moduleName));
-      grid.appendChild(bubble);
+    var info = [
+      "Path: " + modulePath,
+      "Layer: " + (meta.layer || "other") + " | Kind: " + (meta.kind || "other"),
+      "Theorems: " + degree.theorems + " | Fan-in: " + degree.incoming + " | Fan-out: " + degree.outgoing,
+      "Walkthrough score: " + degree.score
+    ];
+    for (var i = 0; i < info.length; i++) {
+      var p = document.createElement("p");
+      p.className = "panel-note";
+      p.textContent = info[i];
+      panel.appendChild(p);
     }
 
-    if (!grid.children.length) {
+    appendList(panel, "Related proof modules", relatedProofModules(name), 6);
+    appendList(panel, "Imports (internal)", state.importsFrom[name] || [], 40);
+    appendList(panel, "Imported by", state.importsTo[name] || [], 40);
+    appendList(panel, "External imports", state.externalImportsFrom[name] || [], 20);
+  }
+
+  function filteredModules() {
+    var q = state.activeFilterText.trim().toLowerCase();
+    var layer = state.activeLayerFilter;
+    return state.modules.filter(function (name) {
+      var meta = state.moduleMeta[name] || {};
+      var path = state.moduleMap[name] || "";
+      if (layer !== "all" && meta.layer !== layer) return false;
+      if (!q) return true;
+      return name.toLowerCase().indexOf(q) !== -1 || path.toLowerCase().indexOf(q) !== -1;
+    });
+  }
+
+  function sortModules(list) {
+    list.sort(function (a, b) {
+      if (state.activeSort === "name") return a.localeCompare(b);
+      if (state.activeSort === "theorems") {
+        var dt = moduleDegree(b).theorems - moduleDegree(a).theorems;
+        return dt || moduleDegree(b).score - moduleDegree(a).score;
+      }
+      var d = moduleDegree(b).score - moduleDegree(a).score;
+      return d || a.localeCompare(b);
+    });
+  }
+
+  function renderWalkCards() {
+    var wrap = document.getElementById("graph-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+
+    var list = filteredModules();
+    sortModules(list);
+
+    if (!list.length) {
       wrap.textContent = "No modules matched the current filters.";
       return;
     }
 
-    wrap.appendChild(grid);
+    var limit = Math.min(list.length, 90);
+    for (var i = 0; i < limit; i++) {
+      var name = list[i];
+      var meta = state.moduleMeta[name] || {};
+      var deg = moduleDegree(name);
+
+      var card = document.createElement("button");
+      card.type = "button";
+      card.className = "walk-card" + (state.selectedModule === name ? " selected" : "");
+      card.setAttribute("aria-label", name + " walkthrough score " + deg.score);
+
+      var h = document.createElement("h3");
+      h.textContent = name;
+      var metaLine = document.createElement("p");
+      metaLine.className = "walk-meta";
+      metaLine.textContent = "layer=" + meta.layer + " | kind=" + meta.kind + " | theorems=" + deg.theorems;
+      var degreeLine = document.createElement("p");
+      degreeLine.className = "walk-score";
+      degreeLine.textContent = "score=" + deg.score + " (in:" + deg.incoming + ", out:" + deg.outgoing + ")";
+
+      card.appendChild(h);
+      card.appendChild(metaLine);
+      card.appendChild(degreeLine);
+      card.addEventListener("click", (function (moduleName) {
+        return function () {
+          renderDetails(moduleName);
+          syncUrlState();
+          renderAll();
+        };
+      })(name));
+      wrap.appendChild(card);
+    }
   }
 
   function renderModuleTable() {
     var tbody = document.getElementById("module-rows");
     if (!tbody) return;
-
     tbody.innerHTML = "";
+    var list = filteredModules();
+    sortModules(list);
 
-    var query = (state.activeFilterText || "").trim().toLowerCase();
-    var layerFilter = state.activeLayerFilter || "all";
+    for (var i = 0; i < list.length; i++) {
+      var name = list[i];
+      var meta = state.moduleMeta[name] || {};
+      var deg = moduleDegree(name);
 
-    var rows = state.modules.slice().sort(function (a, b) {
-      return countImports(b).total - countImports(a).total;
-    });
-
-    for (var i = 0; i < rows.length; i++) {
-      var moduleName = rows[i];
-      var meta = state.moduleMeta[moduleName] || {};
-      var layer = meta.layer || classifyLayer(moduleName);
-      var modulePath = state.moduleMap[moduleName] || "";
-
-      if (layerFilter !== "all" && layer !== layerFilter) continue;
-      if (query && moduleName.toLowerCase().indexOf(query) === -1 && modulePath.toLowerCase().indexOf(query) === -1) continue;
-
-      var degree = countImports(moduleName);
       var tr = document.createElement("tr");
-      tr.setAttribute("data-module", moduleName);
-      if (state.selectedModule === moduleName) tr.className = "selected-row";
-
-      var tdName = document.createElement("td");
-      tdName.textContent = moduleName;
-      var tdLayer = document.createElement("td");
-      tdLayer.textContent = layer;
-      var tdIn = document.createElement("td");
-      tdIn.textContent = String(degree.incoming);
-      var tdOut = document.createElement("td");
-      tdOut.textContent = String(degree.outgoing);
-
-      tr.appendChild(tdName);
-      tr.appendChild(tdLayer);
-      tr.appendChild(tdIn);
-      tr.appendChild(tdOut);
-
-      tr.addEventListener("click", (function (name) {
+      tr.setAttribute("data-module", name);
+      if (state.selectedModule === name) tr.className = "selected-row";
+      tr.innerHTML = "<td></td><td></td><td></td><td></td><td></td>";
+      tr.children[0].textContent = name;
+      tr.children[1].textContent = meta.layer || "other";
+      tr.children[2].textContent = String(deg.theorems);
+      tr.children[3].textContent = String(deg.incoming);
+      tr.children[4].textContent = String(deg.outgoing);
+      tr.addEventListener("click", (function (moduleName) {
         return function () {
-          renderDetails(name);
+          renderDetails(moduleName);
+          syncUrlState();
           renderAll();
         };
-      })(moduleName));
-
+      })(name));
       tbody.appendChild(tr);
     }
+  }
+
+  function renderProofTrace() {
+    var panel = document.getElementById("proof-trace-panel");
+    if (!panel) return;
+    panel.innerHTML = "<h2 class=\"section-title-sm\">Proof trace explainer</h2>";
+
+    if (!state.selectedPair) {
+      var hint = document.createElement("p");
+      hint.className = "panel-note";
+      hint.textContent = "Select a row in the proof relationship table to display a guided trace.";
+      panel.appendChild(hint);
+      return;
+    }
+
+    var pair = state.selectedPair;
+    var p1 = document.createElement("p");
+    p1.className = "panel-note";
+    p1.textContent = "Subsystem: " + pair.base;
+    panel.appendChild(p1);
+
+    var p2 = document.createElement("p");
+    p2.className = "panel-note";
+    p2.textContent = "Operations theorems=" + pair.operationsTheorems + ", Invariant theorems=" + pair.invariantTheorems + ", linked=" + (pair.invariantImportsOperations ? "yes" : "no");
+    panel.appendChild(p2);
+
+    var steps = [];
+    if (pair.operationsModule) steps.push("1) Inspect executable transitions in " + pair.operationsModule + ".");
+    if (pair.invariantModule) steps.push("2) Inspect invariant statements and proofs in " + pair.invariantModule + ".");
+    steps.push("3) Follow dependencies from module details to validate assumptions imported into proofs.");
+    appendList(panel, "Walkthrough steps", steps, steps.length);
+  }
+
+  function buildPairs() {
+    var groups = Object.create(null);
+    var totals = { theorems: 0, pairs: 0, linked: 0, importEdges: 0 };
+
+    for (var i = 0; i < state.modules.length; i++) {
+      var name = state.modules[i];
+      var meta = state.moduleMeta[name] || {};
+      totals.theorems += meta.theorems || 0;
+      totals.importEdges += (state.importsFrom[name] || []).length;
+      if (meta.kind !== "operations" && meta.kind !== "invariant") continue;
+      if (!groups[meta.base]) groups[meta.base] = {};
+      groups[meta.base][meta.kind] = name;
+    }
+
+    var pairs = [];
+    for (var base in groups) {
+      var ops = groups[base].operations || "";
+      var inv = groups[base].invariant || "";
+      if (!ops && !inv) continue;
+      var linked = false;
+      if (ops && inv) linked = (state.importsFrom[inv] || []).indexOf(ops) !== -1;
+      pairs.push({
+        base: base,
+        operationsModule: ops,
+        invariantModule: inv,
+        operationsTheorems: ops && state.moduleMeta[ops] ? state.moduleMeta[ops].theorems : 0,
+        invariantTheorems: inv && state.moduleMeta[inv] ? state.moduleMeta[inv].theorems : 0,
+        invariantImportsOperations: linked
+      });
+    }
+
+    pairs.sort(function (a, b) {
+      var diff = (b.operationsTheorems + b.invariantTheorems) - (a.operationsTheorems + a.invariantTheorems);
+      return diff || a.base.localeCompare(b.base);
+    });
+
+    for (var j = 0; j < pairs.length; j++) if (pairs[j].invariantImportsOperations) totals.linked += 1;
+    totals.pairs = pairs.length;
+
+    state.theoremPairs = pairs;
+    updateMetric("files", state.files.length);
+    updateMetric("directories", state.directories.length);
+    updateMetric("leanModules", state.modules.length);
+    updateMetric("importEdges", totals.importEdges);
+    updateMetric("theorems", totals.theorems);
+    updateMetric("proofPairs", totals.pairs);
+    updateMetric("linkedPairs", totals.linked);
   }
 
   function renderProofTable() {
@@ -489,115 +402,136 @@
     tbody.innerHTML = "";
 
     for (var i = 0; i < state.theoremPairs.length; i++) {
-      var row = state.theoremPairs[i];
+      var pair = state.theoremPairs[i];
       var tr = document.createElement("tr");
 
-      var tdBase = document.createElement("td");
-      tdBase.textContent = row.base;
+      var columns = [
+        pair.base,
+        pair.operationsModule || "—",
+        pair.invariantModule || "—",
+        String(pair.operationsTheorems + pair.invariantTheorems),
+        pair.invariantImportsOperations ? "Linked" : "Check"
+      ];
+      for (var c = 0; c < columns.length; c++) {
+        var td = document.createElement("td");
+        td.textContent = columns[c];
+        if (c === 4) td.className = pair.invariantImportsOperations ? "proof-good" : "proof-warn";
+        tr.appendChild(td);
+      }
 
-      var tdOps = document.createElement("td");
-      tdOps.textContent = row.operationsModule ? row.operationsModule : "—";
-
-      var tdInv = document.createElement("td");
-      tdInv.textContent = row.invariantModule ? row.invariantModule : "—";
-
-      var tdTheo = document.createElement("td");
-      tdTheo.textContent = String((row.operationsTheorems || 0) + (row.invariantTheorems || 0));
-
-      var tdLink = document.createElement("td");
-      tdLink.textContent = row.invariantImportsOperations ? "linked" : "unlinked";
-      tdLink.className = row.invariantImportsOperations ? "proof-good" : "proof-warn";
-
-      tr.appendChild(tdBase);
-      tr.appendChild(tdOps);
-      tr.appendChild(tdInv);
-      tr.appendChild(tdTheo);
-      tr.appendChild(tdLink);
+      tr.addEventListener("click", (function (selectedPair) {
+        return function () {
+          state.selectedPair = selectedPair;
+          if (selectedPair.operationsModule) renderDetails(selectedPair.operationsModule);
+          syncUrlState();
+          renderAll();
+        };
+      })(pair));
 
       tbody.appendChild(tr);
     }
   }
 
-  function buildTree(paths) {
-    var root = {};
-
-    for (var i = 0; i < paths.length; i++) {
-      var parts = paths[i].split("/");
-      var cursor = root;
-      for (var j = 0; j < parts.length; j++) {
-        var part = parts[j];
-        if (!cursor[part]) cursor[part] = {};
-        cursor = cursor[part];
-        if (j === parts.length - 1) cursor.__file = true;
-      }
-    }
-
-    return root;
-  }
-
-  function renderTreeNode(name, node, depth) {
-    var container = document.createElement("div");
-    container.style.paddingLeft = Math.min(depth * 0.55, 2.2) + "rem";
-
-    var keys = Object.keys(node).filter(function (key) { return key !== "__file"; }).sort();
-
-    if (!keys.length) {
-      container.className = "tree-leaf";
-      container.textContent = name;
-      return container;
-    }
-
-    var details = document.createElement("details");
-    if (depth < 1) details.open = true;
-
-    var summary = document.createElement("summary");
-    summary.textContent = name;
-    details.appendChild(summary);
-
-    for (var i = 0; i < keys.length; i++) {
-      details.appendChild(renderTreeNode(keys[i], node[keys[i]], depth + 1));
-    }
-
-    container.appendChild(details);
-    return container;
-  }
-
   function renderDirectoryTree() {
     var wrap = document.getElementById("tree-wrap");
     if (!wrap) return;
-
     wrap.innerHTML = "";
-    var tree = buildTree(state.files);
-    var rootKeys = Object.keys(tree).sort();
 
-    for (var i = 0; i < rootKeys.length; i++) {
-      wrap.appendChild(renderTreeNode(rootKeys[i], tree[rootKeys[i]], 0));
+    var root = { children: Object.create(null), files: [] };
+    for (var i = 0; i < state.files.length; i++) {
+      var parts = state.files[i].split("/");
+      var node = root;
+      for (var j = 0; j < parts.length; j++) {
+        var part = parts[j];
+        if (j === parts.length - 1) {
+          node.files.push(part);
+        } else {
+          if (!node.children[part]) node.children[part] = { children: Object.create(null), files: [] };
+          node = node.children[part];
+        }
+      }
     }
+
+    function renderNode(name, node, depth) {
+      var details = document.createElement("details");
+      if (depth < 1) details.open = true;
+      var summary = document.createElement("summary");
+      summary.textContent = name;
+      details.appendChild(summary);
+
+      var folders = Object.keys(node.children).sort();
+      for (var f = 0; f < folders.length; f++) details.appendChild(renderNode(folders[f], node.children[folders[f]], depth + 1));
+
+      node.files.sort();
+      for (var k = 0; k < node.files.length; k++) {
+        var leaf = document.createElement("div");
+        leaf.className = "tree-leaf";
+        leaf.textContent = node.files[k];
+        details.appendChild(leaf);
+      }
+      return details;
+    }
+
+    var top = Object.keys(root.children).sort();
+    for (var t = 0; t < top.length; t++) wrap.appendChild(renderNode(top[t], root.children[top[t]], 0));
   }
 
   function renderAll() {
-    renderGraph();
+    renderWalkCards();
     renderModuleTable();
     renderProofTable();
+    renderProofTrace();
+  }
+
+  function setupTheme() {
+    var root = document.documentElement;
+    var btn = document.getElementById("theme-toggle");
+    if (!root.getAttribute("data-theme")) root.setAttribute("data-theme", "dark");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var next = (root.getAttribute("data-theme") || "dark") === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("sele4n-theme", next); } catch (e) {}
+      var meta = document.getElementById("theme-color-meta");
+      if (meta) meta.setAttribute("content", next === "light" ? "#f8f9fc" : "#0a0e17");
+    });
+  }
+
+  function hardenExternalLinks() {
+    var links = document.querySelectorAll('a[target="_blank"]');
+    for (var i = 0; i < links.length; i++) {
+      var rel = links[i].getAttribute("rel") || "";
+      var tokens = rel.split(/\s+/).filter(Boolean);
+      if (tokens.indexOf("noopener") === -1) tokens.push("noopener");
+      if (tokens.indexOf("noreferrer") === -1) tokens.push("noreferrer");
+      links[i].setAttribute("rel", tokens.join(" "));
+    }
+  }
+
+  function runInPool(items, worker) {
+    var ix = 0;
+    function runner() {
+      if (ix >= items.length) return Promise.resolve();
+      var cur = ix++;
+      return Promise.resolve(worker(items[cur])).then(runner);
+    }
+    var workers = [];
+    for (var i = 0; i < Math.min(FETCH_CONCURRENCY, items.length); i++) workers.push(runner());
+    return Promise.all(workers);
   }
 
   function getCache() {
     try {
       var raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
-      var cached = JSON.parse(raw);
-      if (cached.schema !== CACHE_SCHEMA) return null;
-      if (Date.now() - cached.ts > CACHE_TTL_MS) return null;
-      return cached.data;
-    } catch (e) {
-      return null;
-    }
+      var parsed = JSON.parse(raw);
+      if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
+      return parsed.data;
+    } catch (e) { return null; }
   }
 
   function setCache(data) {
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({ schema: CACHE_SCHEMA, ts: Date.now(), data: data }));
-    } catch (e) {}
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data })); } catch (e) {}
   }
 
   function applyData(data) {
@@ -610,91 +544,61 @@
     state.importsFrom = data.importsFrom || Object.create(null);
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
 
-    computeTheoremPairs();
-    updateStats();
-    renderFocusOptions();
+    buildPairs();
     renderDirectoryTree();
 
-    if (state.modules.length > 0) {
-      state.selectedModule = state.selectedModule && isInternalModule(state.selectedModule) ? state.selectedModule : state.modules[0];
-      renderDetails(state.selectedModule);
-    }
-
+    if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
+    if (state.selectedModule) renderDetails(state.selectedModule);
     renderAll();
   }
 
-  function runInPool(items, worker, maxConcurrent) {
-    var index = 0;
-
-    function launch() {
-      if (index >= items.length) return Promise.resolve();
-      var current = index;
-      index += 1;
-      return Promise.resolve(worker(items[current], current)).then(launch);
-    }
-
-    var runners = [];
-    var runnerCount = Math.min(maxConcurrent, items.length);
-    for (var i = 0; i < runnerCount; i++) runners.push(launch());
-    return Promise.all(runners);
-  }
-
   function fetchAndBuildData() {
-    updateStatus("Loading repository tree…", false);
+    setStatus("Loading repository tree…", false);
 
-    return safeFetchJSON(API + "/git/trees/" + REF + "?recursive=1").then(function (treePayload) {
-      var tree = treePayload && treePayload.tree ? treePayload.tree : [];
+    return safeFetch(API + "/git/trees/" + REF + "?recursive=1", false).then(function (payload) {
+      var tree = payload && payload.tree ? payload.tree : [];
       var files = tree.filter(function (entry) { return entry.type === "blob"; }).map(function (entry) { return entry.path; });
       var directories = tree.filter(function (entry) { return entry.type === "tree"; }).map(function (entry) { return entry.path; });
-      var leanFiles = files.filter(function (path) { return /^SeLe4n\/.*\.lean$/.test(path); });
-      var modules = leanFiles.map(moduleFromPath);
-      var moduleMap = Object.create(null);
-      var moduleMeta = Object.create(null);
-
-      for (var i = 0; i < modules.length; i++) {
-        moduleMap[modules[i]] = leanFiles[i];
-        moduleMeta[modules[i]] = {
-          layer: classifyLayer(modules[i]),
-          kind: detectModuleKind(modules[i]),
-          base: moduleBaseName(modules[i]),
-          theorems: 0
-        };
-      }
+      var leanFiles = files.filter(function (p) { return /^SeLe4n\/.*\.lean$/.test(p); });
 
       state.files = files;
       state.directories = directories;
-      state.modules = modules;
-      state.moduleMap = moduleMap;
-      state.moduleMeta = moduleMeta;
+      state.modules = leanFiles.map(moduleFromPath);
+      state.moduleMap = Object.create(null);
+      state.moduleMeta = Object.create(null);
       state.importsTo = Object.create(null);
       state.importsFrom = Object.create(null);
       state.externalImportsFrom = Object.create(null);
 
-      updateStatus("Analyzing " + leanFiles.length + " Lean modules and proof declarations…", false);
+      for (var i = 0; i < state.modules.length; i++) {
+        state.moduleMap[state.modules[i]] = leanFiles[i];
+      }
+
+      setStatus("Analyzing Lean modules and theorem declarations…", false);
 
       return runInPool(leanFiles, function (path) {
         var moduleName = moduleFromPath(path);
-        return safeFetchText(RAW + path).then(function (text) {
+        return safeFetch(RAW + path, true).then(function (text) {
           parseModule(moduleName, text);
         }).catch(function () {
           state.importsFrom[moduleName] = [];
           state.externalImportsFrom[moduleName] = [];
+          state.moduleMeta[moduleName] = {
+            layer: classifyLayer(moduleName),
+            kind: moduleKind(moduleName),
+            base: moduleBase(moduleName),
+            theorems: 0
+          };
         });
-      }, FETCH_CONCURRENCY);
+      });
     }).then(function () {
-      computeTheoremPairs();
-      updateStats();
-      renderFocusOptions();
+      buildPairs();
       renderDirectoryTree();
-
-      if (!state.selectedModule || !isInternalModule(state.selectedModule)) {
-        state.selectedModule = state.modules.length ? state.modules[0] : null;
-      }
+      if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
       if (state.selectedModule) renderDetails(state.selectedModule);
-
       renderAll();
-      updateStatus("Map ready. Full module and proof relationship data loaded.", false);
-
+      syncUrlState();
+      setStatus("Map ready. Walkthrough and proof-trace data loaded.", false);
       setCache({
         files: state.files,
         directories: state.directories,
@@ -708,51 +612,91 @@
     });
   }
 
-  function messageForError(error) {
-    var message = error && error.message ? error.message : "Unknown error";
-    if (/HTTP\s+403/.test(message)) {
-      return "GitHub API rate limit reached (HTTP 403). Please retry later; cached data will be used automatically when available.";
-    }
-    return message;
-  }
-
   function setupFilters() {
     var search = document.getElementById("module-search");
     var focus = document.getElementById("focus-select");
+    var sort = document.getElementById("sort-select");
     var reset = document.getElementById("reset-view");
+
+    var layers = ["model", "kernel", "security", "platform", "other"];
+    for (var i = 0; i < layers.length; i++) {
+      var option = document.createElement("option");
+      option.value = layers[i];
+      option.textContent = layers[i][0].toUpperCase() + layers[i].slice(1);
+      focus.appendChild(option);
+    }
 
     function apply() {
       state.activeFilterText = search ? search.value : "";
       state.activeLayerFilter = focus ? focus.value : "all";
+      state.activeSort = sort ? sort.value : "hotspot";
+      syncUrlState();
       renderAll();
     }
 
     if (search) search.addEventListener("input", apply);
     if (focus) focus.addEventListener("change", apply);
+    if (sort) sort.addEventListener("change", apply);
     if (reset) {
       reset.addEventListener("click", function () {
         if (search) search.value = "";
         if (focus) focus.value = "all";
+        if (sort) sort.value = "hotspot";
+        state.selectedPair = null;
         apply();
       });
     }
   }
 
+  function readUrlState() {
+    var params = new URLSearchParams(window.location.search);
+    var moduleParam = sanitizeModuleName(params.get("module") || "");
+    if (moduleParam) state.selectedModule = moduleParam;
+    var layer = params.get("layer") || "all";
+    if (/^(all|model|kernel|security|platform|other)$/.test(layer)) state.activeLayerFilter = layer;
+    var sort = params.get("sort") || "hotspot";
+    if (/^(hotspot|theorems|name)$/.test(sort)) state.activeSort = sort;
+    var query = (params.get("q") || "").slice(0, 80);
+    state.activeFilterText = query.replace(/[^\w./\-\s]/g, "");
+  }
+
+  function syncUrlState() {
+    var params = new URLSearchParams(window.location.search);
+    if (state.selectedModule) params.set("module", state.selectedModule); else params.delete("module");
+    if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
+    if (state.activeSort && state.activeSort !== "hotspot") params.set("sort", state.activeSort); else params.delete("sort");
+    if (state.activeFilterText) params.set("q", state.activeFilterText); else params.delete("q");
+    var next = params.toString();
+    var target = window.location.pathname + (next ? "?" + next : "");
+    window.history.replaceState(null, "", target);
+  }
+
+  function hydrateFilterControls() {
+    var search = document.getElementById("module-search");
+    var focus = document.getElementById("focus-select");
+    var sort = document.getElementById("sort-select");
+    if (search) search.value = state.activeFilterText;
+    if (focus) focus.value = state.activeLayerFilter;
+    if (sort) sort.value = state.activeSort;
+  }
+
   function boot() {
     setupTheme();
     hardenExternalLinks();
+    readUrlState();
     setupFilters();
+    hydrateFilterControls();
 
     var cached = getCache();
     if (cached) {
       applyData(cached);
-      updateStatus("Showing cached map while refreshing…", false);
+      setStatus("Showing cached map while refreshing…", false);
     }
 
     fetchAndBuildData().catch(function (error) {
-      var detail = messageForError(error);
-      if (!cached) updateStatus("Unable to load codebase map. " + detail, true);
-      else updateStatus("Refresh failed; showing cached data. " + detail, true);
+      var message = error && error.message ? error.message : "Unknown error";
+      if (!cached) setStatus("Unable to load codebase map. " + message, true);
+      else setStatus("Refresh failed; showing cached data. " + message, true);
     });
   }
 
