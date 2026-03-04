@@ -131,7 +131,8 @@
   overflow: auto;
 }
 .flowchart-svg { width: 100%; min-width: 0; height: auto; display: block; }
-.flow-line { fill: none; stroke-width: 2.1; opacity: 0.88; }
+.flow-edge-layer { pointer-events: none; }
+.flow-line { fill: none; stroke-width: 2.1; opacity: 0.88; stroke-linecap: round; stroke-linejoin: round; }
 .flow-line.proof-link { stroke-dasharray: 5 4; stroke-width: 2.4; }
 .flow-node { cursor: pointer; }
 .flow-node rect {
