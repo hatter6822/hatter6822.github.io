@@ -514,15 +514,41 @@
     var lines = [];
     var current = "";
 
+    function pushTokenInChunks(token) {
+      if (!token) return;
+      if (token.length <= maxChars) {
+        lines.push(token);
+        return;
+      }
+
+      var start = 0;
+      while (start < token.length) {
+        lines.push(token.slice(start, start + maxChars));
+        start += maxChars;
+      }
+    }
+
     for (var i = 0; i < tokens.length; i++) {
       var token = tokens[i];
       if (!token) continue;
+
+      if (token.length > maxChars && !current.length) {
+        pushTokenInChunks(token);
+        continue;
+      }
+
       var next = current + token;
       if (next.length <= maxChars || !current.length) {
         current = next;
       } else {
         lines.push(current);
-        current = token.trim() ? token : "";
+
+        if (token.length > maxChars) {
+          pushTokenInChunks(token);
+          current = "";
+        } else {
+          current = token.trim() ? token : "";
+        }
       }
     }
     if (current.length) lines.push(current);
