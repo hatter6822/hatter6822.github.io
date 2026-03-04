@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from 'node:fs/promises';
+import { parseCurrentStateMetrics, theoremCount } from './lib/lean-analysis.mjs';
 
 const REPO = 'hatter6822/seLe4n';
 const REF = 'main';
@@ -21,48 +22,6 @@ async function fetchText(url) {
 
 function formatNumber(n) {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-
-function countTheorems(text) {
-  const m = text.match(/(?:^|\n)\s*(?:private\s+|protected\s+)?theorem\s+/g);
-  return m ? m.length : 0;
-}
-
-function parseCurrentStateMetrics(readmeText) {
-  if (!readmeText) return {};
-
-  const metrics = {};
-  const rows = readmeText.split(/\r?\n/);
-
-  for (const row of rows) {
-    const cells = row.split('|').map((cell) => cell.trim());
-    if (cells.length < 3) continue;
-
-    const metric = cells[1]?.toLowerCase() ?? '';
-    const value = cells[2] ?? '';
-
-    if (metric.includes('version')) {
-      const version = value.match(/\d+\.\d+\.\d+/);
-      if (version) metrics.version = version[0];
-    }
-
-    if (metric.includes('production loc')) {
-      const loc = value.match(/\d[\d,]*/);
-      if (loc) metrics.lines = loc[0];
-    }
-
-    if (metric.includes('theorem')) {
-      const theoremCount = value.match(/\d[\d,]*/);
-      if (theoremCount) metrics.theorems = Number(theoremCount[0].replace(/,/g, ''));
-    }
-
-    if (metric.includes('build job')) {
-      const buildJobs = value.match(/\d[\d,]*/);
-      if (buildJobs) metrics.buildJobs = Number(buildJobs[0].replace(/,/g, ''));
-    }
-  }
-
-  return metrics;
 }
 
 const data = JSON.parse(await readFile(OUT_FILE, 'utf8'));
@@ -87,7 +46,7 @@ else if (versionMatch) data.version = versionMatch[1];
 let modules = 0;
 let scripts = 0;
 let docs = 0;
-let theoremCount = 0;
+let theoremTotal = 0;
 for (const item of tree.tree ?? []) {
   if (item.type !== 'blob') continue;
   const p = item.path;
@@ -103,7 +62,7 @@ for (const item of leanPaths) {
   const blob = await fetchJson(`${API}/git/blobs/${item.sha}`);
   if (blob?.encoding !== 'base64' || !blob.content) continue;
   const content = Buffer.from(blob.content, 'base64').toString('utf8');
-  theoremCount += countTheorems(content);
+  theoremTotal += theoremCount(content);
 }
 
 data.modules = modules;
@@ -113,7 +72,7 @@ if (typeof currentStateMetrics.buildJobs === 'number' && currentStateMetrics.bui
 else data.buildJobs = modules * 2;
 
 if (typeof currentStateMetrics.theorems === 'number' && currentStateMetrics.theorems > 0) data.theorems = currentStateMetrics.theorems;
-else if (theoremCount > 0) data.theorems = theoremCount;
+else if (theoremTotal > 0) data.theorems = theoremTotal;
 
 if (currentStateMetrics.lines) data.lines = currentStateMetrics.lines;
 else if (langs?.Lean) data.lines = formatNumber(Math.round(langs.Lean / 38));

@@ -18,6 +18,13 @@ node scripts/sync-map-data.mjs
 
 Then commit the updated `data/site-data.json` file.
 
+Then validate the bundled snapshots before committing:
+
+```bash
+node scripts/validate-data.mjs
+```
+
+
 ## Runtime data consistency
 
 The browser now treats `data/site-data.json` as the canonical baseline on every refresh. Any cached values are immediately revalidated against the bundled file, then live repository metadata is merged in (version, Lean toolchain, LOC, theorem count, scripts/docs counts, kernel modules, build jobs, and latest commit metadata from `main`).
