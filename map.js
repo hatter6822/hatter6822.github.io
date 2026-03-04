@@ -14,7 +14,7 @@
     referrerPolicy: "no-referrer"
   };
 
-  var CACHE_KEY = "sele4n-code-map-v3";
+  var CACHE_KEY = "sele4n-code-map-v5";
   var CACHE_TTL_MS = 60 * 60 * 1000;
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
@@ -23,7 +23,8 @@
   var state = {
     files: [], directories: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
-    theoremPairs: [], selectedModule: null, selectedPair: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot"
+    theoremPairs: [], selectedModule: null, selectedPair: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot",
+    trail: [], selectedLens: "summary", neighborLimit: 12
   };
 
   function setStatus(text, isError) {
@@ -46,8 +47,8 @@
     var ctrl = typeof AbortController === "function" ? new AbortController() : null;
     var timer = null;
     if (ctrl) timer = setTimeout(function () { ctrl.abort(); }, FETCH_TIMEOUT_MS);
-
     var opts = ctrl ? Object.assign({}, FETCH_OPTIONS, { signal: ctrl.signal }) : FETCH_OPTIONS;
+
     return fetch(url, opts).then(function (res) {
       if (timer) clearTimeout(timer);
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -135,8 +136,7 @@
   function moduleDegree(name) {
     var incoming = (state.importsTo[name] || []).length;
     var outgoing = (state.importsFrom[name] || []).length;
-    var meta = state.moduleMeta[name] || {};
-    var theorems = meta.theorems || 0;
+    var theorems = (state.moduleMeta[name] || {}).theorems || 0;
     var score = incoming * 2 + outgoing + theorems * 3;
     return { incoming: incoming, outgoing: outgoing, total: incoming + outgoing, theorems: theorems, score: score };
   }
@@ -150,6 +150,7 @@
     var ul = document.createElement("ul");
     ul.className = "detail-list";
     var max = Math.min(items.length, limit || items.length);
+
     if (!items.length) {
       var empty = document.createElement("li");
       empty.textContent = "(none)";
@@ -166,51 +167,18 @@
         ul.appendChild(more);
       }
     }
+
     panel.appendChild(ul);
   }
 
   function relatedProofModules(name) {
     var base = moduleBase(name);
+    var out = [];
     var ops = base + ".Operations";
     var inv = base + ".Invariant";
-    var out = [];
     if (state.moduleMap[ops] && ops !== name) out.push(ops);
     if (state.moduleMap[inv] && inv !== name) out.push(inv);
     return out;
-  }
-
-  function renderDetails(name) {
-    var panel = document.getElementById("details-panel");
-    if (!panel || !name) return;
-    state.selectedModule = name;
-
-    var meta = state.moduleMeta[name] || {};
-    var degree = moduleDegree(name);
-    var modulePath = state.moduleMap[name] || "Unknown";
-
-    panel.innerHTML = "";
-    var title = document.createElement("h2");
-    title.className = "section-title-sm";
-    title.textContent = name;
-    panel.appendChild(title);
-
-    var info = [
-      "Path: " + modulePath,
-      "Layer: " + (meta.layer || "other") + " | Kind: " + (meta.kind || "other"),
-      "Theorems: " + degree.theorems + " | Fan-in: " + degree.incoming + " | Fan-out: " + degree.outgoing,
-      "Walkthrough score: " + degree.score
-    ];
-    for (var i = 0; i < info.length; i++) {
-      var p = document.createElement("p");
-      p.className = "panel-note";
-      p.textContent = info[i];
-      panel.appendChild(p);
-    }
-
-    appendList(panel, "Related proof modules", relatedProofModules(name), 6);
-    appendList(panel, "Imports (internal)", state.importsFrom[name] || [], 40);
-    appendList(panel, "Imported by", state.importsTo[name] || [], 40);
-    appendList(panel, "External imports", state.externalImportsFrom[name] || [], 20);
   }
 
   function filteredModules() {
@@ -229,12 +197,95 @@
     list.sort(function (a, b) {
       if (state.activeSort === "name") return a.localeCompare(b);
       if (state.activeSort === "theorems") {
-        var dt = moduleDegree(b).theorems - moduleDegree(a).theorems;
-        return dt || moduleDegree(b).score - moduleDegree(a).score;
+        var theoremDiff = moduleDegree(b).theorems - moduleDegree(a).theorems;
+        return theoremDiff || moduleDegree(b).score - moduleDegree(a).score;
       }
-      var d = moduleDegree(b).score - moduleDegree(a).score;
-      return d || a.localeCompare(b);
+      var scoreDiff = moduleDegree(b).score - moduleDegree(a).score;
+      return scoreDiff || a.localeCompare(b);
     });
+  }
+
+  function rememberTrail(name) {
+    if (!name) return;
+    if (state.trail[state.trail.length - 1] === name) return;
+    state.trail.push(name);
+    if (state.trail.length > 10) state.trail.shift();
+  }
+
+  function selectModule(name, fromTrail) {
+    if (!name || !state.moduleMap[name]) return;
+    state.selectedModule = name;
+    if (!fromTrail) rememberTrail(name);
+    renderDetails(name);
+    syncUrlState();
+    renderAll();
+  }
+
+  function computeContextShift(name) {
+    if (state.trail.length < 2) return null;
+    var previous = state.trail[state.trail.length - 2];
+    if (!previous || previous === name) return null;
+    var previousImports = state.importsFrom[previous] || [];
+    var currentImports = state.importsFrom[name] || [];
+    var shared = currentImports.filter(function (item) { return previousImports.indexOf(item) !== -1; });
+    var newDeps = currentImports.filter(function (item) { return previousImports.indexOf(item) === -1; });
+    return { previous: previous, shared: shared, newDeps: newDeps };
+  }
+
+  function renderDetails(name) {
+    var panel = document.getElementById("details-panel");
+    if (!panel || !name) return;
+
+    var meta = state.moduleMeta[name] || {};
+    var degree = moduleDegree(name);
+    var modulePath = state.moduleMap[name] || "Unknown";
+    var coupling = degree.incoming * degree.outgoing;
+    var shift = computeContextShift(name);
+
+    panel.innerHTML = "<h2 class=\"section-title-sm\">Context drawer</h2>";
+
+    var title = document.createElement("p");
+    title.className = "core-name";
+    title.textContent = name;
+    panel.appendChild(title);
+
+    var grid = document.createElement("div");
+    grid.className = "metric-grid";
+    var metrics = [
+      ["Layer", meta.layer || "other"],
+      ["Kind", meta.kind || "other"],
+      ["Theorems", String(degree.theorems)],
+      ["Hotspot", String(degree.score)],
+      ["Fan-in", String(degree.incoming)],
+      ["Coupling", String(coupling)]
+    ];
+
+    for (var i = 0; i < metrics.length; i++) {
+      var box = document.createElement("div");
+      box.className = "metric-box";
+      box.innerHTML = "<span></span><strong></strong>";
+      box.children[0].textContent = metrics[i][0];
+      box.children[1].textContent = metrics[i][1];
+      grid.appendChild(box);
+    }
+    panel.appendChild(grid);
+
+    var pathNode = document.createElement("p");
+    pathNode.className = "panel-note";
+    pathNode.textContent = "Path: " + modulePath;
+    panel.appendChild(pathNode);
+
+    if (shift) {
+      var shiftNode = document.createElement("p");
+      shiftNode.className = "panel-note";
+      shiftNode.textContent = "Shift from " + shift.previous + ": shared dependencies=" + shift.shared.length + ", new dependencies=" + shift.newDeps.length + ".";
+      panel.appendChild(shiftNode);
+    }
+
+    appendList(panel, "Proof neighbors", relatedProofModules(name), 4);
+    appendList(panel, "Imports (inner band)", state.importsFrom[name] || [], 10);
+    appendList(panel, "Imported by (outer band)", state.importsTo[name] || [], 10);
+    appendList(panel, "External imports", state.externalImportsFrom[name] || [], 8);
   }
 
   function renderWalkCards() {
@@ -250,38 +301,228 @@
       return;
     }
 
-    var limit = Math.min(list.length, 90);
+    var limit = Math.min(list.length, 110);
     for (var i = 0; i < limit; i++) {
       var name = list[i];
       var meta = state.moduleMeta[name] || {};
-      var deg = moduleDegree(name);
-
+      var degree = moduleDegree(name);
       var card = document.createElement("button");
       card.type = "button";
       card.className = "walk-card" + (state.selectedModule === name ? " selected" : "");
-      card.setAttribute("aria-label", name + " walkthrough score " + deg.score);
 
       var h = document.createElement("h3");
       h.textContent = name;
-      var metaLine = document.createElement("p");
-      metaLine.className = "walk-meta";
-      metaLine.textContent = "layer=" + meta.layer + " | kind=" + meta.kind + " | theorems=" + deg.theorems;
-      var degreeLine = document.createElement("p");
-      degreeLine.className = "walk-score";
-      degreeLine.textContent = "score=" + deg.score + " (in:" + deg.incoming + ", out:" + deg.outgoing + ")";
+      var info = document.createElement("p");
+      info.className = "walk-meta";
+      info.textContent = meta.layer + " · " + meta.kind + " · thm=" + degree.theorems;
+      var score = document.createElement("p");
+      score.className = "walk-score";
+      score.textContent = "score=" + degree.score + " in=" + degree.incoming + " out=" + degree.outgoing;
 
       card.appendChild(h);
-      card.appendChild(metaLine);
-      card.appendChild(degreeLine);
+      card.appendChild(info);
+      card.appendChild(score);
       card.addEventListener("click", (function (moduleName) {
-        return function () {
-          renderDetails(moduleName);
-          syncUrlState();
-          renderAll();
-        };
+        return function () { selectModule(moduleName, false); };
       })(name));
       wrap.appendChild(card);
     }
+  }
+
+  function createPill(moduleName, mode) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "dep-pill" + (mode === "out" ? " imported-by" : "");
+    button.textContent = moduleName;
+    button.addEventListener("click", function () { selectModule(moduleName, false); });
+    return button;
+  }
+
+  function renderConstellation() {
+    var wrap = document.getElementById("constellation-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    var selected = state.selectedModule;
+
+    if (!selected) {
+      wrap.textContent = "Select a module to render local relationship bands.";
+      return;
+    }
+
+    var degree = moduleDegree(selected);
+    var core = document.createElement("div");
+    core.className = "constellation-core";
+    core.innerHTML = "<p class=\"core-name\"></p><p class=\"panel-note\"></p>";
+    core.children[0].textContent = selected;
+    core.children[1].textContent = "fan-in=" + degree.incoming + " · fan-out=" + degree.outgoing + " · theorem-density=" + degree.theorems;
+    wrap.appendChild(core);
+
+    function renderBand(title, modules, mode) {
+      var band = document.createElement("div");
+      band.className = "band";
+      var titleNode = document.createElement("p");
+      titleNode.className = "band-title";
+      titleNode.textContent = title;
+      band.appendChild(titleNode);
+
+      var row = document.createElement("div");
+      row.className = "pill-row";
+      var slice = modules.slice(0, state.neighborLimit);
+      if (!slice.length) {
+        var empty = document.createElement("span");
+        empty.className = "panel-note";
+        empty.textContent = "None";
+        row.appendChild(empty);
+      } else {
+        for (var i = 0; i < slice.length; i++) row.appendChild(createPill(slice[i], mode));
+      }
+      band.appendChild(row);
+      wrap.appendChild(band);
+    }
+
+    renderBand("Imported modules", state.importsFrom[selected] || [], "in");
+    renderBand("Importing modules", state.importsTo[selected] || [], "out");
+  }
+
+  function recommendNextModules() {
+    var selected = state.selectedModule;
+    if (!selected) return [];
+
+    var neighborPool = (state.importsFrom[selected] || []).concat(state.importsTo[selected] || []).concat(relatedProofModules(selected));
+    var unique = [];
+    var seen = Object.create(null);
+
+    for (var i = 0; i < neighborPool.length; i++) {
+      var candidate = neighborPool[i];
+      if (!candidate || seen[candidate] || candidate === selected) continue;
+      seen[candidate] = true;
+      unique.push(candidate);
+    }
+
+    unique.sort(function (a, b) {
+      return moduleDegree(b).score - moduleDegree(a).score || a.localeCompare(b);
+    });
+
+    return unique.slice(0, 6);
+  }
+
+  function renderTrail() {
+    var wrap = document.getElementById("trail-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+
+    if (!state.trail.length) {
+      wrap.textContent = "Start selecting modules to build a contextual walk.";
+      return;
+    }
+
+    for (var i = 0; i < state.trail.length; i++) {
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "trail-chip";
+      chip.textContent = (i + 1) + ". " + state.trail[i];
+      chip.addEventListener("click", (function (moduleName) {
+        return function () { selectModule(moduleName, true); };
+      })(state.trail[i]));
+      wrap.appendChild(chip);
+    }
+  }
+
+  function renderRecommendations() {
+    var wrap = document.getElementById("recommend-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+
+    var recs = recommendNextModules();
+    if (!recs.length) {
+      wrap.textContent = "No local recommendations available.";
+      return;
+    }
+
+    for (var i = 0; i < recs.length; i++) {
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "trail-chip";
+      chip.textContent = recs[i];
+      chip.addEventListener("click", (function (moduleName) {
+        return function () { selectModule(moduleName, false); };
+      })(recs[i]));
+      wrap.appendChild(chip);
+    }
+  }
+
+  function lensSummary(panel, selected) {
+    var degree = moduleDegree(selected);
+    var related = relatedProofModules(selected);
+    var lines = [
+      "Hotspot score = " + degree.score + " (2×fan-in + fan-out + 3×theorems).",
+      "Proof-adjacent modules = " + related.length + ".",
+      "External imports = " + (state.externalImportsFrom[selected] || []).length + "."
+    ];
+    for (var i = 0; i < lines.length; i++) {
+      var p = document.createElement("p");
+      p.className = "lens-metric";
+      p.textContent = lines[i];
+      panel.appendChild(p);
+    }
+  }
+
+  function lensDependencies(panel, selected) {
+    var importers = state.importsTo[selected] || [];
+    var imports = state.importsFrom[selected] || [];
+    var highRisk = importers.concat(imports).sort(function (a, b) {
+      return moduleDegree(b).score - moduleDegree(a).score;
+    }).slice(0, 5);
+
+    var p = document.createElement("p");
+    p.className = "lens-metric";
+    p.textContent = "Highest-impact adjacent modules:";
+    panel.appendChild(p);
+
+    var row = document.createElement("div");
+    row.className = "pill-row";
+    for (var i = 0; i < highRisk.length; i++) row.appendChild(createPill(highRisk[i], "in"));
+    if (!highRisk.length) row.textContent = "No adjacent modules.";
+    panel.appendChild(row);
+  }
+
+  function lensProof(panel, selected) {
+    var related = relatedProofModules(selected);
+    var base = moduleBase(selected);
+    var pair = null;
+    for (var i = 0; i < state.theoremPairs.length; i++) {
+      if (state.theoremPairs[i].base === base) {
+        pair = state.theoremPairs[i];
+        break;
+      }
+    }
+
+    var p = document.createElement("p");
+    p.className = "lens-metric";
+    if (!pair) p.textContent = "No Operations/Invariant pair detected for this module base.";
+    else p.textContent = "Proof pair status: theorems=" + (pair.operationsTheorems + pair.invariantTheorems) + ", linked=" + (pair.invariantImportsOperations ? "yes" : "no") + ".";
+    panel.appendChild(p);
+
+    var row = document.createElement("div");
+    row.className = "pill-row";
+    for (var j = 0; j < related.length; j++) row.appendChild(createPill(related[j], "out"));
+    if (!related.length) row.textContent = "No proof-neighbor modules.";
+    panel.appendChild(row);
+  }
+
+  function renderLensPanel() {
+    var panel = document.getElementById("lens-panel");
+    if (!panel) return;
+    panel.innerHTML = "";
+
+    if (!state.selectedModule) {
+      panel.textContent = "Select a module to activate context lenses.";
+      return;
+    }
+
+    if (state.selectedLens === "summary") lensSummary(panel, state.selectedModule);
+    else if (state.selectedLens === "dependencies") lensDependencies(panel, state.selectedModule);
+    else lensProof(panel, state.selectedModule);
   }
 
   function renderModuleTable() {
@@ -294,7 +535,7 @@
     for (var i = 0; i < list.length; i++) {
       var name = list[i];
       var meta = state.moduleMeta[name] || {};
-      var deg = moduleDegree(name);
+      var degree = moduleDegree(name);
 
       var tr = document.createElement("tr");
       tr.setAttribute("data-module", name);
@@ -302,15 +543,11 @@
       tr.innerHTML = "<td></td><td></td><td></td><td></td><td></td>";
       tr.children[0].textContent = name;
       tr.children[1].textContent = meta.layer || "other";
-      tr.children[2].textContent = String(deg.theorems);
-      tr.children[3].textContent = String(deg.incoming);
-      tr.children[4].textContent = String(deg.outgoing);
+      tr.children[2].textContent = String(degree.theorems);
+      tr.children[3].textContent = String(degree.incoming);
+      tr.children[4].textContent = String(degree.outgoing);
       tr.addEventListener("click", (function (moduleName) {
-        return function () {
-          renderDetails(moduleName);
-          syncUrlState();
-          renderAll();
-        };
+        return function () { selectModule(moduleName, false); };
       })(name));
       tbody.appendChild(tr);
     }
@@ -341,9 +578,9 @@
     panel.appendChild(p2);
 
     var steps = [];
-    if (pair.operationsModule) steps.push("1) Inspect executable transitions in " + pair.operationsModule + ".");
-    if (pair.invariantModule) steps.push("2) Inspect invariant statements and proofs in " + pair.invariantModule + ".");
-    steps.push("3) Follow dependencies from module details to validate assumptions imported into proofs.");
+    if (pair.operationsModule) steps.push("1) Start with " + pair.operationsModule + " to inspect executable transitions.");
+    if (pair.invariantModule) steps.push("2) Move to " + pair.invariantModule + " and validate proof obligations.");
+    steps.push("3) Use recommendations to continue outward through supporting assumptions.");
     appendList(panel, "Walkthrough steps", steps, steps.length);
   }
 
@@ -366,15 +603,14 @@
       var ops = groups[base].operations || "";
       var inv = groups[base].invariant || "";
       if (!ops && !inv) continue;
-      var linked = false;
-      if (ops && inv) linked = (state.importsFrom[inv] || []).indexOf(ops) !== -1;
+      var linked = ops && inv && (state.importsFrom[inv] || []).indexOf(ops) !== -1;
       pairs.push({
         base: base,
         operationsModule: ops,
         invariantModule: inv,
         operationsTheorems: ops && state.moduleMeta[ops] ? state.moduleMeta[ops].theorems : 0,
         invariantTheorems: inv && state.moduleMeta[inv] ? state.moduleMeta[inv].theorems : 0,
-        invariantImportsOperations: linked
+        invariantImportsOperations: Boolean(linked)
       });
     }
 
@@ -388,7 +624,6 @@
 
     state.theoremPairs = pairs;
     updateMetric("files", state.files.length);
-    updateMetric("directories", state.directories.length);
     updateMetric("leanModules", state.modules.length);
     updateMetric("importEdges", totals.importEdges);
     updateMetric("theorems", totals.theorems);
@@ -404,7 +639,6 @@
     for (var i = 0; i < state.theoremPairs.length; i++) {
       var pair = state.theoremPairs[i];
       var tr = document.createElement("tr");
-
       var columns = [
         pair.base,
         pair.operationsModule || "—",
@@ -412,6 +646,7 @@
         String(pair.operationsTheorems + pair.invariantTheorems),
         pair.invariantImportsOperations ? "Linked" : "Check"
       ];
+
       for (var c = 0; c < columns.length; c++) {
         var td = document.createElement("td");
         td.textContent = columns[c];
@@ -422,9 +657,8 @@
       tr.addEventListener("click", (function (selectedPair) {
         return function () {
           state.selectedPair = selectedPair;
-          if (selectedPair.operationsModule) renderDetails(selectedPair.operationsModule);
-          syncUrlState();
-          renderAll();
+          if (selectedPair.operationsModule) selectModule(selectedPair.operationsModule, false);
+          renderProofTrace();
         };
       })(pair));
 
@@ -443,9 +677,8 @@
       var node = root;
       for (var j = 0; j < parts.length; j++) {
         var part = parts[j];
-        if (j === parts.length - 1) {
-          node.files.push(part);
-        } else {
+        if (j === parts.length - 1) node.files.push(part);
+        else {
           if (!node.children[part]) node.children[part] = { children: Object.create(null), files: [] };
           node = node.children[part];
         }
@@ -478,6 +711,10 @@
 
   function renderAll() {
     renderWalkCards();
+    renderConstellation();
+    renderLensPanel();
+    renderTrail();
+    renderRecommendations();
     renderModuleTable();
     renderProofTable();
     renderProofTrace();
@@ -488,6 +725,7 @@
     var btn = document.getElementById("theme-toggle");
     if (!root.getAttribute("data-theme")) root.setAttribute("data-theme", "dark");
     if (!btn) return;
+
     btn.addEventListener("click", function () {
       var next = (root.getAttribute("data-theme") || "dark") === "dark" ? "light" : "dark";
       root.setAttribute("data-theme", next);
@@ -509,12 +747,14 @@
   }
 
   function runInPool(items, worker) {
-    var ix = 0;
+    var index = 0;
+
     function runner() {
-      if (ix >= items.length) return Promise.resolve();
-      var cur = ix++;
-      return Promise.resolve(worker(items[cur])).then(runner);
+      if (index >= items.length) return Promise.resolve();
+      var current = index++;
+      return Promise.resolve(worker(items[current])).then(runner);
     }
+
     var workers = [];
     for (var i = 0; i < Math.min(FETCH_CONCURRENCY, items.length); i++) workers.push(runner());
     return Promise.all(workers);
@@ -527,11 +767,15 @@
       var parsed = JSON.parse(raw);
       if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
       return parsed.data;
-    } catch (e) { return null; }
+    } catch (e) {
+      return null;
+    }
   }
 
   function setCache(data) {
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data })); } catch (e) {}
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+    } catch (e) {}
   }
 
   function applyData(data) {
@@ -546,9 +790,11 @@
 
     buildPairs();
     renderDirectoryTree();
-
     if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
-    if (state.selectedModule) renderDetails(state.selectedModule);
+    if (state.selectedModule) {
+      rememberTrail(state.selectedModule);
+      renderDetails(state.selectedModule);
+    }
     renderAll();
   }
 
@@ -559,7 +805,7 @@
       var tree = payload && payload.tree ? payload.tree : [];
       var files = tree.filter(function (entry) { return entry.type === "blob"; }).map(function (entry) { return entry.path; });
       var directories = tree.filter(function (entry) { return entry.type === "tree"; }).map(function (entry) { return entry.path; });
-      var leanFiles = files.filter(function (p) { return /^SeLe4n\/.*\.lean$/.test(p); });
+      var leanFiles = files.filter(function (path) { return /^SeLe4n\/.*\.lean$/.test(path); });
 
       state.files = files;
       state.directories = directories;
@@ -570,9 +816,7 @@
       state.importsFrom = Object.create(null);
       state.externalImportsFrom = Object.create(null);
 
-      for (var i = 0; i < state.modules.length; i++) {
-        state.moduleMap[state.modules[i]] = leanFiles[i];
-      }
+      for (var i = 0; i < state.modules.length; i++) state.moduleMap[state.modules[i]] = leanFiles[i];
 
       setStatus("Analyzing Lean modules and theorem declarations…", false);
 
@@ -595,10 +839,13 @@
       buildPairs();
       renderDirectoryTree();
       if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
-      if (state.selectedModule) renderDetails(state.selectedModule);
+      if (state.selectedModule) {
+        rememberTrail(state.selectedModule);
+        renderDetails(state.selectedModule);
+      }
       renderAll();
       syncUrlState();
-      setStatus("Map ready. Walkthrough and proof-trace data loaded.", false);
+      setStatus("Map ready. Adaptive context lenses loaded.", false);
       setCache({
         files: state.files,
         directories: state.directories,
@@ -616,6 +863,7 @@
     var search = document.getElementById("module-search");
     var focus = document.getElementById("focus-select");
     var sort = document.getElementById("sort-select");
+    var neighborLimit = document.getElementById("neighbor-limit");
     var reset = document.getElementById("reset-view");
 
     var layers = ["model", "kernel", "security", "platform", "other"];
@@ -630,6 +878,7 @@
       state.activeFilterText = search ? search.value : "";
       state.activeLayerFilter = focus ? focus.value : "all";
       state.activeSort = sort ? sort.value : "hotspot";
+      state.neighborLimit = neighborLimit ? Math.max(4, Math.min(20, Number(neighborLimit.value) || 12)) : 12;
       syncUrlState();
       renderAll();
     }
@@ -637,25 +886,60 @@
     if (search) search.addEventListener("input", apply);
     if (focus) focus.addEventListener("change", apply);
     if (sort) sort.addEventListener("change", apply);
+    if (neighborLimit) neighborLimit.addEventListener("change", apply);
+
     if (reset) {
       reset.addEventListener("click", function () {
         if (search) search.value = "";
         if (focus) focus.value = "all";
         if (sort) sort.value = "hotspot";
+        if (neighborLimit) neighborLimit.value = "12";
         state.selectedPair = null;
         apply();
       });
     }
   }
 
+  function setupLensTabs() {
+    var tabs = document.querySelectorAll("[data-lens]");
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].addEventListener("click", function () {
+        state.selectedLens = this.getAttribute("data-lens") || "summary";
+        for (var j = 0; j < tabs.length; j++) tabs[j].classList.remove("active");
+        this.classList.add("active");
+        renderLensPanel();
+      });
+    }
+  }
+
+  function setupKeyboardNavigation() {
+    document.addEventListener("keydown", function (event) {
+      var target = event.target;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+
+      if (event.key !== "j" && event.key !== "k") return;
+      var list = filteredModules();
+      sortModules(list);
+      if (!list.length) return;
+
+      var currentIndex = Math.max(0, list.indexOf(state.selectedModule));
+      var nextIndex = event.key === "j" ? Math.min(list.length - 1, currentIndex + 1) : Math.max(0, currentIndex - 1);
+      selectModule(list[nextIndex], false);
+      event.preventDefault();
+    });
+  }
+
   function readUrlState() {
     var params = new URLSearchParams(window.location.search);
     var moduleParam = sanitizeModuleName(params.get("module") || "");
     if (moduleParam) state.selectedModule = moduleParam;
+
     var layer = params.get("layer") || "all";
     if (/^(all|model|kernel|security|platform|other)$/.test(layer)) state.activeLayerFilter = layer;
+
     var sort = params.get("sort") || "hotspot";
     if (/^(hotspot|theorems|name)$/.test(sort)) state.activeSort = sort;
+
     var query = (params.get("q") || "").slice(0, 80);
     state.activeFilterText = query.replace(/[^\w./\-\s]/g, "");
   }
@@ -666,6 +950,7 @@
     if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
     if (state.activeSort && state.activeSort !== "hotspot") params.set("sort", state.activeSort); else params.delete("sort");
     if (state.activeFilterText) params.set("q", state.activeFilterText); else params.delete("q");
+
     var next = params.toString();
     var target = window.location.pathname + (next ? "?" + next : "");
     window.history.replaceState(null, "", target);
@@ -685,6 +970,8 @@
     hardenExternalLinks();
     readUrlState();
     setupFilters();
+    setupLensTabs();
+    setupKeyboardNavigation();
     hydrateFilterControls();
 
     var cached = getCache();

@@ -49,17 +49,16 @@
     <header class="section code-map-hero" id="map-overview">
       <div class="container">
         <p class="hero-label">seLe4n Architecture Intelligence</p>
-        <h1>Codebase Walkthrough + Proof Trace</h1>
-        <p class="section-lead">Start from subsystems, jump to hotspot modules, and follow theorem-bearing Operations ⇄ Invariant pairs through dependencies.</p>
+        <h1>Adaptive Codemap Navigator</h1>
+        <p class="section-lead">Navigate module-by-module with adaptive context lenses: each step reveals only the dependencies, proof links, and next moves relevant to your current position.</p>
         <p id="map-status" class="map-status" aria-live="polite">Loading codebase map…</p>
         <div class="map-stats" aria-live="polite">
           <article class="stat-card"><span class="stat-title">Files</span><strong data-map="files">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Directories</span><strong data-map="directories">-</strong></article>
           <article class="stat-card"><span class="stat-title">Lean Modules</span><strong data-map="leanModules">-</strong></article>
           <article class="stat-card"><span class="stat-title">Import Edges</span><strong data-map="importEdges">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Theorem Declarations</span><strong data-map="theorems">-</strong></article>
+          <article class="stat-card"><span class="stat-title">Theorems</span><strong data-map="theorems">-</strong></article>
           <article class="stat-card"><span class="stat-title">Ops/Inv Pairs</span><strong data-map="proofPairs">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Directly Linked Pairs</span><strong data-map="linkedPairs">-</strong></article>
+          <article class="stat-card"><span class="stat-title">Linked Pairs</span><strong data-map="linkedPairs">-</strong></article>
         </div>
       </div>
     </header>
@@ -77,19 +76,51 @@
             <option value="theorems">Theorem count</option>
             <option value="name">Module name</option>
           </select>
+          <label for="neighbor-limit">Neighbor budget</label>
+          <select id="neighbor-limit">
+            <option value="8">8 nodes</option>
+            <option value="12" selected>12 nodes</option>
+            <option value="16">16 nodes</option>
+          </select>
           <button id="reset-view" class="btn btn-secondary" type="button">Reset filters</button>
         </div>
 
-        <div class="map-layout">
-          <article class="card map-panel">
-            <h2 class="section-title-sm">Developer walkthrough lanes</h2>
-            <p class="panel-note">Each card summarizes fan-in, fan-out, theorem density, and a computed walkthrough score (2×fan-in + fan-out + 3×theorems).</p>
-            <div id="graph-wrap" aria-live="polite"></div>
+        <div class="navigator-layout">
+          <article class="card lane-panel">
+            <div class="panel-header">
+              <h2 class="section-title-sm">Walk queue</h2>
+              <p class="panel-note">Hotspot-biased jump list (keyboard: J/K).</p>
+            </div>
+            <div id="graph-wrap" class="queue-list" aria-live="polite"></div>
           </article>
 
-          <aside class="card details-panel" id="details-panel" aria-live="polite">
-            <h2 class="section-title-sm">Module details</h2>
-            <p class="details-empty">Select a module card or table row to inspect dependencies and proof-connected neighbors.</p>
+          <article class="card constellation-panel">
+            <div class="panel-header">
+              <h2 class="section-title-sm">Local relationship lens</h2>
+              <p class="panel-note">Core = selected module. Imports and dependents are condensed into clickable bands.</p>
+            </div>
+            <div id="constellation-wrap" class="constellation-wrap" aria-live="polite"></div>
+
+            <div class="lens-tabs" role="tablist" aria-label="Context lens selection">
+              <button type="button" data-lens="summary" class="lens-tab active">Summary lens</button>
+              <button type="button" data-lens="dependencies" class="lens-tab">Dependency lens</button>
+              <button type="button" data-lens="proof" class="lens-tab">Proof lens</button>
+            </div>
+            <div id="lens-panel" class="lens-panel" aria-live="polite"></div>
+
+            <div class="trace-row">
+              <h3 class="section-title-sm">Traversal trail</h3>
+              <div id="trail-wrap" class="trail-wrap"></div>
+            </div>
+            <div class="trace-row">
+              <h3 class="section-title-sm">Recommended next modules</h3>
+              <div id="recommend-wrap" class="trail-wrap"></div>
+            </div>
+          </article>
+
+          <aside class="card context-panel" id="details-panel" aria-live="polite">
+            <h2 class="section-title-sm">Context drawer</h2>
+            <p class="details-empty">Select a module to reveal local dependency context and proof relevance.</p>
           </aside>
         </div>
       </div>
@@ -100,11 +131,10 @@
         <div class="map-layout split-rows">
           <article class="card">
             <h2 class="section-title-sm">Proof relationship map (Operations ⇄ Invariant)</h2>
-            <p class="panel-note">The table supports click-through proof traces. Linked means the invariant directly imports operations.</p>
             <div class="table-scroll">
               <table class="map-table">
                 <thead>
-                  <tr><th>Subsystem</th><th>Operations Module</th><th>Invariant Module</th><th>Theorems</th><th>Linked</th></tr>
+                  <tr><th>Subsystem</th><th>Operations</th><th>Invariant</th><th>Theorems</th><th>Link</th></tr>
                 </thead>
                 <tbody id="proof-rows"></tbody>
               </table>
@@ -112,7 +142,7 @@
           </article>
           <article class="card" id="proof-trace-panel" aria-live="polite">
             <h2 class="section-title-sm">Proof trace explainer</h2>
-            <p class="panel-note">Select a pair to see theorem volume and dependency path notes for code walkthroughs.</p>
+            <p class="panel-note">Select a pair to inspect a focused walkthrough.</p>
           </article>
         </div>
       </div>
@@ -126,7 +156,7 @@
             <div id="tree-wrap" class="tree-wrap"></div>
           </article>
           <article class="card">
-            <h2 class="section-title-sm">Lean modules table</h2>
+            <h2 class="section-title-sm">Filtered modules table</h2>
             <div class="table-scroll">
               <table class="map-table">
                 <thead>
