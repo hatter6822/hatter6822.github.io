@@ -750,10 +750,92 @@
     proofBottom = Math.max(proofBottom, proofStartY + 42);
     var pathStartY = proofBottom + 54;
 
+    var pathNodeWidth = 240;
+    var pathGapX = 20;
+    var pathGapY = 14;
+    var pathStartX = Math.max(framePad, centerX - 180);
+    var pathMaxX = Math.max(pathStartX, flowWidth - framePad - pathNodeWidth);
+    var pathAvailableWidth = pathMaxX - pathStartX + pathNodeWidth;
+    var pathPerRow = Math.max(1, Math.floor((pathAvailableWidth + pathGapX) / (pathNodeWidth + pathGapX)));
+    var pathItems = [];
+    var pathBlockBottom = pathStartY;
+    if (linkedPath.length > 1) {
+      var pathRowHeights = [];
+      for (var lp = 1; lp < linkedPath.length; lp++) {
+        var pathName = linkedPath[lp];
+        var pathHeight = nodeContentHeight(pathName, moduleSummary(pathName), pathNodeWidth, true);
+        var pathIndex = lp - 1;
+        var pathRow = Math.floor(pathIndex / pathPerRow);
+        var pathCol = pathIndex % pathPerRow;
+        pathRowHeights[pathRow] = Math.max(pathRowHeights[pathRow] || 0, pathHeight);
+        pathItems.push({
+          name: pathName,
+          col: pathCol,
+          row: pathRow,
+          h: pathHeight
+        });
+      }
+      var pathRowY = [];
+      var pathCursorY = pathStartY;
+      for (var py = 0; py < pathRowHeights.length; py++) {
+        pathRowY[py] = pathCursorY;
+        pathCursorY += (pathRowHeights[py] || 0) + pathGapY;
+      }
+      for (var pi = 0; pi < pathItems.length; pi++) {
+        pathItems[pi].x = Math.min(pathMaxX, pathStartX + pathItems[pi].col * (pathNodeWidth + pathGapX));
+        pathItems[pi].y = pathRowY[pathItems[pi].row];
+      }
+      pathBlockBottom = Math.max(pathStartY + 42, pathCursorY - pathGapY);
+    }
+
     var externalPerRow = Math.max(2, Math.min(6, Math.floor((flowWidth - framePad * 2) / 220)));
-    var externalRows = Math.max(1, Math.ceil(external.length / externalPerRow));
-    var externalStartY = pathStartY + (linkedPath.length > 1 ? 74 : 20);
-    var flowHeight = Math.max(620, externalStartY + externalRows * 56 + 68);
+    var externalGapX = 12;
+    var externalGapY = 12;
+    var externalStartY = pathBlockBottom + (linkedPath.length > 1 ? 36 : 20);
+    var externalWidth = Math.max(180, Math.floor((flowWidth - framePad * 2 - (externalPerRow - 1) * externalGapX) / externalPerRow));
+    var externalItems = [];
+    var externalBottom = externalStartY;
+    if (external.length) {
+      var externalRowHeights = [];
+      for (var ex = 0; ex < external.length; ex++) {
+        var exRow = Math.floor(ex / externalPerRow);
+        externalRowHeights[exRow] = Math.max(externalRowHeights[exRow] || 0, nodeContentHeight(external[ex], "", externalWidth, true));
+      }
+      var externalRowY = [];
+      var externalCursorY = externalStartY;
+      for (var er = 0; er < externalRowHeights.length; er++) {
+        externalRowY[er] = externalCursorY;
+        externalCursorY += (externalRowHeights[er] || 0) + externalGapY;
+      }
+
+      for (var ez = 0; ez < external.length; ez++) {
+        var rowIndex = Math.floor(ez / externalPerRow);
+        var colIndex = ez % externalPerRow;
+        externalItems.push({
+          name: external[ez],
+          x: leftX + colIndex * (externalWidth + externalGapX),
+          y: externalRowY[rowIndex],
+          h: nodeContentHeight(external[ez], "", externalWidth, true)
+        });
+      }
+
+      externalBottom = Math.max(externalBottom, externalCursorY - externalGapY);
+      if (allExternal.length > external.length) {
+        var moreRow = Math.floor(external.length / externalPerRow);
+        var moreCol = external.length % externalPerRow;
+        var moreY = typeof externalRowY[moreRow] === "number" ? externalRowY[moreRow] : externalCursorY;
+        externalItems.push({
+          name: "+" + (allExternal.length - external.length) + " more",
+          x: leftX + moreCol * (externalWidth + externalGapX),
+          y: moreY,
+          h: 36
+        });
+        externalBottom = Math.max(externalBottom, moreY + 36);
+      }
+    } else {
+      externalBottom = externalStartY + 36;
+    }
+    var flowHeight = Math.max(620, externalBottom + 68);
 
     var svg = createSvgNode("svg", {
       "class": "flowchart-svg",
@@ -886,12 +968,10 @@
     if (linkedPath.length > 1) {
       laneLabel("Nearest linked-proof path (radius " + state.impactRadius + ")", Math.max(framePad, centerX - 180), pathStartY - 14, "#6de2ff");
       var previousNode = center;
-      for (var q = 1; q < linkedPath.length; q++) {
-        var maxPathX = Math.max(framePad, flowWidth - framePad - 220);
-        var pathX = Math.min(maxPathX, Math.max(framePad, centerX - 180) + (q - 1) * 230);
-        var pathHeight = nodeContentHeight(linkedPath[q], moduleSummary(linkedPath[q]), 240, true);
-        var pathNode = createNode(linkedPath[q], pathX, pathStartY, 240, pathHeight, "#6de2ff", moduleSummary(linkedPath[q]), nodeTooltip(linkedPath[q], "Linked-proof path step " + q), false, false, contextFor(linkedPath[q]).assurance.level);
-        drawFlowEdge(edgeLayer, previousNode, pathNode, "#6de2ff", true, { rank: q - 1, total: Math.max(1, linkedPath.length - 1), spread: 12 });
+      for (var q = 0; q < pathItems.length; q++) {
+        var pathItem = pathItems[q];
+        var pathNode = createNode(pathItem.name, pathItem.x, pathItem.y, pathNodeWidth, pathItem.h, "#6de2ff", moduleSummary(pathItem.name), nodeTooltip(pathItem.name, "Linked-proof path step " + (q + 1)), false, false, contextFor(pathItem.name).assurance.level);
+        drawFlowEdge(edgeLayer, previousNode, pathNode, "#6de2ff", true, { rank: q, total: Math.max(1, pathItems.length), spread: 12 });
         previousNode = pathNode;
       }
     }
@@ -900,16 +980,9 @@
     if (!external.length) {
       createNode("No external imports detected", leftX, externalStartY, sideWidth, 36, "#b9c0d0", "", "", false, true, "");
     } else {
-      var externalWidth = Math.max(180, Math.floor((flowWidth - framePad * 2 - (externalPerRow - 1) * 12) / externalPerRow));
-      for (var z = 0; z < external.length; z++) {
-        var row = Math.floor(z / externalPerRow);
-        var col = z % externalPerRow;
-        var externalX = leftX + col * (externalWidth + 12);
-        var externalHeight = nodeContentHeight(external[z], "", externalWidth, true);
-        createNode(external[z], externalX, externalStartY + row * 56, externalWidth, externalHeight, "#b9c0d0", "", "", false, true, "");
-      }
-      if (allExternal.length > external.length) {
-        createNode("+" + (allExternal.length - external.length) + " more", leftX, externalStartY + externalRows * 56, externalWidth, 36, "#b9c0d0", "", "", false, true, "");
+      for (var z = 0; z < externalItems.length; z++) {
+        var externalItem = externalItems[z];
+        createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", "", "", false, true, "");
       }
     }
 
