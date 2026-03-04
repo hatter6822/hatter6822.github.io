@@ -37,8 +37,31 @@ private theorem t1 : True := by trivial
 `;
 
   const items = extractInteriorCodeItems(source);
-  assert.deepEqual(items.theorems.slice().sort(), ['quoted.name', 't1']);
-  assert.deepEqual(items.functions, ['helper', 'helper2', 'instThing']);
+  assert.deepEqual(items.theorems.map((item) => item.name).slice().sort(), ['quoted.name', 't1']);
+  assert.deepEqual(items.functions.map((item) => item.name), ['helper', 'helper2', 'instThing']);
+  const helperEntry = items.functions.find((item) => item.name === "helper");
+  assert.equal(helperEntry?.line, 4);
+  assert.ok(items.theorems.every((item) => item.line > 0));
+});
+
+
+test('extractInteriorCodeItems reports stable line numbers with CRLF newlines', () => {
+  const source = [
+    'theorem alpha : True := by trivial',
+    'def beta := 1',
+    'instance gamma : Inhabited Nat := ⟨0⟩',
+    'lemma delta : True := by trivial'
+  ].join('\r\n');
+
+  const items = extractInteriorCodeItems(source);
+  assert.deepEqual(items.theorems.map((item) => [item.name, item.line]), [
+    ['alpha', 1],
+    ['delta', 4]
+  ]);
+  assert.deepEqual(items.functions.map((item) => [item.name, item.line]), [
+    ['beta', 2],
+    ['gamma', 3]
+  ]);
 });
 
 test('theoremCount includes theorem and lemma declarations', () => {

@@ -208,11 +208,55 @@
     return String(name || "").replace(/`/g, "").trim();
   }
 
+  function createLineLocator(text) {
+    var source = String(text || "");
+    var lineStarts = [0];
+
+    for (var i = 0; i < source.length; i++) {
+      if (source.charCodeAt(i) !== 10) continue;
+      lineStarts.push(i + 1);
+    }
+
+    return function lineNumberForIndex(index) {
+      var target = Math.max(0, Number(index) || 0);
+      var low = 0;
+      var high = lineStarts.length - 1;
+
+      while (low <= high) {
+        var mid = Math.floor((low + high) / 2);
+        if (lineStarts[mid] <= target) low = mid + 1;
+        else high = mid - 1;
+      }
+
+      return Math.max(1, high + 1);
+    };
+  }
+
+  function normalizeSymbolEntry(entry) {
+    if (!entry) return null;
+    if (typeof entry === "string") {
+      var normalizedName = normalizeSymbolName(entry);
+      return normalizedName ? { name: normalizedName, line: 0 } : null;
+    }
+
+    var name = normalizeSymbolName(entry.name);
+    if (!name) return null;
+    var line = Number(entry.line || 0);
+    return { name: name, line: Number.isFinite(line) && line > 0 ? Math.floor(line) : 0 };
+  }
+
+  function declarationLineFromMatch(match, lineNumberForIndex) {
+    var whole = String(match && match[0] || "");
+    var leading = (whole.match(/^\s*/) || [""])[0].length;
+    return lineNumberForIndex((match && typeof match.index === "number" ? match.index : 0) + leading);
+  }
+
   function extractInteriorCodeItems(sourceText) {
     var seenTheorems = Object.create(null);
     var seenFunctions = Object.create(null);
-    var theoremNames = [];
-    var functionNames = [];
+    var theoremEntries = [];
+    var functionEntries = [];
+    var lineNumberForIndex = createLineLocator(sourceText);
     var theoremPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+([\w'.`]+)/gm;
     var functionPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev|opaque)\s+([\w'.`]+)/gm;
     var instancePattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?instance\s+([\w'.`]+)/gm;
@@ -222,32 +266,44 @@
       var theoremName = normalizeSymbolName(match[1]);
       if (!theoremName || seenTheorems[theoremName]) continue;
       seenTheorems[theoremName] = true;
-      theoremNames.push(theoremName);
+      theoremEntries.push({ name: theoremName, line: declarationLineFromMatch(match, lineNumberForIndex) });
     }
 
     while ((match = functionPattern.exec(sourceText)) !== null) {
       var functionName = normalizeSymbolName(match[1]);
       if (!functionName || seenFunctions[functionName]) continue;
       seenFunctions[functionName] = true;
-      functionNames.push(functionName);
+      functionEntries.push({ name: functionName, line: declarationLineFromMatch(match, lineNumberForIndex) });
     }
 
     while ((match = instancePattern.exec(sourceText)) !== null) {
       var instanceName = normalizeSymbolName(match[1]);
       if (!instanceName || seenFunctions[instanceName]) continue;
       seenFunctions[instanceName] = true;
-      functionNames.push(instanceName);
+      functionEntries.push({ name: instanceName, line: declarationLineFromMatch(match, lineNumberForIndex) });
     }
 
-    return { theorems: theoremNames, functions: functionNames };
+    return { theorems: theoremEntries, functions: functionEntries };
   }
 
   function interiorCodeForModule(name) {
     var meta = state.moduleMeta[name] || {};
     var symbols = meta.symbols || {};
+
+    function normalizeList(list) {
+      var out = [];
+      if (!Array.isArray(list)) return out;
+      for (var i = 0; i < list.length; i++) {
+        var normalized = normalizeSymbolEntry(list[i]);
+        if (!normalized) continue;
+        out.push(normalized);
+      }
+      return out;
+    }
+
     return {
-      theorems: Array.isArray(symbols.theorems) ? symbols.theorems : [],
-      functions: Array.isArray(symbols.functions) ? symbols.functions : []
+      theorems: normalizeList(symbols.theorems),
+      functions: normalizeList(symbols.functions)
     };
   }
 
@@ -694,8 +750,8 @@
     var theoremNames = interior.theorems;
     var functionNames = interior.functions;
     var query = (state.interiorMenuQuery || "").trim().toLowerCase();
-    var filteredFunctions = query ? functionNames.filter(function (name) { return name.toLowerCase().indexOf(query) !== -1; }) : functionNames;
-    var filteredTheorems = query ? theoremNames.filter(function (name) { return name.toLowerCase().indexOf(query) !== -1; }) : theoremNames;
+    var filteredFunctions = query ? functionNames.filter(function (entry) { return entry.name.toLowerCase().indexOf(query) !== -1; }) : functionNames;
+    var filteredTheorems = query ? theoremNames.filter(function (entry) { return entry.name.toLowerCase().indexOf(query) !== -1; }) : theoremNames;
 
     var header = document.createElement("div");
     header.className = "interior-menu-header";
@@ -729,6 +785,15 @@
     var grid = document.createElement("div");
     grid.className = "interior-menu-grid";
 
+    function symbolSourceHref(moduleName, entry) {
+      if (!moduleName || !state.moduleMap[moduleName]) return "";
+      var ref = state.commitSha || REF;
+      var path = state.moduleMap[moduleName];
+      var encodedPath = path.split("/").map(encodeURIComponent).join("/");
+      var lineAnchor = entry && entry.line > 0 ? "#L" + entry.line : "";
+      return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath + lineAnchor;
+    }
+
     function appendColumn(label, items, total, emptyText) {
       var column = document.createElement("section");
       column.className = "interior-menu-column";
@@ -753,7 +818,13 @@
         for (var i = 0; i < items.length; i++) {
           var li = document.createElement("li");
           li.className = "interior-menu-item";
-          li.textContent = items[i];
+          var link = document.createElement("a");
+          link.href = symbolSourceHref(selected, items[i]);
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = items[i].name;
+          link.title = items[i].line > 0 ? "Open declaration at line " + items[i].line : "Open declaration source";
+          li.appendChild(link);
           list.appendChild(li);
         }
         column.appendChild(list);
@@ -953,8 +1024,8 @@
       if (!state.moduleMap[name]) return roleLabel + ": " + name;
       var ctx = contextFor(name);
       var interior = interiorCodeForModule(name);
-      var fnPreview = interior.functions.slice(0, 3).join(", ");
-      var thmPreview = interior.theorems.slice(0, 3).join(", ");
+      var fnPreview = interior.functions.slice(0, 3).map(function (entry) { return entry.name; }).join(", ");
+      var thmPreview = interior.theorems.slice(0, 3).map(function (entry) { return entry.name; }).join(", ");
       return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | functions: " + interior.functions.length + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nfn: " + (fnPreview || "none") + "\nthm: " + (thmPreview || "none") + "\nassurance: " + ctx.assurance.label;
     }
 
@@ -1576,8 +1647,8 @@
             base: meta.base || moduleBase(key),
             theorems: Number(meta.theorems || 0),
             symbols: {
-              theorems: Array.isArray(symbols.theorems) ? symbols.theorems : [],
-              functions: Array.isArray(symbols.functions) ? symbols.functions : []
+              theorems: Array.isArray(symbols.theorems) ? symbols.theorems.map(normalizeSymbolEntry).filter(Boolean) : [],
+              functions: Array.isArray(symbols.functions) ? symbols.functions.map(normalizeSymbolEntry).filter(Boolean) : []
             },
             symbolsLoaded: Boolean(meta.symbolsLoaded || (symbols && (Array.isArray(symbols.theorems) || Array.isArray(symbols.functions))))
           };

@@ -7,6 +7,37 @@ export function theoremCount(text) {
   return matches ? matches.length : 0;
 }
 
+function createLineLocator(text) {
+  const source = String(text || '');
+  const lineStarts = [0];
+
+  for (let i = 0; i < source.length; i += 1) {
+    if (source.charCodeAt(i) !== 10) continue;
+    lineStarts.push(i + 1);
+  }
+
+  return function lineNumberForIndex(index) {
+    const target = Math.max(0, Number(index) || 0);
+    let low = 0;
+    let high = lineStarts.length - 1;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (lineStarts[mid] <= target) low = mid + 1;
+      else high = mid - 1;
+    }
+
+    return Math.max(1, high + 1);
+  };
+}
+
+
+function declarationLineFromMatch(match, lineNumberForIndex) {
+  const whole = String((match && match[0]) || '');
+  const leading = (whole.match(/^\s*/) || [''])[0].length;
+  return lineNumberForIndex((match && typeof match.index === 'number' ? match.index : 0) + leading);
+}
+
 export function extractInteriorCodeItems(sourceText) {
   const theoremPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+([\w'.`]+)/gm;
   const functionPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev|opaque)\s+([\w'.`]+)/gm;
@@ -15,27 +46,28 @@ export function extractInteriorCodeItems(sourceText) {
   const seenFunctions = Object.create(null);
   const theorems = [];
   const functions = [];
+  const lineNumberForIndex = createLineLocator(sourceText);
 
   let match;
   while ((match = theoremPattern.exec(sourceText)) !== null) {
     const theoremName = normalizeSymbolName(match[1]);
     if (!theoremName || seenTheorems[theoremName]) continue;
     seenTheorems[theoremName] = true;
-    theorems.push(theoremName);
+    theorems.push({ name: theoremName, line: declarationLineFromMatch(match, lineNumberForIndex) });
   }
 
   while ((match = functionPattern.exec(sourceText)) !== null) {
     const functionName = normalizeSymbolName(match[1]);
     if (!functionName || seenFunctions[functionName]) continue;
     seenFunctions[functionName] = true;
-    functions.push(functionName);
+    functions.push({ name: functionName, line: declarationLineFromMatch(match, lineNumberForIndex) });
   }
 
   while ((match = instancePattern.exec(sourceText)) !== null) {
     const instanceName = normalizeSymbolName(match[1]);
     if (!instanceName || seenFunctions[instanceName]) continue;
     seenFunctions[instanceName] = true;
-    functions.push(instanceName);
+    functions.push({ name: instanceName, line: declarationLineFromMatch(match, lineNumberForIndex) });
   }
 
   return { theorems, functions };
