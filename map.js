@@ -344,13 +344,6 @@
     return out;
   }
 
-  function pathSegments(path) {
-    if (!path) return [];
-    var parts = path.split("/");
-    if (parts.length <= 1) return parts;
-    return parts.slice(0, parts.length - 1);
-  }
-
   function filteredModules() {
     var layer = state.activeLayerFilter;
     return state.modules.filter(function (name) {
@@ -387,7 +380,6 @@
     if (!name || !state.moduleMap[name]) return;
     state.selectedModule = name;
     if (!fromTrail) rememberTrail(name);
-    renderDetails(name);
     syncUrlState();
     renderAll();
   }
@@ -401,63 +393,6 @@
     var shared = currentImports.filter(function (item) { return previousImports.indexOf(item) !== -1; });
     var newDeps = currentImports.filter(function (item) { return previousImports.indexOf(item) === -1; });
     return { previous: previous, shared: shared, newDeps: newDeps };
-  }
-
-  function renderDetails(name) {
-    var panel = document.getElementById("details-panel");
-    if (!panel || !name) return;
-
-    var meta = state.moduleMeta[name] || {};
-    var degree = moduleDegree(name);
-    var modulePath = state.moduleMap[name] || "Unknown";
-    var coupling = degree.incoming * degree.outgoing;
-    var shift = computeContextShift(name);
-    var proofPair = findProofPair(name);
-    var assurance = assuranceForModule(name);
-
-    panel.innerHTML = "<h2 class=\"section-title-sm\">Context drawer</h2>";
-
-    var title = document.createElement("p");
-    title.className = "core-name";
-    title.textContent = name;
-    panel.appendChild(title);
-
-    var grid = document.createElement("div");
-    grid.className = "metric-grid";
-    var metrics = [
-      ["Layer", meta.layer || "other"],
-      ["Kind", meta.kind || "other"],
-      ["Theorems", String(degree.theorems)],
-      ["Hotspot", String(degree.score)],
-      ["Fan-in", String(degree.incoming)],
-      ["Coupling", String(coupling)]
-    ];
-
-    for (var i = 0; i < metrics.length; i++) {
-      var box = document.createElement("div");
-      box.className = "metric-box";
-      box.innerHTML = "<span></span><strong></strong>";
-      box.children[0].textContent = metrics[i][0];
-      box.children[1].textContent = metrics[i][1];
-      grid.appendChild(box);
-    }
-    panel.appendChild(grid);
-
-    var notes = [
-      "Path: " + modulePath,
-      "Assurance: " + assurance.label + ".",
-      "Use the flow chart as the canonical source for dependencies, impact, and proof reachability."
-    ];
-
-    if (proofPair) notes.push("Proof pair theorems: " + (proofPair.operationsTheorems + proofPair.invariantTheorems) + " (linked=" + (proofPair.invariantImportsOperations ? "yes" : "no") + ").");
-    if (shift) notes.push("Traversal shift from " + shift.previous + ": shared dependencies=" + shift.shared.length + ", new dependencies=" + shift.newDeps.length + ".");
-
-    for (var j = 0; j < notes.length; j++) {
-      var note = document.createElement("p");
-      note.className = "panel-note";
-      note.textContent = notes[j];
-      panel.appendChild(note);
-    }
   }
 
   function contextList() {
@@ -480,7 +415,6 @@
     if (list.length && list.indexOf(state.selectedModule) === -1) {
       state.selectedModule = list[0];
       rememberTrail(state.selectedModule);
-      renderDetails(state.selectedModule);
       syncUrlState();
     }
 
@@ -529,6 +463,41 @@
       chip.appendChild(swatch);
       chip.appendChild(document.createTextNode(items[i].label));
       legend.appendChild(chip);
+    }
+  }
+
+  function renderFlowContextStrip(selected, context) {
+    var strip = document.getElementById("flow-context-strip");
+    if (!strip) return;
+    strip.innerHTML = "";
+    if (!selected) return;
+
+    function appendItem(label, value, mono) {
+      if (!value && value !== 0) return;
+      var item = document.createElement("span");
+      item.className = "flow-context-item" + (mono ? " mono" : "");
+      item.innerHTML = "<strong></strong><span></span>";
+      item.children[0].textContent = label + ": ";
+      item.children[1].textContent = String(value);
+      strip.appendChild(item);
+    }
+
+    appendItem("Module", selected, true);
+    appendItem("Path", context.path || "Unknown", true);
+    appendItem("Layer", context.layer || "other", false);
+    appendItem("Kind", context.kind || "other", false);
+    appendItem("Assurance", context.assuranceLabel || "Unknown", false);
+    appendItem("Hotspot", context.score, false);
+    appendItem("Fan-in", context.incoming, false);
+    appendItem("Fan-out", context.outgoing, false);
+    appendItem("Coupling", context.coupling, false);
+
+    if (context.proofPair) {
+      appendItem("Proof pair theorems", context.proofPair.operationsTheorems + context.proofPair.invariantTheorems, false);
+      appendItem("Proof-linked", context.proofPair.invariantImportsOperations ? "yes" : "no", false);
+    }
+    if (context.shift) {
+      appendItem("Traversal shift", "from " + context.shift.previous + " (shared " + context.shift.shared.length + ", new " + context.shift.newDeps.length + ")", false);
     }
   }
 
@@ -635,6 +604,7 @@
 
     var selected = state.selectedModule;
     if (!selected) {
+      renderFlowContextStrip("", null);
       wrap.textContent = "Select a module to render interaction and proof flow.";
       return;
     }
@@ -890,6 +860,25 @@
 
     wrap.appendChild(svg);
 
+    var selectedMeta = state.moduleMeta[selected] || {};
+    var selectedDegree = moduleDegree(selected);
+    var selectedPair = findProofPair(selected);
+    var shift = computeContextShift(selected);
+    var selectedAssurance = assuranceForModule(selected);
+
+    renderFlowContextStrip(selected, {
+      path: state.moduleMap[selected] || "Unknown",
+      layer: selectedMeta.layer || "other",
+      kind: selectedMeta.kind || "other",
+      assuranceLabel: selectedAssurance.label,
+      score: selectedDegree.score,
+      incoming: selectedDegree.incoming,
+      outgoing: selectedDegree.outgoing,
+      coupling: selectedDegree.incoming * selectedDegree.outgoing,
+      proofPair: selectedPair,
+      shift: shift
+    });
+
     var insightRow = document.createElement("div");
     insightRow.className = "flowchart-insight-row";
     insightRow.setAttribute("role", "list");
@@ -911,7 +900,7 @@
 
     var summary = document.createElement("p");
     summary.className = "panel-note flowchart-summary";
-    summary.textContent = "Flow summary (" + state.flowMode + " mode" + (state.flowShowAll ? ", full-flow" : "") + "): imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Hover any node for module path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
+    summary.textContent = "Flow summary (" + state.flowMode + " mode" + (state.flowShowAll ? ", full-flow" : "") + "): imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Selected-module metadata is surfaced in the context strip above; hover any node for path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
     wrap.appendChild(summary);
   }
 
@@ -1123,7 +1112,6 @@
     if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
     if (state.selectedModule) {
       rememberTrail(state.selectedModule);
-      renderDetails(state.selectedModule);
     }
     renderAll();
   }
@@ -1174,7 +1162,6 @@
       if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
       if (state.selectedModule) {
         rememberTrail(state.selectedModule);
-        renderDetails(state.selectedModule);
       }
       scheduleRender();
       syncUrlState();
@@ -1222,7 +1209,6 @@
       state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
       syncUrlState();
       scheduleRender();
-      if (state.selectedModule) renderDetails(state.selectedModule);
     }
 
     if (search) {
