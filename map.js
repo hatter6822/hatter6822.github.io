@@ -34,6 +34,7 @@
     selectedModule: null, activeLayerFilter: "all",
     trail: [], neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
     flowShowAll: false, contextListKey: "", contextList: [],
+    contextOptionsKey: "",
     commitSha: "",
     generatedAt: ""
   };
@@ -69,7 +70,7 @@
     el.classList.toggle("error", Boolean(isError));
 
     var main = document.getElementById("main-content");
-    if (main) main.setAttribute("aria-busy", /loading|refreshing/i.test(text) ? "true" : "false");
+    if (main) main.setAttribute("aria-busy", /loading|refreshing|checking|analyzing|syncing/i.test(text) ? "true" : "false");
   }
 
   function updateMetric(key, value) {
@@ -283,8 +284,8 @@
     var out = [];
     visited[name] = true;
 
-    while (queue.length) {
-      var node = queue.shift();
+    for (var cursor = 0; cursor < queue.length; cursor++) {
+      var node = queue[cursor];
       out.push(node);
       if (node.depth >= maxRadius) continue;
       var neighbors = (state.importsFrom[node.name] || []).concat(state.importsTo[node.name] || []);
@@ -308,8 +309,8 @@
     var prev = Object.create(null);
     visited[start] = true;
 
-    while (queue.length) {
-      var node = queue.shift();
+    for (var cursor = 0; cursor < queue.length; cursor++) {
+      var node = queue[cursor];
       if (node.depth >= maxRadius) continue;
 
       var neighbors = uniqueModules((state.importsFrom[node.name] || []).concat(state.importsTo[node.name] || []), node.name);
@@ -321,10 +322,10 @@
 
         if (assuranceForModule(next).level === "linked") {
           var path = [next];
-          var cursor = next;
-          while (prev[cursor]) {
-            cursor = prev[cursor];
-            path.push(cursor);
+          var traceCursor = next;
+          while (prev[traceCursor]) {
+            traceCursor = prev[traceCursor];
+            path.push(traceCursor);
           }
           path.reverse();
           return path;
@@ -424,7 +425,21 @@
       syncUrlState();
     }
 
-    options.innerHTML = "";
+    var signature = state.contextListKey + "::" + list.join("\u001f");
+    if (signature !== state.contextOptionsKey) {
+      options.innerHTML = "";
+      var fragment = document.createDocumentFragment();
+      for (var i = 0; i < list.length; i++) {
+        var name = list[i];
+        var opt = document.createElement("option");
+        opt.value = name;
+        opt.label = (state.moduleMap[name] || "") + " · score " + moduleDegree(name).score;
+        fragment.appendChild(opt);
+      }
+      options.appendChild(fragment);
+      state.contextOptionsKey = signature;
+    }
+
     if (!list.length) {
       picker.value = "";
       picker.placeholder = "No modules matched current filters";
@@ -432,15 +447,6 @@
     }
 
     picker.placeholder = "Type module/path to switch context";
-    var fragment = document.createDocumentFragment();
-    for (var i = 0; i < list.length; i++) {
-      var name = list[i];
-      var opt = document.createElement("option");
-      opt.value = name;
-      opt.label = (state.moduleMap[name] || "") + " · score " + moduleDegree(name).score;
-      fragment.appendChild(opt);
-    }
-    options.appendChild(fragment);
 
     if (state.selectedModule && document.activeElement !== picker) picker.value = state.selectedModule;
   }
@@ -1169,6 +1175,9 @@
     state.importsTo = data.importsTo || Object.create(null);
     state.importsFrom = data.importsFrom || Object.create(null);
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
+    state.contextListKey = "";
+    state.contextOptionsKey = "";
+    state.contextList = [];
     state.commitSha = data.commitSha || "";
     state.generatedAt = data.generatedAt || "";
 
@@ -1225,6 +1234,9 @@
         state.importsTo = Object.create(null);
         state.importsFrom = Object.create(null);
         state.externalImportsFrom = Object.create(null);
+        state.contextListKey = "";
+        state.contextOptionsKey = "";
+        state.contextList = [];
 
         for (var j = 0; j < state.modules.length; j++) state.moduleMap[state.modules[j]] = leanFiles[j];
 
@@ -1317,6 +1329,7 @@
   }
 
   function setupFilters() {
+    var toolbar = document.getElementById("map-toolbar");
     var search = document.getElementById("module-search");
     var focus = document.getElementById("focus-select");
     var selectedDetail = detailLevelFromState();
@@ -1332,6 +1345,12 @@
         option.textContent = layers[i][0].toUpperCase() + layers[i].slice(1);
         focus.appendChild(option);
       }
+    }
+
+    if (toolbar) {
+      toolbar.addEventListener("submit", function (event) {
+        event.preventDefault();
+      });
     }
 
     function apply() {
