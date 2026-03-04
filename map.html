@@ -67,7 +67,7 @@
           <p class="hero-label" algi>seLe4n Architecture Intelligence</p>
           <h1>Adaptive Codemap Navigator</h1>
         </div>
-        <p class="section-lead">Navigate module-by-module with adaptive context lenses: each step reveals only the dependencies, proof links, and next moves relevant to your current position.</p>
+        <p class="section-lead">Navigate module-by-module with one integrated flow map: dependencies, impact edges, proof links, and external boundaries are shown in one canonical graph.</p>
         <p id="map-status" class="map-status" aria-live="polite">Loading codebase map…</p>
         <div class="map-stats" aria-live="polite">
           <article class="stat-card"><span class="stat-title">Files</span><strong data-map="files">-</strong></article>
@@ -85,7 +85,7 @@
         <header class="map-workspace-header card" role="region" aria-label="Map controls and filters">
           <div>
             <h2 id="workspace-title" class="section-title-sm">Navigation workspace</h2>
-            <p class="panel-note">Use filters to focus by subsystem, then explore relationship and proof lenses for the selected module.</p>
+            <p class="panel-note">Use filters to focus by subsystem, then inspect the single flow map for relationships, proof reachability, and metadata.</p>
           </div>
           <p id="module-results" class="results-note" aria-live="polite">0 modules shown</p>
         </header>
@@ -154,23 +154,16 @@
           </div>
         </form>
         <p id="module-search-help" class="panel-note">Context jump: start typing any Lean module or file path, then press Enter.</p>
+        <p id="proof-linked-help" class="panel-note">When enabled, show only modules that have an Operations/Invariant pair with an explicit import link.</p>
 
         <div class="navigator-layout">
           <article class="card constellation-panel">
             <div class="panel-header">
               <h2 class="section-title-sm">Interactive dependency/proof flow chart</h2>
-              <p class="panel-note">Color-coded graph view of what the selected module uses, what depends on it, and where proof guarantees are linked.</p>
+              <p class="panel-note">Primary source of truth: the chart encodes dependencies, impact surface, proof neighbors, linked-proof reachability, and external boundaries directly in-node.</p>
             </div>
             <div id="flowchart-legend" class="flowchart-legend" aria-label="Flow chart legend"></div>
             <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite"></div>
-            <div id="constellation-wrap" class="constellation-wrap" aria-live="polite"></div>
-
-            <div class="lens-tabs" role="tablist" aria-label="Context lens selection">
-              <button type="button" id="lens-tab-summary" role="tab" aria-selected="true" aria-controls="lens-panel" tabindex="0" data-lens="summary" class="lens-tab active">Summary lens</button>
-              <button type="button" id="lens-tab-dependencies" role="tab" aria-selected="false" aria-controls="lens-panel" tabindex="-1" data-lens="dependencies" class="lens-tab">Dependency lens</button>
-              <button type="button" id="lens-tab-assurance" role="tab" aria-selected="false" aria-controls="lens-panel" tabindex="-1" data-lens="assurance" class="lens-tab">Assurance lens</button>
-            </div>
-            <div id="lens-panel" class="lens-panel" role="tabpanel" tabindex="0" aria-live="polite" aria-labelledby="lens-tab-summary"></div>
 
             <div class="trace-row">
               <h3 class="section-title-sm">Traversal trail</h3>
@@ -180,8 +173,7 @@
 
           <aside class="card context-panel" id="details-panel" aria-live="polite">
             <h2 class="section-title-sm">Context drawer</h2>
-            <p class="details-empty">Select a module to reveal local dependency context and proof relevance.</p>
-            <div id="assurance-strip" class="lens-panel" aria-live="polite"></div>
+            <p class="details-empty">Select a module to inspect path + proof state while the flow chart remains the canonical dependency view.</p>
           </aside>
         </div>
       </div>
