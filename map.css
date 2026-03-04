@@ -52,6 +52,13 @@
 .control-row-tight { gap: 0.5rem; }
 .control-group { display: grid; gap: 0.4rem; }
 .control-group label { color: var(--text-muted); font-size: 0.8rem; }
+.search-feedback {
+  margin: 0;
+  min-height: 1.05rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.search-feedback.error { color: var(--red); }
 .control-group input,
 .control-group select {
   width: 100%;
