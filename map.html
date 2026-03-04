@@ -160,9 +160,10 @@
           <article class="card constellation-panel">
             <div class="panel-header">
               <h2 class="section-title-sm">Interactive dependency/proof flow chart</h2>
-              <p class="panel-note">Primary source of truth: the chart encodes dependencies, impact surface, proof neighbors, linked-proof reachability, and external boundaries directly in-node.</p>
+              <p class="panel-note">Primary source of truth: the chart now encodes dependencies, impact surface, proof neighbors, linked-proof reachability, selected-module metadata, and external boundaries directly in-node.</p>
             </div>
             <div id="flowchart-legend" class="flowchart-legend" aria-label="Flow chart legend"></div>
+            <div id="flow-context-strip" class="flow-context-strip" aria-live="polite"></div>
             <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite"></div>
 
             <div class="trace-row">
@@ -170,11 +171,6 @@
               <div id="trail-wrap" class="trail-wrap"></div>
             </div>
           </article>
-
-          <aside class="card context-panel" id="details-panel" aria-live="polite">
-            <h2 class="section-title-sm">Context drawer</h2>
-            <p class="details-empty">Select a module to inspect path + proof state while the flow chart remains the canonical dependency view.</p>
-          </aside>
         </div>
       </div>
     </section>
