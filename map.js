@@ -14,7 +14,7 @@
     referrerPolicy: "no-referrer"
   };
 
-  var CACHE_KEY = "sele4n-code-map-v6";
+  var CACHE_KEY = "sele4n-code-map-v7";
   var CACHE_TTL_MS = 60 * 60 * 1000;
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
@@ -26,7 +26,7 @@
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeLayerFilter: "all", activeSort: "hotspot",
     trail: [], selectedLens: "summary", neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
-    flowMode: "balanced", contextListKey: "", contextList: []
+    flowMode: "balanced", flowShowAll: false, contextListKey: "", contextList: []
   };
 
   var renderScheduled = false;
@@ -119,39 +119,84 @@
     return matches ? matches.length : 0;
   }
 
-  function parseModule(name, sourceText) {
+  function isLikelyModuleToken(token) {
+    return /^[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*$/.test(token || "");
+  }
+
+  function tokenizeImportSegment(segment) {
+    var out = [];
+    var raw = (segment || "").split(/[\s,]+/);
+    for (var i = 0; i < raw.length; i++) {
+      var candidate = (raw[i] || "").replace(/^[()]+|[()]+$/g, "").trim();
+      if (!candidate || !isLikelyModuleToken(candidate)) continue;
+      out.push(candidate);
+    }
+    return out;
+  }
+
+  function extractImportTokens(sourceText) {
+    var tokens = [];
     var lines = sourceText.split(/\r?\n/);
+
+    for (var i = 0; i < lines.length; i++) {
+      var raw = lines[i] || "";
+      var withoutComment = raw.split("--")[0] || "";
+      var trimmed = withoutComment.trim();
+      if (!/^import(?:\s|$)/.test(trimmed)) continue;
+
+      var inline = trimmed.replace(/^import\s*/, "");
+      var headTokens = tokenizeImportSegment(inline);
+      for (var j = 0; j < headTokens.length; j++) tokens.push(headTokens[j]);
+
+      var cursor = i + 1;
+      while (cursor < lines.length) {
+        var continuationRaw = lines[cursor] || "";
+        if (!/^\s/.test(continuationRaw)) break;
+
+        var continuation = (continuationRaw.split("--")[0] || "").trim();
+        if (!continuation) {
+          cursor += 1;
+          continue;
+        }
+
+        var contTokens = tokenizeImportSegment(continuation);
+        if (!contTokens.length) break;
+        for (var k = 0; k < contTokens.length; k++) tokens.push(contTokens[k]);
+        cursor += 1;
+      }
+
+      i = cursor - 1;
+    }
+
+    return tokens;
+  }
+
+  function parseModule(name, sourceText) {
     var seenInternal = Object.create(null);
     var seenExternal = Object.create(null);
     var imports = [];
     var external = [];
 
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
-      if (line.indexOf("import ") !== 0) continue;
-      var depLine = line.slice(7).split("--")[0].trim();
-      if (!depLine) continue;
-      var deps = depLine.split(/\s+/);
-      for (var j = 0; j < deps.length; j++) {
-        var dep = sanitizeModuleName(deps[j]);
-        if (!dep) continue;
-        if (Object.prototype.hasOwnProperty.call(state.moduleMap, dep)) {
-          if (!seenInternal[dep]) {
-            seenInternal[dep] = true;
-            imports.push(dep);
-          }
-        } else if (!seenExternal[dep]) {
-          seenExternal[dep] = true;
-          external.push(dep);
+    var deps = extractImportTokens(sourceText);
+    for (var i = 0; i < deps.length; i++) {
+      var dep = sanitizeModuleName(deps[i]);
+      if (!dep) continue;
+      if (Object.prototype.hasOwnProperty.call(state.moduleMap, dep)) {
+        if (!seenInternal[dep]) {
+          seenInternal[dep] = true;
+          imports.push(dep);
         }
+      } else if (!seenExternal[dep]) {
+        seenExternal[dep] = true;
+        external.push(dep);
       }
     }
 
     state.importsFrom[name] = imports;
     state.externalImportsFrom[name] = external;
-    for (var k = 0; k < imports.length; k++) {
-      if (!state.importsTo[imports[k]]) state.importsTo[imports[k]] = [];
-      state.importsTo[imports[k]].push(name);
+    for (var j = 0; j < imports.length; j++) {
+      if (!state.importsTo[imports[j]]) state.importsTo[imports[j]] = [];
+      state.importsTo[imports[j]].push(name);
     }
 
     state.moduleMeta[name] = {
@@ -645,18 +690,19 @@
     var allImports = (state.importsFrom[selected] || []).slice().sort(sortByScoreThenName);
     var allImporters = (state.importsTo[selected] || []).slice().sort(sortByScoreThenName);
     var allExternal = state.externalImportsFrom[selected] || [];
-    var importBudget = state.neighborLimit;
-    var impactBudget = state.neighborLimit;
-    if (state.flowMode === "imports") {
+    var importBudget = state.flowShowAll ? allImports.length : state.neighborLimit;
+    var impactBudget = state.flowShowAll ? allImporters.length : state.neighborLimit;
+    if (!state.flowShowAll && state.flowMode === "imports") {
       importBudget = Math.min(20, state.neighborLimit + 4);
       impactBudget = Math.max(4, state.neighborLimit - 4);
-    } else if (state.flowMode === "impact") {
+    } else if (!state.flowShowAll && state.flowMode === "impact") {
       importBudget = Math.max(4, state.neighborLimit - 4);
       impactBudget = Math.min(20, state.neighborLimit + 4);
     }
     var imports = allImports.slice(0, importBudget);
     var importers = allImporters.slice(0, impactBudget);
-    var external = allExternal.slice(0, 10);
+    var externalBudget = state.flowShowAll ? allExternal.length : 12;
+    var external = allExternal.slice(0, externalBudget);
     var proofRelated = relatedProofModules(selected);
     var linkedPath = findNearestLinkedPath(selected, state.impactRadius);
 
@@ -674,7 +720,7 @@
 
     var laneYStart = 62;
     var laneStep = 42;
-    var maxLaneCount = Math.max(imports.length, importers.length, 1);
+    var maxLaneCount = Math.max(imports.length, importers.length, state.flowShowAll ? 1 : 2);
     var centerY = Math.max(170, laneYStart + Math.floor(maxLaneCount / 2) * laneStep - 32);
     var proofStartY = centerY + 148;
     var pathStartY = proofStartY + Math.max(1, proofRelated.length) * 46 + 48;
@@ -769,10 +815,10 @@
     }
 
     if (allImports.length > imports.length) {
-      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, laneYStart + imports.length * laneStep, sideWidth, 30, "#35c98f", "apply filter/search to narrow", false, true);
+      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, laneYStart + imports.length * laneStep, sideWidth, 30, "#35c98f", "enable full-flow or increase neighbor budget", false, true);
     }
     if (allImporters.length > importers.length) {
-      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, laneYStart + importers.length * laneStep, sideWidth, 30, "#ffad42", "increase neighbor budget to inspect", false, true);
+      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, laneYStart + importers.length * laneStep, sideWidth, 30, "#ffad42", "enable full-flow or increase neighbor budget", false, true);
     }
 
     for (var k = 0; k < importNodes.length; k++) drawFlowEdge(svg, importNodes[k], center, "#35c98f", false);
@@ -818,7 +864,7 @@
 
     var summary = document.createElement("p");
     summary.className = "panel-note flowchart-summary";
-    summary.textContent = "Flow summary (" + state.flowMode + " mode): imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ".";
+    summary.textContent = "Flow summary (" + state.flowMode + " mode" + (state.flowShowAll ? ", full-flow" : "") + "): imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ".";
     wrap.appendChild(summary);
   }
 
@@ -1248,6 +1294,7 @@
     var neighborLimit = document.getElementById("neighbor-limit");
     var impactRadius = document.getElementById("impact-radius");
     var flowMode = document.getElementById("flow-mode");
+    var flowShowAll = document.getElementById("flow-show-all");
     var proofLinkedOnly = document.getElementById("proof-linked-only");
     var reset = document.getElementById("reset-view");
 
@@ -1267,6 +1314,7 @@
       state.neighborLimit = neighborLimit ? Math.max(4, Math.min(20, Number(neighborLimit.value) || 12)) : 12;
       state.impactRadius = impactRadius ? Math.max(1, Math.min(3, Number(impactRadius.value) || 2)) : 2;
       state.flowMode = flowMode && /^(balanced|imports|impact)$/.test(flowMode.value) ? flowMode.value : "balanced";
+      state.flowShowAll = flowShowAll ? flowShowAll.checked : false;
       state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
       syncUrlState();
       scheduleRender();
@@ -1311,6 +1359,7 @@
     if (neighborLimit) neighborLimit.addEventListener("change", apply);
     if (impactRadius) impactRadius.addEventListener("change", apply);
     if (flowMode) flowMode.addEventListener("change", apply);
+    if (flowShowAll) flowShowAll.addEventListener("change", apply);
     if (proofLinkedOnly) proofLinkedOnly.addEventListener("change", apply);
 
     if (reset) {
@@ -1321,6 +1370,7 @@
         if (neighborLimit) neighborLimit.value = "12";
         if (impactRadius) impactRadius.value = "2";
         if (flowMode) flowMode.value = "balanced";
+        if (flowShowAll) flowShowAll.checked = false;
         if (proofLinkedOnly) proofLinkedOnly.checked = false;
         apply();
       });
@@ -1399,6 +1449,7 @@
     if (/^(balanced|imports|impact)$/.test(mode)) state.flowMode = mode;
 
     state.proofLinkedOnly = params.get("linked") === "1";
+    state.flowShowAll = params.get("fullflow") === "1";
   }
 
   function syncUrlState() {
@@ -1409,6 +1460,7 @@
     if (state.impactRadius && state.impactRadius !== 2) params.set("radius", String(state.impactRadius)); else params.delete("radius");
     if (state.flowMode && state.flowMode !== "balanced") params.set("mode", state.flowMode); else params.delete("mode");
     if (state.proofLinkedOnly) params.set("linked", "1"); else params.delete("linked");
+    if (state.flowShowAll) params.set("fullflow", "1"); else params.delete("fullflow");
 
     var next = params.toString();
     var target = window.location.pathname + (next ? "?" + next : "");
@@ -1422,12 +1474,14 @@
     var sort = document.getElementById("sort-select");
     var radius = document.getElementById("impact-radius");
     var mode = document.getElementById("flow-mode");
+    var flowShowAll = document.getElementById("flow-show-all");
     var linked = document.getElementById("proof-linked-only");
     if (search && state.selectedModule) search.value = state.selectedModule;
     if (focus) focus.value = state.activeLayerFilter;
     if (sort) sort.value = state.activeSort;
     if (radius) radius.value = String(state.impactRadius);
     if (mode) mode.value = state.flowMode;
+    if (flowShowAll) flowShowAll.checked = Boolean(state.flowShowAll);
     if (linked) linked.checked = Boolean(state.proofLinkedOnly);
   }
 
