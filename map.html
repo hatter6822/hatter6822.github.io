@@ -91,65 +91,31 @@
         </header>
 
         <form class="map-toolbar card" id="map-toolbar" role="search" aria-label="Module filters" onsubmit="return false;">
-          <fieldset class="toolbar-block toolbar-context">
-            <legend>Context</legend>
+          <div class="toolbar-main">
             <div class="control-group control-group-wide">
-              <label for="module-search">Current context module</label>
-              <input id="module-search" type="search" list="context-options" placeholder="Type module/path to switch context" autocomplete="off" spellcheck="false" aria-describedby="module-search-help toolbar-summary">
+              <label for="module-search">Current module context</label>
+              <input id="module-search" type="search" list="context-options" placeholder="Type module/path and press Enter" autocomplete="off" spellcheck="false" aria-describedby="module-search-help toolbar-summary">
               <datalist id="context-options"></datalist>
             </div>
 
             <div class="control-row">
               <div class="control-group">
-                <label for="focus-select">Focus subsystem</label>
+                <label for="focus-select">Subsystem</label>
                 <select id="focus-select"><option value="all">All modules</option></select>
               </div>
 
-              <div class="control-group">
-                <label for="sort-select">Context ranking</label>
-                <select id="sort-select">
-                  <option value="hotspot">Hotspot score</option>
-                  <option value="theorems">Theorem count</option>
-                  <option value="name">Module name</option>
-                </select>
-              </div>
+              <fieldset class="detail-preset" aria-label="Flow detail level">
+                <legend>Flow detail</legend>
+                <div class="detail-preset-options" role="radiogroup" aria-label="Flow detail level">
+                  <button type="button" class="detail-pill" data-detail="compact" role="radio" aria-checked="false" aria-label="Compact detail: 8 neighbors and 1 proof hop">Compact</button>
+                  <button type="button" class="detail-pill is-active" data-detail="balanced" role="radio" aria-checked="true" aria-label="Balanced detail: 12 neighbors and 2 proof hops">Balanced</button>
+                  <button type="button" class="detail-pill" data-detail="expanded" role="radio" aria-checked="false" aria-label="Expanded detail: 16 neighbors and 3 proof hops">Expanded</button>
+                </div>
+              </fieldset>
             </div>
-          </fieldset>
+          </div>
 
-          <fieldset class="toolbar-block toolbar-flow">
-            <legend>Flow shaping</legend>
-            <div class="control-row control-row-tight">
-              <div class="control-group">
-                <label for="neighbor-limit">Visible neighbors</label>
-                <select id="neighbor-limit">
-                  <option value="8">8 nodes</option>
-                  <option value="12" selected>12 nodes</option>
-                  <option value="16">16 nodes</option>
-                </select>
-              </div>
-
-              <div class="control-group">
-                <label for="impact-radius">Proof impact radius</label>
-                <select id="impact-radius">
-                  <option value="1">1 hop</option>
-                  <option value="2" selected>2 hops</option>
-                  <option value="3">3 hops</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="control-group">
-              <label for="flow-mode">Flow emphasis profile</label>
-              <select id="flow-mode">
-                <option value="balanced" selected>Balanced</option>
-                <option value="imports">Import-heavy</option>
-                <option value="impact">Impact-heavy</option>
-              </select>
-            </div>
-          </fieldset>
-
-          <fieldset class="toolbar-block toolbar-toggles">
-            <legend>Graph scope</legend>
+          <div class="toolbar-toggles" aria-label="Graph scope toggles">
             <label class="toggle-pill" for="flow-show-all">
               <input id="flow-show-all" type="checkbox" aria-describedby="module-search-help toolbar-summary">
               <span>Show full flow graph</span>
@@ -157,16 +123,16 @@
 
             <label class="toggle-pill" for="proof-linked-only">
               <input id="proof-linked-only" type="checkbox" aria-describedby="proof-linked-help toolbar-summary">
-              <span>Proof-linked only</span>
+              <span>Proof-linked modules only</span>
             </label>
-          </fieldset>
+          </div>
 
           <div class="toolbar-actions">
             <p id="toolbar-summary" class="toolbar-summary" aria-live="polite" aria-atomic="true"></p>
-            <button id="reset-view" class="btn btn-secondary" type="button">Reset filters</button>
+            <button id="reset-view" class="btn btn-secondary" type="button">Reset</button>
           </div>
         </form>
-        <p id="module-search-help" class="panel-note">Context jump: start typing any Lean module or file path, then press Enter.</p>
+        <p id="module-search-help" class="panel-note">Context jump: start typing any Lean module or file path, then press Enter. Keyboard walk: press <kbd>j</kbd>/<kbd>k</kbd> outside inputs to move through the ranked module list.</p>
         <p id="proof-linked-help" class="panel-note">When enabled, show only modules that have an Operations/Invariant pair with an explicit import link.</p>
 
         <div class="navigator-layout">
