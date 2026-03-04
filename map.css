@@ -30,6 +30,38 @@
   align-items: end;
   padding: 0.9rem;
 }
+
+.reasoning-panel { padding: 0.9rem; }
+.reasoning-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(13rem, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 0.7rem;
+}
+.reasoning-output {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--surface) 86%, transparent);
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.52rem;
+}
+.reasoning-output h3 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+.reasoning-step-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 0.28rem;
+}
+.reasoning-step-list li { font-size: 0.82rem; }
+.reasoning-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
 .control-group { display: grid; gap: 0.4rem; }
 .control-group label { color: var(--text-muted); font-size: 0.8rem; }
 .control-group input,
@@ -127,6 +159,7 @@
   .results-note { text-align: left; }
   .map-toolbar { grid-template-columns: 1fr; }
   .control-actions .btn { width: 100%; }
+  .reasoning-controls { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
