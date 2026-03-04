@@ -161,6 +161,9 @@
       if (!hash || hash === "#") return;
 
       var id = hash.charAt(0) === "#" ? hash.slice(1) : hash;
+      try {
+        id = decodeURIComponent(id);
+      } catch (e) {}
       if (!id) return;
 
       var target = document.getElementById(id);
@@ -171,6 +174,24 @@
         top: Math.max(0, targetTop),
         behavior: behavior || "smooth"
       });
+
+      return target;
+    }
+
+    function scheduleHashScroll(hash, behavior) {
+      var target = scrollToHash(hash, behavior);
+      if (!target) return;
+
+      window.requestAnimationFrame(function () {
+        scrollToHash(hash, behavior);
+      });
+
+      window.setTimeout(function () {
+        var targetTop = target.getBoundingClientRect().top;
+        var navOffset = getNavOffset();
+        if (targetTop >= navOffset && targetTop <= navOffset + 24) return;
+        scrollToHash(hash, "auto");
+      }, 220);
     }
 
     function setNavState(open) {
@@ -196,7 +217,7 @@
           if (!href || href.charAt(0) !== "#") return;
 
           event.preventDefault();
-          scrollToHash(href, "smooth");
+          scheduleHashScroll(href, "smooth");
 
           if (window.location.hash !== href) {
             history.pushState(null, "", href);
@@ -217,7 +238,7 @@
     window.addEventListener("orientationchange", syncScrollOffset, { passive: true });
 
     window.addEventListener("hashchange", function () {
-      scrollToHash(window.location.hash, "smooth");
+      scheduleHashScroll(window.location.hash, "smooth");
     });
 
     var applyScrolled = function () {
@@ -228,7 +249,7 @@
 
     if (window.location.hash) {
       window.requestAnimationFrame(function () {
-        scrollToHash(window.location.hash, "auto");
+        scheduleHashScroll(window.location.hash, "auto");
       });
     }
 
