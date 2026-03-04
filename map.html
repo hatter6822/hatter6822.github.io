@@ -19,9 +19,9 @@
   <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
   <link rel="dns-prefetch" href="https://api.github.com">
 
-  <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="map.css">
-  <script src="theme-init.js"></script>
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="stylesheet" href="assets/css/map.css">
+  <script src="assets/js/theme-init.js"></script>
 </head>
 <body>
   <div id="bg-canvas-wrap" aria-hidden="true">
@@ -147,7 +147,10 @@
             <div id="flowchart-legend" class="flowchart-legend" aria-label="Flow chart legend"></div>
             <div id="flow-context-strip" class="flow-context-strip" aria-live="polite"></div>
             <div id="flow-node-interior-menu" class="flow-node-interior-menu" aria-live="polite"></div>
-            <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite"></div>
+            <div class="flowchart-shell">
+              <p class="flowchart-mobile-hint" aria-hidden="true">Tip: On mobile, drag to pan the chart and tap a node to inspect details.</p>
+              <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite" role="region" aria-label="Dependency and proof flow chart" tabindex="0"></div>
+            </div>
 
             <div class="trace-row">
               <h3 class="section-title-sm">Traversal trail</h3>
@@ -159,7 +162,7 @@
     </section>
   </main>
 
-  <script src="background-pattern.js"></script>
-  <script src="map.js"></script>
+  <script src="assets/js/background-pattern.js" defer></script>
+  <script src="assets/js/map.js" defer></script>
 </body>
 </html>

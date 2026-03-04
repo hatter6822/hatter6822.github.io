@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import {
   extractImportTokens,
   extractInteriorCodeItems,
+  normalizeSymbolName,
   parseCurrentStateMetrics,
-  theoremCount
+  theoremCount,
+  tokenizeImportSegment
 } from './lean-analysis.mjs';
 
 test('extractImportTokens handles inline and indented continuations', () => {
@@ -100,4 +102,54 @@ test('parseCurrentStateMetrics extracts dashboard values from markdown table', (
     theorems: 789,
     buildJobs: 22
   });
+});
+
+test('extractImportTokens stops continuation when non-module tokens appear', () => {
+  const source = `
+import SeLe4n.Kernel.Core
+  Foo.bar
+  SeLe4n.Model.State
+`;
+
+  assert.deepEqual(extractImportTokens(source), [
+    'SeLe4n.Kernel.Core'
+  ]);
+});
+
+test('parseCurrentStateMetrics tolerates unrelated table rows', () => {
+  const readme = `
+| Metric | Value |
+| --- | --- |
+| Coverage | n/a |
+| Version | 2.3.4-alpha |
+| Production LOC | 55,001 lines |
+| Theorems | 1,250 total |
+| Build Jobs | 18 pipelines |
+`;
+
+  assert.deepEqual(parseCurrentStateMetrics(readme), {
+    version: '2.3.4',
+    lines: '55,001',
+    theorems: 1250,
+    buildJobs: 18
+  });
+});
+
+
+test('normalizeSymbolName removes backticks and trims whitespace', () => {
+  assert.equal(normalizeSymbolName('  `Foo.bar`  '), 'Foo.bar');
+  assert.equal(normalizeSymbolName('plainName'), 'plainName');
+});
+
+test('tokenizeImportSegment extracts valid module-like tokens only', () => {
+  assert.deepEqual(tokenizeImportSegment('SeLe4n.Kernel.Core, Std.Data.HashMap (Mathlib.Data.Set)'), [
+    'SeLe4n.Kernel.Core',
+    'Std.Data.HashMap',
+    'Mathlib.Data.Set'
+  ]);
+  assert.deepEqual(tokenizeImportSegment('foo.bar _Hidden lower.case'), []);
+});
+
+test('parseCurrentStateMetrics returns empty object for missing table', () => {
+  assert.deepEqual(parseCurrentStateMetrics('No metrics here'), {});
 });

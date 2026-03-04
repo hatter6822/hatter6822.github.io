@@ -305,8 +305,16 @@
   min-height: clamp(32rem, 64vh, 48rem);
   padding: 0.75rem;
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .flowchart-svg { width: 100%; min-width: 0; height: auto; display: block; }
+.flowchart-mobile-hint {
+  display: none;
+  margin: 0 0 0.45rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
 .flow-edge-layer { pointer-events: none; }
 .flow-line { fill: none; stroke-width: 2.1; opacity: 0.88; stroke-linecap: round; stroke-linejoin: round; }
 .flow-line.proof-link { stroke-dasharray: 5 4; stroke-width: 2.4; }
@@ -375,4 +383,22 @@
 @media (max-width: 640px) {
   .code-map-page { padding-top: 3.25rem; }
   .map-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .map-toolbar {
+    padding: 0.72rem;
+    gap: 0.65rem;
+  }
+  .toggle-pill,
+  .detail-pill,
+  .control-group input,
+  .control-group select,
+  .toolbar-actions .btn {
+    min-height: 2.75rem;
+  }
+  .flowchart-mobile-hint { display: block; }
+  .flowchart-wrap {
+    min-height: clamp(22rem, 58vh, 34rem);
+    padding: 0.55rem;
+    scroll-padding: 0.5rem;
+  }
+  .flow-node text { font-size: 12px; }
 }

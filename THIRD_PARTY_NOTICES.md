@@ -6,7 +6,7 @@ This repository is licensed under GPL-3.0 (see `LICENSE`).
 
 ### Ashima Arts / Stefan Gustavson simplex-noise implementation (MIT)
 
-Portions of `background-pattern.js` include a compact GLSL simplex-noise implementation attributed in-source as "3D Simplex Noise (Ashima Arts — MIT licence)".
+Portions of `assets/js/background-pattern.js` include a compact GLSL simplex-noise implementation attributed in-source as "3D Simplex Noise (Ashima Arts — MIT licence)".
 
 Original upstream project references:
 - https://github.com/ashima/webgl-noise

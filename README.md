@@ -1,60 +1,70 @@
 # seLe4n Website
 
-Static marketing site for **seLe4n**.
+Static site for **seLe4n**, including a marketing homepage and an interactive architecture/codebase map.
 
-## Data synchronization
+## Repository layout
 
-Live metrics are now sourced from `data/site-data.json` first, so desktop and mobile clients render the same baseline data.
+- `index.html`: main marketing page
+- `map.html`: interactive codebase map
+- `assets/css/`: shared and page-specific styles
+- `assets/js/`: runtime scripts (theme, site, map, background)
+- `data/`: bundled snapshots consumed at runtime
+- `scripts/`: sync, validation, and parser utilities
+- `docs/`: architecture and map implementation documentation
 
-The code map page can also be pre-synced through `data/map-data.json` for deterministic, low-latency rendering before live refresh.
+## Local development workflow
 
-To refresh those metrics from `hatter6822/seLe4n`:
+### 1) Refresh bundled data snapshots
 
 ```bash
 node scripts/sync-site-data.mjs
-
 node scripts/sync-map-data.mjs
 ```
 
-Then commit the updated `data/site-data.json` file.
-
-Then validate the bundled snapshots before committing:
+### 2) Validate snapshots
 
 ```bash
 node scripts/validate-data.mjs
 ```
 
+### 3) Run parser regression tests
 
+```bash
+node scripts/lib/lean-analysis.test.mjs
+```
+
+## Runtime data strategy
+
+The site is intentionally local-first:
+
+1. Load bundled snapshot from `data/*.json`.
+2. Optionally hydrate from browser cache if newer.
+3. Attempt live refresh from GitHub.
+4. Fall back to bundled/cached values on fetch failure.
+
+This keeps rendering deterministic while still allowing low-latency live updates.
 
 ## Code map interior symbol links
 
-The code map interior panel now links each discovered declaration directly to its source in `hatter6822/seLe4n`.
+The code map interior panel links declarations directly to source in `hatter6822/seLe4n`:
 
-- Function-style declarations (`def`, `abbrev`, `opaque`, and `instance`) and theorem-style declarations (`theorem`, `lemma`) are parsed with declaration line metadata.
-- Each interior item link targets the exact GitHub blob line anchor (`#L<line>`), when line metadata is available.
-- Cached/bundled payloads that omit per-symbol line metadata are treated as incomplete; the browser re-fetches module source and re-parses declarations so links become line-accurate.
-- Legacy cached/bundled symbol payloads remain supported; older entries without line metadata are normalized and still rendered while refresh is in progress.
+- Parses theorem-style declarations (`theorem`, `lemma`)
+- Parses function-style declarations (`def`, `abbrev`, `opaque`, `instance`)
+- Includes declaration line metadata for line-accurate blob anchors
+- Normalizes legacy entries that do not yet include line metadata
 
-## Runtime data consistency
+## Documentation index
 
-The browser now treats `data/site-data.json` as the canonical baseline on every refresh. Any cached values are immediately revalidated against the bundled file, then live repository metadata is merged in (version, Lean toolchain, LOC, theorem count, scripts/docs counts, kernel modules, build jobs, and latest commit metadata from `main`).
-
-If any live fetch fails in the browser, the site continues to use bundled `data/site-data.json` values as fallback.
-
+- [Architecture audit and growth plan](docs/ARCHITECTURE.md)
+- [Codebase map end-to-end guide](docs/CODEBASE_MAP.md)
+- [Testing and validation matrix](docs/TESTING.md)
+- [Contributing guide](CONTRIBUTING.md)
 
 ## Third-party notices
 
-This repository includes a third-party simplex-noise implementation used in `background-pattern.js`.
+This repository includes a third-party simplex-noise implementation used in `assets/js/background-pattern.js`.
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license text.
 
 ## License
 
 This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE) for details.
-
-### Parser regression tests
-
-Run parser coverage checks after changing Lean symbol/import extraction logic:
-
-```bash
-node scripts/lib/lean-analysis.test.mjs
-```
