@@ -97,8 +97,8 @@
 .panel-header { margin-bottom: 0.65rem; }
 
 .map-toolbar + .panel-note { margin: 0.1rem 0 0.4rem; font-size: 0.8rem; }
+#proof-linked-help { margin-top: -0.2rem; }
 
-.constellation-wrap { min-height: 13.5rem; display: grid; gap: 0.5rem; }
 .flowchart-legend {
   display: flex;
   flex-wrap: wrap;
@@ -151,29 +151,19 @@
 .flow-node:not(.static):hover rect,
 .flow-node:not(.static):focus-visible rect { stroke: var(--accent); filter: brightness(1.03); }
 .flow-node.active rect { stroke-width: 2; }
+.flow-node.assurance-linked rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #35c98f 16%); }
+.flow-node.assurance-partial rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #d37cff 16%); }
+.flow-node.assurance-local rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #6de2ff 16%); }
+.flow-node.assurance-none rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #ffad42 16%); }
 .flowchart-summary { margin-top: 0.55rem; margin-bottom: 0; }
-.constellation-core { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--surface) 82%, transparent); padding: 0.7rem; text-align: center; }
+.flowchart-insight-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+.flowchart-insight { border: 1px solid var(--border); border-radius: 999px; font-size: 0.68rem; color: var(--text-muted); padding: 0.14rem 0.45rem; background: color-mix(in oklab, var(--surface-2) 85%, transparent); }
 .core-name { font-family: var(--font-mono); font-size: 0.89rem; margin-bottom: 0.25rem; word-break: break-word; }
-.band { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.45rem; background: color-mix(in oklab, var(--surface-2) 85%, transparent); }
-.band-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.35rem; }
 .pill-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.dep-pill { border: 1px solid var(--border); background: var(--bg-alt); color: var(--text); border-radius: 999px; padding: 0.22rem 0.48rem; font-size: 0.7rem; cursor: pointer; }
-.dep-pill.imported-by { border-style: dashed; }
-.dep-pill.static { opacity: 0.7; cursor: default; }
-.dep-pill:hover, .dep-pill:focus-visible, .trail-chip:hover, .trail-chip:focus-visible { border-color: var(--accent); outline: none; }
-
-.lens-tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
-.lens-tab { border: 1px solid var(--border); border-radius: 999px; background: var(--bg-alt); color: var(--text); font-size: 0.72rem; padding: 0.32rem 0.6rem; cursor: pointer; }
-.lens-tab.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
-.lens-panel { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--surface) 85%, transparent); padding: 0.6rem; margin-top: 0.45rem; }
-.lens-metric { font-size: 0.78rem; margin-bottom: 0.3rem; }
-.risk-list { margin-top: 0.4rem; display: grid; gap: 0.3rem; }
-.risk-item { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--bg-alt); padding: 0.35rem 0.45rem; font-size: 0.72rem; }
-.risk-item strong { font-family: var(--font-mono); }
-
 .trace-row { border-top: 1px solid var(--border); padding-top: 0.55rem; margin-top: 0.5rem; }
 .trail-wrap { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .trail-chip { border: 1px solid var(--border); border-radius: 999px; font-size: 0.7rem; padding: 0.2rem 0.45rem; background: var(--bg-alt); cursor: pointer; color: var(--text); }
+.trail-chip:hover, .trail-chip:focus-visible { border-color: var(--accent); outline: none; }
 
 .context-panel { display: grid; gap: 0.5rem; }
 .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
@@ -181,9 +171,6 @@
 .metric-box span { display: block; font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
 .metric-box strong { font-size: 0.92rem; }
 .details-empty { color: var(--text-muted); }
-.detail-list { margin-top: 0.15rem; }
-.detail-list li { padding: 0.16rem 0; font-family: var(--font-mono); font-size: 0.74rem; overflow-wrap: anywhere; word-break: break-word; }
-.assurance-strip { margin-top: 0.4rem; }
 
 @media (max-width: 1320px) {
   .map-toolbar { grid-template-columns: minmax(16rem, 1fr) repeat(5, minmax(10rem, 1fr)); }

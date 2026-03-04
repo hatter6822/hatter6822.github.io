@@ -25,7 +25,7 @@
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeLayerFilter: "all", activeSort: "hotspot",
-    trail: [], selectedLens: "summary", neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
+    trail: [], neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
     flowMode: "balanced", flowShowAll: false, contextListKey: "", contextList: []
   };
 
@@ -216,36 +216,6 @@
     var degree = { incoming: incoming, outgoing: outgoing, total: incoming + outgoing, theorems: theorems, score: score };
     state.degreeMap[name] = degree;
     return degree;
-  }
-
-  function appendList(panel, title, items, limit) {
-    var h = document.createElement("h3");
-    h.className = "section-title-sm";
-    h.textContent = title;
-    panel.appendChild(h);
-
-    var ul = document.createElement("ul");
-    ul.className = "detail-list";
-    var max = Math.min(items.length, limit || items.length);
-
-    if (!items.length) {
-      var empty = document.createElement("li");
-      empty.textContent = "(none)";
-      ul.appendChild(empty);
-    } else {
-      for (var i = 0; i < max; i++) {
-        var li = document.createElement("li");
-        li.textContent = items[i];
-        ul.appendChild(li);
-      }
-      if (items.length > max) {
-        var more = document.createElement("li");
-        more.textContent = "… and " + (items.length - max) + " more";
-        ul.appendChild(more);
-      }
-    }
-
-    panel.appendChild(ul);
   }
 
   function relatedProofModules(name) {
@@ -443,6 +413,7 @@
     var coupling = degree.incoming * degree.outgoing;
     var shift = computeContextShift(name);
     var proofPair = findProofPair(name);
+    var assurance = assuranceForModule(name);
 
     panel.innerHTML = "<h2 class=\"section-title-sm\">Context drawer</h2>";
 
@@ -472,92 +443,20 @@
     }
     panel.appendChild(grid);
 
-    var pathNode = document.createElement("p");
-    pathNode.className = "panel-note";
-    pathNode.textContent = "Path: " + modulePath;
-    panel.appendChild(pathNode);
+    var notes = [
+      "Path: " + modulePath,
+      "Assurance: " + assurance.label + ".",
+      "Use the flow chart as the canonical source for dependencies, impact, and proof reachability."
+    ];
 
-    var dirs = pathSegments(modulePath);
-    if (dirs.length) {
-      var dirNode = document.createElement("p");
-      dirNode.className = "panel-note";
-      dirNode.textContent = "Directory focus: /" + dirs.join("/") + " (depth " + dirs.length + ").";
-      panel.appendChild(dirNode);
-    }
+    if (proofPair) notes.push("Proof pair theorems: " + (proofPair.operationsTheorems + proofPair.invariantTheorems) + " (linked=" + (proofPair.invariantImportsOperations ? "yes" : "no") + ").");
+    if (shift) notes.push("Traversal shift from " + shift.previous + ": shared dependencies=" + shift.shared.length + ", new dependencies=" + shift.newDeps.length + ".");
 
-    if (proofPair) {
-      var proofNode = document.createElement("p");
-      proofNode.className = "panel-note";
-      proofNode.textContent = "Proof pair: total theorems=" + (proofPair.operationsTheorems + proofPair.invariantTheorems) + ", invariant imports operations=" + (proofPair.invariantImportsOperations ? "yes" : "no") + ".";
-      panel.appendChild(proofNode);
-    }
-
-    if (shift) {
-      var shiftNode = document.createElement("p");
-      shiftNode.className = "panel-note";
-      shiftNode.textContent = "Shift from " + shift.previous + ": shared dependencies=" + shift.shared.length + ", new dependencies=" + shift.newDeps.length + ".";
-      panel.appendChild(shiftNode);
-    }
-
-    appendList(panel, "Proof neighbors", relatedProofModules(name), 4);
-    appendList(panel, "Imports (inner band)", state.importsFrom[name] || [], 10);
-    appendList(panel, "Imported by (outer band)", state.importsTo[name] || [], 10);
-    appendList(panel, "External imports", state.externalImportsFrom[name] || [], 8);
-    renderAssuranceStrip(name);
-  }
-
-  function renderAssuranceStrip(name) {
-    var strip = document.getElementById("assurance-strip");
-    if (!strip || !name) return;
-    strip.classList.add("assurance-strip");
-    strip.innerHTML = "";
-
-    var assurance = assuranceForModule(name);
-    var neighborhood = collectNeighborhood(name, state.impactRadius);
-    var proofReach = neighborhood.filter(function (item) {
-      var pair = findProofPair(item.name);
-      return pair && pair.invariantImportsOperations;
-    });
-
-    var summary = document.createElement("p");
-    summary.className = "lens-metric";
-    summary.textContent = "Assurance state: " + assurance.label + ". " + assurance.detail;
-    strip.appendChild(summary);
-
-    var depth = document.createElement("p");
-    depth.className = "lens-metric";
-    depth.textContent = "Within " + state.impactRadius + " hops: " + neighborhood.length + " reachable modules, " + proofReach.length + " with linked proof chains.";
-    strip.appendChild(depth);
-
-    var row = document.createElement("div");
-    row.className = "pill-row";
-    var topReach = proofReach.slice(0, 8).sort(function (a, b) {
-      return moduleDegree(b.name).score - moduleDegree(a.name).score;
-    });
-
-    if (!topReach.length) {
-      row.textContent = "No linked proof chains found in the current radius.";
-    } else {
-      for (var i = 0; i < topReach.length; i++) {
-        var chip = createPill(topReach[i].name, "out", true);
-        chip.setAttribute("title", "Depth " + topReach[i].depth + " from selected module");
-        chip.appendChild(document.createTextNode(" · d" + topReach[i].depth));
-        row.appendChild(chip);
-      }
-    }
-    strip.appendChild(row);
-
-    var path = findNearestLinkedPath(name, state.impactRadius);
-    var pathLabel = document.createElement("p");
-    pathLabel.className = "lens-metric";
-    pathLabel.textContent = path.length ? "Nearest linked-proof path:" : "No linked-proof path found within current impact radius.";
-    strip.appendChild(pathLabel);
-
-    if (path.length) {
-      var pathRow = document.createElement("div");
-      pathRow.className = "pill-row";
-      for (var j = 0; j < path.length; j++) pathRow.appendChild(createPill(path[j], "in", true));
-      strip.appendChild(pathRow);
+    for (var j = 0; j < notes.length; j++) {
+      var note = document.createElement("p");
+      note.className = "panel-note";
+      note.textContent = notes[j];
+      panel.appendChild(note);
     }
   }
 
@@ -606,22 +505,6 @@
     if (state.selectedModule && document.activeElement !== picker) picker.value = state.selectedModule;
   }
 
-  function createPill(moduleName, mode, selectable) {
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "dep-pill" + (mode === "out" ? " imported-by" : "");
-    button.textContent = moduleName;
-    if (selectable === false) {
-      button.disabled = true;
-      button.classList.add("static");
-    } else {
-      button.addEventListener("click", function () { selectModule(moduleName, false); });
-    }
-    return button;
-  }
-
-
-
   function renderFlowchartLegend() {
     var legend = document.getElementById("flowchart-legend");
     if (!legend) return;
@@ -633,7 +516,8 @@
       { label: "Modules impacted by selected", color: "#ffad42" },
       { label: "Proof pair relation", color: "#d37cff" },
       { label: "Nearest linked-proof path", color: "#6de2ff" },
-      { label: "External dependency", color: "#b9c0d0" }
+      { label: "External dependency", color: "#b9c0d0" },
+      { label: "Node tint = assurance level", color: "#8fa3bf" }
     ];
 
     for (var i = 0; i < items.length; i++) {
@@ -744,6 +628,7 @@
     var external = allExternal.slice(0, externalBudget);
     var proofRelated = relatedProofModules(selected);
     var linkedPath = findNearestLinkedPath(selected, state.impactRadius);
+    var contextCache = Object.create(null);
 
     var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
     var flowWidth = Math.max(1180, wrapWidth || 0);
@@ -758,13 +643,13 @@
     var rightX = centerX + centerWidth + laneGap;
 
     var laneYStart = 62;
-    var laneStep = 42;
-    var laneNodeHeight = 34;
+    var laneStep = 52;
+    var laneNodeHeight = 44;
     var laneCount = Math.max(imports.length, importers.length, state.flowShowAll ? 1 : 2);
     var laneBottom = laneYStart + Math.max(0, laneCount - 1) * laneStep + laneNodeHeight;
 
     var centerY = Math.max(170, laneYStart + Math.floor(Math.max(1, laneCount - 1) / 2) * laneStep - 26);
-    var centerBottom = centerY + 86;
+    var centerBottom = centerY + 92;
 
     var lowerSectionTop = Math.max(laneBottom + 54, centerBottom + 54);
     var proofStartY = lowerSectionTop;
@@ -780,7 +665,7 @@
       "class": "flowchart-svg",
       "viewBox": "0 0 " + flowWidth + " " + flowHeight,
       "role": "img",
-      "aria-label": "Flow chart for selected module interactions and proof links"
+      "aria-label": "Flow chart for selected module interactions and proof links: " + selected + ", imports " + allImports.length + ", impacted modules " + allImporters.length + ", proof neighbors " + proofRelated.length
     });
 
     var defs = createSvgNode("defs", {});
@@ -811,21 +696,38 @@
     }
 
     function moduleSummary(name) {
-      var degree = moduleDegree(name);
-      var assurance = assuranceForModule(name);
-      return "thm " + degree.theorems + " · in " + degree.incoming + " · out " + degree.outgoing + " · " + assurance.level;
+      var ctx = contextFor(name);
+      return "thm " + ctx.degree.theorems + " · in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing + " · " + ctx.assurance.label.toLowerCase();
+    }
+
+    function nodeTooltip(name, roleLabel) {
+      if (!state.moduleMap[name]) return roleLabel + ": " + name;
+      var ctx = contextFor(name);
+      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nassurance: " + ctx.assurance.label;
+    }
+
+    function contextFor(name) {
+      if (!name) return { degree: { incoming: 0, outgoing: 0, theorems: 0, score: 0 }, assurance: { label: "Unknown" }, path: "" };
+      if (contextCache[name]) return contextCache[name];
+      contextCache[name] = {
+        degree: moduleDegree(name),
+        assurance: assuranceForModule(name),
+        path: state.moduleMap[name] || ""
+      };
+      return contextCache[name];
     }
 
     var nodeClipId = 0;
 
-    function createNode(name, x, y, w, h, color, subtitle, active, isStatic) {
+    function createNode(name, x, y, w, h, color, subtitle, tooltip, active, isStatic, assuranceLevel) {
       var className = "flow-node" + (active ? " active" : "") + (isStatic ? " static" : "");
+      if (assuranceLevel && !isStatic) className += " assurance-" + assuranceLevel;
       var group = createSvgNode("g", { "class": className, tabindex: isStatic ? "-1" : "0", role: isStatic ? "note" : "button", "aria-label": isStatic ? name : ("Select module " + name) });
       if (!isStatic) group.setAttribute("focusable", "true");
 
       var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
       var full = createSvgNode("title", {});
-      full.textContent = name;
+      full.textContent = tooltip || name;
 
       var clipId = "flow-node-clip-" + (nodeClipId++);
       var clipPath = createSvgNode("clipPath", { id: clipId });
@@ -840,7 +742,7 @@
       group.appendChild(rect);
       group.appendChild(title);
 
-      if (subtitle && h >= 52) {
+      if (subtitle && h >= 40) {
         var meta = createSvgNode("text", { x: x + 10, y: y + 38, "class": "flow-meta", "clip-path": "url(#" + clipId + ")" });
         meta.textContent = truncateLabel(subtitle, w - 16);
         group.appendChild(meta);
@@ -864,23 +766,23 @@
     laneLabel("Selected module context", centerX, centerY - 12, "#7c9cff");
     laneLabel("Modules impacted by selected", rightX, 30, "#ffad42");
 
-    var center = createNode(selected, centerX, centerY, centerWidth, 86, "#7c9cff", moduleSummary(selected), true, false);
+    var center = createNode(selected, centerX, centerY, centerWidth, 92, "#7c9cff", moduleSummary(selected), nodeTooltip(selected, "Selected module context"), true, false, contextFor(selected).assurance.level);
 
     var importNodes = [];
     for (var i = 0; i < imports.length; i++) {
-      importNodes.push(createNode(imports[i], leftX, laneYStart + i * laneStep, sideWidth, 34, "#35c98f", moduleSummary(imports[i]), false, false));
+      importNodes.push(createNode(imports[i], leftX, laneYStart + i * laneStep, sideWidth, laneNodeHeight, "#35c98f", moduleSummary(imports[i]), nodeTooltip(imports[i], "Imported dependency"), false, false, contextFor(imports[i]).assurance.level));
     }
 
     var importerNodes = [];
     for (var j = 0; j < importers.length; j++) {
-      importerNodes.push(createNode(importers[j], rightX, laneYStart + j * laneStep, sideWidth, 34, "#ffad42", moduleSummary(importers[j]), false, false));
+      importerNodes.push(createNode(importers[j], rightX, laneYStart + j * laneStep, sideWidth, laneNodeHeight, "#ffad42", moduleSummary(importers[j]), nodeTooltip(importers[j], "Impacted module"), false, false, contextFor(importers[j]).assurance.level));
     }
 
     if (allImports.length > imports.length) {
-      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, laneYStart + imports.length * laneStep, sideWidth, 30, "#35c98f", "enable full-flow or increase neighbor budget", false, true);
+      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, laneYStart + imports.length * laneStep, sideWidth, 30, "#35c98f", "enable full-flow or increase neighbor budget", "", false, true, "");
     }
     if (allImporters.length > importers.length) {
-      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, laneYStart + importers.length * laneStep, sideWidth, 30, "#ffad42", "enable full-flow or increase neighbor budget", false, true);
+      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, laneYStart + importers.length * laneStep, sideWidth, 30, "#ffad42", "enable full-flow or increase neighbor budget", "", false, true, "");
     }
 
     var importSpread = Math.min(52, Math.max(14, importNodes.length * 2));
@@ -895,7 +797,7 @@
     if (proofRelated.length) {
       laneLabel("Proof pair context", centerX, proofStartY - 16, "#d37cff");
       for (var n = 0; n < proofRelated.length; n++) {
-        var proofNode = createNode(proofRelated[n], centerX, proofStartY + n * 42, centerWidth, 32, "#d37cff", moduleSummary(proofRelated[n]), false, false);
+        var proofNode = createNode(proofRelated[n], centerX, proofStartY + n * 42, centerWidth, 40, "#d37cff", moduleSummary(proofRelated[n]), nodeTooltip(proofRelated[n], "Proof-pair neighbor"), false, false, contextFor(proofRelated[n]).assurance.level);
         drawFlowEdge(edgeLayer, center, proofNode, "#d37cff", true, { rank: n, total: proofRelated.length, spread: 18 });
       }
     }
@@ -906,7 +808,7 @@
       for (var q = 1; q < linkedPath.length; q++) {
         var maxPathX = Math.max(framePad, flowWidth - framePad - 220);
         var pathX = Math.min(maxPathX, Math.max(framePad, centerX - 180) + (q - 1) * 230);
-        var pathNode = createNode(linkedPath[q], pathX, pathStartY, 220, 32, "#6de2ff", moduleSummary(linkedPath[q]), false, false);
+        var pathNode = createNode(linkedPath[q], pathX, pathStartY, 240, 40, "#6de2ff", moduleSummary(linkedPath[q]), nodeTooltip(linkedPath[q], "Linked-proof path step " + q), false, false, contextFor(linkedPath[q]).assurance.level);
         drawFlowEdge(edgeLayer, previousNode, pathNode, "#6de2ff", true, { rank: q - 1, total: Math.max(1, linkedPath.length - 1), spread: 12 });
         previousNode = pathNode;
       }
@@ -914,77 +816,45 @@
 
     laneLabel("External imports", leftX, externalStartY - 10, "#b9c0d0");
     if (!external.length) {
-      createNode("No external imports detected", leftX, externalStartY, sideWidth, 30, "#b9c0d0", "", false, true);
+      createNode("No external imports detected", leftX, externalStartY, sideWidth, 30, "#b9c0d0", "", "", false, true, "");
     } else {
       var externalWidth = Math.max(180, Math.floor((flowWidth - framePad * 2 - (externalPerRow - 1) * 12) / externalPerRow));
       for (var z = 0; z < external.length; z++) {
         var row = Math.floor(z / externalPerRow);
         var col = z % externalPerRow;
         var externalX = leftX + col * (externalWidth + 12);
-        createNode(external[z], externalX, externalStartY + row * 38, externalWidth, 30, "#b9c0d0", "", false, true);
+        createNode(external[z], externalX, externalStartY + row * 38, externalWidth, 30, "#b9c0d0", "", "", false, true, "");
       }
       if (allExternal.length > external.length) {
-        createNode("+" + (allExternal.length - external.length) + " more", leftX, externalStartY + externalRows * 38, externalWidth, 30, "#b9c0d0", "", false, true);
+        createNode("+" + (allExternal.length - external.length) + " more", leftX, externalStartY + externalRows * 38, externalWidth, 30, "#b9c0d0", "", "", false, true, "");
       }
     }
 
     wrap.appendChild(svg);
 
+    var insightRow = document.createElement("div");
+    insightRow.className = "flowchart-insight-row";
+    insightRow.setAttribute("role", "list");
+    var insightItems = [
+      "Imports shown " + imports.length + "/" + allImports.length,
+      "Impacted shown " + importers.length + "/" + allImporters.length,
+      "Proof neighbors " + proofRelated.length,
+      "Linked path steps " + Math.max(0, linkedPath.length - 1),
+      "External shown " + external.length + "/" + allExternal.length
+    ];
+    for (var aa = 0; aa < insightItems.length; aa++) {
+      var badge = document.createElement("span");
+      badge.className = "flowchart-insight";
+      badge.setAttribute("role", "listitem");
+      badge.textContent = insightItems[aa];
+      insightRow.appendChild(badge);
+    }
+    wrap.appendChild(insightRow);
+
     var summary = document.createElement("p");
     summary.className = "panel-note flowchart-summary";
-    summary.textContent = "Flow summary (" + state.flowMode + " mode" + (state.flowShowAll ? ", full-flow" : "") + "): imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ".";
+    summary.textContent = "Flow summary (" + state.flowMode + " mode" + (state.flowShowAll ? ", full-flow" : "") + "): imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Hover any node for module path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
     wrap.appendChild(summary);
-  }
-
-  function renderConstellation() {
-    var wrap = document.getElementById("constellation-wrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    var selected = state.selectedModule;
-
-    if (!selected) {
-      wrap.textContent = "Select a module to render local relationship bands.";
-      return;
-    }
-
-    var degree = moduleDegree(selected);
-    var core = document.createElement("div");
-    core.className = "constellation-core";
-    core.innerHTML = "<p class=\"core-name\"></p><p class=\"panel-note\"></p>";
-    core.children[0].textContent = selected;
-    core.children[1].textContent = "fan-in=" + degree.incoming + " · fan-out=" + degree.outgoing + " · theorem-density=" + degree.theorems;
-    wrap.appendChild(core);
-
-    function renderBand(title, modules, mode) {
-      var band = document.createElement("div");
-      band.className = "band";
-      var titleNode = document.createElement("p");
-      titleNode.className = "band-title";
-      titleNode.textContent = title;
-      band.appendChild(titleNode);
-
-      var row = document.createElement("div");
-      row.className = "pill-row";
-      var slice = modules.slice(0, state.neighborLimit);
-      if (!slice.length) {
-        var empty = document.createElement("span");
-        empty.className = "panel-note";
-        empty.textContent = "None";
-        row.appendChild(empty);
-      } else {
-        for (var i = 0; i < slice.length; i++) row.appendChild(createPill(slice[i], mode, mode !== "static"));
-      }
-      band.appendChild(row);
-      wrap.appendChild(band);
-    }
-
-    renderBand("Imported modules", state.importsFrom[selected] || [], "in");
-    renderBand("Importing modules", state.importsTo[selected] || [], "out");
-    renderBand("Proof-neighbor modules", relatedProofModules(selected), "out");
-
-    var modulePath = state.moduleMap[selected] || "";
-    var segments = pathSegments(modulePath);
-    if (segments.length) renderBand("Directory context", segments, "static");
   }
 
   function renderTrail() {
@@ -1009,96 +879,6 @@
       fragment.appendChild(chip);
     }
     wrap.appendChild(fragment);
-  }
-
-  function lensSummary(panel, selected) {
-    var degree = moduleDegree(selected);
-    var related = relatedProofModules(selected);
-    var lines = [
-      "Hotspot score = " + degree.score + " (2×fan-in + fan-out + 3×theorems).",
-      "Proof-adjacent modules = " + related.length + ".",
-      "External imports = " + (state.externalImportsFrom[selected] || []).length + "."
-    ];
-    for (var i = 0; i < lines.length; i++) {
-      var p = document.createElement("p");
-      p.className = "lens-metric";
-      p.textContent = lines[i];
-      panel.appendChild(p);
-    }
-  }
-
-  function lensDependencies(panel, selected) {
-    var importers = state.importsTo[selected] || [];
-    var imports = state.importsFrom[selected] || [];
-    var highRisk = uniqueModules(importers.concat(imports), selected).sort(sortByScoreThenName).slice(0, 5);
-
-    var p = document.createElement("p");
-    p.className = "lens-metric";
-    p.textContent = "Highest-impact adjacent modules:";
-    panel.appendChild(p);
-
-    var row = document.createElement("div");
-    row.className = "pill-row";
-    for (var i = 0; i < highRisk.length; i++) row.appendChild(createPill(highRisk[i], "in"));
-    if (!highRisk.length) row.textContent = "No adjacent modules.";
-    panel.appendChild(row);
-  }
-
-  function lensAssurance(panel, selected) {
-    var ring = collectNeighborhood(selected, state.impactRadius);
-    var risks = [];
-
-    for (var i = 0; i < ring.length; i++) {
-      if (ring[i].name === selected) continue;
-      var score = moduleDegree(ring[i].name).score;
-      var assurance = assuranceForModule(ring[i].name);
-      if (assurance.level === "linked") continue;
-      risks.push({ name: ring[i].name, depth: ring[i].depth, score: score, assurance: assurance });
-    }
-
-    risks.sort(function (a, b) {
-      return b.score - a.score || a.depth - b.depth || a.name.localeCompare(b.name);
-    });
-
-    var summary = document.createElement("p");
-    summary.className = "lens-metric";
-    summary.textContent = "Impact radius " + state.impactRadius + " discovers " + ring.length + " modules; " + risks.length + " require proof strengthening or trace review.";
-    panel.appendChild(summary);
-
-    var riskList = document.createElement("div");
-    riskList.className = "risk-list";
-    if (!risks.length) {
-      var healthy = document.createElement("p");
-      healthy.className = "lens-metric";
-      healthy.textContent = "All reachable modules are proof-linked. This context has strong compositional evidence.";
-      panel.appendChild(healthy);
-    } else {
-      for (var j = 0; j < Math.min(6, risks.length); j++) {
-        var item = document.createElement("div");
-        item.className = "risk-item";
-        item.innerHTML = "<strong></strong>";
-        item.children[0].textContent = risks[j].name;
-        item.appendChild(document.createTextNode(" · d" + risks[j].depth + " · " + risks[j].assurance.label.toLowerCase() + " · score " + risks[j].score));
-        riskList.appendChild(item);
-      }
-      panel.appendChild(riskList);
-    }
-
-  }
-
-  function renderLensPanel() {
-    var panel = document.getElementById("lens-panel");
-    if (!panel) return;
-    panel.innerHTML = "";
-
-    if (!state.selectedModule) {
-      panel.textContent = "Select a module to activate context lenses.";
-      return;
-    }
-
-    if (state.selectedLens === "summary") lensSummary(panel, state.selectedModule);
-    else if (state.selectedLens === "dependencies") lensDependencies(panel, state.selectedModule);
-    else lensAssurance(panel, state.selectedModule);
   }
 
   function buildPairs() {
@@ -1155,8 +935,6 @@
   function renderAll() {
     renderContextChooser();
     renderFlowchart();
-    renderConstellation();
-    renderLensPanel();
     renderTrail();
   }
 
@@ -1342,7 +1120,7 @@
       }
       scheduleRender();
       syncUrlState();
-      setStatus("Map ready. Adaptive context lenses loaded.", false);
+      setStatus("Map ready. Integrated dependency/proof flow graph loaded.", false);
       setCache({
         files: state.files,
         modules: state.modules,
@@ -1445,43 +1223,6 @@
     }
   }
 
-  function setupLensTabs() {
-    var tabs = document.querySelectorAll("[data-lens]");
-    var panel = document.getElementById("lens-panel");
-
-    function activateTab(tab) {
-      if (!tab) return;
-      state.selectedLens = tab.getAttribute("data-lens") || "summary";
-      for (var i = 0; i < tabs.length; i++) {
-        var selected = tabs[i] === tab;
-        tabs[i].classList.toggle("active", selected);
-        tabs[i].setAttribute("aria-selected", selected ? "true" : "false");
-        tabs[i].setAttribute("tabindex", selected ? "0" : "-1");
-      }
-      if (panel) panel.setAttribute("aria-labelledby", tab.id || "");
-      renderLensPanel();
-    }
-
-    for (var i = 0; i < tabs.length; i++) {
-      tabs[i].addEventListener("click", function () {
-        activateTab(this);
-      });
-
-      tabs[i].addEventListener("keydown", function (event) {
-        if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-        var dir = event.key === "ArrowRight" ? 1 : -1;
-        var current = Array.prototype.indexOf.call(tabs, this);
-        var next = (current + dir + tabs.length) % tabs.length;
-        tabs[next].focus();
-        activateTab(tabs[next]);
-        event.preventDefault();
-      });
-    }
-
-    var active = document.querySelector('[data-lens="' + state.selectedLens + '"]') || tabs[0];
-    activateTab(active);
-  }
-
   function setupKeyboardNavigation() {
     document.addEventListener("keydown", function (event) {
       var target = event.target;
@@ -1572,7 +1313,6 @@
     hardenExternalLinks();
     readUrlState();
     setupFilters();
-    setupLensTabs();
     setupKeyboardNavigation();
     setupFlowchartResize();
     hydrateFilterControls();
