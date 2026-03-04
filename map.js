@@ -4,7 +4,7 @@
   var REPO = "hatter6822/seLe4n";
   var REF = "main";
   var API = "https://api.github.com/repos/" + REPO;
-  var RAW = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/";
+  var DATA_ENDPOINT = "data/map-data.json";
 
   var FETCH_OPTIONS = {
     credentials: "omit",
@@ -14,7 +14,8 @@
     referrerPolicy: "no-referrer"
   };
 
-  var CACHE_KEY = "sele4n-code-map-v7";
+  var CACHE_KEY = "sele4n-code-map-v8";
+  var CACHE_SCHEMA_VERSION = 2;
   var CACHE_TTL_MS = 60 * 60 * 1000;
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
@@ -32,7 +33,9 @@
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeLayerFilter: "all",
     trail: [], neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
-    flowShowAll: false, contextListKey: "", contextList: []
+    flowShowAll: false, contextListKey: "", contextList: [],
+    commitSha: "",
+    generatedAt: ""
   };
 
   var renderScheduled = false;
@@ -121,7 +124,7 @@
   }
 
   function theoremCount(text) {
-    var matches = text.match(/^\s*(?:theorem|lemma)\s+[\w'.`]+/gm);
+    var matches = text.match(/^\s*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+[\w'.`]+/gm);
     return matches ? matches.length : 0;
   }
 
@@ -973,6 +976,7 @@
     updateMetric("theorems", totals.theorems);
     updateMetric("proofPairs", totals.pairs);
     updateMetric("linkedPairs", totals.linked);
+    updateMetric("commit", state.commitSha ? state.commitSha.slice(0, 7) : "-");
   }
 
   function renderAll() {
@@ -1082,17 +1086,53 @@
       var raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
       var parsed = JSON.parse(raw);
+      if (parsed.schema !== CACHE_SCHEMA_VERSION) return null;
       if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
-      return parsed.data;
+      return parsed;
     } catch (e) {
       return null;
     }
   }
 
-  function setCache(data) {
+  function setCache(data, commitSha) {
     try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        schema: CACHE_SCHEMA_VERSION,
+        ts: Date.now(),
+        commitSha: commitSha || "",
+        data: data
+      }));
     } catch (e) {}
+  }
+
+  function fetchLatestCommitSha() {
+    return safeFetch(API + "/commits/" + REF, false).then(function (payload) {
+      return payload && payload.sha ? String(payload.sha) : "";
+    }).catch(function () {
+      return "";
+    });
+  }
+
+  function normalizeMapData(data) {
+    if (!data || typeof data !== "object") return null;
+
+    return {
+      files: Array.isArray(data.files) ? data.files : [],
+      modules: Array.isArray(data.modules) ? data.modules : [],
+      moduleMap: data.moduleMap || Object.create(null),
+      moduleMeta: data.moduleMeta || Object.create(null),
+      importsTo: data.importsTo || Object.create(null),
+      importsFrom: data.importsFrom || Object.create(null),
+      externalImportsFrom: data.externalImportsFrom || Object.create(null),
+      commitSha: data.commitSha ? String(data.commitSha) : "",
+      generatedAt: data.generatedAt ? String(data.generatedAt) : ""
+    };
+  }
+
+  function fetchBundledMapData() {
+    return safeFetch(DATA_ENDPOINT, false).then(normalizeMapData).catch(function () {
+      return null;
+    });
   }
 
   function applyData(data) {
@@ -1103,6 +1143,8 @@
     state.importsTo = data.importsTo || Object.create(null);
     state.importsFrom = data.importsFrom || Object.create(null);
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
+    state.commitSha = data.commitSha || "";
+    state.generatedAt = data.generatedAt || "";
 
     buildPairs();
     if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
@@ -1112,64 +1154,98 @@
     renderAll();
   }
 
-  function fetchAndBuildData() {
-    setStatus("Loading repository tree…", false);
+  function applyEmptyModule(moduleName) {
+    state.importsFrom[moduleName] = [];
+    state.externalImportsFrom[moduleName] = [];
+    state.moduleMeta[moduleName] = {
+      layer: classifyLayer(moduleName),
+      kind: moduleKind(moduleName),
+      base: moduleBase(moduleName),
+      theorems: 0
+    };
+  }
 
-    return safeFetch(API + "/git/trees/" + REF + "?recursive=1", false).then(function (payload) {
-      var tree = payload && payload.tree ? payload.tree : [];
-      var files = [];
-      var leanFiles = [];
-      for (var i = 0; i < tree.length; i++) {
-        var entry = tree[i];
-        if (!entry || entry.type !== "blob") continue;
-        files.push(entry.path);
-        if (/^SeLe4n\/.*\.lean$/.test(entry.path)) leanFiles.push(entry.path);
+  function fetchAndBuildData(cachedCommitSha) {
+    setStatus("Checking latest repository commit…", false);
+
+    return fetchLatestCommitSha().then(function (latestCommitSha) {
+      if (cachedCommitSha && latestCommitSha && cachedCommitSha === latestCommitSha) {
+        setStatus("Map is already synced to " + latestCommitSha.slice(0, 7) + ".", false);
+        return;
       }
 
-      state.files = files;
-      state.modules = leanFiles.map(moduleFromPath);
-      state.moduleMap = Object.create(null);
-      state.moduleMeta = Object.create(null);
-      state.importsTo = Object.create(null);
-      state.importsFrom = Object.create(null);
-      state.externalImportsFrom = Object.create(null);
+      var treeRef = latestCommitSha || REF;
+      setStatus("Loading repository tree…", false);
 
-      for (var j = 0; j < state.modules.length; j++) state.moduleMap[state.modules[j]] = leanFiles[j];
+      return safeFetch(API + "/git/trees/" + treeRef + "?recursive=1", false).then(function (payload) {
+        var tree = payload && payload.tree ? payload.tree : [];
+        var files = [];
+        var leanFiles = [];
+        var leanShasByPath = Object.create(null);
+        for (var i = 0; i < tree.length; i++) {
+          var entry = tree[i];
+          if (!entry || entry.type !== "blob") continue;
+          files.push(entry.path);
+          if (/^SeLe4n\/.*\.lean$/.test(entry.path)) {
+            leanFiles.push(entry.path);
+            leanShasByPath[entry.path] = entry.sha || "";
+          }
+        }
 
-      setStatus("Analyzing Lean modules and theorem declarations…", false);
+        state.files = files;
+        state.modules = leanFiles.map(moduleFromPath);
+        state.moduleMap = Object.create(null);
+        state.moduleMeta = Object.create(null);
+        state.importsTo = Object.create(null);
+        state.importsFrom = Object.create(null);
+        state.externalImportsFrom = Object.create(null);
 
-      return runInPool(leanFiles, function (path) {
-        var moduleName = moduleFromPath(path);
-        return safeFetch(RAW + path, true).then(function (text) {
-          parseModule(moduleName, text);
-        }).catch(function () {
-          state.importsFrom[moduleName] = [];
-          state.externalImportsFrom[moduleName] = [];
-          state.moduleMeta[moduleName] = {
-            layer: classifyLayer(moduleName),
-            kind: moduleKind(moduleName),
-            base: moduleBase(moduleName),
-            theorems: 0
-          };
+        for (var j = 0; j < state.modules.length; j++) state.moduleMap[state.modules[j]] = leanFiles[j];
+
+        setStatus("Analyzing Lean modules and theorem declarations…", false);
+
+        return runInPool(leanFiles, function (path) {
+          var moduleName = moduleFromPath(path);
+          var blobSha = leanShasByPath[path];
+          if (!blobSha) {
+            applyEmptyModule(moduleName);
+            return;
+          }
+
+          return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
+            if (!blob || blob.encoding !== "base64" || !blob.content) {
+              applyEmptyModule(moduleName);
+              return;
+            }
+            var text = window.atob(String(blob.content).replace(/\n/g, ""));
+            parseModule(moduleName, text);
+          }).catch(function () {
+            applyEmptyModule(moduleName);
+          });
+        }).then(function () {
+          state.commitSha = latestCommitSha || "";
+          state.generatedAt = new Date().toISOString();
+          buildPairs();
+          if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
+          if (state.selectedModule) {
+            rememberTrail(state.selectedModule);
+          }
+          scheduleRender();
+          syncUrlState();
+          var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
+          setStatus("Map ready. Integrated dependency/proof flow graph loaded." + statusSuffix, false);
+          setCache({
+            files: state.files,
+            modules: state.modules,
+            moduleMap: state.moduleMap,
+            moduleMeta: state.moduleMeta,
+            importsTo: state.importsTo,
+            importsFrom: state.importsFrom,
+            externalImportsFrom: state.externalImportsFrom,
+            commitSha: state.commitSha,
+            generatedAt: state.generatedAt
+          }, state.commitSha);
         });
-      });
-    }).then(function () {
-      buildPairs();
-      if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
-      if (state.selectedModule) {
-        rememberTrail(state.selectedModule);
-      }
-      scheduleRender();
-      syncUrlState();
-      setStatus("Map ready. Integrated dependency/proof flow graph loaded.", false);
-      setCache({
-        files: state.files,
-        modules: state.modules,
-        moduleMap: state.moduleMap,
-        moduleMeta: state.moduleMeta,
-        importsTo: state.importsTo,
-        importsFrom: state.importsFrom,
-        externalImportsFrom: state.externalImportsFrom
       });
     });
   }
@@ -1418,15 +1494,26 @@
     hydrateFilterControls();
 
     var cached = getCache();
-    if (cached) {
-      applyData(cached);
+    var cachedData = cached && cached.data ? normalizeMapData(cached.data) : null;
+
+    if (cachedData) {
+      applyData(cachedData);
       setStatus("Showing cached map while refreshing…", false);
     }
 
-    fetchAndBuildData().catch(function (error) {
-      var message = error && error.message ? error.message : "Unknown error";
-      if (!cached) setStatus("Unable to load codebase map. " + message, true);
-      else setStatus("Refresh failed; showing cached data. " + message, true);
+    fetchBundledMapData().then(function (bundledData) {
+      if (!bundledData) return;
+      if (!cachedData || !cachedData.modules || !cachedData.modules.length) {
+        applyData(bundledData);
+        setStatus("Loaded bundled map snapshot while checking live sync…", false);
+      }
+    }).finally(function () {
+      var cachedCommitSha = cached && cached.commitSha ? String(cached.commitSha) : "";
+      fetchAndBuildData(cachedCommitSha).catch(function (error) {
+        var message = error && error.message ? error.message : "Unknown error";
+        if (!cachedData) setStatus("Unable to load codebase map. " + message, true);
+        else setStatus("Refresh failed; showing cached data. " + message, true);
+      });
     });
   }
 

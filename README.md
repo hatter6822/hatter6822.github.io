@@ -6,10 +6,14 @@ Static marketing site for **seLe4n**.
 
 Live metrics are now sourced from `data/site-data.json` first, so desktop and mobile clients render the same baseline data.
 
+The code map page can also be pre-synced through `data/map-data.json` for deterministic, low-latency rendering before live refresh.
+
 To refresh those metrics from `hatter6822/seLe4n`:
 
 ```bash
 node scripts/sync-site-data.mjs
+
+node scripts/sync-map-data.mjs
 ```
 
 Then commit the updated `data/site-data.json` file.
