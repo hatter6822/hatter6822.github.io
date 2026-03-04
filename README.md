@@ -32,7 +32,8 @@ The code map interior panel now links each discovered declaration directly to it
 
 - Function-style declarations (`def`, `abbrev`, `opaque`, and `instance`) and theorem-style declarations (`theorem`, `lemma`) are parsed with declaration line metadata.
 - Each interior item link targets the exact GitHub blob line anchor (`#L<line>`), when line metadata is available.
-- Legacy cached/bundled symbol payloads remain supported; older entries without line metadata are normalized and still rendered.
+- Cached/bundled payloads that omit per-symbol line metadata are treated as incomplete; the browser re-fetches module source and re-parses declarations so links become line-accurate.
+- Legacy cached/bundled symbol payloads remain supported; older entries without line metadata are normalized and still rendered while refresh is in progress.
 
 ## Runtime data consistency
 
@@ -49,3 +50,11 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license
 ## License
 
 This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE) for details.
+
+### Parser regression tests
+
+Run parser coverage checks after changing Lean symbol/import extraction logic:
+
+```bash
+node scripts/lib/lean-analysis.test.mjs
+```

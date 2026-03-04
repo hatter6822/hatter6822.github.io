@@ -200,7 +200,7 @@
   }
 
   function theoremCount(text) {
-    var matches = text.match(/^\s*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+[\w'.`]+/gm);
+    var matches = text.match(/^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+[\w'.`]+/gm);
     return matches ? matches.length : 0;
   }
 
@@ -245,6 +245,20 @@
     return { name: name, line: Number.isFinite(line) && line > 0 ? Math.floor(line) : 0 };
   }
 
+  function hasCompleteSymbolLines(symbols) {
+    if (!symbols || typeof symbols !== "object") return false;
+
+    function listHasLines(list) {
+      if (!Array.isArray(list)) return false;
+      for (var i = 0; i < list.length; i++) {
+        if (!list[i] || !(list[i].line > 0)) return false;
+      }
+      return true;
+    }
+
+    return listHasLines(symbols.theorems) && listHasLines(symbols.functions);
+  }
+
   function declarationLineFromMatch(match, lineNumberForIndex) {
     var whole = String(match && match[0] || "");
     var leading = (whole.match(/^\s*/) || [""])[0].length;
@@ -257,9 +271,9 @@
     var theoremEntries = [];
     var functionEntries = [];
     var lineNumberForIndex = createLineLocator(sourceText);
-    var theoremPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+([\w'.`]+)/gm;
-    var functionPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev|opaque)\s+([\w'.`]+)/gm;
-    var instancePattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?instance\s+([\w'.`]+)/gm;
+    var theoremPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+([\w'.`]+)/gm;
+    var functionPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev|opaque)\s+([\w'.`]+)/gm;
+    var instancePattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?instance\s+([\w'.`]+)/gm;
 
     var match;
     while ((match = theoremPattern.exec(sourceText)) !== null) {
@@ -311,7 +325,8 @@
     var moduleName = sanitizeModuleName(name || "");
     if (!moduleName || !state.moduleMap[moduleName]) return Promise.resolve();
     var meta = state.moduleMeta[moduleName] || (state.moduleMeta[moduleName] = {});
-    if (meta.symbolsLoaded) return Promise.resolve();
+    var hasLineAnchors = hasCompleteSymbolLines(meta.symbols || {});
+    if (meta.symbolsLoaded && hasLineAnchors) return Promise.resolve();
     if (INTERIOR_FETCH_INFLIGHT[moduleName]) return INTERIOR_FETCH_INFLIGHT[moduleName];
 
     var ref = state.commitSha || REF;
@@ -322,10 +337,10 @@
       var interior = extractInteriorCodeItems(String(sourceText || ""));
       meta.symbols = interior;
       meta.theorems = interior.theorems.length;
-      meta.symbolsLoaded = true;
+      meta.symbolsLoaded = hasCompleteSymbolLines(meta.symbols);
     }).catch(function () {
       meta.symbols = meta.symbols || { theorems: [], functions: [] };
-      meta.symbolsLoaded = true;
+      meta.symbolsLoaded = hasCompleteSymbolLines(meta.symbols);
     }).finally(function () {
       delete INTERIOR_FETCH_INFLIGHT[moduleName];
       scheduleRender();
@@ -421,7 +436,7 @@
       base: moduleBase(name),
       theorems: theoremCount(sourceText),
       symbols: interior,
-      symbolsLoaded: true
+      symbolsLoaded: hasCompleteSymbolLines(interior)
     };
   }
 
@@ -1650,7 +1665,7 @@
               theorems: Array.isArray(symbols.theorems) ? symbols.theorems.map(normalizeSymbolEntry).filter(Boolean) : [],
               functions: Array.isArray(symbols.functions) ? symbols.functions.map(normalizeSymbolEntry).filter(Boolean) : []
             },
-            symbolsLoaded: Boolean(meta.symbolsLoaded || (symbols && (Array.isArray(symbols.theorems) || Array.isArray(symbols.functions))))
+            symbolsLoaded: hasCompleteSymbolLines(symbols)
           };
         }
         return normalized;
