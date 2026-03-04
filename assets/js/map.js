@@ -51,6 +51,16 @@
 
   var renderScheduled = false;
 
+  var DERIVED_CACHE = {
+    filteredKey: "",
+    filteredList: []
+  };
+
+  function invalidateDerivedCaches() {
+    DERIVED_CACHE.filteredKey = "";
+    DERIVED_CACHE.filteredList = [];
+  }
+
   function scheduleRender() {
     if (renderScheduled) return;
     renderScheduled = true;
@@ -513,8 +523,11 @@
   }
 
   function filteredModules() {
+    var key = [state.commitSha || "", state.activeLayerFilter, state.proofLinkedOnly ? "1" : "0", state.modules.length].join("|");
+    if (DERIVED_CACHE.filteredKey === key) return DERIVED_CACHE.filteredList.slice();
+
     var layer = state.activeLayerFilter;
-    return state.modules.filter(function (name) {
+    var computed = state.modules.filter(function (name) {
       var meta = state.moduleMeta[name] || {};
       if (layer !== "all" && meta.layer !== layer) return false;
       if (state.proofLinkedOnly) {
@@ -523,6 +536,10 @@
       }
       return true;
     });
+
+    DERIVED_CACHE.filteredKey = key;
+    DERIVED_CACHE.filteredList = computed;
+    return computed.slice();
   }
 
   function sortModules(list) {
@@ -1629,6 +1646,7 @@
     state.commitSha = data.commitSha || "";
     state.generatedAt = data.generatedAt || "";
     LABEL_WRAP_CACHE.clear();
+    invalidateDerivedCaches();
     buildSearchIndex();
 
     buildPairs();
@@ -1816,6 +1834,7 @@
       updateDetailPillState(selectedDetail);
       state.flowShowAll = flowShowAll ? flowShowAll.checked : false;
       state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
+      invalidateDerivedCaches();
       syncUrlState();
       updateToolbarSummary();
       scheduleRender();

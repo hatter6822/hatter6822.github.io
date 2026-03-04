@@ -27,7 +27,7 @@ Status: **Pass**
 
 ### 2) Third-party code attribution existed but was incomplete for redistribution
 
-- `background-pattern.js` includes an in-source attribution line for Ashima Arts simplex noise under MIT.
+- `assets/js/background-pattern.js` includes an in-source attribution line for Ashima Arts simplex noise under MIT.
 - Prior to this audit, full MIT notice text was not present elsewhere in the repo.
 
 Why this matters:

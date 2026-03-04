@@ -1,35 +1,62 @@
 # seLe4n Website
 
-Static marketing site for **seLe4n**.
+Static marketing website for **seLe4n**, plus an interactive Lean codebase map.
 
-## Data synchronization
+## Repository architecture
 
-Live metrics are now sourced from `data/site-data.json` first, so desktop and mobile clients render the same baseline data.
+```text
+.
+├── assets/
+│   ├── css/                  # Site and codemap stylesheets
+│   └── js/                   # Runtime browser scripts
+├── data/                     # Bundled deterministic snapshots
+├── docs/                     # Architecture, audits, and maintenance guides
+├── scripts/
+│   ├── lib/                  # Shared analysis logic (imported by scripts + tests)
+│   ├── sync-map-data.mjs     # Builds data/map-data.json from GitHub API
+│   └── sync-site-data.mjs    # Builds data/site-data.json from GitHub API
+├── tests/                    # Node test suite for sync/parsing logic
+├── index.html                # Main landing page
+└── map.html                  # Interactive architecture/code map page
+```
 
-The code map page can also be pre-synced through `data/map-data.json` for deterministic, low-latency rendering before live refresh.
+## Data synchronization pipeline
 
-To refresh those metrics from `hatter6822/seLe4n`:
+Both pages are designed to be deterministic first and live-synced second:
+
+1. `data/site-data.json` and `data/map-data.json` are loaded as the baseline.
+2. Browser runtime optionally refreshes from GitHub APIs.
+3. Local cache is used only as an optimization layer and is revalidated.
+
+Refresh baseline data from `hatter6822/seLe4n` with:
 
 ```bash
 node scripts/sync-site-data.mjs
-
 node scripts/sync-map-data.mjs
 ```
 
-Then commit the updated `data/site-data.json` file.
+Commit any updated files under `data/` after a sync.
 
-## Runtime data consistency
+## Testing
 
-The browser now treats `data/site-data.json` as the canonical baseline on every refresh. Any cached values are immediately revalidated against the bundled file, then live repository metadata is merged in (version, Lean toolchain, LOC, theorem count, scripts/docs counts, kernel modules, build jobs, and latest commit metadata from `main`).
+Run parser and metrics regression tests:
 
-If any live fetch fails in the browser, the site continues to use bundled `data/site-data.json` values as fallback.
+```bash
+npm test
+```
 
+These tests protect the most failure-prone portions of the system:
 
-## Third-party notices
+- Lean import extraction and multiline parsing.
+- Symbol/theorem extraction for map metadata.
+- README metrics parsing for site snapshot generation.
 
-This repository includes a third-party simplex-noise implementation used in `background-pattern.js`.
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license text.
+## Documentation map
+
+- `docs/ARCHITECTURE_AUDIT.md` — findings, risks, and growth plan.
+- `docs/MAP_PAGE_OPTIMIZATION.md` — end-to-end map page design and optimization notes.
+- `LICENSE-AUDIT.md` and `THIRD_PARTY_NOTICES.md` — legal/compliance context.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE) for details.
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE).
