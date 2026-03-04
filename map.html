@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark light">
   <title>seLe4n Codebase Map</title>
-  <meta name="description" content="Interactive architecture map for the seLe4n codebase. Explore directories, Lean module dependencies, and theorem-to-code relationships.">
+  <meta name="description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, theorem coupling, and guided traversal context.">
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
@@ -14,6 +14,11 @@
 
   <link rel="canonical" href="https://sele4n.org/map.html">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f9e0;</text></svg>">
+  <link rel="preload" as="image" href="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" imagesrcset="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png 1x" fetchpriority="high">
+
+  <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
+  <link rel="dns-prefetch" href="https://api.github.com">
+
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="map.css">
   <script src="theme-init.js"></script>
@@ -27,15 +32,25 @@
 
   <a href="#main-content" class="skip-link">Skip to main content</a>
 
-  <nav class="nav scrolled" id="nav" aria-label="Map navigation">
+  <nav class="nav" id="nav" aria-label="Main navigation">
     <div class="nav-inner">
-      <a href="index.html" class="nav-logo" aria-label="Back to seLe4n home">seLe4n</a>
+      <a href="index.html#hero" class="nav-logo" aria-label="seLe4n home">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="seLe4n" class="logo-img logo-img-light" width="160" height="64" decoding="async" fetchpriority="high">
+        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark" width="160" height="64" decoding="async" fetchpriority="high">
+      </a>
+      <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links" aria-haspopup="true">
+        <span></span><span></span><span></span>
+      </button>
       <ul class="nav-links" id="nav-links" role="list">
-        <li><a href="index.html">Home</a></li>
-        <li><a href="#map-overview">Overview</a></li>
-        <li><a href="#module-graph">Walkthrough</a></li>
-        <li><a href="#proof-map">Proof Trace</a></li>
-        <li><a href="#directory-tree">Directory Tree</a></li>
+        <li><a href="index.html#about">About</a></li>
+        <li><a href="index.html#architecture">Architecture</a></li>
+        <li><a href="index.html#comparison">vs seL4</a></li>
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#code">Code</a></li>
+        <li><a href="map.html" aria-current="page">Code Map</a></li>
+        <li><a href="index.html#security">Security</a></li>
+        <li><a href="index.html#verification">Verification</a></li>
+        <li><a href="index.html#getting-started">Get Started</a></li>
         <li><a href="https://github.com/hatter6822/seLe4n" target="_blank" rel="noopener noreferrer" class="nav-cta">GitHub</a></li>
       </ul>
       <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme">
@@ -126,49 +141,6 @@
       </div>
     </section>
 
-    <section class="section" id="proof-map">
-      <div class="container">
-        <div class="map-layout split-rows">
-          <article class="card">
-            <h2 class="section-title-sm">Proof relationship map (Operations ⇄ Invariant)</h2>
-            <div class="table-scroll">
-              <table class="map-table">
-                <thead>
-                  <tr><th>Subsystem</th><th>Operations</th><th>Invariant</th><th>Theorems</th><th>Link</th></tr>
-                </thead>
-                <tbody id="proof-rows"></tbody>
-              </table>
-            </div>
-          </article>
-          <article class="card" id="proof-trace-panel" aria-live="polite">
-            <h2 class="section-title-sm">Proof trace explainer</h2>
-            <p class="panel-note">Select a pair to inspect a focused walkthrough.</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section section-alt" id="directory-tree">
-      <div class="container">
-        <div class="map-layout split-rows">
-          <article class="card">
-            <h2 class="section-title-sm">Directory topology</h2>
-            <div id="tree-wrap" class="tree-wrap"></div>
-          </article>
-          <article class="card">
-            <h2 class="section-title-sm">Filtered modules table</h2>
-            <div class="table-scroll">
-              <table class="map-table">
-                <thead>
-                  <tr><th>Module</th><th>Layer</th><th>Theorems</th><th>Fan-in</th><th>Fan-out</th></tr>
-                </thead>
-                <tbody id="module-rows"></tbody>
-              </table>
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
   </main>
 
   <script src="background-pattern.js"></script>
