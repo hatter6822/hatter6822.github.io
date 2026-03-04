@@ -20,6 +20,9 @@
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
   var NODE_CACHE = Object.create(null);
+  var LABEL_WRAP_CACHE = new Map();
+  var LABEL_WRAP_CACHE_LIMIT = 1200;
+  var ASSURANCE_CACHE = Object.create(null);
 
   var DETAIL_PRESETS = {
     compact: { neighborLimit: 8, impactRadius: 1 },
@@ -243,38 +246,44 @@
   }
 
   function assuranceForModule(name) {
+    if (ASSURANCE_CACHE[name]) return ASSURANCE_CACHE[name];
+
     var pair = findProofPair(name);
     var degree = moduleDegree(name);
+    var result;
+
     if (pair && pair.invariantImportsOperations) {
-      return {
+      result = {
         level: "linked",
         label: "Linked proof chain",
         detail: "Operations and Invariant modules are connected; obligations can be traced from transitions to safety claims.",
         score: degree.score + pair.operationsTheorems + pair.invariantTheorems
       };
-    }
-    if (pair) {
-      return {
+    } else if (pair) {
+      result = {
         level: "partial",
         label: "Partial proof context",
         detail: "A proof pair exists but is not explicitly linked by imports; review assumptions before reusing results.",
         score: degree.score
       };
-    }
-    if (degree.theorems > 0) {
-      return {
+    } else if (degree.theorems > 0) {
+      result = {
         level: "local",
         label: "Local theorem coverage",
         detail: "This module declares theorems but has no Operations/Invariant pair mapping.",
         score: degree.score
       };
+    } else {
+      result = {
+        level: "none",
+        label: "No explicit proof evidence",
+        detail: "No theorem declarations or proof-pair mapping detected for this module.",
+        score: degree.score
+      };
     }
-    return {
-      level: "none",
-      label: "No explicit proof evidence",
-      detail: "No theorem declarations or proof-pair mapping detected for this module.",
-      score: degree.score
-    };
+
+    ASSURANCE_CACHE[name] = result;
+    return result;
   }
 
   function collectNeighborhood(name, radius) {
@@ -387,7 +396,7 @@
     if (!fromTrail) rememberTrail(name);
     syncUrlState();
     updateToolbarSummary();
-    renderAll();
+    scheduleRender();
   }
 
   function computeContextShift(name) {
@@ -515,6 +524,9 @@
 
   function wrapLabelLines(text, width, minChars) {
     if (!text) return [];
+    var cacheKey = String(text) + "\u0000" + String(width || 180) + "\u0000" + String(minChars || 10);
+    if (LABEL_WRAP_CACHE.has(cacheKey)) return LABEL_WRAP_CACHE.get(cacheKey).slice();
+
     var maxChars = Math.max(minChars || 10, Math.floor((width || 180) / 6.6));
     var tokens = String(text).split(/([._/\-])/);
     var lines = [];
@@ -558,6 +570,13 @@
       }
     }
     if (current.length) lines.push(current);
+
+    if (LABEL_WRAP_CACHE.size >= LABEL_WRAP_CACHE_LIMIT) {
+      var oldestKey = LABEL_WRAP_CACHE.keys().next().value;
+      if (oldestKey) LABEL_WRAP_CACHE.delete(oldestKey);
+    }
+    LABEL_WRAP_CACHE.set(cacheKey, lines.slice());
+
     return lines;
   }
 
@@ -576,7 +595,10 @@
 
   function createSvgNode(tag, attrs) {
     var node = document.createElementNS("http://www.w3.org/2000/svg", tag);
-    for (var key in attrs) node.setAttribute(key, attrs[key]);
+    for (var key in attrs) {
+      if (!Object.prototype.hasOwnProperty.call(attrs, key)) continue;
+      node.setAttribute(key, attrs[key]);
+    }
     return node;
   }
 
@@ -638,6 +660,8 @@
     renderFlowchartLegend();
     var wrap = document.getElementById("flowchart-wrap");
     if (!wrap) return;
+    var previousScrollLeft = wrap.scrollLeft;
+    var previousScrollTop = wrap.scrollTop;
     wrap.innerHTML = "";
 
     var selected = state.selectedModule;
@@ -933,6 +957,16 @@
     summary.className = "panel-note flowchart-summary";
     summary.textContent = "Flow summary" + (state.flowShowAll ? " (full-flow)" : "") + ": imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Selected-module metadata is surfaced in the context strip above; hover any node for path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
     wrap.appendChild(summary);
+
+    wrap.scrollLeft = previousScrollLeft;
+    wrap.scrollTop = previousScrollTop;
+  }
+
+  function isTypingTarget(target) {
+    if (!target || !target.tagName) return false;
+    if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) return true;
+    if (target.isContentEditable) return true;
+    return false;
   }
 
   function renderTrail() {
@@ -1000,6 +1034,7 @@
     state.theoremPairs = pairs;
     state.proofPairMap = Object.create(null);
     state.degreeMap = Object.create(null);
+    ASSURANCE_CACHE = Object.create(null);
     for (var k = 0; k < pairs.length; k++) state.proofPairMap[pairs[k].base] = pairs[k];
     for (var m = 0; m < state.modules.length; m++) moduleDegree(state.modules[m]);
     updateMetric("files", state.files.length);
@@ -1501,7 +1536,9 @@
   function setupKeyboardNavigation() {
     document.addEventListener("keydown", function (event) {
       var target = event.target;
-      if (target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) return;
+      if (isTypingTarget(target)) return;
+
+      if (event.isComposing) return;
 
       var key = (event.key || "").toLowerCase();
       if (key !== "j" && key !== "k") return;
