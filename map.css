@@ -91,6 +91,58 @@
 .walk-card.selected, .selected-row { background: var(--accent-glow); }
 
 .constellation-wrap { min-height: 13.5rem; display: grid; gap: 0.5rem; }
+.flowchart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.16rem 0.48rem;
+  background: color-mix(in oklab, var(--surface) 84%, transparent);
+}
+.legend-swatch {
+  width: 0.68rem;
+  height: 0.68rem;
+  border-radius: 50%;
+}
+.flowchart-wrap {
+  --flow-node-bg: color-mix(in oklab, var(--surface-2) 86%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--surface) 85%, transparent);
+  min-height: 17rem;
+  padding: 0.55rem;
+  overflow: auto;
+}
+.flowchart-svg { width: 100%; min-width: 38rem; height: auto; display: block; }
+.flow-line { fill: none; stroke-width: 2.1; opacity: 0.88; }
+.flow-line.proof-link { stroke-dasharray: 5 4; stroke-width: 2.4; }
+.flow-node { cursor: pointer; }
+.flow-node rect {
+  stroke-width: 1.2;
+  rx: 10;
+  ry: 10;
+}
+.flow-node text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--text);
+}
+.flow-node .flow-meta { fill: var(--text-muted); font-size: 10px; }
+.flow-lane-label { font-family: var(--font-mono); letter-spacing: 0.02em; }
+.flow-node.static { cursor: default; }
+.flow-node:not(.static):hover rect,
+.flow-node:not(.static):focus-visible rect { stroke: var(--accent); filter: brightness(1.03); }
+.flow-node.active rect { stroke-width: 2; }
+.flowchart-summary { margin-top: 0.55rem; margin-bottom: 0; }
 .constellation-core { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--surface) 82%, transparent); padding: 0.7rem; text-align: center; }
 .core-name { font-family: var(--font-mono); font-size: 0.89rem; margin-bottom: 0.25rem; word-break: break-word; }
 .band { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.45rem; background: color-mix(in oklab, var(--surface-2) 85%, transparent); }

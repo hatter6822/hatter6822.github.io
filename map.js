@@ -574,6 +574,229 @@
     return button;
   }
 
+
+
+  function renderFlowchartLegend() {
+    var legend = document.getElementById("flowchart-legend");
+    if (!legend) return;
+    if (legend.childNodes.length) return;
+
+    var items = [
+      { label: "Selected module", color: "#7c9cff" },
+      { label: "Imports used by selected", color: "#35c98f" },
+      { label: "Modules impacted by selected", color: "#ffad42" },
+      { label: "Proof pair relation", color: "#d37cff" },
+      { label: "Nearest linked-proof path", color: "#6de2ff" },
+      { label: "External dependency", color: "#b9c0d0" }
+    ];
+
+    for (var i = 0; i < items.length; i++) {
+      var chip = document.createElement("span");
+      chip.className = "legend-item";
+      var swatch = document.createElement("span");
+      swatch.className = "legend-swatch";
+      swatch.style.backgroundColor = items[i].color;
+      chip.appendChild(swatch);
+      chip.appendChild(document.createTextNode(items[i].label));
+      legend.appendChild(chip);
+    }
+  }
+
+  function truncateLabel(name, width) {
+    if (!name) return "";
+    var max = Math.max(12, Math.floor((width || 180) / 7));
+    return name.length > max ? name.slice(0, max - 1) + "…" : name;
+  }
+
+  function createSvgNode(tag, attrs) {
+    var node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (var key in attrs) node.setAttribute(key, attrs[key]);
+    return node;
+  }
+
+  function drawFlowEdge(svg, from, to, color, dashed) {
+    var path = createSvgNode("path", {});
+    var startX = from.x + from.w;
+    var startY = from.y + from.h / 2;
+    var endX = to.x;
+    var endY = to.y + to.h / 2;
+    var midX = startX + (endX - startX) * 0.5;
+    path.setAttribute("d", "M " + startX + " " + startY + " C " + midX + " " + startY + ", " + midX + " " + endY + ", " + endX + " " + endY);
+    path.setAttribute("class", "flow-line" + (dashed ? " proof-link" : ""));
+    path.setAttribute("stroke", color);
+    path.style.color = color;
+    path.setAttribute("marker-end", "url(#flow-arrow)");
+    svg.appendChild(path);
+  }
+
+  function renderFlowchart() {
+    renderFlowchartLegend();
+    var wrap = document.getElementById("flowchart-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+
+    var selected = state.selectedModule;
+    if (!selected) {
+      wrap.textContent = "Select a module to render interaction and proof flow.";
+      return;
+    }
+
+    var allImports = state.importsFrom[selected] || [];
+    var allImporters = state.importsTo[selected] || [];
+    var allExternal = state.externalImportsFrom[selected] || [];
+    var imports = allImports.slice(0, state.neighborLimit);
+    var importers = allImporters.slice(0, state.neighborLimit);
+    var external = allExternal.slice(0, 10);
+    var proofRelated = relatedProofModules(selected);
+    var linkedPath = findNearestLinkedPath(selected, state.impactRadius);
+
+    var laneYStart = 56;
+    var laneStep = 38;
+    var maxLaneCount = Math.max(imports.length, importers.length, 1);
+    var centerY = Math.max(170, laneYStart + Math.floor(maxLaneCount / 2) * laneStep - 32);
+    var proofStartY = centerY + 140;
+    var pathStartY = proofStartY + Math.max(1, proofRelated.length) * 44 + 44;
+
+    var externalPerRow = 5;
+    var externalRows = Math.max(1, Math.ceil(external.length / externalPerRow));
+    var externalStartY = pathStartY + (linkedPath.length > 1 ? 72 : 18);
+    var flowHeight = Math.max(560, externalStartY + externalRows * 38 + 62);
+
+    var svg = createSvgNode("svg", {
+      "class": "flowchart-svg",
+      "viewBox": "0 0 1240 " + flowHeight,
+      "role": "img",
+      "aria-label": "Flow chart for selected module interactions and proof links"
+    });
+
+    var defs = createSvgNode("defs", {});
+    var marker = createSvgNode("marker", {
+      id: "flow-arrow",
+      viewBox: "0 0 10 10",
+      refX: "9",
+      refY: "5",
+      markerWidth: "6",
+      markerHeight: "6",
+      orient: "auto-start-reverse"
+    });
+    marker.appendChild(createSvgNode("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "currentColor" }));
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    function laneLabel(text, x, y, color) {
+      var label = createSvgNode("text", { x: x, y: y, fill: color, "font-size": "12", "class": "flow-lane-label" });
+      label.textContent = text;
+      svg.appendChild(label);
+    }
+
+    function moduleSummary(name) {
+      var degree = moduleDegree(name);
+      var assurance = assuranceForModule(name);
+      return "thm " + degree.theorems + " · in " + degree.incoming + " · out " + degree.outgoing + " · " + assurance.level;
+    }
+
+    function createNode(name, x, y, w, h, color, subtitle, active, isStatic) {
+      var className = "flow-node" + (active ? " active" : "") + (isStatic ? " static" : "");
+      var group = createSvgNode("g", { "class": className, tabindex: isStatic ? "-1" : "0", role: isStatic ? "note" : "button", "aria-label": isStatic ? name : ("Select module " + name) });
+      if (!isStatic) group.setAttribute("focusable", "true");
+
+      var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
+      var title = createSvgNode("text", { x: x + 10, y: y + (h > 34 ? 20 : 18) });
+      title.textContent = truncateLabel(name, w - 16);
+      var full = createSvgNode("title", {});
+      full.textContent = name;
+
+      group.appendChild(full);
+      group.appendChild(rect);
+      group.appendChild(title);
+
+      if (subtitle && h > 32) {
+        var meta = createSvgNode("text", { x: x + 10, y: y + 37, "class": "flow-meta" });
+        meta.textContent = truncateLabel(subtitle, w - 16);
+        group.appendChild(meta);
+      }
+
+      if (!isStatic) {
+        group.addEventListener("click", function () { selectModule(name, false); });
+        group.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectModule(name, false);
+          }
+        });
+      }
+
+      svg.appendChild(group);
+      return { name: name, x: x, y: y, w: w, h: h };
+    }
+
+    laneLabel("Imports used by selected", 36, 30, "#35c98f");
+    laneLabel("Selected module context", 470, centerY - 12, "#7c9cff");
+    laneLabel("Modules impacted by selected", 904, 30, "#ffad42");
+
+    var center = createNode(selected, 470, centerY, 300, 86, "#7c9cff", moduleSummary(selected), true, false);
+
+    var importNodes = [];
+    for (var i = 0; i < imports.length; i++) {
+      importNodes.push(createNode(imports[i], 36, laneYStart + i * laneStep, 340, 34, "#35c98f", moduleSummary(imports[i]), false, false));
+    }
+
+    var importerNodes = [];
+    for (var j = 0; j < importers.length; j++) {
+      importerNodes.push(createNode(importers[j], 864, laneYStart + j * laneStep, 340, 34, "#ffad42", moduleSummary(importers[j]), false, false));
+    }
+
+    if (allImports.length > imports.length) {
+      createNode("+" + (allImports.length - imports.length) + " more imports", 36, laneYStart + imports.length * laneStep, 340, 30, "#35c98f", "apply filter/search to narrow", false, true);
+    }
+    if (allImporters.length > importers.length) {
+      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", 864, laneYStart + importers.length * laneStep, 340, 30, "#ffad42", "increase neighbor budget to inspect", false, true);
+    }
+
+    for (var k = 0; k < importNodes.length; k++) drawFlowEdge(svg, importNodes[k], center, "#35c98f", false);
+    for (var m = 0; m < importerNodes.length; m++) drawFlowEdge(svg, center, importerNodes[m], "#ffad42", false);
+
+    if (proofRelated.length) {
+      laneLabel("Proof pair context", 470, proofStartY - 16, "#d37cff");
+      for (var n = 0; n < proofRelated.length; n++) {
+        var proofNode = createNode(proofRelated[n], 470, proofStartY + n * 42, 300, 32, "#d37cff", moduleSummary(proofRelated[n]), false, false);
+        drawFlowEdge(svg, center, proofNode, "#d37cff", true);
+      }
+    }
+
+    if (linkedPath.length > 1) {
+      laneLabel("Nearest linked-proof path (radius " + state.impactRadius + ")", 300, pathStartY - 14, "#6de2ff");
+      var previousNode = center;
+      for (var q = 1; q < linkedPath.length; q++) {
+        var pathX = 300 + (q - 1) * 230;
+        var pathNode = createNode(linkedPath[q], pathX, pathStartY, 220, 32, "#6de2ff", moduleSummary(linkedPath[q]), false, false);
+        drawFlowEdge(svg, previousNode, pathNode, "#6de2ff", true);
+        previousNode = pathNode;
+      }
+    }
+
+    laneLabel("External imports", 36, externalStartY - 10, "#b9c0d0");
+    if (!external.length) {
+      createNode("No external imports detected", 36, externalStartY, 340, 30, "#b9c0d0", "", false, true);
+    } else {
+      for (var z = 0; z < external.length; z++) {
+        var row = Math.floor(z / externalPerRow);
+        var col = z % externalPerRow;
+        createNode(external[z], 36 + col * 234, externalStartY + row * 38, 224, 30, "#b9c0d0", "", false, true);
+      }
+      if (allExternal.length > external.length) {
+        createNode("+" + (allExternal.length - external.length) + " more", 36, externalStartY + externalRows * 38, 224, 30, "#b9c0d0", "", false, true);
+      }
+    }
+
+    wrap.appendChild(svg);
+
+    var summary = document.createElement("p");
+    summary.className = "panel-note flowchart-summary";
+    summary.textContent = "Flow summary: imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ".";
+    wrap.appendChild(summary);
+  }
+
   function renderConstellation() {
     var wrap = document.getElementById("constellation-wrap");
     if (!wrap) return;
@@ -792,6 +1015,7 @@
 
   function renderAll() {
     renderWalkCards();
+    renderFlowchart();
     renderConstellation();
     renderLensPanel();
     renderTrail();
