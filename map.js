@@ -24,10 +24,21 @@
     files: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
-    selectedModule: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot",
+    selectedModule: null, activeLayerFilter: "all", activeSort: "hotspot",
     trail: [], selectedLens: "summary", neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
-    flowMode: "balanced"
+    flowMode: "balanced", contextListKey: "", contextList: []
   };
+
+  var renderScheduled = false;
+
+  function scheduleRender() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    window.requestAnimationFrame(function () {
+      renderScheduled = false;
+      renderAll();
+    });
+  }
 
   function getFilteredAndSortedModules() {
     var list = filteredModules();
@@ -326,18 +337,15 @@
   }
 
   function filteredModules() {
-    var q = state.activeFilterText.trim().toLowerCase();
     var layer = state.activeLayerFilter;
     return state.modules.filter(function (name) {
       var meta = state.moduleMeta[name] || {};
-      var path = state.moduleMap[name] || "";
       if (layer !== "all" && meta.layer !== layer) return false;
       if (state.proofLinkedOnly) {
         var pair = findProofPair(name);
         if (!pair || !pair.invariantImportsOperations) return false;
       }
-      if (!q) return true;
-      return name.toLowerCase().indexOf(q) !== -1 || path.toLowerCase().indexOf(q) !== -1;
+      return true;
     });
   }
 
@@ -509,11 +517,16 @@
   }
 
   function contextList() {
-    return getFilteredAndSortedModules();
+    var key = [state.activeLayerFilter, state.activeSort, state.proofLinkedOnly ? "1" : "0", state.modules.length].join("|");
+    if (key === state.contextListKey && state.contextList.length) return state.contextList.slice();
+    var list = getFilteredAndSortedModules();
+    state.contextListKey = key;
+    state.contextList = list.slice();
+    return list;
   }
 
   function renderContextChooser() {
-    var picker = document.getElementById("context-picker");
+    var picker = document.getElementById("module-search");
     var options = document.getElementById("context-options");
     if (!picker || !options) return;
 
@@ -534,7 +547,7 @@
       return;
     }
 
-    picker.placeholder = "Choose module context…";
+    picker.placeholder = "Type module/path to switch context";
     var fragment = document.createDocumentFragment();
     for (var i = 0; i < list.length; i++) {
       var name = list[i];
@@ -545,7 +558,7 @@
     }
     options.appendChild(fragment);
 
-    if (state.selectedModule) picker.value = state.selectedModule;
+    if (state.selectedModule && document.activeElement !== picker) picker.value = state.selectedModule;
   }
 
   function createPill(moduleName, mode, selectable) {
@@ -1213,7 +1226,7 @@
         rememberTrail(state.selectedModule);
         renderDetails(state.selectedModule);
       }
-      renderAll();
+      scheduleRender();
       syncUrlState();
       setStatus("Map ready. Adaptive context lenses loaded.", false);
       setCache({
@@ -1249,7 +1262,6 @@
     }
 
     function apply() {
-      state.activeFilterText = search ? search.value : "";
       state.activeLayerFilter = focus ? focus.value : "all";
       state.activeSort = sort ? sort.value : "hotspot";
       state.neighborLimit = neighborLimit ? Math.max(4, Math.min(20, Number(neighborLimit.value) || 12)) : 12;
@@ -1257,11 +1269,43 @@
       state.flowMode = flowMode && /^(balanced|imports|impact)$/.test(flowMode.value) ? flowMode.value : "balanced";
       state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
       syncUrlState();
-      renderAll();
+      scheduleRender();
       if (state.selectedModule) renderDetails(state.selectedModule);
     }
 
-    if (search) search.addEventListener("input", apply);
+    if (search) {
+      function matchModule(query, list) {
+        var value = (query || "").trim();
+        if (!value) return "";
+        var direct = sanitizeModuleName(value);
+        if (direct && state.moduleMap[direct]) return direct;
+        var lower = value.toLowerCase();
+        for (var i = 0; i < list.length; i++) {
+          var name = list[i];
+          var path = state.moduleMap[name] || "";
+          if (name.toLowerCase().indexOf(lower) === 0 || path.toLowerCase().indexOf(lower) !== -1) return name;
+        }
+        return "";
+      }
+
+      var choose = function () {
+        var list = contextList();
+        var match = matchModule(search.value, list);
+        if (match) selectModule(match, false);
+      };
+
+      search.addEventListener("change", choose);
+      search.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter") return;
+        choose();
+        event.preventDefault();
+      });
+      search.addEventListener("input", function () {
+        var list = contextList();
+        var match = matchModule(search.value, list);
+        if (match && match !== state.selectedModule) selectModule(match, false);
+      });
+    }
     if (focus) focus.addEventListener("change", apply);
     if (sort) sort.addEventListener("change", apply);
     if (neighborLimit) neighborLimit.addEventListener("change", apply);
@@ -1271,7 +1315,7 @@
 
     if (reset) {
       reset.addEventListener("click", function () {
-        if (search) search.value = "";
+        if (search && state.selectedModule) search.value = state.selectedModule;
         if (focus) focus.value = "all";
         if (sort) sort.value = "hotspot";
         if (neighborLimit) neighborLimit.value = "12";
@@ -1348,9 +1392,6 @@
     var sort = params.get("sort") || "hotspot";
     if (/^(hotspot|theorems|name)$/.test(sort)) state.activeSort = sort;
 
-    var query = (params.get("q") || "").slice(0, 80);
-    state.activeFilterText = query.replace(/[^\w./\-\s]/g, "");
-
     var radius = Number(params.get("radius") || "2");
     if (radius >= 1 && radius <= 3) state.impactRadius = radius;
 
@@ -1365,7 +1406,6 @@
     if (state.selectedModule) params.set("module", state.selectedModule); else params.delete("module");
     if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
     if (state.activeSort && state.activeSort !== "hotspot") params.set("sort", state.activeSort); else params.delete("sort");
-    if (state.activeFilterText) params.set("q", state.activeFilterText); else params.delete("q");
     if (state.impactRadius && state.impactRadius !== 2) params.set("radius", String(state.impactRadius)); else params.delete("radius");
     if (state.flowMode && state.flowMode !== "balanced") params.set("mode", state.flowMode); else params.delete("mode");
     if (state.proofLinkedOnly) params.set("linked", "1"); else params.delete("linked");
@@ -1383,7 +1423,7 @@
     var radius = document.getElementById("impact-radius");
     var mode = document.getElementById("flow-mode");
     var linked = document.getElementById("proof-linked-only");
-    if (search) search.value = state.activeFilterText;
+    if (search && state.selectedModule) search.value = state.selectedModule;
     if (focus) focus.value = state.activeLayerFilter;
     if (sort) sort.value = state.activeSort;
     if (radius) radius.value = String(state.impactRadius);
@@ -1391,39 +1431,6 @@
     if (linked) linked.checked = Boolean(state.proofLinkedOnly);
   }
 
-
-  function setupContextPicker() {
-    var picker = document.getElementById("context-picker");
-    if (!picker) return;
-
-    function applyPickerValue() {
-      var value = sanitizeModuleName((picker.value || "").trim());
-      if (!value) return;
-
-      if (state.moduleMap[value]) {
-        selectModule(value, false);
-        return;
-      }
-
-      var list = contextList();
-      var match = null;
-      var lower = value.toLowerCase();
-      for (var i = 0; i < list.length; i++) {
-        if (list[i].toLowerCase().indexOf(lower) === 0) {
-          match = list[i];
-          break;
-        }
-      }
-      if (match) selectModule(match, false);
-    }
-
-    picker.addEventListener("change", applyPickerValue);
-    picker.addEventListener("keydown", function (event) {
-      if (event.key !== "Enter") return;
-      applyPickerValue();
-      event.preventDefault();
-    });
-  }
 
   function boot() {
     setupTheme();
@@ -1433,7 +1440,6 @@
     setupFilters();
     setupLensTabs();
     setupKeyboardNavigation();
-    setupContextPicker();
     hydrateFilterControls();
 
     var cached = getCache();
