@@ -21,9 +21,9 @@
   var NODE_CACHE = Object.create(null);
 
   var state = {
-    files: [], directories: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
+    files: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
-    theoremPairs: [], selectedModule: null, selectedPair: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot",
+    theoremPairs: [], selectedModule: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot",
     trail: [], selectedLens: "summary", neighborLimit: 12
   };
 
@@ -181,6 +181,21 @@
     return out;
   }
 
+  function findProofPair(name) {
+    var base = moduleBase(name);
+    for (var i = 0; i < state.theoremPairs.length; i++) {
+      if (state.theoremPairs[i].base === base) return state.theoremPairs[i];
+    }
+    return null;
+  }
+
+  function pathSegments(path) {
+    if (!path) return [];
+    var parts = path.split("/");
+    if (parts.length <= 1) return parts;
+    return parts.slice(0, parts.length - 1);
+  }
+
   function filteredModules() {
     var q = state.activeFilterText.trim().toLowerCase();
     var layer = state.activeLayerFilter;
@@ -241,6 +256,7 @@
     var modulePath = state.moduleMap[name] || "Unknown";
     var coupling = degree.incoming * degree.outgoing;
     var shift = computeContextShift(name);
+    var proofPair = findProofPair(name);
 
     panel.innerHTML = "<h2 class=\"section-title-sm\">Context drawer</h2>";
 
@@ -274,6 +290,21 @@
     pathNode.className = "panel-note";
     pathNode.textContent = "Path: " + modulePath;
     panel.appendChild(pathNode);
+
+    var dirs = pathSegments(modulePath);
+    if (dirs.length) {
+      var dirNode = document.createElement("p");
+      dirNode.className = "panel-note";
+      dirNode.textContent = "Directory focus: /" + dirs.join("/") + " (depth " + dirs.length + ").";
+      panel.appendChild(dirNode);
+    }
+
+    if (proofPair) {
+      var proofNode = document.createElement("p");
+      proofNode.className = "panel-note";
+      proofNode.textContent = "Proof pair: total theorems=" + (proofPair.operationsTheorems + proofPair.invariantTheorems) + ", invariant imports operations=" + (proofPair.invariantImportsOperations ? "yes" : "no") + ".";
+      panel.appendChild(proofNode);
+    }
 
     if (shift) {
       var shiftNode = document.createElement("p");
@@ -314,7 +345,9 @@
       h.textContent = name;
       var info = document.createElement("p");
       info.className = "walk-meta";
-      info.textContent = meta.layer + " · " + meta.kind + " · thm=" + degree.theorems;
+      var pair = findProofPair(name);
+      var pairStatus = pair ? (pair.invariantImportsOperations ? "proof-linked" : "proof-check") : "proof-na";
+      info.textContent = meta.layer + " · " + meta.kind + " · thm=" + degree.theorems + " · " + pairStatus;
       var score = document.createElement("p");
       score.className = "walk-score";
       score.textContent = "score=" + degree.score + " in=" + degree.incoming + " out=" + degree.outgoing;
@@ -329,12 +362,17 @@
     }
   }
 
-  function createPill(moduleName, mode) {
+  function createPill(moduleName, mode, selectable) {
     var button = document.createElement("button");
     button.type = "button";
     button.className = "dep-pill" + (mode === "out" ? " imported-by" : "");
     button.textContent = moduleName;
-    button.addEventListener("click", function () { selectModule(moduleName, false); });
+    if (selectable === false) {
+      button.disabled = true;
+      button.classList.add("static");
+    } else {
+      button.addEventListener("click", function () { selectModule(moduleName, false); });
+    }
     return button;
   }
 
@@ -374,7 +412,7 @@
         empty.textContent = "None";
         row.appendChild(empty);
       } else {
-        for (var i = 0; i < slice.length; i++) row.appendChild(createPill(slice[i], mode));
+        for (var i = 0; i < slice.length; i++) row.appendChild(createPill(slice[i], mode, mode !== "static"));
       }
       band.appendChild(row);
       wrap.appendChild(band);
@@ -382,6 +420,11 @@
 
     renderBand("Imported modules", state.importsFrom[selected] || [], "in");
     renderBand("Importing modules", state.importsTo[selected] || [], "out");
+    renderBand("Proof-neighbor modules", relatedProofModules(selected), "out");
+
+    var modulePath = state.moduleMap[selected] || "";
+    var segments = pathSegments(modulePath);
+    if (segments.length) renderBand("Directory context", segments, "static");
   }
 
   function recommendNextModules() {
@@ -488,14 +531,7 @@
 
   function lensProof(panel, selected) {
     var related = relatedProofModules(selected);
-    var base = moduleBase(selected);
-    var pair = null;
-    for (var i = 0; i < state.theoremPairs.length; i++) {
-      if (state.theoremPairs[i].base === base) {
-        pair = state.theoremPairs[i];
-        break;
-      }
-    }
+    var pair = findProofPair(selected);
 
     var p = document.createElement("p");
     p.className = "lens-metric";
@@ -508,6 +544,17 @@
     for (var j = 0; j < related.length; j++) row.appendChild(createPill(related[j], "out"));
     if (!related.length) row.textContent = "No proof-neighbor modules.";
     panel.appendChild(row);
+
+    var steps = [];
+    if (pair && pair.operationsModule) steps.push("1) Start at " + pair.operationsModule + " to inspect executable transitions.");
+    if (pair && pair.invariantModule) steps.push("2) Continue to " + pair.invariantModule + " and validate obligations against transitions.");
+    steps.push("3) Follow recommended next modules to resolve imported assumptions.");
+    appendList(panel, "Proof walk", steps, steps.length);
+
+    var leaders = state.theoremPairs.slice(0, 4).map(function (item) {
+      return item.base + " (thm=" + (item.operationsTheorems + item.invariantTheorems) + ", linked=" + (item.invariantImportsOperations ? "yes" : "no") + ")";
+    });
+    appendList(panel, "Top subsystem pairs", leaders, leaders.length);
   }
 
   function renderLensPanel() {
@@ -523,65 +570,6 @@
     if (state.selectedLens === "summary") lensSummary(panel, state.selectedModule);
     else if (state.selectedLens === "dependencies") lensDependencies(panel, state.selectedModule);
     else lensProof(panel, state.selectedModule);
-  }
-
-  function renderModuleTable() {
-    var tbody = document.getElementById("module-rows");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-    var list = filteredModules();
-    sortModules(list);
-
-    for (var i = 0; i < list.length; i++) {
-      var name = list[i];
-      var meta = state.moduleMeta[name] || {};
-      var degree = moduleDegree(name);
-
-      var tr = document.createElement("tr");
-      tr.setAttribute("data-module", name);
-      if (state.selectedModule === name) tr.className = "selected-row";
-      tr.innerHTML = "<td></td><td></td><td></td><td></td><td></td>";
-      tr.children[0].textContent = name;
-      tr.children[1].textContent = meta.layer || "other";
-      tr.children[2].textContent = String(degree.theorems);
-      tr.children[3].textContent = String(degree.incoming);
-      tr.children[4].textContent = String(degree.outgoing);
-      tr.addEventListener("click", (function (moduleName) {
-        return function () { selectModule(moduleName, false); };
-      })(name));
-      tbody.appendChild(tr);
-    }
-  }
-
-  function renderProofTrace() {
-    var panel = document.getElementById("proof-trace-panel");
-    if (!panel) return;
-    panel.innerHTML = "<h2 class=\"section-title-sm\">Proof trace explainer</h2>";
-
-    if (!state.selectedPair) {
-      var hint = document.createElement("p");
-      hint.className = "panel-note";
-      hint.textContent = "Select a row in the proof relationship table to display a guided trace.";
-      panel.appendChild(hint);
-      return;
-    }
-
-    var pair = state.selectedPair;
-    var p1 = document.createElement("p");
-    p1.className = "panel-note";
-    p1.textContent = "Subsystem: " + pair.base;
-    panel.appendChild(p1);
-
-    var p2 = document.createElement("p");
-    p2.className = "panel-note";
-    p2.textContent = "Operations theorems=" + pair.operationsTheorems + ", Invariant theorems=" + pair.invariantTheorems + ", linked=" + (pair.invariantImportsOperations ? "yes" : "no");
-    panel.appendChild(p2);
-
-    var steps = [];
-    if (pair.operationsModule) steps.push("1) Start with " + pair.operationsModule + " to inspect executable transitions.");
-    if (pair.invariantModule) steps.push("2) Move to " + pair.invariantModule + " and validate proof obligations.");
-    steps.push("3) Use recommendations to continue outward through supporting assumptions.");
-    appendList(panel, "Walkthrough steps", steps, steps.length);
   }
 
   function buildPairs() {
@@ -631,93 +619,63 @@
     updateMetric("linkedPairs", totals.linked);
   }
 
-  function renderProofTable() {
-    var tbody = document.getElementById("proof-rows");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-
-    for (var i = 0; i < state.theoremPairs.length; i++) {
-      var pair = state.theoremPairs[i];
-      var tr = document.createElement("tr");
-      var columns = [
-        pair.base,
-        pair.operationsModule || "—",
-        pair.invariantModule || "—",
-        String(pair.operationsTheorems + pair.invariantTheorems),
-        pair.invariantImportsOperations ? "Linked" : "Check"
-      ];
-
-      for (var c = 0; c < columns.length; c++) {
-        var td = document.createElement("td");
-        td.textContent = columns[c];
-        if (c === 4) td.className = pair.invariantImportsOperations ? "proof-good" : "proof-warn";
-        tr.appendChild(td);
-      }
-
-      tr.addEventListener("click", (function (selectedPair) {
-        return function () {
-          state.selectedPair = selectedPair;
-          if (selectedPair.operationsModule) selectModule(selectedPair.operationsModule, false);
-          renderProofTrace();
-        };
-      })(pair));
-
-      tbody.appendChild(tr);
-    }
-  }
-
-  function renderDirectoryTree() {
-    var wrap = document.getElementById("tree-wrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-
-    var root = { children: Object.create(null), files: [] };
-    for (var i = 0; i < state.files.length; i++) {
-      var parts = state.files[i].split("/");
-      var node = root;
-      for (var j = 0; j < parts.length; j++) {
-        var part = parts[j];
-        if (j === parts.length - 1) node.files.push(part);
-        else {
-          if (!node.children[part]) node.children[part] = { children: Object.create(null), files: [] };
-          node = node.children[part];
-        }
-      }
-    }
-
-    function renderNode(name, node, depth) {
-      var details = document.createElement("details");
-      if (depth < 1) details.open = true;
-      var summary = document.createElement("summary");
-      summary.textContent = name;
-      details.appendChild(summary);
-
-      var folders = Object.keys(node.children).sort();
-      for (var f = 0; f < folders.length; f++) details.appendChild(renderNode(folders[f], node.children[folders[f]], depth + 1));
-
-      node.files.sort();
-      for (var k = 0; k < node.files.length; k++) {
-        var leaf = document.createElement("div");
-        leaf.className = "tree-leaf";
-        leaf.textContent = node.files[k];
-        details.appendChild(leaf);
-      }
-      return details;
-    }
-
-    var top = Object.keys(root.children).sort();
-    for (var t = 0; t < top.length; t++) wrap.appendChild(renderNode(top[t], root.children[top[t]], 0));
-  }
-
   function renderAll() {
     renderWalkCards();
     renderConstellation();
     renderLensPanel();
     renderTrail();
     renderRecommendations();
-    renderModuleTable();
-    renderProofTable();
-    renderProofTrace();
+  }
+
+
+  function setupNav() {
+    var toggle = document.getElementById("nav-toggle");
+    var links = document.getElementById("nav-links");
+
+    function setNavState(open) {
+      if (!toggle || !links) return;
+      links.classList.toggle("open", open);
+      toggle.classList.toggle("open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      document.body.classList.toggle("nav-open", open);
+    }
+
+    if (toggle && links) {
+      toggle.addEventListener("click", function () {
+        setNavState(!links.classList.contains("open"));
+      });
+
+      var items = links.querySelectorAll("a");
+      for (var i = 0; i < items.length; i++) {
+        items[i].addEventListener("click", function () {
+          setNavState(false);
+        });
+      }
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") return;
+        setNavState(false);
+      });
+    }
+
+    var nav = document.getElementById("nav");
+    if (!nav) return;
+
+    var applyScrolled = function () {
+      nav.classList.toggle("scrolled", window.scrollY > 40);
+    };
+
+    applyScrolled();
+
+    var ticking = false;
+    window.addEventListener("scroll", function () {
+      if (ticking) return;
+      window.requestAnimationFrame(function () {
+        applyScrolled();
+        ticking = false;
+      });
+      ticking = true;
+    }, { passive: true });
   }
 
   function setupTheme() {
@@ -780,7 +738,6 @@
 
   function applyData(data) {
     state.files = data.files || [];
-    state.directories = data.directories || [];
     state.modules = data.modules || [];
     state.moduleMap = data.moduleMap || Object.create(null);
     state.moduleMeta = data.moduleMeta || Object.create(null);
@@ -789,7 +746,6 @@
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
 
     buildPairs();
-    renderDirectoryTree();
     if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
     if (state.selectedModule) {
       rememberTrail(state.selectedModule);
@@ -804,11 +760,9 @@
     return safeFetch(API + "/git/trees/" + REF + "?recursive=1", false).then(function (payload) {
       var tree = payload && payload.tree ? payload.tree : [];
       var files = tree.filter(function (entry) { return entry.type === "blob"; }).map(function (entry) { return entry.path; });
-      var directories = tree.filter(function (entry) { return entry.type === "tree"; }).map(function (entry) { return entry.path; });
       var leanFiles = files.filter(function (path) { return /^SeLe4n\/.*\.lean$/.test(path); });
 
       state.files = files;
-      state.directories = directories;
       state.modules = leanFiles.map(moduleFromPath);
       state.moduleMap = Object.create(null);
       state.moduleMeta = Object.create(null);
@@ -837,7 +791,6 @@
       });
     }).then(function () {
       buildPairs();
-      renderDirectoryTree();
       if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
       if (state.selectedModule) {
         rememberTrail(state.selectedModule);
@@ -848,7 +801,6 @@
       setStatus("Map ready. Adaptive context lenses loaded.", false);
       setCache({
         files: state.files,
-        directories: state.directories,
         modules: state.modules,
         moduleMap: state.moduleMap,
         moduleMeta: state.moduleMeta,
@@ -894,7 +846,6 @@
         if (focus) focus.value = "all";
         if (sort) sort.value = "hotspot";
         if (neighborLimit) neighborLimit.value = "12";
-        state.selectedPair = null;
         apply();
       });
     }
@@ -967,6 +918,7 @@
 
   function boot() {
     setupTheme();
+    setupNav();
     hardenExternalLinks();
     readUrlState();
     setupFilters();
