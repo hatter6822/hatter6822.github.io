@@ -117,6 +117,21 @@
             </select>
           </div>
 
+          <div class="control-group">
+            <label for="impact-radius">Impact radius</label>
+            <select id="impact-radius">
+              <option value="1">1 hop</option>
+              <option value="2" selected>2 hops</option>
+              <option value="3">3 hops</option>
+            </select>
+          </div>
+
+          <div class="control-group toggle-group">
+            <label for="proof-linked-only">Proof-linked only</label>
+            <input id="proof-linked-only" type="checkbox" aria-describedby="proof-linked-help">
+            <span id="proof-linked-help" class="panel-note">Filter queue to modules participating in linked Operations/Invariant pairs.</span>
+          </div>
+
           <div class="control-group control-actions">
             <label class="visually-hidden" for="reset-view">Reset map filters</label>
             <button id="reset-view" class="btn btn-secondary" type="button">Reset filters</button>
@@ -143,6 +158,7 @@
               <button type="button" id="lens-tab-summary" role="tab" aria-selected="true" aria-controls="lens-panel" tabindex="0" data-lens="summary" class="lens-tab active">Summary lens</button>
               <button type="button" id="lens-tab-dependencies" role="tab" aria-selected="false" aria-controls="lens-panel" tabindex="-1" data-lens="dependencies" class="lens-tab">Dependency lens</button>
               <button type="button" id="lens-tab-proof" role="tab" aria-selected="false" aria-controls="lens-panel" tabindex="-1" data-lens="proof" class="lens-tab">Proof lens</button>
+              <button type="button" id="lens-tab-assurance" role="tab" aria-selected="false" aria-controls="lens-panel" tabindex="-1" data-lens="assurance" class="lens-tab">Assurance lens</button>
             </div>
             <div id="lens-panel" class="lens-panel" role="tabpanel" tabindex="0" aria-live="polite" aria-labelledby="lens-tab-summary"></div>
 
@@ -159,6 +175,7 @@
           <aside class="card context-panel" id="details-panel" aria-live="polite">
             <h2 class="section-title-sm">Context drawer</h2>
             <p class="details-empty">Select a module to reveal local dependency context and proof relevance.</p>
+            <div id="assurance-strip" class="lens-panel" aria-live="polite"></div>
           </aside>
         </div>
       </div>
