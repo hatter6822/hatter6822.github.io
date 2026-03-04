@@ -29,7 +29,7 @@
 
 .map-toolbar {
   display: grid;
-  grid-template-columns: minmax(15rem, 2fr) repeat(5, minmax(9rem, 1fr)) auto;
+  grid-template-columns: minmax(15rem, 2fr) repeat(6, minmax(9rem, 1fr)) auto;
   gap: 0.7rem;
   align-items: end;
   padding: 0.9rem;
@@ -71,17 +71,15 @@
 
 .navigator-layout {
   display: grid;
-  grid-template-columns: minmax(13rem, 16rem) minmax(0, 2.2fr) minmax(13rem, 17rem);
+  grid-template-columns: minmax(0, 2.7fr) minmax(13rem, 16rem);
   grid-template-areas:
-    "queue flow context";
+    "flow context";
   gap: 1rem;
   align-items: start;
 }
 .navigator-layout > .card { min-width: 0; }
-.lane-panel { grid-area: queue; }
 .constellation-panel { grid-area: flow; }
 .context-panel { grid-area: context; }
-.lane-panel,
 .context-panel {
   position: sticky;
   top: 4.5rem;
@@ -98,14 +96,24 @@
 }
 .panel-header { margin-bottom: 0.65rem; }
 
-.queue-list { display: grid; gap: 0.45rem; min-width: 0; }
-.walk-card { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--surface-2) 88%, transparent); padding: 0.56rem; text-align: left; cursor: pointer; width: 100%; min-width: 0; }
-.walk-card h3 { font-size: 0.84rem; margin-bottom: 0.22rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.walk-meta { font-size: 0.73rem; color: var(--text-muted); }
-.walk-score { font-family: var(--font-mono); font-size: 0.73rem; margin-top: 0.2rem; }
-.walk-card:hover, .walk-card:focus-visible, tr[data-module]:hover { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
-.walk-card.selected, .selected-row { background: var(--accent-glow); }
-
+.context-switcher {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--surface) 86%, transparent);
+  padding: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+.context-switcher-header { margin-bottom: 0.45rem; }
+.context-switcher-header .panel-note { margin-bottom: 0; font-size: 0.8rem; }
+.context-switcher-controls { display: grid; grid-template-columns: 1fr; gap: 0.45rem; margin-bottom: 0.2rem; }
+.context-switcher-controls input {
+  min-height: 2.4rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.62rem;
+}
 .constellation-wrap { min-height: 13.5rem; display: grid; gap: 0.5rem; }
 .flowchart-legend {
   display: flex;
@@ -193,23 +201,22 @@
 .assurance-strip { margin-top: 0.4rem; }
 
 @media (max-width: 1320px) {
-  .map-toolbar { grid-template-columns: minmax(16rem, 1fr) repeat(3, minmax(10rem, 1fr)); }
+  .map-toolbar { grid-template-columns: minmax(16rem, 1fr) repeat(4, minmax(10rem, 1fr)); }
   .toggle-group { grid-column: 1 / -1; }
   .control-actions { grid-column: 1 / -1; }
   .control-actions .btn { width: auto; min-width: 11rem; }
   .navigator-layout {
-    grid-template-columns: minmax(12rem, 15rem) minmax(0, 2fr) minmax(12rem, 15rem);
+    grid-template-columns: minmax(0, 2fr) minmax(12rem, 15rem);
   }
 }
 
 @media (max-width: 1200px) {
   .navigator-layout {
-    grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "queue flow"
-      "context flow";
+      "flow"
+      "context";
   }
-  .lane-panel,
   .context-panel {
     position: static;
     max-height: none;
@@ -224,7 +231,6 @@
   .navigator-layout {
     grid-template-columns: 1fr;
     grid-template-areas:
-      "queue"
       "flow"
       "context";
   }
