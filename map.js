@@ -45,8 +45,6 @@
     contextOptionsKey: "", searchIndex: Object.create(null),
     interiorMenuModule: "",
     interiorMenuQuery: "",
-    interiorMenuShowAllFunctions: false,
-    interiorMenuShowAllTheorems: false,
     commitSha: "",
     generatedAt: ""
   };
@@ -548,8 +546,6 @@
     if (state.interiorMenuModule !== name) {
       state.interiorMenuModule = name;
       state.interiorMenuQuery = "";
-      state.interiorMenuShowAllFunctions = false;
-      state.interiorMenuShowAllTheorems = false;
     }
     if (!fromTrail) rememberTrail(name);
     syncUrlState();
@@ -692,8 +688,6 @@
     if (state.interiorMenuModule !== selected) {
       state.interiorMenuModule = selected;
       state.interiorMenuQuery = "";
-      state.interiorMenuShowAllFunctions = false;
-      state.interiorMenuShowAllTheorems = false;
     }
 
     var interior = interiorCodeForModule(selected);
@@ -702,10 +696,6 @@
     var query = (state.interiorMenuQuery || "").trim().toLowerCase();
     var filteredFunctions = query ? functionNames.filter(function (name) { return name.toLowerCase().indexOf(query) !== -1; }) : functionNames;
     var filteredTheorems = query ? theoremNames.filter(function (name) { return name.toLowerCase().indexOf(query) !== -1; }) : theoremNames;
-    var functionCap = state.interiorMenuShowAllFunctions ? filteredFunctions.length : 18;
-    var theoremCap = state.interiorMenuShowAllTheorems ? filteredTheorems.length : 18;
-    var functionPreview = filteredFunctions.slice(0, functionCap);
-    var theoremPreview = filteredTheorems.slice(0, theoremCap);
 
     var header = document.createElement("div");
     header.className = "interior-menu-header";
@@ -739,7 +729,7 @@
     var grid = document.createElement("div");
     grid.className = "interior-menu-grid";
 
-    function appendColumn(label, items, total, showingAll, emptyText, toggleKey) {
+    function appendColumn(label, items, total, emptyText) {
       var column = document.createElement("section");
       column.className = "interior-menu-column";
 
@@ -749,18 +739,6 @@
       heading.textContent = label + " (" + total + ")";
       top.appendChild(heading);
 
-      if (total > 18) {
-        var toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "interior-menu-toggle";
-        toggle.textContent = showingAll ? "Show less" : "Show all";
-        toggle.setAttribute("aria-label", (showingAll ? "Show fewer" : "Show all") + " items for " + label.toLowerCase());
-        toggle.addEventListener("click", function () {
-          state[toggleKey] = !state[toggleKey];
-          renderFlowNodeInteriorMenu(selected);
-        });
-        top.appendChild(toggle);
-      }
       column.appendChild(top);
 
       if (!items.length) {
@@ -778,20 +756,14 @@
           li.textContent = items[i];
           list.appendChild(li);
         }
-        if (total > items.length && !showingAll) {
-          var more = document.createElement("li");
-          more.className = "interior-menu-item";
-          more.textContent = "+" + (total - items.length) + " more";
-          list.appendChild(more);
-        }
         column.appendChild(list);
       }
 
       grid.appendChild(column);
     }
 
-    appendColumn("Functions / defs", functionPreview, filteredFunctions.length, state.interiorMenuShowAllFunctions, query ? "No function-style declarations match this filter." : "No function-style declarations detected.", "interiorMenuShowAllFunctions");
-    appendColumn("Theorems / lemmas", theoremPreview, filteredTheorems.length, state.interiorMenuShowAllTheorems, query ? "No theorem-style declarations match this filter." : "No theorem-style declarations detected.", "interiorMenuShowAllTheorems");
+    appendColumn("Functions / defs", filteredFunctions, filteredFunctions.length, query ? "No function-style declarations match this filter." : "No function-style declarations detected.");
+    appendColumn("Theorems / lemmas", filteredTheorems, filteredTheorems.length, query ? "No theorem-style declarations match this filter." : "No theorem-style declarations detected.");
     menu.appendChild(grid);
   }
 
