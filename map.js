@@ -14,7 +14,7 @@
     referrerPolicy: "no-referrer"
   };
 
-  var CACHE_KEY = "sele4n-code-map-v5";
+  var CACHE_KEY = "sele4n-code-map-v6";
   var CACHE_TTL_MS = 60 * 60 * 1000;
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
@@ -23,7 +23,8 @@
   var state = {
     files: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
-    theoremPairs: [], selectedModule: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot",
+    theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
+    selectedModule: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot",
     trail: [], selectedLens: "summary", neighborLimit: 12
   };
 
@@ -32,6 +33,9 @@
     if (!el) return;
     el.textContent = text;
     el.classList.toggle("error", Boolean(isError));
+
+    var main = document.getElementById("main-content");
+    if (main) main.setAttribute("aria-busy", /loading|refreshing/i.test(text) ? "true" : "false");
   }
 
   function updateMetric(key, value) {
@@ -134,11 +138,14 @@
   }
 
   function moduleDegree(name) {
+    if (state.degreeMap[name]) return state.degreeMap[name];
     var incoming = (state.importsTo[name] || []).length;
     var outgoing = (state.importsFrom[name] || []).length;
     var theorems = (state.moduleMeta[name] || {}).theorems || 0;
     var score = incoming * 2 + outgoing + theorems * 3;
-    return { incoming: incoming, outgoing: outgoing, total: incoming + outgoing, theorems: theorems, score: score };
+    var degree = { incoming: incoming, outgoing: outgoing, total: incoming + outgoing, theorems: theorems, score: score };
+    state.degreeMap[name] = degree;
+    return degree;
   }
 
   function appendList(panel, title, items, limit) {
@@ -182,11 +189,23 @@
   }
 
   function findProofPair(name) {
-    var base = moduleBase(name);
-    for (var i = 0; i < state.theoremPairs.length; i++) {
-      if (state.theoremPairs[i].base === base) return state.theoremPairs[i];
+    return state.proofPairMap[moduleBase(name)] || null;
+  }
+
+  function sortByScoreThenName(a, b) {
+    return moduleDegree(b).score - moduleDegree(a).score || a.localeCompare(b);
+  }
+
+  function uniqueModules(list, excluded) {
+    var out = [];
+    var seen = Object.create(null);
+    for (var i = 0; i < list.length; i++) {
+      var name = list[i];
+      if (!name || seen[name] || (excluded && name === excluded)) continue;
+      seen[name] = true;
+      out.push(name);
     }
-    return null;
+    return out;
   }
 
   function pathSegments(path) {
@@ -332,6 +351,7 @@
       return;
     }
 
+    var fragment = document.createDocumentFragment();
     var limit = Math.min(list.length, 110);
     for (var i = 0; i < limit; i++) {
       var name = list[i];
@@ -358,8 +378,9 @@
       card.addEventListener("click", (function (moduleName) {
         return function () { selectModule(moduleName, false); };
       })(name));
-      wrap.appendChild(card);
+      fragment.appendChild(card);
     }
+    wrap.appendChild(fragment);
   }
 
   function createPill(moduleName, mode, selectable) {
@@ -432,19 +453,8 @@
     if (!selected) return [];
 
     var neighborPool = (state.importsFrom[selected] || []).concat(state.importsTo[selected] || []).concat(relatedProofModules(selected));
-    var unique = [];
-    var seen = Object.create(null);
-
-    for (var i = 0; i < neighborPool.length; i++) {
-      var candidate = neighborPool[i];
-      if (!candidate || seen[candidate] || candidate === selected) continue;
-      seen[candidate] = true;
-      unique.push(candidate);
-    }
-
-    unique.sort(function (a, b) {
-      return moduleDegree(b).score - moduleDegree(a).score || a.localeCompare(b);
-    });
+    var unique = uniqueModules(neighborPool, selected);
+    unique.sort(sortByScoreThenName);
 
     return unique.slice(0, 6);
   }
@@ -459,6 +469,7 @@
       return;
     }
 
+    var fragment = document.createDocumentFragment();
     for (var i = 0; i < state.trail.length; i++) {
       var chip = document.createElement("button");
       chip.type = "button";
@@ -467,8 +478,9 @@
       chip.addEventListener("click", (function (moduleName) {
         return function () { selectModule(moduleName, true); };
       })(state.trail[i]));
-      wrap.appendChild(chip);
+      fragment.appendChild(chip);
     }
+    wrap.appendChild(fragment);
   }
 
   function renderRecommendations() {
@@ -482,6 +494,7 @@
       return;
     }
 
+    var fragment = document.createDocumentFragment();
     for (var i = 0; i < recs.length; i++) {
       var chip = document.createElement("button");
       chip.type = "button";
@@ -490,8 +503,9 @@
       chip.addEventListener("click", (function (moduleName) {
         return function () { selectModule(moduleName, false); };
       })(recs[i]));
-      wrap.appendChild(chip);
+      fragment.appendChild(chip);
     }
+    wrap.appendChild(fragment);
   }
 
   function lensSummary(panel, selected) {
@@ -513,9 +527,7 @@
   function lensDependencies(panel, selected) {
     var importers = state.importsTo[selected] || [];
     var imports = state.importsFrom[selected] || [];
-    var highRisk = importers.concat(imports).sort(function (a, b) {
-      return moduleDegree(b).score - moduleDegree(a).score;
-    }).slice(0, 5);
+    var highRisk = uniqueModules(importers.concat(imports), selected).sort(sortByScoreThenName).slice(0, 5);
 
     var p = document.createElement("p");
     p.className = "lens-metric";
@@ -611,6 +623,10 @@
     totals.pairs = pairs.length;
 
     state.theoremPairs = pairs;
+    state.proofPairMap = Object.create(null);
+    state.degreeMap = Object.create(null);
+    for (var k = 0; k < pairs.length; k++) state.proofPairMap[pairs[k].base] = pairs[k];
+    for (var m = 0; m < state.modules.length; m++) moduleDegree(state.modules[m]);
     updateMetric("files", state.files.length);
     updateMetric("leanModules", state.modules.length);
     updateMetric("importEdges", totals.importEdges);
@@ -759,8 +775,14 @@
 
     return safeFetch(API + "/git/trees/" + REF + "?recursive=1", false).then(function (payload) {
       var tree = payload && payload.tree ? payload.tree : [];
-      var files = tree.filter(function (entry) { return entry.type === "blob"; }).map(function (entry) { return entry.path; });
-      var leanFiles = files.filter(function (path) { return /^SeLe4n\/.*\.lean$/.test(path); });
+      var files = [];
+      var leanFiles = [];
+      for (var i = 0; i < tree.length; i++) {
+        var entry = tree[i];
+        if (!entry || entry.type !== "blob") continue;
+        files.push(entry.path);
+        if (/^SeLe4n\/.*\.lean$/.test(entry.path)) leanFiles.push(entry.path);
+      }
 
       state.files = files;
       state.modules = leanFiles.map(moduleFromPath);
@@ -770,7 +792,7 @@
       state.importsFrom = Object.create(null);
       state.externalImportsFrom = Object.create(null);
 
-      for (var i = 0; i < state.modules.length; i++) state.moduleMap[state.modules[i]] = leanFiles[i];
+      for (var j = 0; j < state.modules.length; j++) state.moduleMap[state.modules[j]] = leanFiles[j];
 
       setStatus("Analyzing Lean modules and theorem declarations…", false);
 
@@ -853,14 +875,39 @@
 
   function setupLensTabs() {
     var tabs = document.querySelectorAll("[data-lens]");
+    var panel = document.getElementById("lens-panel");
+
+    function activateTab(tab) {
+      if (!tab) return;
+      state.selectedLens = tab.getAttribute("data-lens") || "summary";
+      for (var i = 0; i < tabs.length; i++) {
+        var selected = tabs[i] === tab;
+        tabs[i].classList.toggle("active", selected);
+        tabs[i].setAttribute("aria-selected", selected ? "true" : "false");
+        tabs[i].setAttribute("tabindex", selected ? "0" : "-1");
+      }
+      if (panel) panel.setAttribute("aria-labelledby", tab.id || "");
+      renderLensPanel();
+    }
+
     for (var i = 0; i < tabs.length; i++) {
       tabs[i].addEventListener("click", function () {
-        state.selectedLens = this.getAttribute("data-lens") || "summary";
-        for (var j = 0; j < tabs.length; j++) tabs[j].classList.remove("active");
-        this.classList.add("active");
-        renderLensPanel();
+        activateTab(this);
+      });
+
+      tabs[i].addEventListener("keydown", function (event) {
+        if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+        var dir = event.key === "ArrowRight" ? 1 : -1;
+        var current = Array.prototype.indexOf.call(tabs, this);
+        var next = (current + dir + tabs.length) % tabs.length;
+        tabs[next].focus();
+        activateTab(tabs[next]);
+        event.preventDefault();
       });
     }
+
+    var active = document.querySelector('[data-lens="' + state.selectedLens + '"]') || tabs[0];
+    activateTab(active);
   }
 
   function setupKeyboardNavigation() {
@@ -868,13 +915,14 @@
       var target = event.target;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
 
-      if (event.key !== "j" && event.key !== "k") return;
+      var key = (event.key || "").toLowerCase();
+      if (key !== "j" && key !== "k") return;
       var list = filteredModules();
       sortModules(list);
       if (!list.length) return;
 
       var currentIndex = Math.max(0, list.indexOf(state.selectedModule));
-      var nextIndex = event.key === "j" ? Math.min(list.length - 1, currentIndex + 1) : Math.max(0, currentIndex - 1);
+      var nextIndex = key === "j" ? Math.min(list.length - 1, currentIndex + 1) : Math.max(0, currentIndex - 1);
       selectModule(list[nextIndex], false);
       event.preventDefault();
     });
@@ -904,6 +952,7 @@
 
     var next = params.toString();
     var target = window.location.pathname + (next ? "?" + next : "");
+    if (target === window.location.pathname + window.location.search) return;
     window.history.replaceState(null, "", target);
   }
 
