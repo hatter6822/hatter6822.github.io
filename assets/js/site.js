@@ -145,6 +145,33 @@
   function setupNav() {
     var toggle = document.getElementById("nav-toggle");
     var links = document.getElementById("nav-links");
+    var nav = document.getElementById("nav");
+
+    function getNavOffset() {
+      if (!nav) return 0;
+      var navHeight = nav.getBoundingClientRect().height || 0;
+      return Math.ceil(navHeight + 12);
+    }
+
+    function syncScrollOffset() {
+      document.documentElement.style.setProperty("--nav-scroll-offset", getNavOffset() + "px");
+    }
+
+    function scrollToHash(hash, behavior) {
+      if (!hash || hash === "#") return;
+
+      var id = hash.charAt(0) === "#" ? hash.slice(1) : hash;
+      if (!id) return;
+
+      var target = document.getElementById(id);
+      if (!target) return;
+
+      var targetTop = target.getBoundingClientRect().top + window.scrollY - getNavOffset();
+      window.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: behavior || "smooth"
+      });
+    }
 
     function setNavState(open) {
       if (!toggle || !links) return;
@@ -161,8 +188,19 @@
 
       var items = links.querySelectorAll("a");
       for (var i = 0; i < items.length; i++) {
-        items[i].addEventListener("click", function () {
+        items[i].addEventListener("click", function (event) {
+          var href = event.currentTarget.getAttribute("href");
+
           setNavState(false);
+
+          if (!href || href.charAt(0) !== "#") return;
+
+          event.preventDefault();
+          scrollToHash(href, "smooth");
+
+          if (window.location.hash !== href) {
+            history.pushState(null, "", href);
+          }
         });
       }
 
@@ -172,14 +210,27 @@
       });
     }
 
-    var nav = document.getElementById("nav");
     if (!nav) return;
+
+    syncScrollOffset();
+    window.addEventListener("resize", syncScrollOffset, { passive: true });
+    window.addEventListener("orientationchange", syncScrollOffset, { passive: true });
+
+    window.addEventListener("hashchange", function () {
+      scrollToHash(window.location.hash, "smooth");
+    });
 
     var applyScrolled = function () {
       nav.classList.toggle("scrolled", window.scrollY > 40);
     };
 
     applyScrolled();
+
+    if (window.location.hash) {
+      window.requestAnimationFrame(function () {
+        scrollToHash(window.location.hash, "auto");
+      });
+    }
 
     var ticking = false;
     window.addEventListener("scroll", function () {
