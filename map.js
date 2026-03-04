@@ -381,6 +381,7 @@
     state.selectedModule = name;
     if (!fromTrail) rememberTrail(name);
     syncUrlState();
+    updateToolbarSummary();
     renderAll();
   }
 
@@ -411,6 +412,7 @@
 
     var list = contextList();
     updateModuleResults(list.length);
+    updateToolbarSummary(list.length);
 
     if (list.length && list.indexOf(state.selectedModule) === -1) {
       state.selectedModule = list[0];
@@ -1178,6 +1180,18 @@
     });
   }
 
+  function updateToolbarSummary(visibleCount) {
+    var el = document.getElementById("toolbar-summary");
+    if (!el) return;
+    var count = typeof visibleCount === "number" ? visibleCount : contextList().length;
+    var selected = state.selectedModule || "No module selected";
+    var layerLabel = state.activeLayerFilter === "all" ? "All subsystems" : (state.activeLayerFilter[0].toUpperCase() + state.activeLayerFilter.slice(1));
+    var modeLabel = state.flowMode === "imports" ? "Import-heavy" : (state.flowMode === "impact" ? "Impact-heavy" : "Balanced");
+    var linkedLabel = state.proofLinkedOnly ? "proof-linked only" : "all proof states";
+    var graphLabel = state.flowShowAll ? "full flow graph" : "focused graph";
+    el.textContent = count + " modules · " + layerLabel + " · " + modeLabel + " · " + state.neighborLimit + " neighbors · radius " + state.impactRadius + " · " + graphLabel + " · " + linkedLabel + " · " + selected;
+  }
+
   function setupFilters() {
     var search = document.getElementById("module-search");
     var focus = document.getElementById("focus-select");
@@ -1208,6 +1222,7 @@
       state.flowShowAll = flowShowAll ? flowShowAll.checked : false;
       state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
       syncUrlState();
+      updateToolbarSummary();
       scheduleRender();
     }
 
@@ -1234,14 +1249,14 @@
 
       search.addEventListener("change", choose);
       search.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          if (state.selectedModule) search.value = state.selectedModule;
+          event.preventDefault();
+          return;
+        }
         if (event.key !== "Enter") return;
         choose();
         event.preventDefault();
-      });
-      search.addEventListener("input", function () {
-        var list = contextList();
-        var match = matchModule(search.value, list);
-        if (match && match !== state.selectedModule) selectModule(match, false);
       });
     }
     if (focus) focus.addEventListener("change", apply);
@@ -1295,6 +1310,9 @@
     var sort = params.get("sort") || "hotspot";
     if (/^(hotspot|theorems|name)$/.test(sort)) state.activeSort = sort;
 
+    var neighbors = Number(params.get("neighbors") || "12");
+    if (neighbors >= 4 && neighbors <= 20) state.neighborLimit = neighbors;
+
     var radius = Number(params.get("radius") || "2");
     if (radius >= 1 && radius <= 3) state.impactRadius = radius;
 
@@ -1310,6 +1328,7 @@
     if (state.selectedModule) params.set("module", state.selectedModule); else params.delete("module");
     if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
     if (state.activeSort && state.activeSort !== "hotspot") params.set("sort", state.activeSort); else params.delete("sort");
+    if (state.neighborLimit && state.neighborLimit !== 12) params.set("neighbors", String(state.neighborLimit)); else params.delete("neighbors");
     if (state.impactRadius && state.impactRadius !== 2) params.set("radius", String(state.impactRadius)); else params.delete("radius");
     if (state.flowMode && state.flowMode !== "balanced") params.set("mode", state.flowMode); else params.delete("mode");
     if (state.proofLinkedOnly) params.set("linked", "1"); else params.delete("linked");
@@ -1325,6 +1344,7 @@
     var search = document.getElementById("module-search");
     var focus = document.getElementById("focus-select");
     var sort = document.getElementById("sort-select");
+    var neighbors = document.getElementById("neighbor-limit");
     var radius = document.getElementById("impact-radius");
     var mode = document.getElementById("flow-mode");
     var flowShowAll = document.getElementById("flow-show-all");
@@ -1332,10 +1352,12 @@
     if (search && state.selectedModule) search.value = state.selectedModule;
     if (focus) focus.value = state.activeLayerFilter;
     if (sort) sort.value = state.activeSort;
+    if (neighbors) neighbors.value = String(state.neighborLimit);
     if (radius) radius.value = String(state.impactRadius);
     if (mode) mode.value = state.flowMode;
     if (flowShowAll) flowShowAll.checked = Boolean(state.flowShowAll);
     if (linked) linked.checked = Boolean(state.proofLinkedOnly);
+    updateToolbarSummary();
   }
 
   function setupFlowchartResize() {

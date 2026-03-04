@@ -91,65 +91,78 @@
         </header>
 
         <form class="map-toolbar card" id="map-toolbar" role="search" aria-label="Module filters" onsubmit="return false;">
-          <div class="control-group control-group-wide">
-            <label for="module-search">Current context module</label>
-            <input id="module-search" type="search" list="context-options" placeholder="Type module/path to switch context" autocomplete="off" spellcheck="false" aria-describedby="module-search-help">
-            <datalist id="context-options"></datalist>
-          </div>
+          <fieldset class="toolbar-block toolbar-context">
+            <legend>Context</legend>
+            <div class="control-group control-group-wide">
+              <label for="module-search">Current context module</label>
+              <input id="module-search" type="search" list="context-options" placeholder="Type module/path to switch context" autocomplete="off" spellcheck="false" aria-describedby="module-search-help toolbar-summary">
+              <datalist id="context-options"></datalist>
+            </div>
 
-          <div class="control-group">
-            <label for="focus-select">Focus subsystem</label>
-            <select id="focus-select"><option value="all">All modules</option></select>
-          </div>
+            <div class="control-row">
+              <div class="control-group">
+                <label for="focus-select">Focus subsystem</label>
+                <select id="focus-select"><option value="all">All modules</option></select>
+              </div>
 
-          <div class="control-group">
-            <label for="sort-select">Sort by</label>
-            <select id="sort-select">
-              <option value="hotspot">Hotspot score</option>
-              <option value="theorems">Theorem count</option>
-              <option value="name">Module name</option>
-            </select>
-          </div>
+              <div class="control-group">
+                <label for="sort-select">Context ranking</label>
+                <select id="sort-select">
+                  <option value="hotspot">Hotspot score</option>
+                  <option value="theorems">Theorem count</option>
+                  <option value="name">Module name</option>
+                </select>
+              </div>
+            </div>
+          </fieldset>
 
-          <div class="control-group">
-            <label for="neighbor-limit">Neighbor budget</label>
-            <select id="neighbor-limit">
-              <option value="8">8 nodes</option>
-              <option value="12" selected>12 nodes</option>
-              <option value="16">16 nodes</option>
-            </select>
-          </div>
+          <fieldset class="toolbar-block toolbar-flow">
+            <legend>Flow shaping</legend>
+            <div class="control-row control-row-tight">
+              <div class="control-group">
+                <label for="neighbor-limit">Visible neighbors</label>
+                <select id="neighbor-limit">
+                  <option value="8">8 nodes</option>
+                  <option value="12" selected>12 nodes</option>
+                  <option value="16">16 nodes</option>
+                </select>
+              </div>
 
-          <div class="control-group">
-            <label for="flow-mode">Flow emphasis</label>
-            <select id="flow-mode">
-              <option value="balanced" selected>Balanced</option>
-              <option value="imports">Import-heavy</option>
-              <option value="impact">Impact-heavy</option>
-            </select>
-          </div>
+              <div class="control-group">
+                <label for="impact-radius">Proof impact radius</label>
+                <select id="impact-radius">
+                  <option value="1">1 hop</option>
+                  <option value="2" selected>2 hops</option>
+                  <option value="3">3 hops</option>
+                </select>
+              </div>
+            </div>
 
-          <div class="control-group toggle-group">
-            <label for="flow-show-all">Show full flow graph</label>
-            <input id="flow-show-all" type="checkbox" aria-describedby="module-search-help">
-          </div>
+            <div class="control-group">
+              <label for="flow-mode">Flow emphasis profile</label>
+              <select id="flow-mode">
+                <option value="balanced" selected>Balanced</option>
+                <option value="imports">Import-heavy</option>
+                <option value="impact">Impact-heavy</option>
+              </select>
+            </div>
+          </fieldset>
 
-          <div class="control-group">
-            <label for="impact-radius">Proof impact radius</label>
-            <select id="impact-radius">
-              <option value="1">1 hop</option>
-              <option value="2" selected>2 hops</option>
-              <option value="3">3 hops</option>
-            </select>
-          </div>
+          <fieldset class="toolbar-block toolbar-toggles">
+            <legend>Graph scope</legend>
+            <label class="toggle-pill" for="flow-show-all">
+              <input id="flow-show-all" type="checkbox" aria-describedby="module-search-help toolbar-summary">
+              <span>Show full flow graph</span>
+            </label>
 
-          <div class="control-group toggle-group">
-            <label for="proof-linked-only">Proof-linked only</label>
-            <input id="proof-linked-only" type="checkbox" aria-describedby="proof-linked-help">
-          </div>
+            <label class="toggle-pill" for="proof-linked-only">
+              <input id="proof-linked-only" type="checkbox" aria-describedby="proof-linked-help toolbar-summary">
+              <span>Proof-linked only</span>
+            </label>
+          </fieldset>
 
-          <div class="control-group control-actions">
-            <label class="visually-hidden" for="reset-view">Reset map filters</label>
+          <div class="toolbar-actions">
+            <p id="toolbar-summary" class="toolbar-summary" aria-live="polite" aria-atomic="true"></p>
             <button id="reset-view" class="btn btn-secondary" type="button">Reset filters</button>
           </div>
         </form>
