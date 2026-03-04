@@ -65,6 +65,7 @@
     });
   }
 
+
   function safeFetchText(url) {
     return fetch(url, FETCH_OPTIONS).then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -707,6 +708,14 @@
     });
   }
 
+  function messageForError(error) {
+    var message = error && error.message ? error.message : "Unknown error";
+    if (/HTTP\s+403/.test(message)) {
+      return "GitHub API rate limit reached (HTTP 403). Please retry later; cached data will be used automatically when available.";
+    }
+    return message;
+  }
+
   function setupFilters() {
     var search = document.getElementById("module-search");
     var focus = document.getElementById("focus-select");
@@ -741,8 +750,9 @@
     }
 
     fetchAndBuildData().catch(function (error) {
-      if (!cached) updateStatus("Unable to load codebase map from GitHub API: " + error.message, true);
-      else updateStatus("Refresh failed; showing cached data. " + error.message, true);
+      var detail = messageForError(error);
+      if (!cached) updateStatus("Unable to load codebase map. " + detail, true);
+      else updateStatus("Refresh failed; showing cached data. " + detail, true);
     });
   }
 
