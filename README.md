@@ -20,6 +20,12 @@ The browser now treats `data/site-data.json` as the canonical baseline on every 
 
 If any live fetch fails in the browser, the site continues to use bundled `data/site-data.json` values as fallback.
 
+
+## Third-party notices
+
+This repository includes a third-party simplex-noise implementation used in `background-pattern.js`.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license text.
+
 ## License
 
 This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE) for details.
