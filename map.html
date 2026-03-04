@@ -150,9 +150,11 @@
 
           <article class="card constellation-panel">
             <div class="panel-header">
-              <h2 class="section-title-sm">Local relationship lens</h2>
-              <p class="panel-note">Core = selected module. Imports and dependents are condensed into clickable bands.</p>
+              <h2 class="section-title-sm">Interactive dependency/proof flow chart</h2>
+              <p class="panel-note">Color-coded graph view of what the selected module uses, what depends on it, and where proof guarantees are linked.</p>
             </div>
+            <div id="flowchart-legend" class="flowchart-legend" aria-label="Flow chart legend"></div>
+            <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite"></div>
             <div id="constellation-wrap" class="constellation-wrap" aria-live="polite"></div>
 
             <div class="lens-tabs" role="tablist" aria-label="Context lens selection">
