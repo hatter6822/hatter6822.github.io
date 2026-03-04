@@ -50,6 +50,24 @@
   };
 
   var renderScheduled = false;
+  var filteredModuleCache = {
+    key: "",
+    sortedList: []
+  };
+
+  function invalidateFilteredModuleCache() {
+    filteredModuleCache.key = "";
+    filteredModuleCache.sortedList = [];
+  }
+
+  function moduleFilterSignature() {
+    return [
+      state.modules.length,
+      state.activeLayerFilter,
+      state.proofLinkedOnly ? "1" : "0",
+      state.commitSha || ""
+    ].join("|");
+  }
 
   function scheduleRender() {
     if (renderScheduled) return;
@@ -61,8 +79,15 @@
   }
 
   function getFilteredAndSortedModules() {
+    var signature = moduleFilterSignature();
+    if (filteredModuleCache.key === signature && filteredModuleCache.sortedList.length) {
+      return filteredModuleCache.sortedList.slice();
+    }
+
     var list = filteredModules();
     sortModules(list);
+    filteredModuleCache.key = signature;
+    filteredModuleCache.sortedList = list.slice();
     return list;
   }
 
@@ -213,9 +238,10 @@
     var seenFunctions = Object.create(null);
     var theoremNames = [];
     var functionNames = [];
-    var theoremPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+([\w'.`]+)/gm;
-    var functionPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev|opaque)\s+([\w'.`]+)/gm;
-    var instancePattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?instance\s+([\w'.`]+)/gm;
+    var attrPrefix = "(?:@\\[[^\\]]+\\]\\s+|@[\\w.]+\\s+)*";
+    var theoremPattern = new RegExp("^\\s*" + attrPrefix + "(?:private\\s+|protected\\s+)?(?:theorem|lemma)\\s+([\\w'.`]+)", "gm");
+    var functionPattern = new RegExp("^\\s*" + attrPrefix + "(?:private\\s+|protected\\s+)?(?:noncomputable\\s+)?(?:def|abbrev|opaque)\\s+([\\w'.`]+)", "gm");
+    var instancePattern = new RegExp("^\\s*" + attrPrefix + "(?:private\\s+|protected\\s+)?(?:noncomputable\\s+)?instance\\s+([\\w'.`]+)", "gm");
 
     var match;
     while ((match = theoremPattern.exec(sourceText)) !== null) {
@@ -1629,6 +1655,7 @@
     state.commitSha = data.commitSha || "";
     state.generatedAt = data.generatedAt || "";
     LABEL_WRAP_CACHE.clear();
+    invalidateFilteredModuleCache();
     buildSearchIndex();
 
     buildPairs();
@@ -1692,6 +1719,7 @@
         state.contextListKey = "";
         state.contextOptionsKey = "";
         state.contextList = [];
+        invalidateFilteredModuleCache();
 
         for (var j = 0; j < state.modules.length; j++) state.moduleMap[state.modules[j]] = leanFiles[j];
         buildSearchIndex();
@@ -1812,10 +1840,12 @@
 
     function apply() {
       state.activeLayerFilter = focus ? focus.value : "all";
+      invalidateFilteredModuleCache();
       applyDetailLevel(selectedDetail);
       updateDetailPillState(selectedDetail);
       state.flowShowAll = flowShowAll ? flowShowAll.checked : false;
       state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
+      invalidateFilteredModuleCache();
       syncUrlState();
       updateToolbarSummary();
       scheduleRender();
@@ -1960,6 +1990,7 @@
 
     var layer = params.get("layer") || "all";
     if (/^(all|model|kernel|security|platform|other)$/.test(layer)) state.activeLayerFilter = layer;
+    invalidateFilteredModuleCache();
 
     var detail = params.get("detail") || "";
     if (/^(compact|balanced|expanded)$/.test(detail)) {

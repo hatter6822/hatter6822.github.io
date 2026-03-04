@@ -1,34 +1,68 @@
 # seLe4n Website
 
-Static marketing site for **seLe4n**.
+Static marketing site + architecture codemap for **seLe4n**.
+
+## Repository layout
+
+```text
+.
+├── assets/
+│   ├── css/
+│   │   ├── style.css          # Main landing-page styles
+│   │   └── map.css            # Codemap-page styles
+│   └── js/
+│       ├── site.js            # Landing-page behavior + live metrics
+│       ├── map.js             # Codemap UI/runtime orchestration
+│       ├── theme-init.js      # Early theme bootstrap to avoid flash
+│       └── background-pattern.js
+├── data/
+│   ├── site-data.json         # Bundled landing-page metrics baseline
+│   └── map-data.json          # Bundled codemap snapshot baseline
+├── docs/
+│   ├── ARCHITECTURE_AUDIT.md
+│   ├── CODEBASE_MAP.md
+│   └── TESTING.md
+├── scripts/
+│   ├── lib/
+│   │   └── map-analysis.mjs   # Shared parser/classification helpers
+│   ├── sync-site-data.mjs
+│   └── sync-map-data.mjs
+└── test/
+    └── map-analysis.test.mjs
+```
 
 ## Data synchronization
 
-Live metrics are now sourced from `data/site-data.json` first, so desktop and mobile clients render the same baseline data.
-
-The code map page can also be pre-synced through `data/map-data.json` for deterministic, low-latency rendering before live refresh.
-
-To refresh those metrics from `hatter6822/seLe4n`:
+Refresh bundled snapshots from `hatter6822/seLe4n`:
 
 ```bash
 node scripts/sync-site-data.mjs
-
 node scripts/sync-map-data.mjs
 ```
 
-Then commit the updated `data/site-data.json` file.
+Commit the updated files in `data/` after validation.
 
-## Runtime data consistency
+## Runtime consistency model
 
-The browser now treats `data/site-data.json` as the canonical baseline on every refresh. Any cached values are immediately revalidated against the bundled file, then live repository metadata is merged in (version, Lean toolchain, LOC, theorem count, scripts/docs counts, kernel modules, build jobs, and latest commit metadata from `main`).
+- Landing page reads `data/site-data.json` as baseline, then merges live repository metadata.
+- Codemap page reads `data/map-data.json` first for deterministic startup, then optionally performs live refresh.
+- If live calls fail, bundled data remains authoritative fallback.
 
-If any live fetch fails in the browser, the site continues to use bundled `data/site-data.json` values as fallback.
+## Testing
 
+Run automated unit tests:
 
-## Third-party notices
+```bash
+node --test
+```
 
-This repository includes a third-party simplex-noise implementation used in `background-pattern.js`.
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license text.
+See [`docs/TESTING.md`](docs/TESTING.md) for coverage details and roadmap.
+
+## Additional documentation
+
+- [Architecture audit](docs/ARCHITECTURE_AUDIT.md)
+- [Codemap end-to-end guide](docs/CODEBASE_MAP.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ## License
 
