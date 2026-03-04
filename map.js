@@ -1481,7 +1481,9 @@
       if (!raw) return null;
       var parsed = JSON.parse(raw);
       if (parsed.schema !== CACHE_SCHEMA_VERSION) return null;
-      if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
+      var ageMs = Math.max(0, Date.now() - Number(parsed.ts || 0));
+      parsed.isFresh = ageMs <= CACHE_TTL_MS;
+      parsed.ageMs = ageMs;
       return parsed;
     } catch (e) {
       return null;
@@ -1594,6 +1596,23 @@
     return safeFetch(DATA_ENDPOINT, false).then(normalizeMapData).catch(function () {
       return null;
     });
+  }
+
+  function timestampFromIsoString(value) {
+    if (!value) return 0;
+    var ts = Date.parse(String(value));
+    return isNaN(ts) ? 0 : ts;
+  }
+
+  function chooseBestLocalData(cachedData, bundledData) {
+    if (!cachedData) return bundledData;
+    if (!bundledData) return cachedData;
+
+    var cachedTs = timestampFromIsoString(cachedData.generatedAt);
+    var bundledTs = timestampFromIsoString(bundledData.generatedAt);
+
+    if (bundledTs > cachedTs) return bundledData;
+    return cachedData;
   }
 
   function applyData(data) {
@@ -2041,15 +2060,17 @@
     var cached = getCache();
     var cachedData = cached && cached.data ? normalizeMapData(cached.data) : null;
 
-    if (cachedData) {
-      applyData(cachedData);
-      setStatus("Showing cached map while refreshing…", false);
-    }
-
     fetchBundledMapData().then(function (bundledData) {
-      if (!bundledData) return;
-      if (!cachedData || !cachedData.modules || !cachedData.modules.length) {
-        applyData(bundledData);
+      var localData = chooseBestLocalData(cachedData, bundledData);
+      if (!localData) return;
+
+      applyData(localData);
+      if (localData === cachedData && cached && !cached.isFresh) {
+        var minutes = Math.max(1, Math.round((cached.ageMs || 0) / 60000));
+        setStatus("Loaded latest local snapshot (" + minutes + " min old) while refreshing…", false);
+      } else if (localData === cachedData) {
+        setStatus("Showing cached map while refreshing…", false);
+      } else {
         setStatus("Loaded bundled map snapshot while checking live sync…", false);
       }
     }).finally(function () {
