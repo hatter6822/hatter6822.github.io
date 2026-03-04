@@ -73,6 +73,17 @@ test('theoremCount includes theorem and lemma declarations', () => {
   assert.equal(theoremCount(source), 2);
 });
 
+
+test('theoremCount supports attributed/private/protected theorem declarations', () => {
+  const source = `
+@[simp] theorem a : True := by trivial
+private theorem b : True := by trivial
+protected lemma c : True := by trivial
+def notCounted := 0
+`;
+  assert.equal(theoremCount(source), 3);
+});
+
 test('parseCurrentStateMetrics extracts dashboard values from markdown table', () => {
   const readme = `
 | Metric | Value |
