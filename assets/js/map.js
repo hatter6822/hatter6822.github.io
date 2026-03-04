@@ -43,6 +43,8 @@
     trail: [], neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
     flowShowAll: false, contextListKey: "", contextList: [],
     contextOptionsKey: "", searchIndex: Object.create(null),
+    filteredModulesKey: "", filteredModulesList: [], filteredModulesValid: false,
+    contextListValid: false,
     interiorMenuModule: "",
     interiorMenuQuery: "",
     commitSha: "",
@@ -60,6 +62,15 @@
     });
   }
 
+
+  function invalidateDerivedCaches() {
+    state.contextListKey = "";
+    state.contextOptionsKey = "";
+    state.contextListValid = false;
+    state.filteredModulesKey = "";
+    state.filteredModulesList = [];
+    state.filteredModulesValid = false;
+  }
   function getFilteredAndSortedModules() {
     var list = filteredModules();
     sortModules(list);
@@ -584,8 +595,11 @@
   }
 
   function filteredModules() {
+    var key = [state.activeLayerFilter, state.proofLinkedOnly ? "1" : "0", state.modules.length].join("|");
+    if (key === state.filteredModulesKey && state.filteredModulesValid) return state.filteredModulesList.slice();
+
     var layer = state.activeLayerFilter;
-    return state.modules.filter(function (name) {
+    var list = state.modules.filter(function (name) {
       var meta = state.moduleMeta[name] || {};
       if (layer !== "all" && meta.layer !== layer) return false;
       if (state.proofLinkedOnly) {
@@ -594,6 +608,11 @@
       }
       return true;
     });
+
+    state.filteredModulesKey = key;
+    state.filteredModulesList = list.slice();
+    state.filteredModulesValid = true;
+    return list;
   }
 
   function sortModules(list) {
@@ -637,10 +656,11 @@
 
   function contextList() {
     var key = [state.activeLayerFilter, state.proofLinkedOnly ? "1" : "0", state.modules.length].join("|");
-    if (key === state.contextListKey && state.contextList.length) return state.contextList.slice();
+    if (key === state.contextListKey && state.contextListValid) return state.contextList.slice();
     var list = getFilteredAndSortedModules();
     state.contextListKey = key;
     state.contextList = list.slice();
+    state.contextListValid = true;
     return list;
   }
 
@@ -1709,8 +1729,7 @@
     state.importsTo = data.importsTo || Object.create(null);
     state.importsFrom = data.importsFrom || Object.create(null);
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
-    state.contextListKey = "";
-    state.contextOptionsKey = "";
+    invalidateDerivedCaches();
     state.contextList = [];
     state.commitSha = data.commitSha || "";
     state.generatedAt = data.generatedAt || "";
@@ -1775,8 +1794,7 @@
         state.importsTo = Object.create(null);
         state.importsFrom = Object.create(null);
         state.externalImportsFrom = Object.create(null);
-        state.contextListKey = "";
-        state.contextOptionsKey = "";
+        invalidateDerivedCaches();
         state.contextList = [];
 
         for (var j = 0; j < state.modules.length; j++) state.moduleMap[state.modules[j]] = leanFiles[j];
@@ -1902,6 +1920,7 @@
       updateDetailPillState(selectedDetail);
       state.flowShowAll = flowShowAll ? flowShowAll.checked : false;
       state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
+      invalidateDerivedCaches();
       syncUrlState();
       updateToolbarSummary();
       scheduleRender();
