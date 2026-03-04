@@ -19,3 +19,7 @@ Then commit the updated `data/site-data.json` file.
 The browser now treats `data/site-data.json` as the canonical baseline on every refresh. Any cached values are immediately revalidated against the bundled file, then live repository metadata is merged in (version, Lean toolchain, LOC, theorem count, scripts/docs counts, kernel modules, build jobs, and latest commit metadata from `main`).
 
 If any live fetch fails in the browser, the site continues to use bundled `data/site-data.json` values as fallback.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE) for details.
