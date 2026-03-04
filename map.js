@@ -17,6 +17,9 @@
   var CACHE_KEY = "sele4n-code-map-v8";
   var CACHE_SCHEMA_VERSION = 2;
   var CACHE_TTL_MS = 60 * 60 * 1000;
+  var LIVE_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
+  var LIVE_SYNC_JITTER_MAX_MS = 45 * 1000;
+  var LIVE_SYNC_META_KEY = "sele4n-code-map-live-sync-meta-v1";
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
   var NODE_CACHE = Object.create(null);
@@ -85,6 +88,23 @@
     for (var i = 0; i < els.length; i++) els[i].textContent = String(value);
   }
 
+  function formatGeneratedAt(value) {
+    if (!value) return "-";
+    var date = new Date(value);
+    if (isNaN(date.getTime())) return "-";
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(date);
+    } catch (e) {
+      return date.toISOString().replace("T", " ").slice(0, 16) + " UTC";
+    }
+  }
+
   function safeFetch(url, asText) {
     var ctrl = typeof AbortController === "function" ? new AbortController() : null;
     var timer = null;
@@ -99,6 +119,28 @@
       if (timer) clearTimeout(timer);
       throw error;
     });
+  }
+
+  function decodeBlobBase64(content) {
+    var normalized = String(content || "").replace(/\n/g, "");
+    var binary = window.atob(normalized);
+    var len = binary.length;
+    var bytes = new Uint8Array(len);
+    for (var i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+
+    if (typeof TextDecoder === "function") {
+      try {
+        return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      } catch (e) {}
+    }
+
+    var out = "";
+    for (var j = 0; j < bytes.length; j++) out += String.fromCharCode(bytes[j]);
+    try {
+      return decodeURIComponent(escape(out));
+    } catch (err) {
+      return out;
+    }
   }
 
   function sanitizeModuleName(value) {
@@ -1117,6 +1159,7 @@
     updateMetric("proofPairs", totals.pairs);
     updateMetric("linkedPairs", totals.linked);
     updateMetric("commit", state.commitSha ? state.commitSha.slice(0, 7) : "-");
+    updateMetric("generatedAt", formatGeneratedAt(state.generatedAt));
   }
 
   function renderAll() {
@@ -1245,6 +1288,53 @@
     } catch (e) {}
   }
 
+  function getLiveSyncMeta() {
+    try {
+      var raw = localStorage.getItem(LIVE_SYNC_META_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return null;
+      return {
+        nextAllowedAt: Number(parsed.nextAllowedAt) || 0,
+        lastCheckedCommit: parsed.lastCheckedCommit ? String(parsed.lastCheckedCommit) : ""
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setLiveSyncMeta(lastCheckedCommit) {
+    var jitter = Math.floor(Math.random() * LIVE_SYNC_JITTER_MAX_MS);
+    var nextAllowedAt = Date.now() + LIVE_SYNC_MIN_INTERVAL_MS + jitter;
+    try {
+      localStorage.setItem(LIVE_SYNC_META_KEY, JSON.stringify({
+        nextAllowedAt: nextAllowedAt,
+        lastCheckedCommit: lastCheckedCommit || ""
+      }));
+    } catch (e) {}
+    return nextAllowedAt;
+  }
+
+  function remainingSyncCooldownMs() {
+    var meta = getLiveSyncMeta();
+    if (!meta || !meta.nextAllowedAt) return 0;
+    return Math.max(0, meta.nextAllowedAt - Date.now());
+  }
+
+  function persistCurrentMapCache() {
+    setCache({
+      files: state.files,
+      modules: state.modules,
+      moduleMap: state.moduleMap,
+      moduleMeta: state.moduleMeta,
+      importsTo: state.importsTo,
+      importsFrom: state.importsFrom,
+      externalImportsFrom: state.externalImportsFrom,
+      commitSha: state.commitSha,
+      generatedAt: state.generatedAt
+    }, state.commitSha);
+  }
+
   function fetchLatestCommitSha() {
     return safeFetch(API + "/commits/" + REF, false).then(function (payload) {
       return payload && payload.sha ? String(payload.sha) : "";
@@ -1288,6 +1378,7 @@
     state.contextList = [];
     state.commitSha = data.commitSha || "";
     state.generatedAt = data.generatedAt || "";
+    LABEL_WRAP_CACHE.clear();
 
     buildPairs();
     if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
@@ -1312,7 +1403,10 @@
     setStatus("Checking latest repository commit…", false);
 
     return fetchLatestCommitSha().then(function (latestCommitSha) {
-      if (cachedCommitSha && latestCommitSha && cachedCommitSha === latestCommitSha) {
+      var knownCommit = state.commitSha || cachedCommitSha || "";
+      setLiveSyncMeta(latestCommitSha || knownCommit);
+
+      if (knownCommit && latestCommitSha && knownCommit === latestCommitSha) {
         setStatus("Map is already synced to " + latestCommitSha.slice(0, 7) + ".", false);
         return;
       }
@@ -1363,7 +1457,7 @@
               applyEmptyModule(moduleName);
               return;
             }
-            var text = window.atob(String(blob.content).replace(/\n/g, ""));
+            var text = decodeBlobBase64(blob.content);
             parseModule(moduleName, text);
           }).catch(function () {
             applyEmptyModule(moduleName);
@@ -1380,20 +1474,21 @@
           syncUrlState();
           var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
           setStatus("Map ready. Integrated dependency/proof flow graph loaded." + statusSuffix, false);
-          setCache({
-            files: state.files,
-            modules: state.modules,
-            moduleMap: state.moduleMap,
-            moduleMeta: state.moduleMeta,
-            importsTo: state.importsTo,
-            importsFrom: state.importsFrom,
-            externalImportsFrom: state.externalImportsFrom,
-            commitSha: state.commitSha,
-            generatedAt: state.generatedAt
-          }, state.commitSha);
+          persistCurrentMapCache();
         });
       });
     });
+  }
+
+  function refreshMapDataWithPolicy(cachedCommitSha, hasLocalData) {
+    var cooldown = remainingSyncCooldownMs();
+    if (hasLocalData && cooldown > 0) {
+      var mins = Math.max(1, Math.ceil(cooldown / 60000));
+      setStatus("Using local snapshot. Next live sync check in about " + mins + " min.", false);
+      return Promise.resolve();
+    }
+
+    return fetchAndBuildData(cachedCommitSha);
   }
 
   function detailLevelFromState() {
@@ -1664,9 +1759,10 @@
       }
     }).finally(function () {
       var cachedCommitSha = cached && cached.commitSha ? String(cached.commitSha) : "";
-      fetchAndBuildData(cachedCommitSha).catch(function (error) {
+      var hasLocalData = Boolean(state.modules && state.modules.length);
+      refreshMapDataWithPolicy(cachedCommitSha, hasLocalData).catch(function (error) {
         var message = error && error.message ? error.message : "Unknown error";
-        if (!cachedData) setStatus("Unable to load codebase map. " + message, true);
+        if (!hasLocalData) setStatus("Unable to load codebase map. " + message, true);
         else setStatus("Refresh failed; showing cached data. " + message, true);
       });
     });
