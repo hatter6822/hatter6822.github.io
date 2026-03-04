@@ -874,6 +874,11 @@
     var nav = document.getElementById("nav");
     if (!nav) return;
 
+    if (nav.getAttribute("data-force-scrolled") === "true") {
+      nav.classList.add("scrolled");
+      return;
+    }
+
     var applyScrolled = function () {
       nav.classList.toggle("scrolled", window.scrollY > 40);
     };
