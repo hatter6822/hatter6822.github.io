@@ -92,8 +92,9 @@
 
         <form class="map-toolbar card" id="map-toolbar" role="search" aria-label="Module filters" onsubmit="return false;">
           <div class="control-group control-group-wide">
-            <label for="module-search">Search module/path</label>
-            <input id="module-search" type="search" placeholder="e.g. SeLe4n.Kernel.API or Capability" autocomplete="off">
+            <label for="module-search">Current context module</label>
+            <input id="module-search" type="search" list="context-options" placeholder="Type module/path to switch context" autocomplete="off" spellcheck="false" aria-describedby="module-search-help">
+            <datalist id="context-options"></datalist>
           </div>
 
           <div class="control-group">
@@ -147,6 +148,7 @@
             <button id="reset-view" class="btn btn-secondary" type="button">Reset filters</button>
           </div>
         </form>
+        <p id="module-search-help" class="panel-note">Context jump: start typing any Lean module or file path, then press Enter.</p>
 
         <div class="navigator-layout">
           <article class="card constellation-panel">
@@ -154,18 +156,6 @@
               <h2 class="section-title-sm">Interactive dependency/proof flow chart</h2>
               <p class="panel-note">Color-coded graph view of what the selected module uses, what depends on it, and where proof guarantees are linked.</p>
             </div>
-            <section class="context-switcher" aria-label="Current context selection">
-              <div class="context-switcher-header">
-                <h3 class="section-title-sm">Current context</h3>
-                <p class="panel-note">Use the searchable dropdown to jump directly to any module context.</p>
-              </div>
-              <div class="context-switcher-controls">
-                <label for="context-picker" class="visually-hidden">Choose current context module</label>
-                <input id="context-picker" type="search" list="context-options" placeholder="Choose module context…" autocomplete="off" spellcheck="false" aria-describedby="context-picker-help">
-                <datalist id="context-options"></datalist>
-              </div>
-              <p id="context-picker-help" class="panel-note">Tip: start typing module name/path and press Enter to select.</p>
-            </section>
             <div id="flowchart-legend" class="flowchart-legend" aria-label="Flow chart legend"></div>
             <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite"></div>
             <div id="constellation-wrap" class="constellation-wrap" aria-live="polite"></div>

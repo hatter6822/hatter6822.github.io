@@ -96,24 +96,8 @@
 }
 .panel-header { margin-bottom: 0.65rem; }
 
-.context-switcher {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: color-mix(in oklab, var(--surface) 86%, transparent);
-  padding: 0.6rem;
-  margin-bottom: 0.5rem;
-}
-.context-switcher-header { margin-bottom: 0.45rem; }
-.context-switcher-header .panel-note { margin-bottom: 0; font-size: 0.8rem; }
-.context-switcher-controls { display: grid; grid-template-columns: 1fr; gap: 0.45rem; margin-bottom: 0.2rem; }
-.context-switcher-controls input {
-  min-height: 2.4rem;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: var(--radius);
-  padding: 0.5rem 0.62rem;
-}
+.map-toolbar + .panel-note { margin: 0.1rem 0 0.4rem; font-size: 0.8rem; }
+
 .constellation-wrap { min-height: 13.5rem; display: grid; gap: 0.5rem; }
 .flowchart-legend {
   display: flex;
