@@ -25,7 +25,7 @@
 
 .map-toolbar {
   display: grid;
-  grid-template-columns: minmax(15rem, 2fr) repeat(3, minmax(10rem, 1fr)) auto;
+  grid-template-columns: minmax(15rem, 2fr) repeat(5, minmax(9rem, 1fr)) auto;
   gap: 0.7rem;
   align-items: end;
   padding: 0.9rem;
@@ -44,6 +44,15 @@
 }
 .control-actions { align-content: end; }
 .control-actions .btn { width: 100%; min-height: 2.45rem; }
+.toggle-group input[type="checkbox"] {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--accent);
+}
+.toggle-group .panel-note {
+  margin-bottom: 0;
+  font-size: 0.72rem;
+}
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -97,6 +106,9 @@
 .lens-tab.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
 .lens-panel { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--surface) 85%, transparent); padding: 0.6rem; margin-top: 0.45rem; }
 .lens-metric { font-size: 0.78rem; margin-bottom: 0.3rem; }
+.risk-list { margin-top: 0.4rem; display: grid; gap: 0.3rem; }
+.risk-item { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--bg-alt); padding: 0.35rem 0.45rem; font-size: 0.72rem; }
+.risk-item strong { font-family: var(--font-mono); }
 
 .trace-row { border-top: 1px solid var(--border); padding-top: 0.55rem; margin-top: 0.5rem; }
 .trail-wrap { display: flex; flex-wrap: wrap; gap: 0.35rem; }
@@ -110,9 +122,11 @@
 .details-empty { color: var(--text-muted); }
 .detail-list { margin-top: 0.15rem; }
 .detail-list li { padding: 0.16rem 0; font-family: var(--font-mono); font-size: 0.74rem; overflow-wrap: anywhere; word-break: break-word; }
+.assurance-strip { margin-top: 0.4rem; }
 
 @media (max-width: 1320px) {
   .map-toolbar { grid-template-columns: minmax(16rem, 1fr) repeat(3, minmax(10rem, 1fr)); }
+  .toggle-group { grid-column: 1 / -1; }
   .control-actions { grid-column: 1 / -1; }
   .control-actions .btn { width: auto; min-width: 11rem; }
 }

@@ -25,7 +25,7 @@
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot",
-    trail: [], selectedLens: "summary", neighborLimit: 12
+    trail: [], selectedLens: "summary", neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false
   };
 
   function getFilteredAndSortedModules() {
@@ -205,6 +205,102 @@
     return state.proofPairMap[moduleBase(name)] || null;
   }
 
+  function assuranceForModule(name) {
+    var pair = findProofPair(name);
+    var degree = moduleDegree(name);
+    if (pair && pair.invariantImportsOperations) {
+      return {
+        level: "linked",
+        label: "Linked proof chain",
+        detail: "Operations and Invariant modules are connected; obligations can be traced from transitions to safety claims.",
+        score: degree.score + pair.operationsTheorems + pair.invariantTheorems
+      };
+    }
+    if (pair) {
+      return {
+        level: "partial",
+        label: "Partial proof context",
+        detail: "A proof pair exists but is not explicitly linked by imports; review assumptions before reusing results.",
+        score: degree.score
+      };
+    }
+    if (degree.theorems > 0) {
+      return {
+        level: "local",
+        label: "Local theorem coverage",
+        detail: "This module declares theorems but has no Operations/Invariant pair mapping.",
+        score: degree.score
+      };
+    }
+    return {
+      level: "none",
+      label: "No explicit proof evidence",
+      detail: "No theorem declarations or proof-pair mapping detected for this module.",
+      score: degree.score
+    };
+  }
+
+  function collectNeighborhood(name, radius) {
+    var maxRadius = Math.max(1, Math.min(3, radius || 1));
+    var visited = Object.create(null);
+    var queue = [{ name: name, depth: 0 }];
+    var out = [];
+    visited[name] = true;
+
+    while (queue.length) {
+      var node = queue.shift();
+      out.push(node);
+      if (node.depth >= maxRadius) continue;
+      var neighbors = (state.importsFrom[node.name] || []).concat(state.importsTo[node.name] || []);
+      for (var i = 0; i < neighbors.length; i++) {
+        var next = neighbors[i];
+        if (!next || visited[next]) continue;
+        visited[next] = true;
+        queue.push({ name: next, depth: node.depth + 1 });
+      }
+    }
+    return out;
+  }
+
+  function findNearestLinkedPath(start, radius) {
+    if (!start) return [];
+    if (assuranceForModule(start).level === "linked") return [start];
+
+    var maxRadius = Math.max(1, Math.min(3, radius || 1));
+    var queue = [{ name: start, depth: 0 }];
+    var visited = Object.create(null);
+    var prev = Object.create(null);
+    visited[start] = true;
+
+    while (queue.length) {
+      var node = queue.shift();
+      if (node.depth >= maxRadius) continue;
+
+      var neighbors = uniqueModules((state.importsFrom[node.name] || []).concat(state.importsTo[node.name] || []), node.name);
+      for (var i = 0; i < neighbors.length; i++) {
+        var next = neighbors[i];
+        if (!next || visited[next]) continue;
+        visited[next] = true;
+        prev[next] = node.name;
+
+        if (assuranceForModule(next).level === "linked") {
+          var path = [next];
+          var cursor = next;
+          while (prev[cursor]) {
+            cursor = prev[cursor];
+            path.push(cursor);
+          }
+          path.reverse();
+          return path;
+        }
+
+        queue.push({ name: next, depth: node.depth + 1 });
+      }
+    }
+
+    return [];
+  }
+
   function sortByScoreThenName(a, b) {
     return moduleDegree(b).score - moduleDegree(a).score || a.localeCompare(b);
   }
@@ -235,6 +331,10 @@
       var meta = state.moduleMeta[name] || {};
       var path = state.moduleMap[name] || "";
       if (layer !== "all" && meta.layer !== layer) return false;
+      if (state.proofLinkedOnly) {
+        var pair = findProofPair(name);
+        if (!pair || !pair.invariantImportsOperations) return false;
+      }
       if (!q) return true;
       return name.toLowerCase().indexOf(q) !== -1 || path.toLowerCase().indexOf(q) !== -1;
     });
@@ -349,6 +449,62 @@
     appendList(panel, "Imports (inner band)", state.importsFrom[name] || [], 10);
     appendList(panel, "Imported by (outer band)", state.importsTo[name] || [], 10);
     appendList(panel, "External imports", state.externalImportsFrom[name] || [], 8);
+    renderAssuranceStrip(name);
+  }
+
+  function renderAssuranceStrip(name) {
+    var strip = document.getElementById("assurance-strip");
+    if (!strip || !name) return;
+    strip.classList.add("assurance-strip");
+    strip.innerHTML = "";
+
+    var assurance = assuranceForModule(name);
+    var neighborhood = collectNeighborhood(name, state.impactRadius);
+    var proofReach = neighborhood.filter(function (item) {
+      var pair = findProofPair(item.name);
+      return pair && pair.invariantImportsOperations;
+    });
+
+    var summary = document.createElement("p");
+    summary.className = "lens-metric";
+    summary.textContent = "Assurance state: " + assurance.label + ". " + assurance.detail;
+    strip.appendChild(summary);
+
+    var depth = document.createElement("p");
+    depth.className = "lens-metric";
+    depth.textContent = "Within " + state.impactRadius + " hops: " + neighborhood.length + " reachable modules, " + proofReach.length + " with linked proof chains.";
+    strip.appendChild(depth);
+
+    var row = document.createElement("div");
+    row.className = "pill-row";
+    var topReach = proofReach.slice(0, 8).sort(function (a, b) {
+      return moduleDegree(b.name).score - moduleDegree(a.name).score;
+    });
+
+    if (!topReach.length) {
+      row.textContent = "No linked proof chains found in the current radius.";
+    } else {
+      for (var i = 0; i < topReach.length; i++) {
+        var chip = createPill(topReach[i].name, "out", true);
+        chip.setAttribute("title", "Depth " + topReach[i].depth + " from selected module");
+        chip.appendChild(document.createTextNode(" · d" + topReach[i].depth));
+        row.appendChild(chip);
+      }
+    }
+    strip.appendChild(row);
+
+    var path = findNearestLinkedPath(name, state.impactRadius);
+    var pathLabel = document.createElement("p");
+    pathLabel.className = "lens-metric";
+    pathLabel.textContent = path.length ? "Nearest linked-proof path:" : "No linked-proof path found within current impact radius.";
+    strip.appendChild(pathLabel);
+
+    if (path.length) {
+      var pathRow = document.createElement("div");
+      pathRow.className = "pill-row";
+      for (var j = 0; j < path.length; j++) pathRow.appendChild(createPill(path[j], "in", true));
+      strip.appendChild(pathRow);
+    }
   }
 
   function renderWalkCards() {
@@ -358,6 +514,13 @@
 
     var list = getFilteredAndSortedModules();
     updateModuleResults(list.length);
+
+    if (list.length && list.indexOf(state.selectedModule) === -1) {
+      state.selectedModule = list[0];
+      rememberTrail(state.selectedModule);
+      renderDetails(state.selectedModule);
+      syncUrlState();
+    }
 
     if (!list.length) {
       wrap.textContent = "No modules matched the current filters.";
@@ -380,7 +543,8 @@
       info.className = "walk-meta";
       var pair = findProofPair(name);
       var pairStatus = pair ? (pair.invariantImportsOperations ? "proof-linked" : "proof-check") : "proof-na";
-      info.textContent = meta.layer + " · " + meta.kind + " · thm=" + degree.theorems + " · " + pairStatus;
+      var assurance = assuranceForModule(name);
+      info.textContent = meta.layer + " · " + meta.kind + " · thm=" + degree.theorems + " · " + pairStatus + " · assurance=" + assurance.level;
       var score = document.createElement("p");
       score.className = "walk-score";
       score.textContent = "score=" + degree.score + " in=" + degree.incoming + " out=" + degree.outgoing;
@@ -467,7 +631,13 @@
 
     var neighborPool = (state.importsFrom[selected] || []).concat(state.importsTo[selected] || []).concat(relatedProofModules(selected));
     var unique = uniqueModules(neighborPool, selected);
-    unique.sort(sortByScoreThenName);
+    unique.sort(function (a, b) {
+      var aa = assuranceForModule(a);
+      var bb = assuranceForModule(b);
+      var weightA = (aa.level === "linked" ? 3 : aa.level === "partial" ? 2 : aa.level === "local" ? 1 : 0);
+      var weightB = (bb.level === "linked" ? 3 : bb.level === "partial" ? 2 : bb.level === "local" ? 1 : 0);
+      return weightB - weightA || sortByScoreThenName(a, b);
+    });
 
     return unique.slice(0, 6);
   }
@@ -582,6 +752,53 @@
     appendList(panel, "Top subsystem pairs", leaders, leaders.length);
   }
 
+  function lensAssurance(panel, selected) {
+    var ring = collectNeighborhood(selected, state.impactRadius);
+    var risks = [];
+
+    for (var i = 0; i < ring.length; i++) {
+      if (ring[i].name === selected) continue;
+      var score = moduleDegree(ring[i].name).score;
+      var assurance = assuranceForModule(ring[i].name);
+      if (assurance.level === "linked") continue;
+      risks.push({ name: ring[i].name, depth: ring[i].depth, score: score, assurance: assurance });
+    }
+
+    risks.sort(function (a, b) {
+      return b.score - a.score || a.depth - b.depth || a.name.localeCompare(b.name);
+    });
+
+    var summary = document.createElement("p");
+    summary.className = "lens-metric";
+    summary.textContent = "Impact radius " + state.impactRadius + " discovers " + ring.length + " modules; " + risks.length + " require proof strengthening or trace review.";
+    panel.appendChild(summary);
+
+    var riskList = document.createElement("div");
+    riskList.className = "risk-list";
+    if (!risks.length) {
+      var healthy = document.createElement("p");
+      healthy.className = "lens-metric";
+      healthy.textContent = "All reachable modules are proof-linked. This context has strong compositional evidence.";
+      panel.appendChild(healthy);
+    } else {
+      for (var j = 0; j < Math.min(6, risks.length); j++) {
+        var item = document.createElement("div");
+        item.className = "risk-item";
+        item.innerHTML = "<strong></strong>";
+        item.children[0].textContent = risks[j].name;
+        item.appendChild(document.createTextNode(" · d" + risks[j].depth + " · " + risks[j].assurance.label.toLowerCase() + " · score " + risks[j].score));
+        riskList.appendChild(item);
+      }
+      panel.appendChild(riskList);
+    }
+
+    var guidance = [];
+    guidance.push("Anchor on modules with linked proof chains before consuming theorem results from partial contexts.");
+    guidance.push("Use dependency lens to inspect highest-impact neighbors; unresolved assumptions often propagate through high fan-in nodes.");
+    guidance.push("Expand impact radius when auditing subsystem boundaries or cross-layer imports.");
+    appendList(panel, "Assurance workflow", guidance, guidance.length);
+  }
+
   function renderLensPanel() {
     var panel = document.getElementById("lens-panel");
     if (!panel) return;
@@ -594,7 +811,8 @@
 
     if (state.selectedLens === "summary") lensSummary(panel, state.selectedModule);
     else if (state.selectedLens === "dependencies") lensDependencies(panel, state.selectedModule);
-    else lensProof(panel, state.selectedModule);
+    else if (state.selectedLens === "proof") lensProof(panel, state.selectedModule);
+    else lensAssurance(panel, state.selectedModule);
   }
 
   function buildPairs() {
@@ -851,6 +1069,8 @@
     var focus = document.getElementById("focus-select");
     var sort = document.getElementById("sort-select");
     var neighborLimit = document.getElementById("neighbor-limit");
+    var impactRadius = document.getElementById("impact-radius");
+    var proofLinkedOnly = document.getElementById("proof-linked-only");
     var reset = document.getElementById("reset-view");
 
     var layers = ["model", "kernel", "security", "platform", "other"];
@@ -868,14 +1088,19 @@
       state.activeLayerFilter = focus ? focus.value : "all";
       state.activeSort = sort ? sort.value : "hotspot";
       state.neighborLimit = neighborLimit ? Math.max(4, Math.min(20, Number(neighborLimit.value) || 12)) : 12;
+      state.impactRadius = impactRadius ? Math.max(1, Math.min(3, Number(impactRadius.value) || 2)) : 2;
+      state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
       syncUrlState();
       renderAll();
+      if (state.selectedModule) renderDetails(state.selectedModule);
     }
 
     if (search) search.addEventListener("input", apply);
     if (focus) focus.addEventListener("change", apply);
     if (sort) sort.addEventListener("change", apply);
     if (neighborLimit) neighborLimit.addEventListener("change", apply);
+    if (impactRadius) impactRadius.addEventListener("change", apply);
+    if (proofLinkedOnly) proofLinkedOnly.addEventListener("change", apply);
 
     if (reset) {
       reset.addEventListener("click", function () {
@@ -883,6 +1108,8 @@
         if (focus) focus.value = "all";
         if (sort) sort.value = "hotspot";
         if (neighborLimit) neighborLimit.value = "12";
+        if (impactRadius) impactRadius.value = "2";
+        if (proofLinkedOnly) proofLinkedOnly.checked = false;
         apply();
       });
     }
@@ -955,6 +1182,11 @@
 
     var query = (params.get("q") || "").slice(0, 80);
     state.activeFilterText = query.replace(/[^\w./\-\s]/g, "");
+
+    var radius = Number(params.get("radius") || "2");
+    if (radius >= 1 && radius <= 3) state.impactRadius = radius;
+
+    state.proofLinkedOnly = params.get("linked") === "1";
   }
 
   function syncUrlState() {
@@ -963,6 +1195,8 @@
     if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
     if (state.activeSort && state.activeSort !== "hotspot") params.set("sort", state.activeSort); else params.delete("sort");
     if (state.activeFilterText) params.set("q", state.activeFilterText); else params.delete("q");
+    if (state.impactRadius && state.impactRadius !== 2) params.set("radius", String(state.impactRadius)); else params.delete("radius");
+    if (state.proofLinkedOnly) params.set("linked", "1"); else params.delete("linked");
 
     var next = params.toString();
     var target = window.location.pathname + (next ? "?" + next : "");
@@ -974,9 +1208,13 @@
     var search = document.getElementById("module-search");
     var focus = document.getElementById("focus-select");
     var sort = document.getElementById("sort-select");
+    var radius = document.getElementById("impact-radius");
+    var linked = document.getElementById("proof-linked-only");
     if (search) search.value = state.activeFilterText;
     if (focus) focus.value = state.activeLayerFilter;
     if (sort) sort.value = state.activeSort;
+    if (radius) radius.value = String(state.impactRadius);
+    if (linked) linked.checked = Boolean(state.proofLinkedOnly);
   }
 
   function boot() {
