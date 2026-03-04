@@ -25,8 +25,7 @@
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot",
-    trail: [], selectedLens: "summary", neighborLimit: 12,
-    reasoningGoal: "proof", reasoningDepth: "deep"
+    trail: [], selectedLens: "summary", neighborLimit: 12
   };
 
   function getFilteredAndSortedModules() {
@@ -522,107 +521,6 @@
     wrap.appendChild(fragment);
   }
 
-  function reasoningStepsFor(goal, selected, related, topNeighbors, pair) {
-    if (goal === "debug") {
-      return [
-        "Capture the failing behavior at " + selected + " and write the exact state transition expected.",
-        "Inspect imports for preconditions: " + (topNeighbors[0] || "(none)") + ".",
-        "Traverse one inbound dependent to confirm whether contract misuse starts upstream.",
-        "Cross-check proof neighbors " + (related.join(", ") || "(none)") + " for violated invariants.",
-        "Document a minimal reproducible path with involved modules and theorem assumptions.",
-        "Apply local patch and re-evaluate hotspot neighbors for behavioral drift.",
-        "Promote the fix into an explicit invariant or theorem statement where possible."
-      ];
-    }
-
-    if (goal === "performance") {
-      return [
-        "Quantify fan-in/fan-out at " + selected + " and prioritize high-coupling edges.",
-        "Inspect import-heavy neighbors: " + (topNeighbors.slice(0, 3).join(", ") || "(none)") + ".",
-        "Review operations/invariant split for proof-preserving optimization space.",
-        "Find repeated assumptions across dependents and extract shared fast paths.",
-        "Estimate how optimization impacts theorem obligations before refactor.",
-        "Validate downstream modules for any increase in dependency complexity.",
-        "Record before/after reasoning assumptions in module-level notes."
-      ];
-    }
-
-    if (goal === "security") {
-      return [
-        "Locate confidentiality/integrity boundaries touched by " + selected + ".",
-        "Trace imports and importers to enumerate data/control flow exposure.",
-        "Inspect pair linkage status" + (pair ? " (linked=" + (pair.invariantImportsOperations ? "yes" : "no") + ")" : "") + " for proof coverage gaps.",
-        "Prioritize review of policy/enforcement-adjacent neighbors: " + (topNeighbors.slice(0, 3).join(", ") || "(none)") + ".",
-        "Check whether assumptions from external imports remain trusted and minimal.",
-        "Build an attack surface summary for the selected traversal trail.",
-        "Translate findings into explicit noninterference obligations or checks."
-      ];
-    }
-
-    if (goal === "onboarding") {
-      return [
-        "Read " + selected + " header + imports to identify its contract in one sentence.",
-        "Open one imported module and one importer to understand bidirectional context.",
-        "Compare operations and invariants for the same subsystem base.",
-        "Capture top three theorem responsibilities and where they are consumed.",
-        "Walk through recommended neighbors and label each as model/kernel/security/platform.",
-        "Summarize the subsystem boundary and escalation path to API level.",
-        "Create a personal map checkpoint using URL parameters for later continuation."
-      ];
-    }
-
-    return [
-      "Start at " + selected + " and enumerate executable transition obligations.",
-      "Follow proof neighbors " + (related.join(", ") || "(none)") + " to match implementation against invariants.",
-      "Inspect top adjacent modules by hotspot score: " + (topNeighbors.slice(0, 3).join(", ") || "(none)") + ".",
-      "Review theorem statements and identify assumptions imported from outside the local subsystem.",
-      "Trace one importer path upward to confirm composed invariant stability.",
-      "If pair linkage is missing, define bridging obligations between operations and invariants.",
-      "Conclude with a checklist of unresolved proof obligations and next modules."
-    ];
-  }
-
-  function depthCount(depth) {
-    if (depth === "quick") return 3;
-    if (depth === "audit") return 7;
-    return 5;
-  }
-
-  function renderReasoningPanel() {
-    var panel = document.getElementById("reasoning-output");
-    if (!panel) return;
-    panel.innerHTML = "";
-
-    if (!state.selectedModule) {
-      panel.textContent = "Select a module to generate a reasoning plan.";
-      return;
-    }
-
-    var selected = state.selectedModule;
-    var related = relatedProofModules(selected);
-    var pair = findProofPair(selected);
-    var neighborPool = uniqueModules((state.importsFrom[selected] || []).concat(state.importsTo[selected] || []), selected).sort(sortByScoreThenName);
-    var steps = reasoningStepsFor(state.reasoningGoal, selected, related, neighborPool, pair).slice(0, depthCount(state.reasoningDepth));
-
-    var title = document.createElement("h3");
-    title.textContent = "Plan for " + selected;
-    panel.appendChild(title);
-
-    var meta = document.createElement("p");
-    meta.className = "reasoning-meta";
-    meta.textContent = "Goal: " + state.reasoningGoal + " · Depth: " + state.reasoningDepth + " · Pair linked: " + (pair && pair.invariantImportsOperations ? "yes" : "no");
-    panel.appendChild(meta);
-
-    var list = document.createElement("ol");
-    list.className = "reasoning-step-list";
-    for (var i = 0; i < steps.length; i++) {
-      var li = document.createElement("li");
-      li.textContent = steps[i];
-      list.appendChild(li);
-    }
-    panel.appendChild(list);
-  }
-
   function lensSummary(panel, selected) {
     var degree = moduleDegree(selected);
     var related = relatedProofModules(selected);
@@ -756,7 +654,6 @@
     renderLensPanel();
     renderTrail();
     renderRecommendations();
-    renderReasoningPanel();
   }
 
 
@@ -954,8 +851,6 @@
     var focus = document.getElementById("focus-select");
     var sort = document.getElementById("sort-select");
     var neighborLimit = document.getElementById("neighbor-limit");
-    var reasoningGoal = document.getElementById("reasoning-goal");
-    var reasoningDepth = document.getElementById("reasoning-depth");
     var reset = document.getElementById("reset-view");
 
     var layers = ["model", "kernel", "security", "platform", "other"];
@@ -973,8 +868,6 @@
       state.activeLayerFilter = focus ? focus.value : "all";
       state.activeSort = sort ? sort.value : "hotspot";
       state.neighborLimit = neighborLimit ? Math.max(4, Math.min(20, Number(neighborLimit.value) || 12)) : 12;
-      state.reasoningGoal = reasoningGoal ? reasoningGoal.value : "proof";
-      state.reasoningDepth = reasoningDepth ? reasoningDepth.value : "deep";
       syncUrlState();
       renderAll();
     }
@@ -983,8 +876,6 @@
     if (focus) focus.addEventListener("change", apply);
     if (sort) sort.addEventListener("change", apply);
     if (neighborLimit) neighborLimit.addEventListener("change", apply);
-    if (reasoningGoal) reasoningGoal.addEventListener("change", apply);
-    if (reasoningDepth) reasoningDepth.addEventListener("change", apply);
 
     if (reset) {
       reset.addEventListener("click", function () {
@@ -992,8 +883,6 @@
         if (focus) focus.value = "all";
         if (sort) sort.value = "hotspot";
         if (neighborLimit) neighborLimit.value = "12";
-        if (reasoningGoal) reasoningGoal.value = "proof";
-        if (reasoningDepth) reasoningDepth.value = "deep";
         apply();
       });
     }
@@ -1066,12 +955,6 @@
 
     var query = (params.get("q") || "").slice(0, 80);
     state.activeFilterText = query.replace(/[^\w./\-\s]/g, "");
-
-    var goal = params.get("goal") || "proof";
-    if (/^(proof|debug|performance|security|onboarding)$/.test(goal)) state.reasoningGoal = goal;
-
-    var depth = params.get("depth") || "deep";
-    if (/^(quick|deep|audit)$/.test(depth)) state.reasoningDepth = depth;
   }
 
   function syncUrlState() {
@@ -1080,8 +963,6 @@
     if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
     if (state.activeSort && state.activeSort !== "hotspot") params.set("sort", state.activeSort); else params.delete("sort");
     if (state.activeFilterText) params.set("q", state.activeFilterText); else params.delete("q");
-    if (state.reasoningGoal && state.reasoningGoal !== "proof") params.set("goal", state.reasoningGoal); else params.delete("goal");
-    if (state.reasoningDepth && state.reasoningDepth !== "deep") params.set("depth", state.reasoningDepth); else params.delete("depth");
 
     var next = params.toString();
     var target = window.location.pathname + (next ? "?" + next : "");
@@ -1093,13 +974,9 @@
     var search = document.getElementById("module-search");
     var focus = document.getElementById("focus-select");
     var sort = document.getElementById("sort-select");
-    var reasoningGoal = document.getElementById("reasoning-goal");
-    var reasoningDepth = document.getElementById("reasoning-depth");
     if (search) search.value = state.activeFilterText;
     if (focus) focus.value = state.activeLayerFilter;
     if (sort) sort.value = state.activeSort;
-    if (reasoningGoal) reasoningGoal.value = state.reasoningGoal;
-    if (reasoningDepth) reasoningDepth.value = state.reasoningDepth;
   }
 
   function boot() {
