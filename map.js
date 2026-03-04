@@ -42,7 +42,7 @@
     selectedModule: null, activeLayerFilter: "all",
     trail: [], neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
     flowShowAll: false, contextListKey: "", contextList: [],
-    contextOptionsKey: "",
+    contextOptionsKey: "", searchIndex: Object.create(null),
     interiorMenuModule: "",
     interiorMenuQuery: "",
     interiorMenuShowAllFunctions: false,
@@ -151,6 +151,32 @@
 
   function sanitizeModuleName(value) {
     return /^[A-Za-z0-9_.]+$/.test(value) ? value : "";
+  }
+
+  function normalizeSearchValue(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  function buildSearchIndex() {
+    var index = Object.create(null);
+    for (var i = 0; i < state.modules.length; i++) {
+      var name = state.modules[i];
+      var path = state.moduleMap[name] || "";
+      index[name] = {
+        nameLower: name.toLowerCase(),
+        pathLower: path.toLowerCase(),
+        nameTokens: normalizeSearchValue(name).split(/\s+/).filter(Boolean),
+        pathTokens: normalizeSearchValue(path).split(/\s+/).filter(Boolean)
+      };
+    }
+    state.searchIndex = index;
+  }
+
+  function setSearchFeedback(message, isError) {
+    var node = document.getElementById("module-search-feedback");
+    if (!node) return;
+    node.textContent = message || "";
+    node.classList.toggle("error", Boolean(isError));
   }
 
   function moduleFromPath(path) {
@@ -517,6 +543,7 @@
 
   function selectModule(name, fromTrail) {
     if (!name || !state.moduleMap[name]) return;
+    if (state.selectedModule === name) return;
     state.selectedModule = name;
     if (state.interiorMenuModule !== name) {
       state.interiorMenuModule = name;
@@ -1611,6 +1638,7 @@
     state.commitSha = data.commitSha || "";
     state.generatedAt = data.generatedAt || "";
     LABEL_WRAP_CACHE.clear();
+    buildSearchIndex();
 
     buildPairs();
     if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
@@ -1675,6 +1703,7 @@
         state.contextList = [];
 
         for (var j = 0; j < state.modules.length; j++) state.moduleMap[state.modules[j]] = leanFiles[j];
+        buildSearchIndex();
 
         setStatus("Analyzing Lean modules and theorem declarations…", false);
 
@@ -1805,27 +1834,86 @@
       function matchModule(query, list) {
         var value = (query || "").trim();
         if (!value) return "";
+
         var direct = sanitizeModuleName(value);
         if (direct && state.moduleMap[direct]) return direct;
+
         var lower = value.toLowerCase();
+        var normalized = normalizeSearchValue(value);
+        var queryTokens = normalized ? normalized.split(/\s+/).filter(Boolean) : [];
+        var best = "";
+        var bestScore = -1;
+
         for (var i = 0; i < list.length; i++) {
           var name = list[i];
-          var path = state.moduleMap[name] || "";
-          if (name.toLowerCase().indexOf(lower) === 0 || path.toLowerCase().indexOf(lower) !== -1) return name;
+          var idx = state.searchIndex[name] || {
+            nameLower: name.toLowerCase(),
+            pathLower: (state.moduleMap[name] || "").toLowerCase(),
+            nameTokens: [],
+            pathTokens: []
+          };
+
+          if (idx.nameLower === lower) return name;
+          if (idx.pathLower === lower) return name;
+
+          var score = 0;
+          if (idx.nameLower.indexOf(lower) === 0) score = Math.max(score, 1200 - idx.nameLower.length);
+          if (idx.pathLower.indexOf(lower) === 0) score = Math.max(score, 1000 - idx.pathLower.length);
+          if (idx.nameLower.indexOf(lower) !== -1) score = Math.max(score, 800 - idx.nameLower.indexOf(lower));
+          if (idx.pathLower.indexOf(lower) !== -1) score = Math.max(score, 700 - idx.pathLower.indexOf(lower));
+
+          if (queryTokens.length) {
+            var tokenHits = 0;
+            var nameJoined = idx.nameTokens.join(" ");
+            var pathJoined = idx.pathTokens.join(" ");
+            for (var q = 0; q < queryTokens.length; q++) {
+              var token = queryTokens[q];
+              if (nameJoined.indexOf(token) !== -1 || pathJoined.indexOf(token) !== -1) tokenHits += 1;
+            }
+            if (tokenHits) score = Math.max(score, 400 + tokenHits * 35);
+          }
+
+          score += Math.max(0, 20 - Math.floor(moduleDegree(name).score / 10));
+
+          if (score > bestScore) {
+            best = name;
+            bestScore = score;
+          }
         }
-        return "";
+
+        return bestScore > 0 ? best : "";
       }
 
       var choose = function () {
+        setSearchFeedback("", false);
+        if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
+
         var list = contextList();
         var match = matchModule(search.value, list);
-        if (match) selectModule(match, false);
+        if (match) {
+          if (search.value !== match) search.value = match;
+          selectModule(match, false);
+          return;
+        }
+
+        if ((search.value || "").trim()) {
+          var message = "No module match in current filter scope. Try broader terms or reset filters.";
+          setSearchFeedback(message, true);
+          if (typeof search.setCustomValidity === "function") search.setCustomValidity(message);
+          if (typeof search.reportValidity === "function") search.reportValidity();
+        }
       };
 
+      search.addEventListener("input", function () {
+        setSearchFeedback("", false);
+        if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
+      });
       search.addEventListener("change", choose);
       search.addEventListener("keydown", function (event) {
         if (event.key === "Escape") {
           if (state.selectedModule) search.value = state.selectedModule;
+          setSearchFeedback("", false);
+          if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
           event.preventDefault();
           return;
         }
@@ -1933,6 +2021,7 @@
     if (flowShowAll) flowShowAll.checked = Boolean(state.flowShowAll);
     if (linked) linked.checked = Boolean(state.proofLinkedOnly);
     updateToolbarSummary();
+    setSearchFeedback("", false);
   }
 
   function setupKeyboardNavigation() {

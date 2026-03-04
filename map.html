@@ -96,8 +96,9 @@
           <div class="toolbar-main">
             <div class="control-group control-group-wide">
               <label for="module-search">Current module context</label>
-              <input id="module-search" type="search" list="context-options" placeholder="Type module/path and press Enter" autocomplete="off" spellcheck="false" aria-describedby="module-search-help toolbar-summary">
+              <input id="module-search" type="search" list="context-options" placeholder="Type module/path and press Enter" autocomplete="off" spellcheck="false" aria-describedby="module-search-help toolbar-summary module-search-feedback">
               <datalist id="context-options"></datalist>
+              <p id="module-search-feedback" class="search-feedback" aria-live="polite"></p>
             </div>
 
             <div class="control-row">
