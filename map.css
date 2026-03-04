@@ -62,12 +62,19 @@
   gap: 0.9rem;
   align-items: start;
 }
+.navigator-layout > .card { min-width: 0; }
 .section-title-sm { font-size: 1.03rem; margin-bottom: 0.42rem; }
-.panel-note { color: var(--text-muted); margin-bottom: 0.6rem; font-size: 0.88rem; }
+.panel-note {
+  color: var(--text-muted);
+  margin-bottom: 0.6rem;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .panel-header { margin-bottom: 0.65rem; }
 
-.queue-list { display: grid; gap: 0.45rem; max-height: 36rem; overflow: auto; }
-.walk-card { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--surface-2) 88%, transparent); padding: 0.56rem; text-align: left; cursor: pointer; }
+.queue-list { display: grid; gap: 0.45rem; max-height: 36rem; overflow: auto; min-width: 0; }
+.walk-card { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in oklab, var(--surface-2) 88%, transparent); padding: 0.56rem; text-align: left; cursor: pointer; width: 100%; min-width: 0; }
 .walk-card h3 { font-size: 0.84rem; margin-bottom: 0.22rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .walk-meta { font-size: 0.73rem; color: var(--text-muted); }
 .walk-score { font-family: var(--font-mono); font-size: 0.73rem; margin-top: 0.2rem; }
@@ -102,7 +109,7 @@
 .metric-box strong { font-size: 0.92rem; }
 .details-empty { color: var(--text-muted); }
 .detail-list { margin-top: 0.15rem; }
-.detail-list li { padding: 0.16rem 0; font-family: var(--font-mono); font-size: 0.74rem; }
+.detail-list li { padding: 0.16rem 0; font-family: var(--font-mono); font-size: 0.74rem; overflow-wrap: anywhere; word-break: break-word; }
 
 @media (max-width: 1320px) {
   .map-toolbar { grid-template-columns: minmax(16rem, 1fr) repeat(3, minmax(10rem, 1fr)); }
