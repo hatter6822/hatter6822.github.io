@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <title>seLe4n Codebase Map</title>
+  <meta name="description" content="Interactive architecture map for the seLe4n codebase. Explore directories, Lean module dependencies, and theorem-to-code relationships.">
+  <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=()">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests; block-all-mixed-content">
+
+  <link rel="canonical" href="https://sele4n.org/map.html">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="map.css">
+  <script src="theme-init.js"></script>
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <nav class="nav scrolled" id="nav" aria-label="Map navigation">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo" aria-label="Back to seLe4n home">seLe4n</a>
+      <ul class="nav-links" id="nav-links" role="list">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="#map-overview">Overview</a></li>
+        <li><a href="#module-graph">Module Graph</a></li>
+        <li><a href="#proof-map">Proof Map</a></li>
+        <li><a href="#directory-tree">Directory Tree</a></li>
+        <li><a href="https://github.com/hatter6822/seLe4n" target="_blank" rel="noopener noreferrer" class="nav-cta">GitHub</a></li>
+      </ul>
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <main id="main-content" class="code-map-page">
+    <header class="section code-map-hero" id="map-overview">
+      <div class="container">
+        <p class="hero-label">seLe4n Architecture Intelligence</p>
+        <h1>Interactive Codebase Map</h1>
+        <p class="section-lead">Trace how the kernel model composes: inspect folder topology, explore Lean module dependencies, and correlate implementation modules with theorem-heavy proof modules.</p>
+        <p id="map-status" class="map-status" aria-live="polite">Loading codebase map…</p>
+        <div class="map-stats" aria-live="polite">
+          <article class="stat-card"><span class="stat-title">Files</span><strong data-map="files">-</strong></article>
+          <article class="stat-card"><span class="stat-title">Directories</span><strong data-map="directories">-</strong></article>
+          <article class="stat-card"><span class="stat-title">Lean Modules</span><strong data-map="leanModules">-</strong></article>
+          <article class="stat-card"><span class="stat-title">Import Edges</span><strong data-map="importEdges">-</strong></article>
+          <article class="stat-card"><span class="stat-title">Theorem Declarations</span><strong data-map="theorems">-</strong></article>
+          <article class="stat-card"><span class="stat-title">Ops/Inv Pairs</span><strong data-map="proofPairs">-</strong></article>
+          <article class="stat-card"><span class="stat-title">Linked Ops→Inv</span><strong data-map="linkedPairs">-</strong></article>
+        </div>
+      </div>
+    </header>
+
+    <section class="section section-alt" id="module-graph">
+      <div class="container">
+        <div class="map-toolbar card">
+          <label for="module-search">Search module/path</label>
+          <input id="module-search" type="search" placeholder="e.g. SeLe4n.Kernel.API or Capability">
+          <label for="focus-select">Focus subsystem</label>
+          <select id="focus-select">
+            <option value="all">All modules</option>
+          </select>
+          <button id="reset-view" class="btn btn-secondary" type="button">Reset filters</button>
+        </div>
+
+        <div class="map-layout">
+          <article class="card map-panel">
+            <h2 class="section-title-sm">Dependency hotspots</h2>
+            <p class="panel-note">Bubble size tracks total degree. Color tracks layer family inferred from module namespace.</p>
+            <p class="panel-note">This analysis covers all Lean modules in <code>SeLe4n/</code>. Fan-in/fan-out use internal import edges only.</p>
+            <div id="graph-wrap" role="img" aria-label="Interactive bubble graph for Lean module dependencies"></div>
+          </article>
+
+          <aside class="card details-panel" id="details-panel" aria-live="polite">
+            <h2 class="section-title-sm">Module details</h2>
+            <p class="details-empty">Select a module bubble or table row to inspect incoming/outgoing imports and related proof files.</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="proof-map">
+      <div class="container">
+        <article class="card">
+          <h2 class="section-title-sm">Proof relationship map (Operations ⇄ Invariant)</h2>
+          <p class="panel-note">Pairs are inferred by basename conventions (for example, <code>*.Operations</code> and <code>*.Invariant</code>). The <strong>Linked</strong> column indicates whether the invariant module directly imports its corresponding operations module.</p>
+          <div class="table-scroll">
+            <table class="map-table">
+              <thead>
+                <tr><th>Subsystem</th><th>Operations Module</th><th>Invariant Module</th><th>Theorems</th><th>Linked</th></tr>
+              </thead>
+              <tbody id="proof-rows"></tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="directory-tree">
+      <div class="container">
+        <div class="map-layout split-rows">
+          <article class="card">
+            <h2 class="section-title-sm">Directory topology</h2>
+            <p class="panel-note">Expandable tree reconstructed from repository root blobs.</p>
+            <div id="tree-wrap" class="tree-wrap"></div>
+          </article>
+          <article class="card">
+            <h2 class="section-title-sm">Lean modules table</h2>
+            <p class="panel-note">Use to reason about dependency fan-in (imported by) and fan-out (imports).</p>
+            <div class="table-scroll">
+              <table class="map-table">
+                <thead>
+                  <tr><th>Module</th><th>Layer</th><th>Fan-in</th><th>Fan-out</th></tr>
+                </thead>
+                <tbody id="module-rows"></tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="map.js"></script>
+</body>
+</html>

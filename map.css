@@ -1,0 +1,229 @@
+.code-map-page {
+  padding-top: 3.75rem;
+}
+
+.code-map-hero h1 {
+  color: var(--heading);
+  margin-bottom: 1rem;
+}
+
+.map-status {
+  margin-top: 0.8rem;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.map-status.error {
+  color: var(--red);
+}
+
+.map-stats {
+  margin-top: 1.5rem;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+}
+
+.stat-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.9rem;
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 1.3rem;
+}
+
+.stat-title {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.map-toolbar {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.6rem 0.9rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.map-toolbar label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.map-toolbar input,
+.map-toolbar select {
+  width: 100%;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.65rem;
+}
+
+.map-layout {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1rem;
+}
+
+.split-rows {
+  grid-template-columns: 1fr 1fr;
+}
+
+.section-title-sm {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+.panel-note {
+  color: var(--text-muted);
+  margin-bottom: 0.8rem;
+  font-size: 0.92rem;
+}
+
+#graph-wrap {
+  min-height: 26rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 0.3rem;
+}
+
+.bubble-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 0.6rem;
+}
+
+.bubble {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  min-height: 5.4rem;
+  background: var(--surface-2);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  padding: 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.bubble:hover,
+.bubble:focus-visible,
+tr[data-module]:hover {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.bubble.layer-model { background: rgba(91, 160, 245, 0.18); }
+.bubble.layer-kernel { background: rgba(78, 201, 137, 0.2); }
+.bubble.layer-security { background: rgba(229, 192, 123, 0.2); }
+.bubble.layer-platform { background: rgba(198, 120, 221, 0.2); }
+.bubble.layer-other { background: rgba(132, 146, 175, 0.2); }
+
+.bubble.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.details-empty {
+  color: var(--text-muted);
+}
+
+.detail-list {
+  margin-top: 0.6rem;
+}
+
+.detail-list li {
+  padding: 0.28rem 0;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.tree-wrap {
+  max-height: 28rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem;
+  background: var(--bg-alt);
+}
+
+.tree-wrap details {
+  margin-left: 0.75rem;
+}
+
+.tree-wrap summary {
+  cursor: pointer;
+}
+
+.table-scroll {
+  max-height: 28rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.map-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.map-table th,
+.map-table td {
+  text-align: left;
+  padding: 0.55rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  vertical-align: top;
+}
+
+.map-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.map-table tbody tr {
+  cursor: pointer;
+}
+
+.selected-row {
+  background: var(--accent-glow);
+}
+
+.tree-leaf {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.proof-good {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.proof-warn {
+  color: var(--yellow);
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .map-toolbar,
+  .map-layout,
+  .split-rows {
+    grid-template-columns: 1fr;
+  }
+}
