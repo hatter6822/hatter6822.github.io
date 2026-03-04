@@ -78,27 +78,50 @@
       </div>
     </header>
 
-    <section class="section section-alt" id="module-graph">
-      <div class="container">
-        <div class="map-toolbar card">
-          <label for="module-search">Search module/path</label>
-          <input id="module-search" type="search" placeholder="e.g. SeLe4n.Kernel.API or Capability">
-          <label for="focus-select">Focus subsystem</label>
-          <select id="focus-select"><option value="all">All modules</option></select>
-          <label for="sort-select">Sort by</label>
-          <select id="sort-select">
-            <option value="hotspot">Hotspot score</option>
-            <option value="theorems">Theorem count</option>
-            <option value="name">Module name</option>
-          </select>
-          <label for="neighbor-limit">Neighbor budget</label>
-          <select id="neighbor-limit">
-            <option value="8">8 nodes</option>
-            <option value="12" selected>12 nodes</option>
-            <option value="16">16 nodes</option>
-          </select>
-          <button id="reset-view" class="btn btn-secondary" type="button">Reset filters</button>
-        </div>
+    <section class="section section-alt" id="module-graph" aria-labelledby="workspace-title">
+      <div class="container map-workspace">
+        <header class="map-workspace-header card" role="region" aria-label="Map controls and filters">
+          <div>
+            <h2 id="workspace-title" class="section-title-sm">Navigation workspace</h2>
+            <p class="panel-note">Use filters to focus by subsystem, then explore relationship and proof lenses for the selected module.</p>
+          </div>
+          <p id="module-results" class="results-note" aria-live="polite">0 modules shown</p>
+        </header>
+
+        <form class="map-toolbar card" id="map-toolbar" role="search" aria-label="Module filters" onsubmit="return false;">
+          <div class="control-group control-group-wide">
+            <label for="module-search">Search module/path</label>
+            <input id="module-search" type="search" placeholder="e.g. SeLe4n.Kernel.API or Capability" autocomplete="off">
+          </div>
+
+          <div class="control-group">
+            <label for="focus-select">Focus subsystem</label>
+            <select id="focus-select"><option value="all">All modules</option></select>
+          </div>
+
+          <div class="control-group">
+            <label for="sort-select">Sort by</label>
+            <select id="sort-select">
+              <option value="hotspot">Hotspot score</option>
+              <option value="theorems">Theorem count</option>
+              <option value="name">Module name</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label for="neighbor-limit">Neighbor budget</label>
+            <select id="neighbor-limit">
+              <option value="8">8 nodes</option>
+              <option value="12" selected>12 nodes</option>
+              <option value="16">16 nodes</option>
+            </select>
+          </div>
+
+          <div class="control-group control-actions">
+            <label class="visually-hidden" for="reset-view">Reset map filters</label>
+            <button id="reset-view" class="btn btn-secondary" type="button">Reset filters</button>
+          </div>
+        </form>
 
         <div class="navigator-layout">
           <article class="card lane-panel">
@@ -140,7 +163,6 @@
         </div>
       </div>
     </section>
-
   </main>
 
   <script src="background-pattern.js"></script>

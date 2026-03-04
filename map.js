@@ -28,6 +28,19 @@
     trail: [], selectedLens: "summary", neighborLimit: 12
   };
 
+  function getFilteredAndSortedModules() {
+    var list = filteredModules();
+    sortModules(list);
+    return list;
+  }
+
+  function updateModuleResults(count) {
+    var node = document.getElementById("module-results");
+    if (!node) return;
+    var total = state.modules.length;
+    node.textContent = String(count) + " modules shown" + (total ? " (" + total + " total)" : "");
+  }
+
   function setStatus(text, isError) {
     var el = document.getElementById("map-status");
     if (!el) return;
@@ -343,8 +356,8 @@
     if (!wrap) return;
     wrap.innerHTML = "";
 
-    var list = filteredModules();
-    sortModules(list);
+    var list = getFilteredAndSortedModules();
+    updateModuleResults(list.length);
 
     if (!list.length) {
       wrap.textContent = "No modules matched the current filters.";
@@ -841,11 +854,13 @@
     var reset = document.getElementById("reset-view");
 
     var layers = ["model", "kernel", "security", "platform", "other"];
-    for (var i = 0; i < layers.length; i++) {
-      var option = document.createElement("option");
-      option.value = layers[i];
-      option.textContent = layers[i][0].toUpperCase() + layers[i].slice(1);
-      focus.appendChild(option);
+    if (focus) {
+      for (var i = 0; i < layers.length; i++) {
+        var option = document.createElement("option");
+        option.value = layers[i];
+        option.textContent = layers[i][0].toUpperCase() + layers[i].slice(1);
+        focus.appendChild(option);
+      }
     }
 
     function apply() {
@@ -917,8 +932,7 @@
 
       var key = (event.key || "").toLowerCase();
       if (key !== "j" && key !== "k") return;
-      var list = filteredModules();
-      sortModules(list);
+      var list = getFilteredAndSortedModules();
       if (!list.length) return;
 
       var currentIndex = Math.max(0, list.indexOf(state.selectedModule));
