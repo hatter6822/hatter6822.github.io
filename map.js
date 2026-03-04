@@ -660,19 +660,58 @@
     return node;
   }
 
-  function drawFlowEdge(svg, from, to, color, dashed) {
+  function drawFlowEdge(layer, from, to, color, dashed, variant) {
     var path = createSvgNode("path", {});
-    var startX = from.x + from.w;
-    var startY = from.y + from.h / 2;
-    var endX = to.x;
-    var endY = to.y + to.h / 2;
-    var midX = startX + (endX - startX) * 0.5;
-    path.setAttribute("d", "M " + startX + " " + startY + " C " + midX + " " + startY + ", " + midX + " " + endY + ", " + endX + " " + endY);
+    var opts = variant || {};
+    var fromCenterX = from.x + from.w / 2;
+    var fromCenterY = from.y + from.h / 2;
+    var toCenterX = to.x + to.w / 2;
+    var toCenterY = to.y + to.h / 2;
+    var dx = toCenterX - fromCenterX;
+    var dy = toCenterY - fromCenterY;
+    var startX = fromCenterX;
+    var startY = fromCenterY;
+    var endX = toCenterX;
+    var endY = toCenterY;
+
+    var horizontalBias = Math.abs(dx) >= Math.abs(dy);
+    if (horizontalBias) {
+      startX = dx >= 0 ? from.x + from.w : from.x;
+      endX = dx >= 0 ? to.x : to.x + to.w;
+    } else {
+      startY = dy >= 0 ? from.y + from.h : from.y;
+      endY = dy >= 0 ? to.y : to.y + to.h;
+    }
+
+    var controlOffset = Math.max(56, Math.min(180, Math.abs(dx) * 0.45 + Math.abs(dy) * 0.2));
+    var spread = Math.max(0, Number(opts.spread) || 0);
+    var rank = Math.max(0, Number(opts.rank) || 0);
+    var total = Math.max(1, Number(opts.total) || 1);
+    var normalizedRank = total > 1 ? (rank / (total - 1)) * 2 - 1 : 0;
+    var bend = spread * normalizedRank;
+    var c1x = startX;
+    var c1y = startY;
+    var c2x = endX;
+    var c2y = endY;
+
+    if (horizontalBias) {
+      c1x = startX + (dx >= 0 ? controlOffset : -controlOffset);
+      c2x = endX - (dx >= 0 ? controlOffset : -controlOffset);
+      c1y += bend;
+      c2y += bend;
+    } else {
+      c1y = startY + (dy >= 0 ? controlOffset : -controlOffset);
+      c2y = endY - (dy >= 0 ? controlOffset : -controlOffset);
+      c1x += bend;
+      c2x += bend;
+    }
+
+    path.setAttribute("d", "M " + startX + " " + startY + " C " + c1x + " " + c1y + ", " + c2x + " " + c2y + ", " + endX + " " + endY);
     path.setAttribute("class", "flow-line" + (dashed ? " proof-link" : ""));
     path.setAttribute("stroke", color);
     path.style.color = color;
     path.setAttribute("marker-end", "url(#flow-arrow)");
-    svg.appendChild(path);
+    layer.appendChild(path);
   }
 
   function renderFlowchart() {
@@ -758,10 +797,17 @@
     defs.appendChild(marker);
     svg.appendChild(defs);
 
+    var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer" });
+    var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
+    var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });
+    svg.appendChild(edgeLayer);
+    svg.appendChild(nodeLayer);
+    svg.appendChild(labelLayer);
+
     function laneLabel(text, x, y, color) {
       var label = createSvgNode("text", { x: x, y: y, fill: color, "font-size": "12", "class": "flow-lane-label" });
       label.textContent = text;
-      svg.appendChild(label);
+      labelLayer.appendChild(label);
     }
 
     function moduleSummary(name) {
@@ -810,7 +856,7 @@
         });
       }
 
-      svg.appendChild(group);
+      nodeLayer.appendChild(group);
       return { name: name, x: x, y: y, w: w, h: h };
     }
 
@@ -837,14 +883,20 @@
       createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, laneYStart + importers.length * laneStep, sideWidth, 30, "#ffad42", "enable full-flow or increase neighbor budget", false, true);
     }
 
-    for (var k = 0; k < importNodes.length; k++) drawFlowEdge(svg, importNodes[k], center, "#35c98f", false);
-    for (var m = 0; m < importerNodes.length; m++) drawFlowEdge(svg, center, importerNodes[m], "#ffad42", false);
+    var importSpread = Math.min(52, Math.max(14, importNodes.length * 2));
+    var importerSpread = Math.min(52, Math.max(14, importerNodes.length * 2));
+    for (var k = 0; k < importNodes.length; k++) {
+      drawFlowEdge(edgeLayer, importNodes[k], center, "#35c98f", false, { rank: k, total: importNodes.length, spread: importSpread });
+    }
+    for (var m = 0; m < importerNodes.length; m++) {
+      drawFlowEdge(edgeLayer, center, importerNodes[m], "#ffad42", false, { rank: m, total: importerNodes.length, spread: importerSpread });
+    }
 
     if (proofRelated.length) {
       laneLabel("Proof pair context", centerX, proofStartY - 16, "#d37cff");
       for (var n = 0; n < proofRelated.length; n++) {
         var proofNode = createNode(proofRelated[n], centerX, proofStartY + n * 42, centerWidth, 32, "#d37cff", moduleSummary(proofRelated[n]), false, false);
-        drawFlowEdge(svg, center, proofNode, "#d37cff", true);
+        drawFlowEdge(edgeLayer, center, proofNode, "#d37cff", true, { rank: n, total: proofRelated.length, spread: 18 });
       }
     }
 
@@ -855,7 +907,7 @@
         var maxPathX = Math.max(framePad, flowWidth - framePad - 220);
         var pathX = Math.min(maxPathX, Math.max(framePad, centerX - 180) + (q - 1) * 230);
         var pathNode = createNode(linkedPath[q], pathX, pathStartY, 220, 32, "#6de2ff", moduleSummary(linkedPath[q]), false, false);
-        drawFlowEdge(svg, previousNode, pathNode, "#6de2ff", true);
+        drawFlowEdge(edgeLayer, previousNode, pathNode, "#6de2ff", true, { rank: q - 1, total: Math.max(1, linkedPath.length - 1), spread: 12 });
         previousNode = pathNode;
       }
     }
