@@ -720,10 +720,17 @@
 
     var laneYStart = 62;
     var laneStep = 42;
-    var maxLaneCount = Math.max(imports.length, importers.length, state.flowShowAll ? 1 : 2);
-    var centerY = Math.max(170, laneYStart + Math.floor(maxLaneCount / 2) * laneStep - 32);
-    var proofStartY = centerY + 148;
-    var pathStartY = proofStartY + Math.max(1, proofRelated.length) * 46 + 48;
+    var laneNodeHeight = 34;
+    var laneCount = Math.max(imports.length, importers.length, state.flowShowAll ? 1 : 2);
+    var laneBottom = laneYStart + Math.max(0, laneCount - 1) * laneStep + laneNodeHeight;
+
+    var centerY = Math.max(170, laneYStart + Math.floor(Math.max(1, laneCount - 1) / 2) * laneStep - 26);
+    var centerBottom = centerY + 86;
+
+    var lowerSectionTop = Math.max(laneBottom + 54, centerBottom + 54);
+    var proofStartY = lowerSectionTop;
+    var proofBottom = proofStartY + Math.max(1, proofRelated.length) * 42;
+    var pathStartY = proofBottom + 54;
 
     var externalPerRow = Math.max(2, Math.min(6, Math.floor((flowWidth - framePad * 2) / 220)));
     var externalRows = Math.max(1, Math.ceil(external.length / externalPerRow));
@@ -763,23 +770,32 @@
       return "thm " + degree.theorems + " · in " + degree.incoming + " · out " + degree.outgoing + " · " + assurance.level;
     }
 
+    var nodeClipId = 0;
+
     function createNode(name, x, y, w, h, color, subtitle, active, isStatic) {
       var className = "flow-node" + (active ? " active" : "") + (isStatic ? " static" : "");
       var group = createSvgNode("g", { "class": className, tabindex: isStatic ? "-1" : "0", role: isStatic ? "note" : "button", "aria-label": isStatic ? name : ("Select module " + name) });
       if (!isStatic) group.setAttribute("focusable", "true");
 
       var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
-      var title = createSvgNode("text", { x: x + 10, y: y + (h > 34 ? 20 : 18) });
-      title.textContent = truncateLabel(name, w - 16);
       var full = createSvgNode("title", {});
       full.textContent = name;
+
+      var clipId = "flow-node-clip-" + (nodeClipId++);
+      var clipPath = createSvgNode("clipPath", { id: clipId });
+      clipPath.appendChild(createSvgNode("rect", { x: x + 8, y: y + 4, width: Math.max(0, w - 16), height: Math.max(0, h - 8) }));
+      defs.appendChild(clipPath);
+
+      var compactNode = h < 44;
+      var title = createSvgNode("text", { x: x + 10, y: y + (compactNode ? 22 : 20), "clip-path": "url(#" + clipId + ")" });
+      title.textContent = truncateLabel(name, w - 16);
 
       group.appendChild(full);
       group.appendChild(rect);
       group.appendChild(title);
 
-      if (subtitle && h > 32) {
-        var meta = createSvgNode("text", { x: x + 10, y: y + 37, "class": "flow-meta" });
+      if (subtitle && h >= 52) {
+        var meta = createSvgNode("text", { x: x + 10, y: y + 38, "class": "flow-meta", "clip-path": "url(#" + clipId + ")" });
         meta.textContent = truncateLabel(subtitle, w - 16);
         group.appendChild(meta);
       }
@@ -1485,6 +1501,18 @@
     if (linked) linked.checked = Boolean(state.proofLinkedOnly);
   }
 
+  function setupFlowchartResize() {
+    var queued = false;
+    window.addEventListener("resize", function () {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(function () {
+        queued = false;
+        scheduleRender();
+      });
+    }, { passive: true });
+  }
+
 
   function boot() {
     setupTheme();
@@ -1494,6 +1522,7 @@
     setupFilters();
     setupLensTabs();
     setupKeyboardNavigation();
+    setupFlowchartResize();
     hydrateFilterControls();
 
     var cached = getCache();
