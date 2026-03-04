@@ -105,41 +105,8 @@
     } catch (e) {}
   }
 
-  function setTheme(theme) {
-    var root = document.documentElement;
-    var themeColorMeta = document.getElementById("theme-color-meta");
-
-    root.setAttribute("data-theme", theme);
-    try { localStorage.setItem("sele4n-theme", theme); } catch (e) {}
-
-    if (themeColorMeta) {
-      themeColorMeta.setAttribute("content", theme === "light" ? "#f8f9fc" : "#0a0e17");
-    }
-  }
-
   function setupTheme() {
-    var root = document.documentElement;
-    var themeToggle = document.getElementById("theme-toggle");
-    if (!root.getAttribute("data-theme")) setTheme("dark");
-
-    if (themeToggle) {
-      themeToggle.addEventListener("click", function () {
-        var current = root.getAttribute("data-theme") || "dark";
-        setTheme(current === "dark" ? "light" : "dark");
-      });
-    }
-
-    if (window.matchMedia) {
-      var mq = window.matchMedia("(prefers-color-scheme: light)");
-      var onChange = function (e) {
-        var saved = null;
-        try { saved = localStorage.getItem("sele4n-theme"); } catch (err) {}
-        if (!saved) setTheme(e.matches ? "light" : "dark");
-      };
-
-      if (mq.addEventListener) mq.addEventListener("change", onChange);
-      else if (mq.addListener) mq.addListener(onChange);
-    }
+    if (window.SeLe4nUI && typeof window.SeLe4nUI.setupTheme === "function") window.SeLe4nUI.setupTheme();
   }
 
   function setupNav() {
@@ -451,21 +418,7 @@
   }
 
   function hardenExternalLinks() {
-    var anchors = document.querySelectorAll('a[target="_blank"]');
-    for (var i = 0; i < anchors.length; i++) {
-      var isExternal = false;
-      try {
-        var parsed = new URL(anchors[i].href, window.location.href);
-        isExternal = parsed.origin !== window.location.origin;
-      } catch (e) {}
-      if (!isExternal) continue;
-
-      var rel = anchors[i].getAttribute("rel") || "";
-      var tokens = rel.split(/\s+/).filter(Boolean);
-      if (tokens.indexOf("noopener") === -1) tokens.push("noopener");
-      if (tokens.indexOf("noreferrer") === -1) tokens.push("noreferrer");
-      anchors[i].setAttribute("rel", tokens.join(" "));
-    }
+    if (window.SeLe4nUI && typeof window.SeLe4nUI.hardenExternalLinks === "function") window.SeLe4nUI.hardenExternalLinks();
   }
 
   applyData(STATIC_FALLBACK);

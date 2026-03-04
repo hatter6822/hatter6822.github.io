@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 import { writeFile } from 'node:fs/promises';
+import { extractImportTokens, moduleFromPath } from './lib/parsers.mjs';
 
 const REPO = 'hatter6822/seLe4n';
 const REF = 'main';
 const API = `https://api.github.com/repos/${REPO}`;
 const OUT_FILE = new URL('../data/map-data.json', import.meta.url);
 const FETCH_CONCURRENCY = 8;
-
-function moduleFromPath(path) {
-  return path.replace(/\.lean$/, '').replace(/\//g, '.');
-}
 
 function classifyLayer(moduleName) {
   if (/\.Model\./.test(moduleName)) return 'model';
@@ -70,56 +67,6 @@ function extractInteriorCodeItems(sourceText) {
   }
 
   return { theorems, functions };
-}
-
-function isLikelyModuleToken(token) {
-  return /^[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*$/.test(token || '');
-}
-
-function tokenizeImportSegment(segment) {
-  const out = [];
-  const raw = (segment || '').split(/[\s,]+/);
-  for (const part of raw) {
-    const candidate = (part || '').replace(/^[()]+|[()]+$/g, '').trim();
-    if (!candidate || !isLikelyModuleToken(candidate)) continue;
-    out.push(candidate);
-  }
-  return out;
-}
-
-function extractImportTokens(sourceText) {
-  const tokens = [];
-  const lines = sourceText.split(/\r?\n/);
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const raw = lines[i] || '';
-    const withoutComment = raw.split('--')[0] || '';
-    const trimmed = withoutComment.trim();
-    if (!/^import(?:\s|$)/.test(trimmed)) continue;
-
-    tokens.push(...tokenizeImportSegment(trimmed.replace(/^import\s*/, '')));
-
-    let cursor = i + 1;
-    while (cursor < lines.length) {
-      const continuationRaw = lines[cursor] || '';
-      if (!/^\s/.test(continuationRaw)) break;
-
-      const continuation = (continuationRaw.split('--')[0] || '').trim();
-      if (!continuation) {
-        cursor += 1;
-        continue;
-      }
-
-      const contTokens = tokenizeImportSegment(continuation);
-      if (!contTokens.length) break;
-      tokens.push(...contTokens);
-      cursor += 1;
-    }
-
-    i = cursor - 1;
-  }
-
-  return tokens;
 }
 
 async function fetchJson(url) {

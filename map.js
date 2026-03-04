@@ -46,7 +46,9 @@
     interiorMenuModule: "",
     interiorMenuQuery: "",
     commitSha: "",
-    generatedAt: ""
+    generatedAt: "",
+    filteredCacheKey: "",
+    filteredCacheList: []
   };
 
   var renderScheduled = false;
@@ -513,8 +515,11 @@
   }
 
   function filteredModules() {
+    var key = [state.activeLayerFilter, state.proofLinkedOnly ? "1" : "0", state.modules.length, state.theoremPairs.length].join("|");
+    if (key === state.filteredCacheKey && state.filteredCacheList.length) return state.filteredCacheList.slice();
+
     var layer = state.activeLayerFilter;
-    return state.modules.filter(function (name) {
+    var list = state.modules.filter(function (name) {
       var meta = state.moduleMeta[name] || {};
       if (layer !== "all" && meta.layer !== layer) return false;
       if (state.proofLinkedOnly) {
@@ -523,6 +528,10 @@
       }
       return true;
     });
+
+    state.filteredCacheKey = key;
+    state.filteredCacheList = list.slice();
+    return list;
   }
 
   function sortModules(list) {
@@ -1360,6 +1369,8 @@
     state.theoremPairs = pairs;
     state.proofPairMap = Object.create(null);
     state.degreeMap = Object.create(null);
+    state.filteredCacheKey = "";
+    state.filteredCacheList = [];
     ASSURANCE_CACHE = Object.create(null);
     for (var k = 0; k < pairs.length; k++) state.proofPairMap[pairs[k].base] = pairs[k];
     for (var m = 0; m < state.modules.length; m++) moduleDegree(state.modules[m]);
@@ -1381,84 +1392,15 @@
 
 
   function setupNav() {
-    var toggle = document.getElementById("nav-toggle");
-    var links = document.getElementById("nav-links");
-
-    function setNavState(open) {
-      if (!toggle || !links) return;
-      links.classList.toggle("open", open);
-      toggle.classList.toggle("open", open);
-      toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      document.body.classList.toggle("nav-open", open);
-    }
-
-    if (toggle && links) {
-      toggle.addEventListener("click", function () {
-        setNavState(!links.classList.contains("open"));
-      });
-
-      var items = links.querySelectorAll("a");
-      for (var i = 0; i < items.length; i++) {
-        items[i].addEventListener("click", function () {
-          setNavState(false);
-        });
-      }
-
-      document.addEventListener("keydown", function (event) {
-        if (event.key !== "Escape") return;
-        setNavState(false);
-      });
-    }
-
-    var nav = document.getElementById("nav");
-    if (!nav) return;
-
-    if (nav.getAttribute("data-force-scrolled") === "true") {
-      nav.classList.add("scrolled");
-      return;
-    }
-
-    var applyScrolled = function () {
-      nav.classList.toggle("scrolled", window.scrollY > 40);
-    };
-
-    applyScrolled();
-
-    var ticking = false;
-    window.addEventListener("scroll", function () {
-      if (ticking) return;
-      window.requestAnimationFrame(function () {
-        applyScrolled();
-        ticking = false;
-      });
-      ticking = true;
-    }, { passive: true });
+    if (window.SeLe4nUI && typeof window.SeLe4nUI.setupBasicNav === "function") window.SeLe4nUI.setupBasicNav();
   }
 
   function setupTheme() {
-    var root = document.documentElement;
-    var btn = document.getElementById("theme-toggle");
-    if (!root.getAttribute("data-theme")) root.setAttribute("data-theme", "dark");
-    if (!btn) return;
-
-    btn.addEventListener("click", function () {
-      var next = (root.getAttribute("data-theme") || "dark") === "dark" ? "light" : "dark";
-      root.setAttribute("data-theme", next);
-      try { localStorage.setItem("sele4n-theme", next); } catch (e) {}
-      var meta = document.getElementById("theme-color-meta");
-      if (meta) meta.setAttribute("content", next === "light" ? "#f8f9fc" : "#0a0e17");
-    });
+    if (window.SeLe4nUI && typeof window.SeLe4nUI.setupTheme === "function") window.SeLe4nUI.setupTheme();
   }
 
   function hardenExternalLinks() {
-    var links = document.querySelectorAll('a[target="_blank"]');
-    for (var i = 0; i < links.length; i++) {
-      var rel = links[i].getAttribute("rel") || "";
-      var tokens = rel.split(/\s+/).filter(Boolean);
-      if (tokens.indexOf("noopener") === -1) tokens.push("noopener");
-      if (tokens.indexOf("noreferrer") === -1) tokens.push("noreferrer");
-      links[i].setAttribute("rel", tokens.join(" "));
-    }
+    if (window.SeLe4nUI && typeof window.SeLe4nUI.hardenExternalLinks === "function") window.SeLe4nUI.hardenExternalLinks();
   }
 
   function runInPool(items, worker) {
