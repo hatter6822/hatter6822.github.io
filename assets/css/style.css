@@ -51,6 +51,7 @@
   --container-w: 72rem;
   --radius:      0.5rem;
   --radius-lg:   0.75rem;
+  --nav-scroll-offset: 4.5rem;
 }
 
 /* --- Light Theme --- */
@@ -89,11 +90,12 @@ html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
   background: var(--bg);
+  scroll-padding-top: var(--nav-scroll-offset);
 }
 
 section[id],
 header[id] {
-  scroll-margin-top: 5rem;
+  scroll-margin-top: var(--nav-scroll-offset);
 }
 
 body {
