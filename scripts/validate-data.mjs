@@ -10,6 +10,14 @@ function isObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isValidSymbolEntry(entry) {
+  if (typeof entry === 'string') return entry.length > 0;
+  if (!isObject(entry)) return false;
+  if (typeof entry.name !== 'string' || !entry.name.trim()) return false;
+  if (entry.line !== undefined && (!Number.isInteger(entry.line) || entry.line < 0)) return false;
+  return true;
+}
+
 async function validateSiteData() {
   const raw = await readFile(new URL('../data/site-data.json', import.meta.url), 'utf8');
   const data = JSON.parse(raw);
@@ -38,6 +46,26 @@ async function validateMapData() {
   if (!isObject(data.externalImportsFrom)) fail('map-data.json: externalImportsFrom must be an object');
   if (typeof data.commitSha !== 'string') fail('map-data.json: commitSha must be a string');
   if (typeof data.generatedAt !== 'string') fail('map-data.json: generatedAt must be a string');
+
+  for (const moduleName of data.modules) {
+    const meta = data.moduleMeta[moduleName];
+    if (!meta) continue;
+    if (!isObject(meta.symbols)) continue;
+
+    for (const kind of ['theorems', 'functions']) {
+      const entries = meta.symbols[kind];
+      if (!Array.isArray(entries)) {
+        fail(`map-data.json: moduleMeta.${moduleName}.symbols.${kind} must be an array`);
+        continue;
+      }
+      for (const entry of entries) {
+        if (!isValidSymbolEntry(entry)) {
+          fail(`map-data.json: invalid symbol entry in moduleMeta.${moduleName}.symbols.${kind}`);
+          break;
+        }
+      }
+    }
+  }
 }
 
 await validateSiteData();

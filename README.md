@@ -25,6 +25,15 @@ node scripts/validate-data.mjs
 ```
 
 
+
+## Code map interior symbol links
+
+The code map interior panel now links each discovered declaration directly to its source in `hatter6822/seLe4n`.
+
+- Function-style declarations (`def`, `abbrev`, `opaque`, and `instance`) and theorem-style declarations (`theorem`, `lemma`) are parsed with declaration line metadata.
+- Each interior item link targets the exact GitHub blob line anchor (`#L<line>`), when line metadata is available.
+- Legacy cached/bundled symbol payloads remain supported; older entries without line metadata are normalized and still rendered.
+
 ## Runtime data consistency
 
 The browser now treats `data/site-data.json` as the canonical baseline on every refresh. Any cached values are immediately revalidated against the bundled file, then live repository metadata is merged in (version, Lean toolchain, LOC, theorem count, scripts/docs counts, kernel modules, build jobs, and latest commit metadata from `main`).
