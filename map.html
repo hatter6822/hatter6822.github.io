@@ -117,11 +117,11 @@
             <div id="constellation-wrap" class="constellation-wrap" aria-live="polite"></div>
 
             <div class="lens-tabs" role="tablist" aria-label="Context lens selection">
-              <button type="button" data-lens="summary" class="lens-tab active">Summary lens</button>
-              <button type="button" data-lens="dependencies" class="lens-tab">Dependency lens</button>
-              <button type="button" data-lens="proof" class="lens-tab">Proof lens</button>
+              <button type="button" id="lens-tab-summary" role="tab" aria-selected="true" aria-controls="lens-panel" tabindex="0" data-lens="summary" class="lens-tab active">Summary lens</button>
+              <button type="button" id="lens-tab-dependencies" role="tab" aria-selected="false" aria-controls="lens-panel" tabindex="-1" data-lens="dependencies" class="lens-tab">Dependency lens</button>
+              <button type="button" id="lens-tab-proof" role="tab" aria-selected="false" aria-controls="lens-panel" tabindex="-1" data-lens="proof" class="lens-tab">Proof lens</button>
             </div>
-            <div id="lens-panel" class="lens-panel" aria-live="polite"></div>
+            <div id="lens-panel" class="lens-panel" role="tabpanel" tabindex="0" aria-live="polite" aria-labelledby="lens-tab-summary"></div>
 
             <div class="trace-row">
               <h3 class="section-title-sm">Traversal trail</h3>
