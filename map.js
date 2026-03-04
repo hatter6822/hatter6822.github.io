@@ -20,13 +20,19 @@
   var FETCH_TIMEOUT_MS = 9000;
   var NODE_CACHE = Object.create(null);
 
+  var DETAIL_PRESETS = {
+    compact: { neighborLimit: 8, impactRadius: 1 },
+    balanced: { neighborLimit: 12, impactRadius: 2 },
+    expanded: { neighborLimit: 16, impactRadius: 3 }
+  };
+
   var state = {
     files: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
-    selectedModule: null, activeLayerFilter: "all", activeSort: "hotspot",
+    selectedModule: null, activeLayerFilter: "all",
     trail: [], neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
-    flowMode: "balanced", flowShowAll: false, contextListKey: "", contextList: []
+    flowShowAll: false, contextListKey: "", contextList: []
   };
 
   var renderScheduled = false;
@@ -359,11 +365,6 @@
 
   function sortModules(list) {
     list.sort(function (a, b) {
-      if (state.activeSort === "name") return a.localeCompare(b);
-      if (state.activeSort === "theorems") {
-        var theoremDiff = moduleDegree(b).theorems - moduleDegree(a).theorems;
-        return theoremDiff || moduleDegree(b).score - moduleDegree(a).score;
-      }
       var scoreDiff = moduleDegree(b).score - moduleDegree(a).score;
       return scoreDiff || a.localeCompare(b);
     });
@@ -397,7 +398,7 @@
   }
 
   function contextList() {
-    var key = [state.activeLayerFilter, state.activeSort, state.proofLinkedOnly ? "1" : "0", state.modules.length].join("|");
+    var key = [state.activeLayerFilter, state.proofLinkedOnly ? "1" : "0", state.modules.length].join("|");
     if (key === state.contextListKey && state.contextList.length) return state.contextList.slice();
     var list = getFilteredAndSortedModules();
     state.contextListKey = key;
@@ -616,13 +617,6 @@
     var allExternal = state.externalImportsFrom[selected] || [];
     var importBudget = state.flowShowAll ? allImports.length : state.neighborLimit;
     var impactBudget = state.flowShowAll ? allImporters.length : state.neighborLimit;
-    if (!state.flowShowAll && state.flowMode === "imports") {
-      importBudget = Math.min(20, state.neighborLimit + 4);
-      impactBudget = Math.max(4, state.neighborLimit - 4);
-    } else if (!state.flowShowAll && state.flowMode === "impact") {
-      importBudget = Math.max(4, state.neighborLimit - 4);
-      impactBudget = Math.min(20, state.neighborLimit + 4);
-    }
     var imports = allImports.slice(0, importBudget);
     var importers = allImporters.slice(0, impactBudget);
     var externalBudget = state.flowShowAll ? allExternal.length : 12;
@@ -902,7 +896,7 @@
 
     var summary = document.createElement("p");
     summary.className = "panel-note flowchart-summary";
-    summary.textContent = "Flow summary (" + state.flowMode + " mode" + (state.flowShowAll ? ", full-flow" : "") + "): imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Selected-module metadata is surfaced in the context strip above; hover any node for path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
+    summary.textContent = "Flow summary" + (state.flowShowAll ? " (full-flow)" : "") + ": imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Selected-module metadata is surfaced in the context strip above; hover any node for path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
     wrap.appendChild(summary);
   }
 
@@ -1180,25 +1174,50 @@
     });
   }
 
+  function detailLevelFromState() {
+    var levels = Object.keys(DETAIL_PRESETS);
+    for (var i = 0; i < levels.length; i++) {
+      var name = levels[i];
+      var preset = DETAIL_PRESETS[name];
+      if (state.neighborLimit === preset.neighborLimit && state.impactRadius === preset.impactRadius) return name;
+    }
+    return "balanced";
+  }
+
+  function applyDetailLevel(level) {
+    var key = Object.prototype.hasOwnProperty.call(DETAIL_PRESETS, level) ? level : "balanced";
+    var preset = DETAIL_PRESETS[key];
+    state.neighborLimit = preset.neighborLimit;
+    state.impactRadius = preset.impactRadius;
+  }
+
+  function updateDetailPillState(level) {
+    var pills = document.querySelectorAll(".detail-pill[data-detail]");
+    for (var i = 0; i < pills.length; i++) {
+      var pill = pills[i];
+      var active = pill.getAttribute("data-detail") === level;
+      pill.classList.toggle("is-active", active);
+      pill.setAttribute("aria-checked", active ? "true" : "false");
+      pill.tabIndex = active ? 0 : -1;
+    }
+  }
+
   function updateToolbarSummary(visibleCount) {
     var el = document.getElementById("toolbar-summary");
     if (!el) return;
     var count = typeof visibleCount === "number" ? visibleCount : contextList().length;
     var selected = state.selectedModule || "No module selected";
     var layerLabel = state.activeLayerFilter === "all" ? "All subsystems" : (state.activeLayerFilter[0].toUpperCase() + state.activeLayerFilter.slice(1));
-    var modeLabel = state.flowMode === "imports" ? "Import-heavy" : (state.flowMode === "impact" ? "Impact-heavy" : "Balanced");
+    var detailLabel = detailLevelFromState();
     var linkedLabel = state.proofLinkedOnly ? "proof-linked only" : "all proof states";
-    var graphLabel = state.flowShowAll ? "full flow graph" : "focused graph";
-    el.textContent = count + " modules · " + layerLabel + " · " + modeLabel + " · " + state.neighborLimit + " neighbors · radius " + state.impactRadius + " · " + graphLabel + " · " + linkedLabel + " · " + selected;
+    var graphLabel = state.flowShowAll ? "full graph" : "focused graph";
+    el.textContent = count + " modules · " + layerLabel + " · " + detailLabel + " detail · " + graphLabel + " · " + linkedLabel + " · " + selected;
   }
 
   function setupFilters() {
     var search = document.getElementById("module-search");
     var focus = document.getElementById("focus-select");
-    var sort = document.getElementById("sort-select");
-    var neighborLimit = document.getElementById("neighbor-limit");
-    var impactRadius = document.getElementById("impact-radius");
-    var flowMode = document.getElementById("flow-mode");
+    var selectedDetail = detailLevelFromState();
     var flowShowAll = document.getElementById("flow-show-all");
     var proofLinkedOnly = document.getElementById("proof-linked-only");
     var reset = document.getElementById("reset-view");
@@ -1215,10 +1234,8 @@
 
     function apply() {
       state.activeLayerFilter = focus ? focus.value : "all";
-      state.activeSort = sort ? sort.value : "hotspot";
-      state.neighborLimit = neighborLimit ? Math.max(4, Math.min(20, Number(neighborLimit.value) || 12)) : 12;
-      state.impactRadius = impactRadius ? Math.max(1, Math.min(3, Number(impactRadius.value) || 2)) : 2;
-      state.flowMode = flowMode && /^(balanced|imports|impact)$/.test(flowMode.value) ? flowMode.value : "balanced";
+      applyDetailLevel(selectedDetail);
+      updateDetailPillState(selectedDetail);
       state.flowShowAll = flowShowAll ? flowShowAll.checked : false;
       state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
       syncUrlState();
@@ -1260,10 +1277,29 @@
       });
     }
     if (focus) focus.addEventListener("change", apply);
-    if (sort) sort.addEventListener("change", apply);
-    if (neighborLimit) neighborLimit.addEventListener("change", apply);
-    if (impactRadius) impactRadius.addEventListener("change", apply);
-    if (flowMode) flowMode.addEventListener("change", apply);
+
+    var detailPills = document.querySelectorAll(".detail-pill[data-detail]");
+    for (var d = 0; d < detailPills.length; d++) {
+      detailPills[d].addEventListener("click", function () {
+        selectedDetail = this.getAttribute("data-detail") || "balanced";
+        apply();
+      });
+      detailPills[d].addEventListener("keydown", function (event) {
+        var key = event.key;
+        if (key !== "ArrowRight" && key !== "ArrowLeft" && key !== "ArrowDown" && key !== "ArrowUp") return;
+        event.preventDefault();
+        var ordered = ["compact", "balanced", "expanded"];
+        var current = ordered.indexOf(selectedDetail);
+        if (current < 0) current = 1;
+        var next = current + ((key === "ArrowLeft" || key === "ArrowUp") ? -1 : 1);
+        if (next < 0) next = ordered.length - 1;
+        if (next >= ordered.length) next = 0;
+        selectedDetail = ordered[next];
+        apply();
+        var nextNode = document.querySelector('.detail-pill[data-detail="' + selectedDetail + '"]');
+        if (nextNode) nextNode.focus();
+      });
+    }
     if (flowShowAll) flowShowAll.addEventListener("change", apply);
     if (proofLinkedOnly) proofLinkedOnly.addEventListener("change", apply);
 
@@ -1271,10 +1307,8 @@
       reset.addEventListener("click", function () {
         if (search && state.selectedModule) search.value = state.selectedModule;
         if (focus) focus.value = "all";
-        if (sort) sort.value = "hotspot";
-        if (neighborLimit) neighborLimit.value = "12";
-        if (impactRadius) impactRadius.value = "2";
-        if (flowMode) flowMode.value = "balanced";
+        selectedDetail = "balanced";
+        updateDetailPillState(selectedDetail);
         if (flowShowAll) flowShowAll.checked = false;
         if (proofLinkedOnly) proofLinkedOnly.checked = false;
         apply();
@@ -1282,10 +1316,71 @@
     }
   }
 
+  function readUrlState() {
+    var params = new URLSearchParams(window.location.search);
+    var moduleParam = sanitizeModuleName(params.get("module") || "");
+    if (moduleParam) state.selectedModule = moduleParam;
+
+    var layer = params.get("layer") || "all";
+    if (/^(all|model|kernel|security|platform|other)$/.test(layer)) state.activeLayerFilter = layer;
+
+    var detail = params.get("detail") || "";
+    if (/^(compact|balanced|expanded)$/.test(detail)) {
+      applyDetailLevel(detail);
+    } else {
+      var neighbors = Number(params.get("neighbors") || "12");
+      if (neighbors >= 4 && neighbors <= 20) state.neighborLimit = neighbors;
+
+      var radius = Number(params.get("radius") || "2");
+      if (radius >= 1 && radius <= 3) state.impactRadius = radius;
+
+      var mode = params.get("mode") || "";
+      if (mode === "imports") applyDetailLevel("compact");
+      else if (mode === "impact") applyDetailLevel("expanded");
+    }
+
+    state.proofLinkedOnly = params.get("linked") === "1";
+    state.flowShowAll = params.get("fullflow") === "1";
+  }
+
+  function syncUrlState() {
+    var params = new URLSearchParams(window.location.search);
+    if (state.selectedModule) params.set("module", state.selectedModule); else params.delete("module");
+    if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
+    var detailLevel = detailLevelFromState();
+    if (detailLevel !== "balanced") params.set("detail", detailLevel); else params.delete("detail");
+    params.delete("neighbors");
+    params.delete("radius");
+
+    if (state.proofLinkedOnly) params.set("linked", "1"); else params.delete("linked");
+    if (state.flowShowAll) params.set("fullflow", "1"); else params.delete("fullflow");
+
+    params.delete("sort");
+    params.delete("mode");
+
+    var next = params.toString();
+    var target = window.location.pathname + (next ? "?" + next : "");
+    if (target === window.location.pathname + window.location.search) return;
+    window.history.replaceState(null, "", target);
+  }
+
+  function hydrateFilterControls() {
+    var search = document.getElementById("module-search");
+    var focus = document.getElementById("focus-select");
+    var flowShowAll = document.getElementById("flow-show-all");
+    var linked = document.getElementById("proof-linked-only");
+    if (search && state.selectedModule) search.value = state.selectedModule;
+    if (focus) focus.value = state.activeLayerFilter;
+    updateDetailPillState(detailLevelFromState());
+    if (flowShowAll) flowShowAll.checked = Boolean(state.flowShowAll);
+    if (linked) linked.checked = Boolean(state.proofLinkedOnly);
+    updateToolbarSummary();
+  }
+
   function setupKeyboardNavigation() {
     document.addEventListener("keydown", function (event) {
       var target = event.target;
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      if (target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) return;
 
       var key = (event.key || "").toLowerCase();
       if (key !== "j" && key !== "k") return;
@@ -1297,67 +1392,6 @@
       selectModule(list[nextIndex], false);
       event.preventDefault();
     });
-  }
-
-  function readUrlState() {
-    var params = new URLSearchParams(window.location.search);
-    var moduleParam = sanitizeModuleName(params.get("module") || "");
-    if (moduleParam) state.selectedModule = moduleParam;
-
-    var layer = params.get("layer") || "all";
-    if (/^(all|model|kernel|security|platform|other)$/.test(layer)) state.activeLayerFilter = layer;
-
-    var sort = params.get("sort") || "hotspot";
-    if (/^(hotspot|theorems|name)$/.test(sort)) state.activeSort = sort;
-
-    var neighbors = Number(params.get("neighbors") || "12");
-    if (neighbors >= 4 && neighbors <= 20) state.neighborLimit = neighbors;
-
-    var radius = Number(params.get("radius") || "2");
-    if (radius >= 1 && radius <= 3) state.impactRadius = radius;
-
-    var mode = params.get("mode") || "balanced";
-    if (/^(balanced|imports|impact)$/.test(mode)) state.flowMode = mode;
-
-    state.proofLinkedOnly = params.get("linked") === "1";
-    state.flowShowAll = params.get("fullflow") === "1";
-  }
-
-  function syncUrlState() {
-    var params = new URLSearchParams(window.location.search);
-    if (state.selectedModule) params.set("module", state.selectedModule); else params.delete("module");
-    if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
-    if (state.activeSort && state.activeSort !== "hotspot") params.set("sort", state.activeSort); else params.delete("sort");
-    if (state.neighborLimit && state.neighborLimit !== 12) params.set("neighbors", String(state.neighborLimit)); else params.delete("neighbors");
-    if (state.impactRadius && state.impactRadius !== 2) params.set("radius", String(state.impactRadius)); else params.delete("radius");
-    if (state.flowMode && state.flowMode !== "balanced") params.set("mode", state.flowMode); else params.delete("mode");
-    if (state.proofLinkedOnly) params.set("linked", "1"); else params.delete("linked");
-    if (state.flowShowAll) params.set("fullflow", "1"); else params.delete("fullflow");
-
-    var next = params.toString();
-    var target = window.location.pathname + (next ? "?" + next : "");
-    if (target === window.location.pathname + window.location.search) return;
-    window.history.replaceState(null, "", target);
-  }
-
-  function hydrateFilterControls() {
-    var search = document.getElementById("module-search");
-    var focus = document.getElementById("focus-select");
-    var sort = document.getElementById("sort-select");
-    var neighbors = document.getElementById("neighbor-limit");
-    var radius = document.getElementById("impact-radius");
-    var mode = document.getElementById("flow-mode");
-    var flowShowAll = document.getElementById("flow-show-all");
-    var linked = document.getElementById("proof-linked-only");
-    if (search && state.selectedModule) search.value = state.selectedModule;
-    if (focus) focus.value = state.activeLayerFilter;
-    if (sort) sort.value = state.activeSort;
-    if (neighbors) neighbors.value = String(state.neighborLimit);
-    if (radius) radius.value = String(state.impactRadius);
-    if (mode) mode.value = state.flowMode;
-    if (flowShowAll) flowShowAll.checked = Boolean(state.flowShowAll);
-    if (linked) linked.checked = Boolean(state.proofLinkedOnly);
-    updateToolbarSummary();
   }
 
   function setupFlowchartResize() {
