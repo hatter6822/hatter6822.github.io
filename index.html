@@ -71,7 +71,6 @@
         <li><a href="#architecture">Architecture</a></li>
         <li><a href="#comparison">vs seL4</a></li>
         <li><a href="#features">Features</a></li>
-        <li><a href="#code">Code</a></li>
         <li><a href="map.html">Code Map</a></li>
         <li><a href="#security">Security</a></li>
         <li><a href="#verification">Verification</a></li>
@@ -542,103 +541,6 @@
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>apiInvariantBundle</code></a>. A base-case theorem proves the
             bundle holds for the default (empty) state.
           </p>
-        </div>
-
-      </div>
-    </div>
-  </section>
-
-  <!-- Code Examples -->
-  <section class="section" id="code">
-    <div class="container">
-      <h2 class="section-title">Inside the Code</h2>
-      <p class="section-lead">
-        seLe4n is written in idiomatic Lean 4. Here are representative excerpts from the
-        actual kernel source, showing how types, operations, and proofs work together.
-      </p>
-
-      <div class="code-examples">
-
-        <div class="code-example">
-          <div class="code-header">
-            <h3>Security Policy: Two-Dimensional Labels</h3>
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-file">SeLe4n/Kernel/InformationFlow/Policy.lean</a>
-          </div>
-          <pre><code><span class="kw">inductive</span> <span class="ty">Confidentiality</span> <span class="kw">where</span>
-  | low
-  | high
-  <span class="kw">deriving</span> Repr, DecidableEq
-
-<span class="kw">inductive</span> <span class="ty">Integrity</span> <span class="kw">where</span>
-  | untrusted
-  | trusted
-  <span class="kw">deriving</span> Repr, DecidableEq
-
-<span class="kw">structure</span> <span class="ty">SecurityLabel</span> <span class="kw">where</span>
-  confidentiality : <span class="ty">Confidentiality</span>
-  integrity : <span class="ty">Integrity</span>
-
-<span class="cm">-- Combined policy: confidentiality flows up, integrity flows down</span>
-<span class="kw">def</span> <span class="fn">securityFlowsTo</span> (src dst : <span class="ty">SecurityLabel</span>) : <span class="ty">Bool</span> :=
-  confidentialityFlowsTo src.confidentiality dst.confidentiality &amp;&amp;
-    integrityFlowsTo dst.integrity src.integrity
-
-<span class="cm">-- Machine-checked: flow relation is transitive</span>
-<span class="kw">theorem</span> <span class="fn">securityFlowsTo_trans</span>
-    (a b c : <span class="ty">SecurityLabel</span>)
-    (h&#x2081; : securityFlowsTo a b = <span class="kw">true</span>)
-    (h&#x2082; : securityFlowsTo b c = <span class="kw">true</span>) :
-    securityFlowsTo a c = <span class="kw">true</span> := <span class="kw">by</span>
-  <span class="tac">cases</span> a <span class="kw">with</span>
-  | mk ac ai =&gt;
-      <span class="tac">cases</span> b <span class="kw">with</span>
-      | mk bc bi =&gt;
-          <span class="tac">cases</span> c <span class="kw">with</span>
-          | mk cc ci =&gt;
-              <span class="tac">simp</span> [securityFlowsTo] <span class="kw">at</span> h&#x2081; h&#x2082; &#x22A2;
-              <span class="tac">exact</span> And.intro
-                (confidentialityFlowsTo_trans ac bc cc h&#x2081;.left h&#x2082;.left)
-                (integrityFlowsTo_trans ci bi ai h&#x2082;.right h&#x2081;.right)</code></pre>
-        </div>
-
-        <div class="code-example">
-          <div class="code-header">
-            <h3>N-Domain Flow Policy</h3>
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-file">SeLe4n/Kernel/InformationFlow/Policy.lean</a>
-          </div>
-          <pre><code><span class="cm">-- Parameterized flow policy supporting arbitrary domain counts</span>
-<span class="kw">structure</span> <span class="ty">DomainFlowPolicy</span> <span class="kw">where</span>
-  canFlow : <span class="ty">SecurityDomain</span> &rarr; <span class="ty">SecurityDomain</span> &rarr; <span class="ty">Bool</span>
-
-<span class="cm">-- Well-formedness: reflexive + transitive</span>
-<span class="kw">def</span> <span class="ty">DomainFlowPolicy</span>.<span class="fn">wellFormed</span> (p : <span class="ty">DomainFlowPolicy</span>) : <span class="ty">Prop</span> :=
-  p.isReflexive &and; p.isTransitive
-
-<span class="cm">-- Linear order: domain a can flow to domain b iff a.id &le; b.id</span>
-<span class="kw">def</span> <span class="ty">DomainFlowPolicy</span>.<span class="fn">linearOrder</span> : <span class="ty">DomainFlowPolicy</span> :=
-  { canFlow := <span class="kw">fun</span> src dst =&gt; decide (src.id &le; dst.id) }
-
-<span class="cm">-- Proven well-formed</span>
-<span class="kw">theorem</span> <span class="ty">DomainFlowPolicy</span>.<span class="fn">linearOrder_wellFormed</span> :
-    <span class="ty">DomainFlowPolicy</span>.linearOrder.wellFormed :=
-  &langle;linearOrder_reflexive, linearOrder_transitive&rangle;</code></pre>
-        </div>
-
-        <div class="code-example">
-          <div class="code-header">
-            <h3>Unified Kernel API</h3>
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="code-file">SeLe4n/Kernel/API.lean</a>
-          </div>
-          <pre><code><span class="cm">-- The unified API invariant bundle aliases the composed</span>
-<span class="cm">-- proof-layer bundle from all subsystems</span>
-<span class="kw">abbrev</span> <span class="fn">apiInvariantBundle</span> :=
-    Architecture.proofLayerInvariantBundle
-
-<span class="cm">-- Base case: the default (empty) state satisfies</span>
-<span class="cm">-- the entire invariant bundle</span>
-<span class="kw">theorem</span> <span class="fn">apiInvariantBundle_default</span> :
-    apiInvariantBundle (<span class="kw">default</span> : <span class="ty">SystemState</span>) :=
-  Architecture.default_system_state_proofLayerInvariantBundle</code></pre>
         </div>
 
       </div>
