@@ -123,6 +123,34 @@
           </div>
         </form>
 
+        <article class="card reasoning-panel" id="reasoning-panel" aria-live="polite">
+          <div class="panel-header">
+            <h2 class="section-title-sm">Reasoning runway</h2>
+            <p class="panel-note">Turn any selected module into a focused investigation plan with concrete next files and proving checkpoints.</p>
+          </div>
+          <div class="reasoning-controls">
+            <div class="control-group">
+              <label for="reasoning-goal">Investigation goal</label>
+              <select id="reasoning-goal">
+                <option value="proof">Proof obligations</option>
+                <option value="debug">Bug isolation</option>
+                <option value="performance">Performance hot path</option>
+                <option value="security">Information-flow/security review</option>
+                <option value="onboarding">Onboarding/architecture comprehension</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="reasoning-depth">Reasoning depth</label>
+              <select id="reasoning-depth">
+                <option value="quick">Quick triage (3 steps)</option>
+                <option value="deep" selected>Deep dive (5 steps)</option>
+                <option value="audit">Full audit (7 steps)</option>
+              </select>
+            </div>
+          </div>
+          <div id="reasoning-output" class="reasoning-output"></div>
+        </article>
+
         <div class="navigator-layout">
           <article class="card lane-panel">
             <div class="panel-header">
