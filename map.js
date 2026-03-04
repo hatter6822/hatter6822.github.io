@@ -532,10 +532,39 @@
     }
   }
 
-  function truncateLabel(name, width) {
-    if (!name) return "";
-    var max = Math.max(12, Math.floor((width || 180) / 7));
-    return name.length > max ? name.slice(0, max - 1) + "…" : name;
+  function wrapLabelLines(text, width, minChars) {
+    if (!text) return [];
+    var maxChars = Math.max(minChars || 10, Math.floor((width || 180) / 6.6));
+    var tokens = String(text).split(/([._/\-])/);
+    var lines = [];
+    var current = "";
+
+    for (var i = 0; i < tokens.length; i++) {
+      var token = tokens[i];
+      if (!token) continue;
+      var next = current + token;
+      if (next.length <= maxChars || !current.length) {
+        current = next;
+      } else {
+        lines.push(current);
+        current = token.trim() ? token : "";
+      }
+    }
+    if (current.length) lines.push(current);
+    return lines;
+  }
+
+  function nodeContentHeight(name, subtitle, width, compactHint) {
+    var titleLines = wrapLabelLines(name, width - 18, compactHint ? 14 : 12);
+    var subtitleLines = subtitle ? wrapLabelLines(subtitle, width - 18, 14) : [];
+    var titleLineHeight = 13;
+    var subtitleLineHeight = 12;
+    var topPad = compactHint ? 8 : 10;
+    var bottomPad = 8;
+    var gap = subtitleLines.length ? 5 : 0;
+    var textHeight = titleLines.length * titleLineHeight + subtitleLines.length * subtitleLineHeight + gap;
+    var minHeight = compactHint ? 34 : 44;
+    return Math.max(minHeight, topPad + textHeight + bottomPad);
   }
 
   function createSvgNode(tag, attrs) {
@@ -630,6 +659,28 @@
     var linkedPath = findNearestLinkedPath(selected, state.impactRadius);
     var contextCache = Object.create(null);
 
+    function contextFor(name) {
+      if (!name) return { degree: { incoming: 0, outgoing: 0, theorems: 0, score: 0 }, assurance: { label: "Unknown" }, path: "" };
+      if (contextCache[name]) return contextCache[name];
+      contextCache[name] = {
+        degree: moduleDegree(name),
+        assurance: assuranceForModule(name),
+        path: state.moduleMap[name] || ""
+      };
+      return contextCache[name];
+    }
+
+    function moduleSummary(name) {
+      var ctx = contextFor(name);
+      return "thm " + ctx.degree.theorems + " · in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing + " · " + ctx.assurance.label.toLowerCase();
+    }
+
+    function nodeTooltip(name, roleLabel) {
+      if (!state.moduleMap[name]) return roleLabel + ": " + name;
+      var ctx = contextFor(name);
+      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nassurance: " + ctx.assurance.label;
+    }
+
     var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
     var flowWidth = Math.max(1180, wrapWidth || 0);
     var framePad = 34;
@@ -643,23 +694,41 @@
     var rightX = centerX + centerWidth + laneGap;
 
     var laneYStart = 62;
-    var laneStep = 52;
-    var laneNodeHeight = 44;
-    var laneCount = Math.max(imports.length, importers.length, state.flowShowAll ? 1 : 2);
-    var laneBottom = laneYStart + Math.max(0, laneCount - 1) * laneStep + laneNodeHeight;
+    var laneGapY = 10;
 
-    var centerY = Math.max(170, laneYStart + Math.floor(Math.max(1, laneCount - 1) / 2) * laneStep - 26);
-    var centerBottom = centerY + 92;
+    function stackedLayout(names, width, subtitleFn, compactHint) {
+      var nodes = [];
+      var cursor = laneYStart;
+      for (var ii = 0; ii < names.length; ii++) {
+        var subtitleText = subtitleFn ? subtitleFn(names[ii]) : "";
+        var height = nodeContentHeight(names[ii], subtitleText, width, compactHint);
+        nodes.push({ name: names[ii], y: cursor, h: height, subtitle: subtitleText });
+        cursor += height + laneGapY;
+      }
+      return { nodes: nodes, bottom: names.length ? (cursor - laneGapY) : laneYStart + 44 };
+    }
+
+    var importLayout = stackedLayout(imports, sideWidth, moduleSummary, false);
+    var importerLayout = stackedLayout(importers, sideWidth, moduleSummary, false);
+    var laneBottom = Math.max(importLayout.bottom, importerLayout.bottom);
+
+    var centerHeight = nodeContentHeight(selected, moduleSummary(selected), centerWidth, false) + 14;
+    var centerY = Math.max(170, laneYStart + Math.floor((Math.max(importLayout.bottom, importerLayout.bottom) - laneYStart - centerHeight) / 2));
+    var centerBottom = centerY + centerHeight;
 
     var lowerSectionTop = Math.max(laneBottom + 54, centerBottom + 54);
     var proofStartY = lowerSectionTop;
-    var proofBottom = proofStartY + Math.max(1, proofRelated.length) * 42;
+    var proofBottom = proofStartY;
+    for (var pr = 0; pr < proofRelated.length; pr++) {
+      proofBottom += nodeContentHeight(proofRelated[pr], moduleSummary(proofRelated[pr]), centerWidth, true) + 8;
+    }
+    proofBottom = Math.max(proofBottom, proofStartY + 42);
     var pathStartY = proofBottom + 54;
 
     var externalPerRow = Math.max(2, Math.min(6, Math.floor((flowWidth - framePad * 2) / 220)));
     var externalRows = Math.max(1, Math.ceil(external.length / externalPerRow));
     var externalStartY = pathStartY + (linkedPath.length > 1 ? 74 : 20);
-    var flowHeight = Math.max(620, externalStartY + externalRows * 40 + 68);
+    var flowHeight = Math.max(620, externalStartY + externalRows * 56 + 68);
 
     var svg = createSvgNode("svg", {
       "class": "flowchart-svg",
@@ -695,30 +764,6 @@
       labelLayer.appendChild(label);
     }
 
-    function moduleSummary(name) {
-      var ctx = contextFor(name);
-      return "thm " + ctx.degree.theorems + " · in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing + " · " + ctx.assurance.label.toLowerCase();
-    }
-
-    function nodeTooltip(name, roleLabel) {
-      if (!state.moduleMap[name]) return roleLabel + ": " + name;
-      var ctx = contextFor(name);
-      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nassurance: " + ctx.assurance.label;
-    }
-
-    function contextFor(name) {
-      if (!name) return { degree: { incoming: 0, outgoing: 0, theorems: 0, score: 0 }, assurance: { label: "Unknown" }, path: "" };
-      if (contextCache[name]) return contextCache[name];
-      contextCache[name] = {
-        degree: moduleDegree(name),
-        assurance: assuranceForModule(name),
-        path: state.moduleMap[name] || ""
-      };
-      return contextCache[name];
-    }
-
-    var nodeClipId = 0;
-
     function createNode(name, x, y, w, h, color, subtitle, tooltip, active, isStatic, assuranceLevel) {
       var className = "flow-node" + (active ? " active" : "") + (isStatic ? " static" : "");
       if (assuranceLevel && !isStatic) className += " assurance-" + assuranceLevel;
@@ -729,22 +774,28 @@
       var full = createSvgNode("title", {});
       full.textContent = tooltip || name;
 
-      var clipId = "flow-node-clip-" + (nodeClipId++);
-      var clipPath = createSvgNode("clipPath", { id: clipId });
-      clipPath.appendChild(createSvgNode("rect", { x: x + 8, y: y + 4, width: Math.max(0, w - 16), height: Math.max(0, h - 8) }));
-      defs.appendChild(clipPath);
-
       var compactNode = h < 44;
-      var title = createSvgNode("text", { x: x + 10, y: y + (compactNode ? 22 : 20), "clip-path": "url(#" + clipId + ")" });
-      title.textContent = truncateLabel(name, w - 16);
+      var title = createSvgNode("text", { x: x + 10, y: y + (compactNode ? 20 : 19) });
+      var titleLines = wrapLabelLines(name, w - 18, compactNode ? 14 : 12);
+      for (var ll = 0; ll < titleLines.length; ll++) {
+        var tspan = createSvgNode("tspan", { x: x + 10, dy: ll === 0 ? "0" : "13" });
+        tspan.textContent = titleLines[ll];
+        title.appendChild(tspan);
+      }
 
       group.appendChild(full);
       group.appendChild(rect);
       group.appendChild(title);
 
       if (subtitle && h >= 40) {
-        var meta = createSvgNode("text", { x: x + 10, y: y + 38, "class": "flow-meta", "clip-path": "url(#" + clipId + ")" });
-        meta.textContent = truncateLabel(subtitle, w - 16);
+        var subtitleLines = wrapLabelLines(subtitle, w - 18, 14);
+        var subtitleStartY = y + (compactNode ? 22 : 22) + Math.max(1, titleLines.length) * 13 + 3;
+        var meta = createSvgNode("text", { x: x + 10, y: subtitleStartY, "class": "flow-meta" });
+        for (var mm = 0; mm < subtitleLines.length; mm++) {
+          var metaSpan = createSvgNode("tspan", { x: x + 10, dy: mm === 0 ? "0" : "12" });
+          metaSpan.textContent = subtitleLines[mm];
+          meta.appendChild(metaSpan);
+        }
         group.appendChild(meta);
       }
 
@@ -766,23 +817,25 @@
     laneLabel("Selected module context", centerX, centerY - 12, "#7c9cff");
     laneLabel("Modules impacted by selected", rightX, 30, "#ffad42");
 
-    var center = createNode(selected, centerX, centerY, centerWidth, 92, "#7c9cff", moduleSummary(selected), nodeTooltip(selected, "Selected module context"), true, false, contextFor(selected).assurance.level);
+    var center = createNode(selected, centerX, centerY, centerWidth, centerHeight, "#7c9cff", moduleSummary(selected), nodeTooltip(selected, "Selected module context"), true, false, contextFor(selected).assurance.level);
 
     var importNodes = [];
-    for (var i = 0; i < imports.length; i++) {
-      importNodes.push(createNode(imports[i], leftX, laneYStart + i * laneStep, sideWidth, laneNodeHeight, "#35c98f", moduleSummary(imports[i]), nodeTooltip(imports[i], "Imported dependency"), false, false, contextFor(imports[i]).assurance.level));
+    for (var i = 0; i < importLayout.nodes.length; i++) {
+      var importItem = importLayout.nodes[i];
+      importNodes.push(createNode(importItem.name, leftX, importItem.y, sideWidth, importItem.h, "#35c98f", importItem.subtitle, nodeTooltip(importItem.name, "Imported dependency"), false, false, contextFor(importItem.name).assurance.level));
     }
 
     var importerNodes = [];
-    for (var j = 0; j < importers.length; j++) {
-      importerNodes.push(createNode(importers[j], rightX, laneYStart + j * laneStep, sideWidth, laneNodeHeight, "#ffad42", moduleSummary(importers[j]), nodeTooltip(importers[j], "Impacted module"), false, false, contextFor(importers[j]).assurance.level));
+    for (var j = 0; j < importerLayout.nodes.length; j++) {
+      var importerItem = importerLayout.nodes[j];
+      importerNodes.push(createNode(importerItem.name, rightX, importerItem.y, sideWidth, importerItem.h, "#ffad42", importerItem.subtitle, nodeTooltip(importerItem.name, "Impacted module"), false, false, contextFor(importerItem.name).assurance.level));
     }
 
     if (allImports.length > imports.length) {
-      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, laneYStart + imports.length * laneStep, sideWidth, 30, "#35c98f", "enable full-flow or increase neighbor budget", "", false, true, "");
+      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, importLayout.bottom + laneGapY, sideWidth, 36, "#35c98f", "enable full-flow or increase neighbor budget", "", false, true, "");
     }
     if (allImporters.length > importers.length) {
-      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, laneYStart + importers.length * laneStep, sideWidth, 30, "#ffad42", "enable full-flow or increase neighbor budget", "", false, true, "");
+      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", "enable full-flow or increase neighbor budget", "", false, true, "");
     }
 
     var importSpread = Math.min(52, Math.max(14, importNodes.length * 2));
@@ -796,9 +849,12 @@
 
     if (proofRelated.length) {
       laneLabel("Proof pair context", centerX, proofStartY - 16, "#d37cff");
+      var proofY = proofStartY;
       for (var n = 0; n < proofRelated.length; n++) {
-        var proofNode = createNode(proofRelated[n], centerX, proofStartY + n * 42, centerWidth, 40, "#d37cff", moduleSummary(proofRelated[n]), nodeTooltip(proofRelated[n], "Proof-pair neighbor"), false, false, contextFor(proofRelated[n]).assurance.level);
+        var proofHeight = nodeContentHeight(proofRelated[n], moduleSummary(proofRelated[n]), centerWidth, true);
+        var proofNode = createNode(proofRelated[n], centerX, proofY, centerWidth, proofHeight, "#d37cff", moduleSummary(proofRelated[n]), nodeTooltip(proofRelated[n], "Proof-pair neighbor"), false, false, contextFor(proofRelated[n]).assurance.level);
         drawFlowEdge(edgeLayer, center, proofNode, "#d37cff", true, { rank: n, total: proofRelated.length, spread: 18 });
+        proofY += proofHeight + 8;
       }
     }
 
@@ -808,7 +864,8 @@
       for (var q = 1; q < linkedPath.length; q++) {
         var maxPathX = Math.max(framePad, flowWidth - framePad - 220);
         var pathX = Math.min(maxPathX, Math.max(framePad, centerX - 180) + (q - 1) * 230);
-        var pathNode = createNode(linkedPath[q], pathX, pathStartY, 240, 40, "#6de2ff", moduleSummary(linkedPath[q]), nodeTooltip(linkedPath[q], "Linked-proof path step " + q), false, false, contextFor(linkedPath[q]).assurance.level);
+        var pathHeight = nodeContentHeight(linkedPath[q], moduleSummary(linkedPath[q]), 240, true);
+        var pathNode = createNode(linkedPath[q], pathX, pathStartY, 240, pathHeight, "#6de2ff", moduleSummary(linkedPath[q]), nodeTooltip(linkedPath[q], "Linked-proof path step " + q), false, false, contextFor(linkedPath[q]).assurance.level);
         drawFlowEdge(edgeLayer, previousNode, pathNode, "#6de2ff", true, { rank: q - 1, total: Math.max(1, linkedPath.length - 1), spread: 12 });
         previousNode = pathNode;
       }
@@ -816,17 +873,18 @@
 
     laneLabel("External imports", leftX, externalStartY - 10, "#b9c0d0");
     if (!external.length) {
-      createNode("No external imports detected", leftX, externalStartY, sideWidth, 30, "#b9c0d0", "", "", false, true, "");
+      createNode("No external imports detected", leftX, externalStartY, sideWidth, 36, "#b9c0d0", "", "", false, true, "");
     } else {
       var externalWidth = Math.max(180, Math.floor((flowWidth - framePad * 2 - (externalPerRow - 1) * 12) / externalPerRow));
       for (var z = 0; z < external.length; z++) {
         var row = Math.floor(z / externalPerRow);
         var col = z % externalPerRow;
         var externalX = leftX + col * (externalWidth + 12);
-        createNode(external[z], externalX, externalStartY + row * 38, externalWidth, 30, "#b9c0d0", "", "", false, true, "");
+        var externalHeight = nodeContentHeight(external[z], "", externalWidth, true);
+        createNode(external[z], externalX, externalStartY + row * 56, externalWidth, externalHeight, "#b9c0d0", "", "", false, true, "");
       }
       if (allExternal.length > external.length) {
-        createNode("+" + (allExternal.length - external.length) + " more", leftX, externalStartY + externalRows * 38, externalWidth, 30, "#b9c0d0", "", "", false, true, "");
+        createNode("+" + (allExternal.length - external.length) + " more", leftX, externalStartY + externalRows * 56, externalWidth, 36, "#b9c0d0", "", "", false, true, "");
       }
     }
 
