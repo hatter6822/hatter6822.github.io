@@ -625,23 +625,6 @@
     if (segments.length) renderBand("Directory context", segments, "static");
   }
 
-  function recommendNextModules() {
-    var selected = state.selectedModule;
-    if (!selected) return [];
-
-    var neighborPool = (state.importsFrom[selected] || []).concat(state.importsTo[selected] || []).concat(relatedProofModules(selected));
-    var unique = uniqueModules(neighborPool, selected);
-    unique.sort(function (a, b) {
-      var aa = assuranceForModule(a);
-      var bb = assuranceForModule(b);
-      var weightA = (aa.level === "linked" ? 3 : aa.level === "partial" ? 2 : aa.level === "local" ? 1 : 0);
-      var weightB = (bb.level === "linked" ? 3 : bb.level === "partial" ? 2 : bb.level === "local" ? 1 : 0);
-      return weightB - weightA || sortByScoreThenName(a, b);
-    });
-
-    return unique.slice(0, 6);
-  }
-
   function renderTrail() {
     var wrap = document.getElementById("trail-wrap");
     if (!wrap) return;
@@ -661,31 +644,6 @@
       chip.addEventListener("click", (function (moduleName) {
         return function () { selectModule(moduleName, true); };
       })(state.trail[i]));
-      fragment.appendChild(chip);
-    }
-    wrap.appendChild(fragment);
-  }
-
-  function renderRecommendations() {
-    var wrap = document.getElementById("recommend-wrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-
-    var recs = recommendNextModules();
-    if (!recs.length) {
-      wrap.textContent = "No local recommendations available.";
-      return;
-    }
-
-    var fragment = document.createDocumentFragment();
-    for (var i = 0; i < recs.length; i++) {
-      var chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "trail-chip";
-      chip.textContent = recs[i];
-      chip.addEventListener("click", (function (moduleName) {
-        return function () { selectModule(moduleName, false); };
-      })(recs[i]));
       fragment.appendChild(chip);
     }
     wrap.appendChild(fragment);
@@ -837,7 +795,6 @@
     renderConstellation();
     renderLensPanel();
     renderTrail();
-    renderRecommendations();
   }
 
 
