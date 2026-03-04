@@ -20,6 +20,8 @@
   var CACHE_TTL_MS = 60 * 60 * 1000;
   var LIVE_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
   var LIVE_SYNC_JITTER_MAX_MS = 45 * 1000;
+  var LIVE_SYNC_POLL_INTERVAL_MS = 90 * 1000;
+  var COMPARE_FILES_TRUNCATION_LIMIT = 300;
   var LIVE_SYNC_META_KEY = "sele4n-code-map-live-sync-meta-v1";
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
@@ -435,10 +437,6 @@
 
     state.importsFrom[name] = imports;
     state.externalImportsFrom[name] = external;
-    for (var j = 0; j < imports.length; j++) {
-      if (!state.importsTo[imports[j]]) state.importsTo[imports[j]] = [];
-      state.importsTo[imports[j]].push(name);
-    }
 
     var interior = extractInteriorCodeItems(sourceText);
     state.moduleMeta[name] = {
@@ -449,6 +447,45 @@
       symbols: interior,
       symbolsLoaded: hasCompleteSymbolLines(interior)
     };
+  }
+
+  function normalizeImportsFromIndex() {
+    for (var moduleName in state.importsFrom) {
+      if (!Object.prototype.hasOwnProperty.call(state.importsFrom, moduleName)) continue;
+      if (!state.moduleMap[moduleName]) {
+        delete state.importsFrom[moduleName];
+        continue;
+      }
+
+      var deps = Array.isArray(state.importsFrom[moduleName]) ? state.importsFrom[moduleName] : [];
+      var normalized = [];
+      var seen = Object.create(null);
+      for (var i = 0; i < deps.length; i++) {
+        var dep = sanitizeModuleName(deps[i]);
+        if (!dep || !state.moduleMap[dep] || seen[dep]) continue;
+        seen[dep] = true;
+        normalized.push(dep);
+      }
+      state.importsFrom[moduleName] = normalized;
+    }
+  }
+
+  function rebuildImportsToIndex() {
+    normalizeImportsFromIndex();
+
+    var reverse = Object.create(null);
+    for (var moduleName in state.importsFrom) {
+      if (!Object.prototype.hasOwnProperty.call(state.importsFrom, moduleName)) continue;
+      var deps = state.importsFrom[moduleName] || [];
+      for (var i = 0; i < deps.length; i++) {
+        var dep = deps[i];
+        if (!dep) continue;
+        if (!reverse[dep]) reverse[dep] = [];
+        reverse[dep].push(moduleName);
+      }
+    }
+
+    state.importsTo = reverse;
   }
 
   function moduleDegree(name) {
@@ -1662,6 +1699,47 @@
     });
   }
 
+  function isLeanModulePath(path) {
+    return /^SeLe4n\/.*\.lean$/.test(path || "");
+  }
+
+  function moduleInventoryFromTree(tree) {
+    var files = [];
+    var leanFiles = [];
+    var leanShasByPath = Object.create(null);
+
+    for (var i = 0; i < tree.length; i++) {
+      var entry = tree[i];
+      if (!entry || entry.type !== "blob") continue;
+      files.push(entry.path);
+      if (isLeanModulePath(entry.path)) {
+        leanFiles.push(entry.path);
+        leanShasByPath[entry.path] = entry.sha || "";
+      }
+    }
+
+    return { files: files, leanFiles: leanFiles, leanShasByPath: leanShasByPath };
+  }
+
+  function removeModuleState(moduleName) {
+    delete state.moduleMeta[moduleName];
+    delete state.importsFrom[moduleName];
+    delete state.externalImportsFrom[moduleName];
+    state.trail = state.trail.filter(function (name) { return name !== moduleName; });
+    if (state.selectedModule === moduleName) state.selectedModule = null;
+    if (state.interiorMenuModule === moduleName) {
+      state.interiorMenuModule = "";
+      state.interiorMenuQuery = "";
+    }
+  }
+
+  function applyTreeInventory(inventory) {
+    state.files = inventory.files.slice();
+    state.modules = inventory.leanFiles.map(moduleFromPath);
+    state.moduleMap = Object.create(null);
+    for (var i = 0; i < state.modules.length; i++) state.moduleMap[state.modules[i]] = inventory.leanFiles[i];
+  }
+
   function normalizeMapData(data) {
     if (!data || typeof data !== "object") return null;
 
@@ -1734,6 +1812,7 @@
     state.commitSha = data.commitSha || "";
     state.generatedAt = data.generatedAt || "";
     LABEL_WRAP_CACHE.clear();
+    rebuildImportsToIndex();
     buildSearchIndex();
 
     buildPairs();
@@ -1757,6 +1836,84 @@
     };
   }
 
+  function shouldFallbackFromComparePayload(payload) {
+    if (!payload || typeof payload !== "object") return true;
+    if (payload.status && payload.status !== "ahead") return true;
+    if (payload.files === null || typeof payload.files === "undefined") return true;
+
+    var files = Array.isArray(payload.files) ? payload.files : [];
+    var total = Number(payload.total_files || files.length || 0);
+    if (files.length >= COMPARE_FILES_TRUNCATION_LIMIT && total > files.length) return true;
+
+    return false;
+  }
+
+  function fetchAndApplyIncrementalChanges(knownCommitSha, latestCommitSha, inventory) {
+    var compareUrl = API + "/compare/" + encodeURIComponent(knownCommitSha) + "..." + encodeURIComponent(latestCommitSha);
+    return safeFetch(compareUrl, false).then(function (payload) {
+      if (shouldFallbackFromComparePayload(payload)) throw new Error("incremental-compare-unavailable");
+      var changedPaths = Object.create(null);
+      var removedPaths = Object.create(null);
+      var files = payload && Array.isArray(payload.files) ? payload.files : [];
+
+      for (var i = 0; i < files.length; i++) {
+        var file = files[i] || {};
+        var filename = String(file.filename || "");
+        if (!isLeanModulePath(filename)) continue;
+
+        if (file.status === "removed") {
+          removedPaths[filename] = true;
+          continue;
+        }
+
+        if (file.status === "renamed" && file.previous_filename && isLeanModulePath(file.previous_filename)) {
+          removedPaths[String(file.previous_filename)] = true;
+        }
+
+        changedPaths[filename] = true;
+      }
+
+      applyTreeInventory(inventory);
+
+      var allModules = state.modules.slice();
+      var removedList = Object.keys(removedPaths);
+      for (var r = 0; r < removedList.length; r++) {
+        var removedPath = removedList[r];
+        var removedModule = moduleFromPath(removedPath);
+        if (!state.moduleMap[removedModule]) removeModuleState(removedModule);
+      }
+
+      for (var m = 0; m < allModules.length; m++) {
+        var moduleName = allModules[m];
+        if (!state.importsFrom[moduleName]) state.importsFrom[moduleName] = [];
+        if (!state.externalImportsFrom[moduleName]) state.externalImportsFrom[moduleName] = [];
+      }
+
+      var changedLeanFiles = Object.keys(changedPaths);
+      if (!changedLeanFiles.length) return;
+
+      setStatus("Applying incremental module sync (" + changedLeanFiles.length + " changed files)…", false);
+      return runInPool(changedLeanFiles, function (path) {
+        var moduleName = moduleFromPath(path);
+        var blobSha = inventory.leanShasByPath[path] || "";
+        if (!blobSha) {
+          applyEmptyModule(moduleName);
+          return;
+        }
+
+        return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
+          if (!blob || blob.encoding !== "base64" || !blob.content) {
+            applyEmptyModule(moduleName);
+            return;
+          }
+          parseModule(moduleName, decodeBlobBase64(blob.content));
+        }).catch(function () {
+          applyEmptyModule(moduleName);
+        });
+      });
+    });
+  }
+
   function fetchAndBuildData(cachedCommitSha) {
     setStatus("Checking latest repository commit…", false);
 
@@ -1774,53 +1931,72 @@
 
       return safeFetch(API + "/git/trees/" + treeRef + "?recursive=1", false).then(function (payload) {
         var tree = payload && payload.tree ? payload.tree : [];
-        var files = [];
-        var leanFiles = [];
-        var leanShasByPath = Object.create(null);
-        for (var i = 0; i < tree.length; i++) {
-          var entry = tree[i];
-          if (!entry || entry.type !== "blob") continue;
-          files.push(entry.path);
-          if (/^SeLe4n\/.*\.lean$/.test(entry.path)) {
-            leanFiles.push(entry.path);
-            leanShasByPath[entry.path] = entry.sha || "";
-          }
-        }
+        var inventory = moduleInventoryFromTree(tree);
+        var known = state.commitSha || cachedCommitSha || "";
+        var canIncremental = Boolean(known && latestCommitSha && state.modules.length);
 
-        state.files = files;
-        state.modules = leanFiles.map(moduleFromPath);
-        state.moduleMap = Object.create(null);
-        state.moduleMeta = Object.create(null);
-        state.importsTo = Object.create(null);
-        state.importsFrom = Object.create(null);
-        state.externalImportsFrom = Object.create(null);
-        invalidateDerivedCaches();
-        state.contextList = [];
+        if (!canIncremental) {
+          state.moduleMeta = Object.create(null);
+          state.importsTo = Object.create(null);
+          state.importsFrom = Object.create(null);
+          state.externalImportsFrom = Object.create(null);
+          applyTreeInventory(inventory);
+          invalidateDerivedCaches();
+          state.contextList = [];
+          buildSearchIndex();
 
-        for (var j = 0; j < state.modules.length; j++) state.moduleMap[state.modules[j]] = leanFiles[j];
-        buildSearchIndex();
-
-        setStatus("Analyzing Lean modules and theorem declarations…", false);
-
-        return runInPool(leanFiles, function (path) {
-          var moduleName = moduleFromPath(path);
-          var blobSha = leanShasByPath[path];
-          if (!blobSha) {
-            applyEmptyModule(moduleName);
-            return;
-          }
-
-          return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
-            if (!blob || blob.encoding !== "base64" || !blob.content) {
+          setStatus("Analyzing Lean modules and theorem declarations…", false);
+          return runInPool(inventory.leanFiles, function (path) {
+            var moduleName = moduleFromPath(path);
+            var blobSha = inventory.leanShasByPath[path];
+            if (!blobSha) {
               applyEmptyModule(moduleName);
               return;
             }
-            var text = decodeBlobBase64(blob.content);
-            parseModule(moduleName, text);
-          }).catch(function () {
-            applyEmptyModule(moduleName);
+
+            return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
+              if (!blob || blob.encoding !== "base64" || !blob.content) {
+                applyEmptyModule(moduleName);
+                return;
+              }
+              parseModule(moduleName, decodeBlobBase64(blob.content));
+            }).catch(function () {
+              applyEmptyModule(moduleName);
+            });
+          });
+        }
+
+        return fetchAndApplyIncrementalChanges(known, latestCommitSha, inventory).catch(function () {
+          state.moduleMeta = Object.create(null);
+          state.importsFrom = Object.create(null);
+          state.externalImportsFrom = Object.create(null);
+          applyTreeInventory(inventory);
+          setStatus("Incremental sync unavailable; rebuilding module index…", false);
+          return runInPool(inventory.leanFiles, function (path) {
+            var moduleName = moduleFromPath(path);
+            var blobSha = inventory.leanShasByPath[path];
+            if (!blobSha) {
+              applyEmptyModule(moduleName);
+              return;
+            }
+
+            return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
+              if (!blob || blob.encoding !== "base64" || !blob.content) {
+                applyEmptyModule(moduleName);
+                return;
+              }
+              parseModule(moduleName, decodeBlobBase64(blob.content));
+            }).catch(function () {
+              applyEmptyModule(moduleName);
+            });
           });
         }).then(function () {
+          invalidateDerivedCaches();
+          state.contextList = [];
+          buildSearchIndex();
+        });
+      }).then(function () {
+          rebuildImportsToIndex();
           state.commitSha = latestCommitSha || "";
           state.generatedAt = new Date().toISOString();
           buildPairs();
@@ -1833,20 +2009,53 @@
           var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
           setStatus("Map ready. Integrated dependency/proof flow graph loaded." + statusSuffix, false);
           persistCurrentMapCache();
-        });
       });
     });
   }
 
-  function refreshMapDataWithPolicy(cachedCommitSha, hasLocalData) {
+  function refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, options) {
+    var opts = options || {};
     var cooldown = remainingSyncCooldownMs();
     if (hasLocalData && cooldown > 0) {
-      var mins = Math.max(1, Math.ceil(cooldown / 60000));
-      setStatus("Using local snapshot. Next live sync check in about " + mins + " min.", false);
+      if (!opts.silentCooldown) {
+        var mins = Math.max(1, Math.ceil(cooldown / 60000));
+        setStatus("Using local snapshot. Next live sync check in about " + mins + " min.", false);
+      }
       return Promise.resolve();
     }
 
     return fetchAndBuildData(cachedCommitSha);
+  }
+
+  function setupLiveSyncPolling() {
+    var inFlight = false;
+
+    function trigger(reason) {
+      if (inFlight) return;
+      if (document.hidden && reason === "poll") return;
+      inFlight = true;
+      var knownCommit = state.commitSha || "";
+      var hasLocalData = Boolean(state.modules && state.modules.length);
+      refreshMapDataWithPolicy(knownCommit, hasLocalData, { silentCooldown: reason !== "manual" }).finally(function () {
+        inFlight = false;
+      });
+    }
+
+    function queueNextPoll() {
+      var jitter = Math.floor(Math.random() * 15000);
+      window.setTimeout(function () {
+        trigger("poll");
+        queueNextPoll();
+      }, LIVE_SYNC_POLL_INTERVAL_MS + jitter);
+    }
+
+    queueNextPoll();
+
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) trigger("visible");
+    });
+    window.addEventListener("focus", function () { trigger("focus"); });
+    window.addEventListener("online", function () { trigger("online"); });
   }
 
   function detailLevelFromState() {
@@ -2160,6 +2369,7 @@
     setupFilters();
     setupKeyboardNavigation();
     setupFlowchartResize();
+    setupLiveSyncPolling();
     hydrateFilterControls();
 
     var cached = getCache();

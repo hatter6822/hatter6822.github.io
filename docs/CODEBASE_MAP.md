@@ -20,10 +20,13 @@ The map page provides a single operational and proof-aware architecture view of 
 3. **Live sync policy**
    - Applies cooldown + jitter guardrails to reduce excess sync traffic.
    - Fetches latest commit SHA and repo tree when policy allows.
+   - Uses incremental GitHub compare sync to re-parse only changed `SeLe4n/**/*.lean` modules when possible (with automatic full rebuild fallback when compare payloads are truncated/unreliable).
+   - Runs continuous polling (plus visibility/focus/online triggers) for near real-time sync without overwhelming API quotas.
 
 4. **Lean module analysis**
    - Derives module paths from `SeLe4n/**/*.lean`.
-   - Parses imports and interior declarations.
+   - Parses imports and interior declarations (theorems/functions with line anchors).
+   - Normalizes imports against the current module inventory and rebuilds reverse import edges for consistency.
    - Computes module degree, pair linkage, and assurance labels.
 
 5. **Rendering lifecycle**
