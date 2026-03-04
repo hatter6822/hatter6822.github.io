@@ -650,21 +650,33 @@
     var proofRelated = relatedProofModules(selected);
     var linkedPath = findNearestLinkedPath(selected, state.impactRadius);
 
-    var laneYStart = 56;
-    var laneStep = 38;
+    var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
+    var flowWidth = Math.max(1180, wrapWidth || 0);
+    var framePad = 34;
+    var laneGap = 24;
+
+    var centerWidth = Math.min(360, Math.max(300, Math.floor(flowWidth * 0.27)));
+    var sideWidth = Math.min(360, Math.max(240, Math.floor((flowWidth - framePad * 2 - centerWidth - laneGap * 2) / 2)));
+
+    var leftX = framePad;
+    var centerX = leftX + sideWidth + laneGap;
+    var rightX = centerX + centerWidth + laneGap;
+
+    var laneYStart = 62;
+    var laneStep = 42;
     var maxLaneCount = Math.max(imports.length, importers.length, 1);
     var centerY = Math.max(170, laneYStart + Math.floor(maxLaneCount / 2) * laneStep - 32);
-    var proofStartY = centerY + 140;
-    var pathStartY = proofStartY + Math.max(1, proofRelated.length) * 44 + 44;
+    var proofStartY = centerY + 148;
+    var pathStartY = proofStartY + Math.max(1, proofRelated.length) * 46 + 48;
 
-    var externalPerRow = 5;
+    var externalPerRow = Math.max(2, Math.min(6, Math.floor((flowWidth - framePad * 2) / 220)));
     var externalRows = Math.max(1, Math.ceil(external.length / externalPerRow));
-    var externalStartY = pathStartY + (linkedPath.length > 1 ? 72 : 18);
-    var flowHeight = Math.max(560, externalStartY + externalRows * 38 + 62);
+    var externalStartY = pathStartY + (linkedPath.length > 1 ? 74 : 20);
+    var flowHeight = Math.max(620, externalStartY + externalRows * 40 + 68);
 
     var svg = createSvgNode("svg", {
       "class": "flowchart-svg",
-      "viewBox": "0 0 1240 " + flowHeight,
+      "viewBox": "0 0 " + flowWidth + " " + flowHeight,
       "role": "img",
       "aria-label": "Flow chart for selected module interactions and proof links"
     });
@@ -730,62 +742,65 @@
       return { name: name, x: x, y: y, w: w, h: h };
     }
 
-    laneLabel("Imports used by selected", 36, 30, "#35c98f");
-    laneLabel("Selected module context", 470, centerY - 12, "#7c9cff");
-    laneLabel("Modules impacted by selected", 904, 30, "#ffad42");
+    laneLabel("Imports used by selected", leftX, 30, "#35c98f");
+    laneLabel("Selected module context", centerX, centerY - 12, "#7c9cff");
+    laneLabel("Modules impacted by selected", rightX, 30, "#ffad42");
 
-    var center = createNode(selected, 470, centerY, 300, 86, "#7c9cff", moduleSummary(selected), true, false);
+    var center = createNode(selected, centerX, centerY, centerWidth, 86, "#7c9cff", moduleSummary(selected), true, false);
 
     var importNodes = [];
     for (var i = 0; i < imports.length; i++) {
-      importNodes.push(createNode(imports[i], 36, laneYStart + i * laneStep, 340, 34, "#35c98f", moduleSummary(imports[i]), false, false));
+      importNodes.push(createNode(imports[i], leftX, laneYStart + i * laneStep, sideWidth, 34, "#35c98f", moduleSummary(imports[i]), false, false));
     }
 
     var importerNodes = [];
     for (var j = 0; j < importers.length; j++) {
-      importerNodes.push(createNode(importers[j], 864, laneYStart + j * laneStep, 340, 34, "#ffad42", moduleSummary(importers[j]), false, false));
+      importerNodes.push(createNode(importers[j], rightX, laneYStart + j * laneStep, sideWidth, 34, "#ffad42", moduleSummary(importers[j]), false, false));
     }
 
     if (allImports.length > imports.length) {
-      createNode("+" + (allImports.length - imports.length) + " more imports", 36, laneYStart + imports.length * laneStep, 340, 30, "#35c98f", "apply filter/search to narrow", false, true);
+      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, laneYStart + imports.length * laneStep, sideWidth, 30, "#35c98f", "apply filter/search to narrow", false, true);
     }
     if (allImporters.length > importers.length) {
-      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", 864, laneYStart + importers.length * laneStep, 340, 30, "#ffad42", "increase neighbor budget to inspect", false, true);
+      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, laneYStart + importers.length * laneStep, sideWidth, 30, "#ffad42", "increase neighbor budget to inspect", false, true);
     }
 
     for (var k = 0; k < importNodes.length; k++) drawFlowEdge(svg, importNodes[k], center, "#35c98f", false);
     for (var m = 0; m < importerNodes.length; m++) drawFlowEdge(svg, center, importerNodes[m], "#ffad42", false);
 
     if (proofRelated.length) {
-      laneLabel("Proof pair context", 470, proofStartY - 16, "#d37cff");
+      laneLabel("Proof pair context", centerX, proofStartY - 16, "#d37cff");
       for (var n = 0; n < proofRelated.length; n++) {
-        var proofNode = createNode(proofRelated[n], 470, proofStartY + n * 42, 300, 32, "#d37cff", moduleSummary(proofRelated[n]), false, false);
+        var proofNode = createNode(proofRelated[n], centerX, proofStartY + n * 42, centerWidth, 32, "#d37cff", moduleSummary(proofRelated[n]), false, false);
         drawFlowEdge(svg, center, proofNode, "#d37cff", true);
       }
     }
 
     if (linkedPath.length > 1) {
-      laneLabel("Nearest linked-proof path (radius " + state.impactRadius + ")", 300, pathStartY - 14, "#6de2ff");
+      laneLabel("Nearest linked-proof path (radius " + state.impactRadius + ")", Math.max(framePad, centerX - 180), pathStartY - 14, "#6de2ff");
       var previousNode = center;
       for (var q = 1; q < linkedPath.length; q++) {
-        var pathX = 300 + (q - 1) * 230;
+        var maxPathX = Math.max(framePad, flowWidth - framePad - 220);
+        var pathX = Math.min(maxPathX, Math.max(framePad, centerX - 180) + (q - 1) * 230);
         var pathNode = createNode(linkedPath[q], pathX, pathStartY, 220, 32, "#6de2ff", moduleSummary(linkedPath[q]), false, false);
         drawFlowEdge(svg, previousNode, pathNode, "#6de2ff", true);
         previousNode = pathNode;
       }
     }
 
-    laneLabel("External imports", 36, externalStartY - 10, "#b9c0d0");
+    laneLabel("External imports", leftX, externalStartY - 10, "#b9c0d0");
     if (!external.length) {
-      createNode("No external imports detected", 36, externalStartY, 340, 30, "#b9c0d0", "", false, true);
+      createNode("No external imports detected", leftX, externalStartY, sideWidth, 30, "#b9c0d0", "", false, true);
     } else {
+      var externalWidth = Math.max(180, Math.floor((flowWidth - framePad * 2 - (externalPerRow - 1) * 12) / externalPerRow));
       for (var z = 0; z < external.length; z++) {
         var row = Math.floor(z / externalPerRow);
         var col = z % externalPerRow;
-        createNode(external[z], 36 + col * 234, externalStartY + row * 38, 224, 30, "#b9c0d0", "", false, true);
+        var externalX = leftX + col * (externalWidth + 12);
+        createNode(external[z], externalX, externalStartY + row * 38, externalWidth, 30, "#b9c0d0", "", false, true);
       }
       if (allExternal.length > external.length) {
-        createNode("+" + (allExternal.length - external.length) + " more", 36, externalStartY + externalRows * 38, 224, 30, "#b9c0d0", "", false, true);
+        createNode("+" + (allExternal.length - external.length) + " more", leftX, externalStartY + externalRows * 38, externalWidth, 30, "#b9c0d0", "", false, true);
       }
     }
 
