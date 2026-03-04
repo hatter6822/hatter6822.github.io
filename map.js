@@ -4,6 +4,7 @@
   var REPO = "hatter6822/seLe4n";
   var REF = "main";
   var API = "https://api.github.com/repos/" + REPO;
+  var RAW_BASE = "https://raw.githubusercontent.com/" + REPO;
   var DATA_ENDPOINT = "data/map-data.json";
 
   var FETCH_OPTIONS = {
@@ -26,6 +27,7 @@
   var LABEL_WRAP_CACHE = new Map();
   var LABEL_WRAP_CACHE_LIMIT = 1200;
   var ASSURANCE_CACHE = Object.create(null);
+  var INTERIOR_FETCH_INFLIGHT = Object.create(null);
 
   var DETAIL_PRESETS = {
     compact: { neighborLimit: 8, impactRadius: 1 },
@@ -41,6 +43,10 @@
     trail: [], neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
     flowShowAll: false, contextListKey: "", contextList: [],
     contextOptionsKey: "",
+    interiorMenuModule: "",
+    interiorMenuQuery: "",
+    interiorMenuShowAllFunctions: false,
+    interiorMenuShowAllTheorems: false,
     commitSha: "",
     generatedAt: ""
   };
@@ -174,6 +180,80 @@
     return matches ? matches.length : 0;
   }
 
+  function normalizeSymbolName(name) {
+    return String(name || "").replace(/`/g, "").trim();
+  }
+
+  function extractInteriorCodeItems(sourceText) {
+    var seenTheorems = Object.create(null);
+    var seenFunctions = Object.create(null);
+    var theoremNames = [];
+    var functionNames = [];
+    var theoremPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+([\w'.`]+)/gm;
+    var functionPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev|opaque)\s+([\w'.`]+)/gm;
+    var instancePattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?instance\s+([\w'.`]+)/gm;
+
+    var match;
+    while ((match = theoremPattern.exec(sourceText)) !== null) {
+      var theoremName = normalizeSymbolName(match[1]);
+      if (!theoremName || seenTheorems[theoremName]) continue;
+      seenTheorems[theoremName] = true;
+      theoremNames.push(theoremName);
+    }
+
+    while ((match = functionPattern.exec(sourceText)) !== null) {
+      var functionName = normalizeSymbolName(match[1]);
+      if (!functionName || seenFunctions[functionName]) continue;
+      seenFunctions[functionName] = true;
+      functionNames.push(functionName);
+    }
+
+    while ((match = instancePattern.exec(sourceText)) !== null) {
+      var instanceName = normalizeSymbolName(match[1]);
+      if (!instanceName || seenFunctions[instanceName]) continue;
+      seenFunctions[instanceName] = true;
+      functionNames.push(instanceName);
+    }
+
+    return { theorems: theoremNames, functions: functionNames };
+  }
+
+  function interiorCodeForModule(name) {
+    var meta = state.moduleMeta[name] || {};
+    var symbols = meta.symbols || {};
+    return {
+      theorems: Array.isArray(symbols.theorems) ? symbols.theorems : [],
+      functions: Array.isArray(symbols.functions) ? symbols.functions : []
+    };
+  }
+
+  function ensureInteriorCodeLoaded(name) {
+    var moduleName = sanitizeModuleName(name || "");
+    if (!moduleName || !state.moduleMap[moduleName]) return Promise.resolve();
+    var meta = state.moduleMeta[moduleName] || (state.moduleMeta[moduleName] = {});
+    if (meta.symbolsLoaded) return Promise.resolve();
+    if (INTERIOR_FETCH_INFLIGHT[moduleName]) return INTERIOR_FETCH_INFLIGHT[moduleName];
+
+    var ref = state.commitSha || REF;
+    var path = state.moduleMap[moduleName];
+    var url = RAW_BASE + "/" + encodeURIComponent(ref) + "/" + path.split("/").map(encodeURIComponent).join("/");
+
+    INTERIOR_FETCH_INFLIGHT[moduleName] = safeFetch(url, true).then(function (sourceText) {
+      var interior = extractInteriorCodeItems(String(sourceText || ""));
+      meta.symbols = interior;
+      meta.theorems = interior.theorems.length;
+      meta.symbolsLoaded = true;
+    }).catch(function () {
+      meta.symbols = meta.symbols || { theorems: [], functions: [] };
+      meta.symbolsLoaded = true;
+    }).finally(function () {
+      delete INTERIOR_FETCH_INFLIGHT[moduleName];
+      scheduleRender();
+    });
+
+    return INTERIOR_FETCH_INFLIGHT[moduleName];
+  }
+
   function isLikelyModuleToken(token) {
     return /^[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*$/.test(token || "");
   }
@@ -254,11 +334,14 @@
       state.importsTo[imports[j]].push(name);
     }
 
+    var interior = extractInteriorCodeItems(sourceText);
     state.moduleMeta[name] = {
       layer: classifyLayer(name),
       kind: moduleKind(name),
       base: moduleBase(name),
-      theorems: theoremCount(sourceText)
+      theorems: theoremCount(sourceText),
+      symbols: interior,
+      symbolsLoaded: true
     };
   }
 
@@ -435,6 +518,12 @@
   function selectModule(name, fromTrail) {
     if (!name || !state.moduleMap[name]) return;
     state.selectedModule = name;
+    if (state.interiorMenuModule !== name) {
+      state.interiorMenuModule = name;
+      state.interiorMenuQuery = "";
+      state.interiorMenuShowAllFunctions = false;
+      state.interiorMenuShowAllTheorems = false;
+    }
     if (!fromTrail) rememberTrail(name);
     syncUrlState();
     updateToolbarSummary();
@@ -562,6 +651,121 @@
     if (context.shift) {
       appendItem("Traversal shift", "from " + context.shift.previous + " (shared " + context.shift.shared.length + ", new " + context.shift.newDeps.length + ")", false);
     }
+  }
+
+  function renderFlowNodeInteriorMenu(selected) {
+    var menu = document.getElementById("flow-node-interior-menu");
+    if (!menu) return;
+    menu.innerHTML = "";
+    if (!selected) {
+      menu.textContent = "Select a module to inspect interior declarations.";
+      return;
+    }
+
+    if (state.interiorMenuModule !== selected) {
+      state.interiorMenuModule = selected;
+      state.interiorMenuQuery = "";
+      state.interiorMenuShowAllFunctions = false;
+      state.interiorMenuShowAllTheorems = false;
+    }
+
+    var interior = interiorCodeForModule(selected);
+    var theoremNames = interior.theorems;
+    var functionNames = interior.functions;
+    var query = (state.interiorMenuQuery || "").trim().toLowerCase();
+    var filteredFunctions = query ? functionNames.filter(function (name) { return name.toLowerCase().indexOf(query) !== -1; }) : functionNames;
+    var filteredTheorems = query ? theoremNames.filter(function (name) { return name.toLowerCase().indexOf(query) !== -1; }) : theoremNames;
+    var functionCap = state.interiorMenuShowAllFunctions ? filteredFunctions.length : 18;
+    var theoremCap = state.interiorMenuShowAllTheorems ? filteredTheorems.length : 18;
+    var functionPreview = filteredFunctions.slice(0, functionCap);
+    var theoremPreview = filteredTheorems.slice(0, theoremCap);
+
+    var header = document.createElement("div");
+    header.className = "interior-menu-header";
+    header.innerHTML = "<h3 class=\"interior-menu-title\"></h3><span class=\"interior-menu-count\"></span>";
+    header.children[0].textContent = "Interior code for " + selected;
+    header.children[1].textContent = "functions " + functionNames.length + " · theorems " + theoremNames.length;
+    menu.appendChild(header);
+
+    var controls = document.createElement("div");
+    controls.className = "interior-menu-controls";
+    var queryLabel = document.createElement("label");
+    queryLabel.className = "sr-only";
+    queryLabel.setAttribute("for", "interior-symbol-filter");
+    queryLabel.textContent = "Filter interior declarations";
+    var queryInput = document.createElement("input");
+    queryInput.id = "interior-symbol-filter";
+    queryInput.className = "interior-menu-search";
+    queryInput.type = "search";
+    queryInput.placeholder = "Filter declarations (fn/theorem)…";
+    queryInput.autocomplete = "off";
+    queryInput.spellcheck = false;
+    queryInput.value = state.interiorMenuQuery || "";
+    queryInput.addEventListener("input", function () {
+      state.interiorMenuQuery = this.value || "";
+      renderFlowNodeInteriorMenu(selected);
+    });
+    controls.appendChild(queryLabel);
+    controls.appendChild(queryInput);
+    menu.appendChild(controls);
+
+    var grid = document.createElement("div");
+    grid.className = "interior-menu-grid";
+
+    function appendColumn(label, items, total, showingAll, emptyText, toggleKey) {
+      var column = document.createElement("section");
+      column.className = "interior-menu-column";
+
+      var top = document.createElement("div");
+      top.className = "interior-menu-column-top";
+      var heading = document.createElement("h4");
+      heading.textContent = label + " (" + total + ")";
+      top.appendChild(heading);
+
+      if (total > 18) {
+        var toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "interior-menu-toggle";
+        toggle.textContent = showingAll ? "Show less" : "Show all";
+        toggle.setAttribute("aria-label", (showingAll ? "Show fewer" : "Show all") + " items for " + label.toLowerCase());
+        toggle.addEventListener("click", function () {
+          state[toggleKey] = !state[toggleKey];
+          renderFlowNodeInteriorMenu(selected);
+        });
+        top.appendChild(toggle);
+      }
+      column.appendChild(top);
+
+      if (!items.length) {
+        var empty = document.createElement("p");
+        empty.className = "panel-note";
+        empty.textContent = emptyText;
+        empty.style.margin = "0";
+        column.appendChild(empty);
+      } else {
+        var list = document.createElement("ul");
+        list.className = "interior-menu-items";
+        for (var i = 0; i < items.length; i++) {
+          var li = document.createElement("li");
+          li.className = "interior-menu-item";
+          li.textContent = items[i];
+          list.appendChild(li);
+        }
+        if (total > items.length && !showingAll) {
+          var more = document.createElement("li");
+          more.className = "interior-menu-item";
+          more.textContent = "+" + (total - items.length) + " more";
+          list.appendChild(more);
+        }
+        column.appendChild(list);
+      }
+
+      grid.appendChild(column);
+    }
+
+    appendColumn("Functions / defs", functionPreview, filteredFunctions.length, state.interiorMenuShowAllFunctions, query ? "No function-style declarations match this filter." : "No function-style declarations detected.", "interiorMenuShowAllFunctions");
+    appendColumn("Theorems / lemmas", theoremPreview, filteredTheorems.length, state.interiorMenuShowAllTheorems, query ? "No theorem-style declarations match this filter." : "No theorem-style declarations detected.", "interiorMenuShowAllTheorems");
+    menu.appendChild(grid);
   }
 
   function wrapLabelLines(text, width, minChars) {
@@ -709,9 +913,12 @@
     var selected = state.selectedModule;
     if (!selected) {
       renderFlowContextStrip("", null);
+      renderFlowNodeInteriorMenu("");
       wrap.textContent = "Select a module to render interaction and proof flow.";
       return;
     }
+
+    ensureInteriorCodeLoaded(selected);
 
     var allImports = (state.importsFrom[selected] || []).slice().sort(sortByScoreThenName);
     var allImporters = (state.importsTo[selected] || []).slice().sort(sortByScoreThenName);
@@ -739,13 +946,17 @@
 
     function moduleSummary(name) {
       var ctx = contextFor(name);
-      return "thm " + ctx.degree.theorems + " · in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing + " · " + ctx.assurance.label.toLowerCase();
+      var interior = interiorCodeForModule(name);
+      return "thm " + ctx.degree.theorems + " · fn " + interior.functions.length + " · in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing;
     }
 
     function nodeTooltip(name, roleLabel) {
       if (!state.moduleMap[name]) return roleLabel + ": " + name;
       var ctx = contextFor(name);
-      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nassurance: " + ctx.assurance.label;
+      var interior = interiorCodeForModule(name);
+      var fnPreview = interior.functions.slice(0, 3).join(", ");
+      var thmPreview = interior.theorems.slice(0, 3).join(", ");
+      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | functions: " + interior.functions.length + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nfn: " + (fnPreview || "none") + "\nthm: " + (thmPreview || "none") + "\nassurance: " + ctx.assurance.label;
     }
 
     var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
@@ -1048,6 +1259,7 @@
       proofPair: selectedPair,
       shift: shift
     });
+    renderFlowNodeInteriorMenu(selected);
 
     var insightRow = document.createElement("div");
     insightRow.className = "flowchart-insight-row";
@@ -1350,7 +1562,27 @@
       files: Array.isArray(data.files) ? data.files : [],
       modules: Array.isArray(data.modules) ? data.modules : [],
       moduleMap: data.moduleMap || Object.create(null),
-      moduleMeta: data.moduleMeta || Object.create(null),
+      moduleMeta: (function () {
+        var raw = data.moduleMeta || Object.create(null);
+        var normalized = Object.create(null);
+        for (var key in raw) {
+          if (!Object.prototype.hasOwnProperty.call(raw, key)) continue;
+          var meta = raw[key] || {};
+          var symbols = meta.symbols || {};
+          normalized[key] = {
+            layer: meta.layer || classifyLayer(key),
+            kind: meta.kind || moduleKind(key),
+            base: meta.base || moduleBase(key),
+            theorems: Number(meta.theorems || 0),
+            symbols: {
+              theorems: Array.isArray(symbols.theorems) ? symbols.theorems : [],
+              functions: Array.isArray(symbols.functions) ? symbols.functions : []
+            },
+            symbolsLoaded: Boolean(meta.symbolsLoaded || (symbols && (Array.isArray(symbols.theorems) || Array.isArray(symbols.functions))))
+          };
+        }
+        return normalized;
+      })(),
       importsTo: data.importsTo || Object.create(null),
       importsFrom: data.importsFrom || Object.create(null),
       externalImportsFrom: data.externalImportsFrom || Object.create(null),
@@ -1395,7 +1627,9 @@
       layer: classifyLayer(moduleName),
       kind: moduleKind(moduleName),
       base: moduleBase(moduleName),
-      theorems: 0
+      theorems: 0,
+      symbols: { theorems: [], functions: [] },
+      symbolsLoaded: true
     };
   }
 

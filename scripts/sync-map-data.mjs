@@ -34,6 +34,44 @@ function theoremCount(text) {
   return matches ? matches.length : 0;
 }
 
+function normalizeSymbolName(name) {
+  return String(name || '').replace(/`/g, '').trim();
+}
+
+function extractInteriorCodeItems(sourceText) {
+  const theoremPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+([\w'.`]+)/gm;
+  const functionPattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev|opaque)\s+([\w'.`]+)/gm;
+  const instancePattern = /^\s*(?:@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?instance\s+([\w'.`]+)/gm;
+  const seenTheorems = Object.create(null);
+  const seenFunctions = Object.create(null);
+  const theorems = [];
+  const functions = [];
+
+  let match;
+  while ((match = theoremPattern.exec(sourceText)) !== null) {
+    const theoremName = normalizeSymbolName(match[1]);
+    if (!theoremName || seenTheorems[theoremName]) continue;
+    seenTheorems[theoremName] = true;
+    theorems.push(theoremName);
+  }
+
+  while ((match = functionPattern.exec(sourceText)) !== null) {
+    const functionName = normalizeSymbolName(match[1]);
+    if (!functionName || seenFunctions[functionName]) continue;
+    seenFunctions[functionName] = true;
+    functions.push(functionName);
+  }
+
+  while ((match = instancePattern.exec(sourceText)) !== null) {
+    const instanceName = normalizeSymbolName(match[1]);
+    if (!instanceName || seenFunctions[instanceName]) continue;
+    seenFunctions[instanceName] = true;
+    functions.push(instanceName);
+  }
+
+  return { theorems, functions };
+}
+
 function isLikelyModuleToken(token) {
   return /^[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*$/.test(token || '');
 }
@@ -138,7 +176,7 @@ await runInPool(leanFiles, async (path) => {
   if (!sha) {
     importsFrom[moduleName] = [];
     externalImportsFrom[moduleName] = [];
-    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0 };
+    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0, symbols: { theorems: [], functions: [] } };
     return;
   }
 
@@ -146,7 +184,7 @@ await runInPool(leanFiles, async (path) => {
   if (blob?.encoding !== 'base64' || !blob.content) {
     importsFrom[moduleName] = [];
     externalImportsFrom[moduleName] = [];
-    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0 };
+    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0, symbols: { theorems: [], functions: [] } };
     return;
   }
 
@@ -179,7 +217,8 @@ await runInPool(leanFiles, async (path) => {
     layer: classifyLayer(moduleName),
     kind: moduleKind(moduleName),
     base: moduleBase(moduleName),
-    theorems: theoremCount(source)
+    theorems: theoremCount(source),
+    symbols: extractInteriorCodeItems(source)
   };
 });
 

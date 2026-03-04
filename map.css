@@ -218,6 +218,91 @@
 }
 .flow-context-item.mono { font-family: var(--font-mono); }
 
+.flow-node-interior-menu {
+  display: grid;
+  gap: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--surface-2) 82%, transparent);
+  padding: 0.55rem;
+  margin-bottom: 0.5rem;
+}
+.interior-menu-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.interior-menu-controls { display: flex; align-items: center; gap: 0.45rem; }
+.interior-menu-search {
+  width: min(100%, 28rem);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
+  color: var(--text);
+  font-size: 0.72rem;
+  padding: 0.28rem 0.62rem;
+}
+.interior-menu-search:focus-visible { outline: 2px solid color-mix(in oklab, var(--accent) 65%, transparent); outline-offset: 1px; }
+.interior-menu-title { margin: 0; font-size: 0.82rem; }
+.interior-menu-count { color: var(--text-muted); font-size: 0.72rem; }
+.interior-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.45rem;
+}
+.interior-menu-column {
+  border: 1px solid var(--border);
+  border-radius: 0.62rem;
+  padding: 0.4rem;
+  background: color-mix(in oklab, var(--surface) 88%, transparent);
+}
+.interior-menu-column-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.25rem;
+}
+.interior-menu-column h4 {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.interior-menu-toggle {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  padding: 0.08rem 0.42rem;
+  cursor: pointer;
+}
+.interior-menu-toggle:hover,
+.interior-menu-toggle:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
+  outline: none;
+}
+.interior-menu-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+.interior-menu-item {
+  font-family: var(--font-mono);
+  font-size: 0.67rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.12rem 0.42rem;
+  background: color-mix(in oklab, var(--surface-2) 85%, transparent);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .flowchart-wrap {
   --flow-node-bg: color-mix(in oklab, var(--surface-2) 86%, transparent);
   border: 1px solid var(--border);
