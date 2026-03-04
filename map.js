@@ -724,34 +724,6 @@
     panel.appendChild(row);
   }
 
-  function lensProof(panel, selected) {
-    var related = relatedProofModules(selected);
-    var pair = findProofPair(selected);
-
-    var p = document.createElement("p");
-    p.className = "lens-metric";
-    if (!pair) p.textContent = "No Operations/Invariant pair detected for this module base.";
-    else p.textContent = "Proof pair status: theorems=" + (pair.operationsTheorems + pair.invariantTheorems) + ", linked=" + (pair.invariantImportsOperations ? "yes" : "no") + ".";
-    panel.appendChild(p);
-
-    var row = document.createElement("div");
-    row.className = "pill-row";
-    for (var j = 0; j < related.length; j++) row.appendChild(createPill(related[j], "out"));
-    if (!related.length) row.textContent = "No proof-neighbor modules.";
-    panel.appendChild(row);
-
-    var steps = [];
-    if (pair && pair.operationsModule) steps.push("1) Start at " + pair.operationsModule + " to inspect executable transitions.");
-    if (pair && pair.invariantModule) steps.push("2) Continue to " + pair.invariantModule + " and validate obligations against transitions.");
-    steps.push("3) Follow recommended next modules to resolve imported assumptions.");
-    appendList(panel, "Proof walk", steps, steps.length);
-
-    var leaders = state.theoremPairs.slice(0, 4).map(function (item) {
-      return item.base + " (thm=" + (item.operationsTheorems + item.invariantTheorems) + ", linked=" + (item.invariantImportsOperations ? "yes" : "no") + ")";
-    });
-    appendList(panel, "Top subsystem pairs", leaders, leaders.length);
-  }
-
   function lensAssurance(panel, selected) {
     var ring = collectNeighborhood(selected, state.impactRadius);
     var risks = [];
@@ -792,11 +764,6 @@
       panel.appendChild(riskList);
     }
 
-    var guidance = [];
-    guidance.push("Anchor on modules with linked proof chains before consuming theorem results from partial contexts.");
-    guidance.push("Use dependency lens to inspect highest-impact neighbors; unresolved assumptions often propagate through high fan-in nodes.");
-    guidance.push("Expand impact radius when auditing subsystem boundaries or cross-layer imports.");
-    appendList(panel, "Assurance workflow", guidance, guidance.length);
   }
 
   function renderLensPanel() {
@@ -811,7 +778,6 @@
 
     if (state.selectedLens === "summary") lensSummary(panel, state.selectedModule);
     else if (state.selectedLens === "dependencies") lensDependencies(panel, state.selectedModule);
-    else if (state.selectedLens === "proof") lensProof(panel, state.selectedModule);
     else lensAssurance(panel, state.selectedModule);
   }
 
