@@ -25,7 +25,8 @@
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeFilterText: "", activeLayerFilter: "all", activeSort: "hotspot",
-    trail: [], selectedLens: "summary", neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false
+    trail: [], selectedLens: "summary", neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
+    flowMode: "balanced"
   };
 
   function getFilteredAndSortedModules() {
@@ -507,12 +508,16 @@
     }
   }
 
-  function renderWalkCards() {
-    var wrap = document.getElementById("graph-wrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
+  function contextList() {
+    return getFilteredAndSortedModules();
+  }
 
-    var list = getFilteredAndSortedModules();
+  function renderContextChooser() {
+    var picker = document.getElementById("context-picker");
+    var options = document.getElementById("context-options");
+    if (!picker || !options) return;
+
+    var list = contextList();
     updateModuleResults(list.length);
 
     if (list.length && list.indexOf(state.selectedModule) === -1) {
@@ -522,42 +527,25 @@
       syncUrlState();
     }
 
+    options.innerHTML = "";
     if (!list.length) {
-      wrap.textContent = "No modules matched the current filters.";
+      picker.value = "";
+      picker.placeholder = "No modules matched current filters";
       return;
     }
 
+    picker.placeholder = "Choose module context…";
     var fragment = document.createDocumentFragment();
-    var limit = Math.min(list.length, 110);
-    for (var i = 0; i < limit; i++) {
+    for (var i = 0; i < list.length; i++) {
       var name = list[i];
-      var meta = state.moduleMeta[name] || {};
-      var degree = moduleDegree(name);
-      var card = document.createElement("button");
-      card.type = "button";
-      card.className = "walk-card" + (state.selectedModule === name ? " selected" : "");
-
-      var h = document.createElement("h3");
-      h.textContent = name;
-      var info = document.createElement("p");
-      info.className = "walk-meta";
-      var pair = findProofPair(name);
-      var pairStatus = pair ? (pair.invariantImportsOperations ? "proof-linked" : "proof-check") : "proof-na";
-      var assurance = assuranceForModule(name);
-      info.textContent = meta.layer + " · " + meta.kind + " · thm=" + degree.theorems + " · " + pairStatus + " · assurance=" + assurance.level;
-      var score = document.createElement("p");
-      score.className = "walk-score";
-      score.textContent = "score=" + degree.score + " in=" + degree.incoming + " out=" + degree.outgoing;
-
-      card.appendChild(h);
-      card.appendChild(info);
-      card.appendChild(score);
-      card.addEventListener("click", (function (moduleName) {
-        return function () { selectModule(moduleName, false); };
-      })(name));
-      fragment.appendChild(card);
+      var opt = document.createElement("option");
+      opt.value = name;
+      opt.label = (state.moduleMap[name] || "") + " · score " + moduleDegree(name).score;
+      fragment.appendChild(opt);
     }
-    wrap.appendChild(fragment);
+    options.appendChild(fragment);
+
+    if (state.selectedModule) picker.value = state.selectedModule;
   }
 
   function createPill(moduleName, mode, selectable) {
@@ -641,11 +629,20 @@
       return;
     }
 
-    var allImports = state.importsFrom[selected] || [];
-    var allImporters = state.importsTo[selected] || [];
+    var allImports = (state.importsFrom[selected] || []).slice().sort(sortByScoreThenName);
+    var allImporters = (state.importsTo[selected] || []).slice().sort(sortByScoreThenName);
     var allExternal = state.externalImportsFrom[selected] || [];
-    var imports = allImports.slice(0, state.neighborLimit);
-    var importers = allImporters.slice(0, state.neighborLimit);
+    var importBudget = state.neighborLimit;
+    var impactBudget = state.neighborLimit;
+    if (state.flowMode === "imports") {
+      importBudget = Math.min(20, state.neighborLimit + 4);
+      impactBudget = Math.max(4, state.neighborLimit - 4);
+    } else if (state.flowMode === "impact") {
+      importBudget = Math.max(4, state.neighborLimit - 4);
+      impactBudget = Math.min(20, state.neighborLimit + 4);
+    }
+    var imports = allImports.slice(0, importBudget);
+    var importers = allImporters.slice(0, impactBudget);
     var external = allExternal.slice(0, 10);
     var proofRelated = relatedProofModules(selected);
     var linkedPath = findNearestLinkedPath(selected, state.impactRadius);
@@ -808,7 +805,7 @@
 
     var summary = document.createElement("p");
     summary.className = "panel-note flowchart-summary";
-    summary.textContent = "Flow summary: imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ".";
+    summary.textContent = "Flow summary (" + state.flowMode + " mode): imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ".";
     wrap.appendChild(summary);
   }
 
@@ -1029,7 +1026,7 @@
   }
 
   function renderAll() {
-    renderWalkCards();
+    renderContextChooser();
     renderFlowchart();
     renderConstellation();
     renderLensPanel();
@@ -1237,6 +1234,7 @@
     var sort = document.getElementById("sort-select");
     var neighborLimit = document.getElementById("neighbor-limit");
     var impactRadius = document.getElementById("impact-radius");
+    var flowMode = document.getElementById("flow-mode");
     var proofLinkedOnly = document.getElementById("proof-linked-only");
     var reset = document.getElementById("reset-view");
 
@@ -1256,6 +1254,7 @@
       state.activeSort = sort ? sort.value : "hotspot";
       state.neighborLimit = neighborLimit ? Math.max(4, Math.min(20, Number(neighborLimit.value) || 12)) : 12;
       state.impactRadius = impactRadius ? Math.max(1, Math.min(3, Number(impactRadius.value) || 2)) : 2;
+      state.flowMode = flowMode && /^(balanced|imports|impact)$/.test(flowMode.value) ? flowMode.value : "balanced";
       state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
       syncUrlState();
       renderAll();
@@ -1267,6 +1266,7 @@
     if (sort) sort.addEventListener("change", apply);
     if (neighborLimit) neighborLimit.addEventListener("change", apply);
     if (impactRadius) impactRadius.addEventListener("change", apply);
+    if (flowMode) flowMode.addEventListener("change", apply);
     if (proofLinkedOnly) proofLinkedOnly.addEventListener("change", apply);
 
     if (reset) {
@@ -1276,6 +1276,7 @@
         if (sort) sort.value = "hotspot";
         if (neighborLimit) neighborLimit.value = "12";
         if (impactRadius) impactRadius.value = "2";
+        if (flowMode) flowMode.value = "balanced";
         if (proofLinkedOnly) proofLinkedOnly.checked = false;
         apply();
       });
@@ -1326,7 +1327,7 @@
 
       var key = (event.key || "").toLowerCase();
       if (key !== "j" && key !== "k") return;
-      var list = getFilteredAndSortedModules();
+      var list = contextList();
       if (!list.length) return;
 
       var currentIndex = Math.max(0, list.indexOf(state.selectedModule));
@@ -1353,6 +1354,9 @@
     var radius = Number(params.get("radius") || "2");
     if (radius >= 1 && radius <= 3) state.impactRadius = radius;
 
+    var mode = params.get("mode") || "balanced";
+    if (/^(balanced|imports|impact)$/.test(mode)) state.flowMode = mode;
+
     state.proofLinkedOnly = params.get("linked") === "1";
   }
 
@@ -1363,6 +1367,7 @@
     if (state.activeSort && state.activeSort !== "hotspot") params.set("sort", state.activeSort); else params.delete("sort");
     if (state.activeFilterText) params.set("q", state.activeFilterText); else params.delete("q");
     if (state.impactRadius && state.impactRadius !== 2) params.set("radius", String(state.impactRadius)); else params.delete("radius");
+    if (state.flowMode && state.flowMode !== "balanced") params.set("mode", state.flowMode); else params.delete("mode");
     if (state.proofLinkedOnly) params.set("linked", "1"); else params.delete("linked");
 
     var next = params.toString();
@@ -1376,12 +1381,48 @@
     var focus = document.getElementById("focus-select");
     var sort = document.getElementById("sort-select");
     var radius = document.getElementById("impact-radius");
+    var mode = document.getElementById("flow-mode");
     var linked = document.getElementById("proof-linked-only");
     if (search) search.value = state.activeFilterText;
     if (focus) focus.value = state.activeLayerFilter;
     if (sort) sort.value = state.activeSort;
     if (radius) radius.value = String(state.impactRadius);
+    if (mode) mode.value = state.flowMode;
     if (linked) linked.checked = Boolean(state.proofLinkedOnly);
+  }
+
+
+  function setupContextPicker() {
+    var picker = document.getElementById("context-picker");
+    if (!picker) return;
+
+    function applyPickerValue() {
+      var value = sanitizeModuleName((picker.value || "").trim());
+      if (!value) return;
+
+      if (state.moduleMap[value]) {
+        selectModule(value, false);
+        return;
+      }
+
+      var list = contextList();
+      var match = null;
+      var lower = value.toLowerCase();
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].toLowerCase().indexOf(lower) === 0) {
+          match = list[i];
+          break;
+        }
+      }
+      if (match) selectModule(match, false);
+    }
+
+    picker.addEventListener("change", applyPickerValue);
+    picker.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter") return;
+      applyPickerValue();
+      event.preventDefault();
+    });
   }
 
   function boot() {
@@ -1392,6 +1433,7 @@
     setupFilters();
     setupLensTabs();
     setupKeyboardNavigation();
+    setupContextPicker();
     hydrateFilterControls();
 
     var cached = getCache();

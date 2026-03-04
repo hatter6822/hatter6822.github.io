@@ -120,6 +120,15 @@
           </div>
 
           <div class="control-group">
+            <label for="flow-mode">Flow emphasis</label>
+            <select id="flow-mode">
+              <option value="balanced" selected>Balanced</option>
+              <option value="imports">Import-heavy</option>
+              <option value="impact">Impact-heavy</option>
+            </select>
+          </div>
+
+          <div class="control-group">
             <label for="impact-radius">Proof impact radius</label>
             <select id="impact-radius">
               <option value="1">1 hop</option>
@@ -140,19 +149,23 @@
         </form>
 
         <div class="navigator-layout">
-          <article class="card lane-panel">
-            <div class="panel-header">
-              <h2 class="section-title-sm">Walk queue</h2>
-              <p class="panel-note">Hotspot-biased jump list (keyboard: J/K).</p>
-            </div>
-            <div id="graph-wrap" class="queue-list" aria-live="polite"></div>
-          </article>
-
           <article class="card constellation-panel">
             <div class="panel-header">
               <h2 class="section-title-sm">Interactive dependency/proof flow chart</h2>
               <p class="panel-note">Color-coded graph view of what the selected module uses, what depends on it, and where proof guarantees are linked.</p>
             </div>
+            <section class="context-switcher" aria-label="Current context selection">
+              <div class="context-switcher-header">
+                <h3 class="section-title-sm">Current context</h3>
+                <p class="panel-note">Use the searchable dropdown to jump directly to any module context.</p>
+              </div>
+              <div class="context-switcher-controls">
+                <label for="context-picker" class="visually-hidden">Choose current context module</label>
+                <input id="context-picker" type="search" list="context-options" placeholder="Choose module context…" autocomplete="off" spellcheck="false" aria-describedby="context-picker-help">
+                <datalist id="context-options"></datalist>
+              </div>
+              <p id="context-picker-help" class="panel-note">Tip: start typing module name/path and press Enter to select.</p>
+            </section>
             <div id="flowchart-legend" class="flowchart-legend" aria-label="Flow chart legend"></div>
             <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite"></div>
             <div id="constellation-wrap" class="constellation-wrap" aria-live="polite"></div>
