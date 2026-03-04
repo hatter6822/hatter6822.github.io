@@ -13,6 +13,7 @@
   var REF = "main";
   var CACHE_KEY = "sele4n-live-v2";
   var CACHE_TTL = 6 * 60 * 60 * 1000;
+  var CACHE_MAX_STALE = 30 * 24 * 60 * 60 * 1000;
   var DATA_SCHEMA_VERSION = 4;
 
   var FETCH_TIMEOUT_MS = 8000;
@@ -226,8 +227,16 @@
       if (!raw) return null;
       var obj = JSON.parse(raw);
       if (obj.schema !== DATA_SCHEMA_VERSION) return null;
-      if (Date.now() - obj.ts > CACHE_TTL) return null;
-      return obj.data;
+      if (!obj.data || typeof obj.data !== "object") return null;
+
+      var age = Date.now() - Number(obj.ts || 0);
+      if (age > CACHE_MAX_STALE) return null;
+
+      return {
+        data: obj.data,
+        age: age,
+        isFresh: age <= CACHE_TTL
+      };
     } catch (e) {
       return null;
     }
@@ -273,6 +282,13 @@
     }
 
     return out;
+  }
+
+  function getDataTimestamp(data) {
+    var value = data && (data.generatedAt || data.updatedAt);
+    if (!value) return 0;
+    var ts = new Date(value).getTime();
+    return Number.isNaN(ts) ? 0 : ts;
   }
 
   function fetchBundledData() {
@@ -409,13 +425,19 @@
 
   function refreshLiveData() {
     var baseline = STATIC_FALLBACK;
-    var cached = getCached();
-    if (cached) {
-      baseline = mergeData(baseline, cached);
+    var cachedRecord = getCached();
+    if (cachedRecord) {
+      baseline = mergeData(baseline, cachedRecord.data);
       applyData(baseline);
     }
 
     fetchBundledData().then(function (bundled) {
+      var bundledTs = getDataTimestamp(bundled);
+      var cachedTs = getDataTimestamp(cachedRecord && cachedRecord.data);
+      if (cachedTs && bundledTs && bundledTs < cachedTs) {
+        return;
+      }
+
       baseline = mergeData(baseline, bundled);
       setCache(baseline);
       applyData(baseline);
