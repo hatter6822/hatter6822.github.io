@@ -277,6 +277,31 @@ test('normalizeMapData derives theorem totals from symbol payloads when explicit
   assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].theorems, 2);
 });
 
+
+
+test('normalizeMapData falls back to byKind when theorem/function arrays are empty', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: ['SeLe4n.Core.Main'],
+    moduleMeta: {
+      'SeLe4n.Core.Main': {
+        symbols: {
+          by_kind: {
+            theorem: [{ name: 'main_safe', line: 7 }],
+            def: [{ name: 'step', line: 11 }]
+          },
+          theorems: [],
+          functions: []
+        }
+      }
+    }
+  });
+
+  const symbols = normalized.moduleMeta['SeLe4n.Core.Main'].symbols;
+  assert.deepEqual(Array.from(symbols.theorems, (item) => item.name), ['main_safe']);
+  assert.deepEqual(Array.from(symbols.functions, (item) => item.name), ['step']);
+});
 test('normalizeMapData resolves dependency paths to module names', async () => {
   const hooks = await loadMapTestHooks();
 

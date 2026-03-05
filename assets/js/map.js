@@ -290,6 +290,17 @@
     return { name: name, line: Number.isFinite(line) && line > 0 ? Math.floor(line) : 0 };
   }
 
+  function normalizeSymbolList(list) {
+    var out = [];
+    if (!Array.isArray(list)) return out;
+    for (var i = 0; i < list.length; i++) {
+      var normalized = normalizeSymbolEntry(list[i]);
+      if (!normalized) continue;
+      out.push(normalized);
+    }
+    return out;
+  }
+
   function symbolListsFromRaw(rawSymbols) {
     var symbols = rawSymbols && typeof rawSymbols === "object" ? rawSymbols : {};
     var byKindSource = symbols.byKind || symbols.by_kind || symbols.kinds || {};
@@ -422,49 +433,31 @@
 
   function interiorCodeForModule(name) {
     var meta = state.moduleMeta[name] || {};
+    if (meta.__interiorCache && meta.__interiorCacheSource === meta.symbols) return meta.__interiorCache;
     var symbols = symbolListsFromRaw(meta.symbols || {});
-
-    function normalizeList(list) {
-      var out = [];
-      if (!Array.isArray(list)) return out;
-      for (var i = 0; i < list.length; i++) {
-        var normalized = normalizeSymbolEntry(list[i]);
-        if (!normalized) continue;
-        out.push(normalized);
-      }
-      return out;
-    }
 
     var kinds = allInteriorKinds();
     var byKind = Object.create(null);
     var total = 0;
     for (var i = 0; i < kinds.length; i++) {
       var kind = kinds[i];
-      byKind[kind] = normalizeList((symbols.byKind || {})[kind]);
+      byKind[kind] = normalizeSymbolList((symbols.byKind || {})[kind]);
       total += byKind[kind].length;
     }
 
-    var theoremList = normalizeList(symbols.theorems);
-    var functionList = normalizeList(symbols.functions);
+    var theoremList = normalizeSymbolList(symbols.theorems);
+    var functionList = normalizeSymbolList(symbols.functions);
 
-    return {
+    var normalized = {
       byKind: byKind,
       theorems: theoremList.length ? theoremList : (byKind.theorem || []).concat(byKind.lemma || []),
       functions: functionList.length ? functionList : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || []),
       total: total
     };
-  }
 
-  function ensureInteriorCodeLoaded(name) {
-    var moduleName = sanitizeModuleName(name || "");
-    if (!moduleName || !state.moduleMap[moduleName]) return Promise.resolve();
-    var meta = state.moduleMeta[moduleName] || (state.moduleMeta[moduleName] = {});
-    var hasLineAnchors = hasCompleteSymbolLines(meta.symbols || {});
-    if (meta.symbolsLoaded && hasLineAnchors) return Promise.resolve();
-
-    meta.symbols = meta.symbols || { byKind: Object.create(null), theorems: [], functions: [] };
-    meta.symbolsLoaded = hasCompleteSymbolLines(meta.symbols);
-    return Promise.resolve();
+    meta.__interiorCacheSource = meta.symbols;
+    meta.__interiorCache = normalized;
+    return normalized;
   }
 
   function isLikelyModuleToken(token) {
@@ -1214,8 +1207,6 @@
       wrap.textContent = "Select a module to render interaction and proof flow.";
       return;
     }
-
-    ensureInteriorCodeLoaded(selected);
 
     var allImports = (state.importsFrom[selected] || []).slice().sort(sortByScoreThenName);
     var allImporters = (state.importsTo[selected] || []).slice().sort(sortByScoreThenName);
@@ -2059,16 +2050,16 @@
       var kinds = allInteriorKinds();
       for (var idx = 0; idx < kinds.length; idx++) {
         var kind = kinds[idx];
-        byKind[kind] = Array.isArray((symbols.byKind || {})[kind]) ? (symbols.byKind || {})[kind].map(normalizeSymbolEntry).filter(Boolean) : [];
+        byKind[kind] = normalizeSymbolList((symbols.byKind || {})[kind]);
       }
 
-      var theorems = Array.isArray(symbols.theorems) ? symbols.theorems.map(normalizeSymbolEntry).filter(Boolean) : (byKind.theorem || []).concat(byKind.lemma || []);
-      var functions = Array.isArray(symbols.functions) ? symbols.functions.map(normalizeSymbolEntry).filter(Boolean) : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || []);
+      var theorems = normalizeSymbolList(symbols.theorems);
+      var functions = normalizeSymbolList(symbols.functions);
 
       return {
         byKind: byKind,
-        theorems: theorems,
-        functions: functions
+        theorems: theorems.length ? theorems : (byKind.theorem || []).concat(byKind.lemma || []),
+        functions: functions.length ? functions : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || [])
       };
     }
 

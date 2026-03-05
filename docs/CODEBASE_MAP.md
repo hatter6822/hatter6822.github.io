@@ -46,6 +46,7 @@ The map page provides a single operational and proof-aware architecture view of 
    - Updates stat cards and status text.
    - Renders filter chooser + options.
    - Builds flow chart, context strip, three-kind dropdown interior menu (Object, Extension, Context/Init), and traversal trail.
+   - Interior declaration normalization now reuses a per-module cache keyed by symbol payload identity, avoiding repeated symbol-list normalization during dense flowchart rerenders while preserving deterministic output.
 
 ## Interaction model
 
