@@ -1878,88 +1878,80 @@
   function normalizeMapData(data, options) {
     if (!data || typeof data !== "object") return null;
     var opts = options && typeof options === "object" ? options : {};
-    var preferModuleArray = Boolean(opts.preferModuleArray);
+    var modulesInput = Array.isArray(data.modules) ? data.modules : [];
+    var requireModulesArray = opts.requireModulesArray !== false;
+    if (requireModulesArray && !modulesInput.length) return null;
 
-    function normalizedModuleNames(inputModules) {
-      var names = [];
+    function isLikelyLeanModuleName(name) {
+      var candidate = sanitizeModuleName(name);
+      if (!candidate) return "";
+      if (!/\./.test(candidate)) return "";
+      if (/^(?:main|master|trunk|refs|heads)$/i.test(candidate)) return "";
+      return candidate;
+    }
+
+    function normalizeModulePath(path, moduleName) {
+      var candidate = String(path || "").trim();
+      if (!candidate) return moduleName.replace(/\./g, "/") + ".lean";
+      if (/^https?:\/\//i.test(candidate)) return moduleName.replace(/\./g, "/") + ".lean";
+      if (!/\.lean$/i.test(candidate)) return moduleName.replace(/\./g, "/") + ".lean";
+      return candidate;
+    }
+
+    function readModuleName(raw) {
+      if (typeof raw === "string") return isLikelyLeanModuleName(raw);
+      if (!raw || typeof raw !== "object") return "";
+      return isLikelyLeanModuleName(raw.name || raw.module || raw.id || "");
+    }
+
+    function readModulePath(raw, moduleName) {
+      if (raw && typeof raw === "object") {
+        var candidate = String(raw.path || raw.file || raw.modulePath || "").trim();
+        if (candidate) return normalizeModulePath(candidate, moduleName);
+      }
+      var topLevelPath = String((data.moduleMap || Object.create(null))[moduleName] || "").trim();
+      if (topLevelPath) return normalizeModulePath(topLevelPath, moduleName);
+      return moduleName.replace(/\./g, "/") + ".lean";
+    }
+
+    function moduleRecordsFromArray() {
+      var records = [];
       var seen = Object.create(null);
 
-      if (Array.isArray(inputModules)) {
-        for (var idx = 0; idx < inputModules.length; idx++) {
-          var raw = inputModules[idx];
-          var name = "";
-          if (typeof raw === "string") name = sanitizeModuleName(raw);
-          else if (raw && typeof raw === "object") name = sanitizeModuleName(raw.name || raw.module || raw.id || "");
-          if (!name || seen[name]) continue;
-          seen[name] = true;
-          names.push(name);
-        }
+      for (var idx = 0; idx < modulesInput.length; idx++) {
+        var raw = modulesInput[idx];
+        var name = readModuleName(raw);
+        if (!name || seen[name]) continue;
+        seen[name] = true;
+        records.push({
+          name: name,
+          path: readModulePath(raw, name),
+          raw: raw && typeof raw === "object" ? raw : null
+        });
       }
 
-      if (preferModuleArray && names.length) return names;
-
-      var fallbacks = [data.moduleMap || {}, data.moduleMeta || {}, data.importsFrom || {}];
-      for (var f = 0; f < fallbacks.length; f++) {
-        var source = fallbacks[f];
-        for (var key in source) {
-          if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-          var candidate = sanitizeModuleName(key);
-          if (!candidate || seen[candidate]) continue;
-          seen[candidate] = true;
-          names.push(candidate);
-        }
-      }
-
-      return names;
+      records.sort(function (a, b) { return a.name.localeCompare(b.name); });
+      return records;
     }
 
-    function normalizeModuleMap(moduleMap, modules) {
-      var source = moduleMap && typeof moduleMap === "object" ? moduleMap : {};
-      var out = Object.create(null);
-      var moduleAllowlist = Object.create(null);
-      for (var seed = 0; seed < modules.length; seed++) moduleAllowlist[modules[seed]] = true;
+    function normalizeDependencyList(list, moduleMap, moduleName, allowExternal) {
+      var deps = Array.isArray(list) ? list : [];
+      var out = [];
+      var seen = Object.create(null);
 
-      for (var key in source) {
-        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-        var moduleName = sanitizeModuleName(key);
-        var path = String(source[key] || "").trim();
-        if (!moduleName || !path) continue;
-        if (preferModuleArray && modules.length && !moduleAllowlist[moduleName]) continue;
-        out[moduleName] = path;
-      }
+      for (var i = 0; i < deps.length; i++) {
+        var raw = deps[i];
+        var depName = "";
+        if (typeof raw === "string") depName = sanitizeModuleName(raw);
+        else if (raw && typeof raw === "object") depName = sanitizeModuleName(raw.name || raw.module || raw.id || "");
+        if (!depName || depName === moduleName || seen[depName]) continue;
 
-      for (var i = 0; i < modules.length; i++) {
-        var fallback = modules[i];
-        if (!fallback || out[fallback]) continue;
-        out[fallback] = fallback.replace(/\./g, "/") + ".lean";
-      }
+        var knownModule = Boolean(moduleMap[depName]);
+        if (!allowExternal && !knownModule) continue;
+        if (allowExternal && knownModule) continue;
 
-      return out;
-    }
-
-    function normalizeImportIndex(index, moduleMap) {
-      var source = index && typeof index === "object" ? index : {};
-      var out = Object.create(null);
-      var modules = Object.keys(moduleMap || {});
-
-      for (var seed = 0; seed < modules.length; seed++) out[modules[seed]] = [];
-
-      for (var key in source) {
-        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-        var moduleName = sanitizeModuleName(key);
-        if (!moduleName || !moduleMap[moduleName]) continue;
-
-        var deps = Array.isArray(source[key]) ? source[key] : [];
-        var seen = Object.create(null);
-        var normalized = [];
-        for (var i = 0; i < deps.length; i++) {
-          var dep = sanitizeModuleName(deps[i]);
-          if (!dep || !moduleMap[dep] || dep === moduleName || seen[dep]) continue;
-          seen[dep] = true;
-          normalized.push(dep);
-        }
-
-        out[moduleName] = normalized;
+        seen[depName] = true;
+        out.push(depName);
       }
 
       return out;
@@ -2008,16 +2000,25 @@
       };
     }
 
-    var normalizedModules = normalizedModuleNames(data.modules);
-    var normalizedModuleMap = normalizeModuleMap(data.moduleMap || {}, normalizedModules);
-    normalizedModules = Object.keys(normalizedModuleMap).sort();
+    var moduleRecords = moduleRecordsFromArray();
+    if (!moduleRecords.length) return null;
+
+    var normalizedModules = [];
+    var normalizedModuleMap = Object.create(null);
+    for (var rec = 0; rec < moduleRecords.length; rec++) {
+      var record = moduleRecords[rec];
+      normalizedModules.push(record.name);
+      normalizedModuleMap[record.name] = record.path;
+    }
 
     var normalizedModuleMeta = (function () {
-      var raw = data.moduleMeta || Object.create(null);
+      var rawMetaByModule = data.moduleMeta && typeof data.moduleMeta === "object" ? data.moduleMeta : Object.create(null);
       var normalized = Object.create(null);
-      for (var idx = 0; idx < normalizedModules.length; idx++) {
-        var moduleName = normalizedModules[idx];
-        var meta = raw[moduleName] || {};
+      for (var idx = 0; idx < moduleRecords.length; idx++) {
+        var moduleName = moduleRecords[idx].name;
+        var moduleRaw = moduleRecords[idx].raw || {};
+        var moduleMeta = moduleRaw.meta && typeof moduleRaw.meta === "object" ? moduleRaw.meta : moduleRaw;
+        var meta = Object.assign({}, rawMetaByModule[moduleName] || {}, moduleMeta || {});
         var normalizedSymbols = normalizeModuleSymbols(meta.symbols || {});
         normalized[moduleName] = {
           layer: meta.layer || classifyLayer(moduleName),
@@ -2031,29 +2032,27 @@
       return normalized;
     })();
 
-    var normalizedImportsFrom = normalizeImportIndex(data.importsFrom, normalizedModuleMap);
+    var topLevelImports = data.importsFrom && typeof data.importsFrom === "object" ? data.importsFrom : Object.create(null);
+    var normalizedImportsFrom = Object.create(null);
+    for (var importIdx = 0; importIdx < moduleRecords.length; importIdx++) {
+      var importModuleName = moduleRecords[importIdx].name;
+      var importModuleRaw = moduleRecords[importIdx].raw || {};
+      var importCandidates = importModuleRaw.imports || importModuleRaw.importsFrom || importModuleRaw.dependencies;
+      var importList = Array.isArray(importCandidates) ? importCandidates : topLevelImports[importModuleName];
+      normalizedImportsFrom[importModuleName] = normalizeDependencyList(importList, normalizedModuleMap, importModuleName, false);
+    }
+
     var normalizedExternalImportsFrom = (function () {
-      var source = data.externalImportsFrom && typeof data.externalImportsFrom === "object" ? data.externalImportsFrom : {};
       var out = Object.create(null);
-      for (var seed = 0; seed < normalizedModules.length; seed++) out[normalizedModules[seed]] = [];
+      var source = data.externalImportsFrom && typeof data.externalImportsFrom === "object" ? data.externalImportsFrom : Object.create(null);
 
-      for (var key in source) {
-        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-        var moduleName = sanitizeModuleName(key);
-        if (!moduleName || !normalizedModuleMap[moduleName]) continue;
-
-        var deps = Array.isArray(source[key]) ? source[key] : [];
-        var seen = Object.create(null);
-        var normalized = [];
-        for (var i = 0; i < deps.length; i++) {
-          var dep = sanitizeModuleName(deps[i]);
-          if (!dep || normalizedModuleMap[dep] || seen[dep]) continue;
-          seen[dep] = true;
-          normalized.push(dep);
-        }
-        out[moduleName] = normalized;
+      for (var idx = 0; idx < moduleRecords.length; idx++) {
+        var moduleName = moduleRecords[idx].name;
+        var moduleRaw = moduleRecords[idx].raw || {};
+        var extCandidates = moduleRaw.externalImports || moduleRaw.externalImportsFrom || moduleRaw.externalDependencies;
+        var extList = Array.isArray(extCandidates) ? extCandidates : source[moduleName];
+        out[moduleName] = normalizeDependencyList(extList, normalizedModuleMap, moduleName, true);
       }
-
       return out;
     })();
 
@@ -2077,55 +2076,34 @@
   }
 
   function normalizeCanonicalPayload(payload, fallbackGeneratedAt) {
-    function mapShapeScore(value) {
-      if (!value || typeof value !== "object") return 0;
-
-      var score = 0;
-      if (Array.isArray(value.modules)) {
-        if (value.modules.length) score += 120;
-        else score += 30;
-      }
-      if (value.moduleMap && typeof value.moduleMap === "object") score += 20;
-      if (value.importsFrom && typeof value.importsFrom === "object") score += 12;
-      if (value.moduleMeta && typeof value.moduleMeta === "object") score += 8;
-      if (Array.isArray(value.files)) score += 4;
-      return score;
-    }
-
     function extractCanonicalMapPayload(input) {
       if (!input || typeof input !== "object") return null;
 
-      var best = null;
-      var bestScore = 0;
-
-      function consider(candidate) {
-        var score = mapShapeScore(candidate);
-        if (score <= bestScore) return;
-        best = candidate;
-        bestScore = score;
-      }
-
-      consider(input);
-
-      var branchHints = [REF, "main", "master", "trunk"];
-      for (var i = 0; i < branchHints.length; i++) {
-        var branchKey = branchHints[i];
-        if (!branchKey || !input[branchKey] || typeof input[branchKey] !== "object") continue;
-        consider(input[branchKey]);
-      }
-
+      var candidates = [input];
       for (var key in input) {
         if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
         var value = input[key];
         if (!value || typeof value !== "object") continue;
-        consider(value);
+        candidates.push(value);
       }
 
-      return best || input;
+      var best = null;
+      var bestCount = -1;
+      for (var i = 0; i < candidates.length; i++) {
+        var candidate = candidates[i];
+        if (!Array.isArray(candidate.modules)) continue;
+        var normalizedCandidate = normalizeMapData(candidate, { requireModulesArray: true });
+        var moduleCount = normalizedCandidate && Array.isArray(normalizedCandidate.modules) ? normalizedCandidate.modules.length : 0;
+        if (moduleCount <= bestCount) continue;
+        best = candidate;
+        bestCount = moduleCount;
+      }
+
+      return best;
     }
 
     var canonicalPayload = extractCanonicalMapPayload(payload);
-    var normalized = normalizeMapData(canonicalPayload, { preferModuleArray: true });
+    var normalized = normalizeMapData(canonicalPayload, { requireModulesArray: true });
     if (!normalized) throw new Error("Canonical map payload invalid");
     if (!normalized.generatedAt) normalized.generatedAt = fallbackGeneratedAt || new Date().toISOString();
     return normalized;

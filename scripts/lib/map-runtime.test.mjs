@@ -57,11 +57,16 @@ test('normalizeMapData sanitizes modules/imports and accepts legacy symbol bucke
 
   const normalized = hooks.normalizeMapData({
     files: [' SeLe4n/Core/Main.lean ', 'SeLe4n/Core/Main.lean', 'README.md'],
-    modules: ['SeLe4n.Core.Main', 'Bad Name'],
+    modules: [
+      { name: 'SeLe4n.Core.Main', path: 'SeLe4n/Core/Main.lean', imports: ['SeLe4n.Core.Helper', 'Bad Name', 'SeLe4n.Core.Main'], externalImports: ['Std.Data.List', 'SeLe4n.Core.Helper', 'Std.Data.List'] },
+      { name: 'SeLe4n.Core.Helper', path: 'SeLe4n/Core/Helper.lean' },
+      'Bad Name'
+    ],
     moduleMap: {
       'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean',
       'Bad Name': 'bad/path.lean',
-      'SeLe4n.Core.Helper': 'SeLe4n/Core/Helper.lean'
+      'SeLe4n.Core.Helper': 'SeLe4n/Core/Helper.lean',
+      main: 'https://githubusercontent.com/hatter6822/seLe4n/refs/heads/main'
     },
     moduleMeta: {
       'SeLe4n.Core.Main': {
@@ -76,7 +81,8 @@ test('normalizeMapData sanitizes modules/imports and accepts legacy symbol bucke
     },
     importsFrom: {
       'SeLe4n.Core.Main': ['SeLe4n.Core.Helper', 'Bad Name', 'SeLe4n.Core.Main'],
-      'Bad Name': ['SeLe4n.Core.Helper']
+      'Bad Name': ['SeLe4n.Core.Helper'],
+      main: ['SeLe4n.Core.Main']
     },
     externalImportsFrom: {
       'SeLe4n.Core.Main': ['Std.Data.List', 'SeLe4n.Core.Helper', 'Std.Data.List']
@@ -93,6 +99,42 @@ test('normalizeMapData sanitizes modules/imports and accepts legacy symbol bucke
   assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].symbols.byKind.constant[0].name, 'mainConst');
   assert.equal(normalized.moduleMeta['SeLe4n.Core.Helper'].theorems, 0);
 });
+
+
+
+
+
+test('normalizeMapData ignores branch-ref pseudo-modules and URL module paths', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      'main',
+      { name: 'SeLe4n.Core.Main', path: 'https://githubusercontent.com/hatter6822/seLe4n/refs/heads/main/docs/codebase_map.json' },
+      { name: 'SeLe4n.Core.Helper', path: 'SeLe4n/Core/Helper.lean' }
+    ],
+    importsFrom: {
+      main: ['SeLe4n.Core.Main'],
+      'SeLe4n.Core.Main': ['SeLe4n.Core.Helper']
+    }
+  });
+
+  assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Helper', 'SeLe4n.Core.Main']);
+  assert.equal(normalized.moduleMap['SeLe4n.Core.Main'], 'SeLe4n/Core/Main.lean');
+  assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, 'main'));
+});
+
+test('normalizeMapData rejects payloads that do not expose modules array data', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    moduleMap: { 'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean' },
+    importsFrom: { 'SeLe4n.Core.Main': [] }
+  });
+
+  assert.equal(normalized, null);
+});
+
 
 test('normalizeMapData marks symbolsLoaded when normalized symbol lines are complete', async () => {
   const hooks = await loadMapTestHooks();
@@ -139,6 +181,24 @@ test('normalizeCanonicalPayload unwraps branch-keyed canonical map payloads', as
   assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Main']);
   assert.equal(normalized.moduleMap['SeLe4n.Core.Main'], 'SeLe4n/Core/Main.lean');
   assert.equal(normalized.generatedAt, '2026-01-01T00:00:00.000Z');
+});
+
+
+
+test('normalizeCanonicalPayload prefers candidate with valid module names over branch-ref only modules', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeCanonicalPayload({
+    modules: ['main'],
+    main: {
+      modules: ['SeLe4n.Core.Main'],
+      moduleMap: { 'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean' },
+      importsFrom: { 'SeLe4n.Core.Main': [] }
+    }
+  });
+
+  assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Main']);
+  assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, 'main'));
 });
 
 test('normalizeCanonicalPayload prioritizes modules array and ignores branch-ref metadata keys', async () => {

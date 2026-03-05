@@ -31,18 +31,13 @@ The map page provides a single operational and proof-aware architecture view of 
    - Normalizes imports against the current module inventory and rebuilds reverse import edges for consistency.
    - Computes module degree, pair linkage, and assurance labels.
 
-4.1 **Schema-compat normalization (runtime)**
-   - Map hydration now tolerates legacy payload shapes from older snapshots/canonical exports:
-     - symbol buckets in either `symbols.byKind` or `symbols.by_kind`
-     - declaration aliases like `constant`/`constants`
-     - module lists provided as strings, structured objects, or inferred from `moduleMap`/`moduleMeta`/`importsFrom`
-   - This normalization ensures that selecting any flow-chart node consistently repaints all three interior declaration columns.
-   - Runtime sanitization now filters malformed module/import keys during hydration, preventing invalid payload entries from polluting flow-graph state.
-   - Normalization seeds empty import/external-import buckets and default module metadata for every discovered module, so rendering paths can rely on stable object shapes.
-   - Canonical payload hydration now also unwraps branch-keyed exports (for example `{ "main": { ...mapPayload } }`) before schema normalization so branch names are never misclassified as Lean modules.
-   - Canonical payload selection now scores top-level and nested candidates by map-shape strength (modules/moduleMap/imports/moduleMeta), so weak top-level metadata cannot eclipse a valid nested branch payload.
-   - Canonical hydration now prioritizes the explicit `modules` array when it is present, so branch-ref metadata keys like `main` can never leak into the flow graph or map stats cards as faux module nodes.
-   - `symbolsLoaded` now keys off normalized symbol buckets, avoiding unnecessary source refetches when payloads use legacy `by_kind` aliases.
+4.1 **Modules-array normalization (runtime)**
+   - Map hydration now uses `modules[]` as the canonical source of graph nodes. If `modules[]` is missing or empty, hydration fails fast instead of inferring modules from top-level maps.
+   - Module entries can be either strings or structured objects (`name/module/id`, `path/file/modulePath`, plus optional `imports`, `externalImports`, and `meta`).
+   - Legacy top-level maps (`moduleMap`, `importsFrom`, `externalImportsFrom`, `moduleMeta`) are read only as per-module fallbacks for modules already declared in `modules[]`; they can never create additional nodes.
+   - Branch-ref metadata keys (for example `main` URL strings) are therefore excluded from module inventories, flow-chart nodes, and map stats. Runtime filtering now rejects pseudo-module names like `main` and URL/non-`.lean` module paths.
+   - Canonical payload extraction now selects the object (top-level or one nested level) with the strongest `modules[]` payload, then normalizes from that branch payload only.
+   - Symbol normalization still accepts legacy buckets (`symbols.by_kind`) and declaration aliases (`constant`/`constants`), and `symbolsLoaded` is computed from normalized symbol entries.
 
 5. **Rendering lifecycle**
    - Updates stat cards and status text.
