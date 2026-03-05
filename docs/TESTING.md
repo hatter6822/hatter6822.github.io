@@ -49,6 +49,7 @@ node --check assets/js/theme-init.js
 - Confirm the compact toolbar is rendered directly below the "Interactive dependency/proof flow chart" header, before the interior declaration panel, and contains only current module context search, flow detail presets, and reset, and includes compact-density toolbar semantics.
 - Confirm map context-search, detail-preset keyboard navigation (Arrow/Home/End), and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
+- Confirm no `flowchart-insight-row` badge strip or `flowchart-summary` paragraph renders under the chart after module selection changes.
 - Confirm reset restores default balanced detail mode, clears any search validity errors, and preserves a minimal toolbar footprint across desktop/mobile breakpoints.
 - Confirm each interior dropdown (Object, Extension, Context/Init) defaults to `All kinds (N)`, can switch kinds, and deep-link declarations to source lines.
 - Confirm the `Filter declarations across all kinds…` search box accepts multi-character typing without dropping focus/caret after each keystroke.

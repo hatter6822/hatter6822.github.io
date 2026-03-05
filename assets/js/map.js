@@ -1524,29 +1524,6 @@
 
     renderFlowNodeInteriorMenu(selected);
 
-    var insightRow = document.createElement("div");
-    insightRow.className = "flowchart-insight-row";
-    insightRow.setAttribute("role", "list");
-    var insightItems = [
-      "Imports shown " + imports.length + "/" + allImports.length,
-      "Impacted shown " + importers.length + "/" + allImporters.length,
-      "Proof neighbors " + proofRelated.length,
-      "Linked path steps " + Math.max(0, linkedPath.length - 1),
-      "External shown " + external.length + "/" + allExternal.length
-    ];
-    for (var aa = 0; aa < insightItems.length; aa++) {
-      var badge = document.createElement("span");
-      badge.className = "flowchart-insight";
-      badge.setAttribute("role", "listitem");
-      badge.textContent = insightItems[aa];
-      insightRow.appendChild(badge);
-    }
-    wrap.appendChild(insightRow);
-
-    var summary = document.createElement("p");
-    summary.className = "panel-note flowchart-summary";
-    summary.textContent = "Flow summary" + (state.flowShowAll ? " (full-flow)" : "") + ": imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Hover any node for path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
-    wrap.appendChild(summary);
 
     wrap.scrollLeft = previousScrollLeft;
     wrap.scrollTop = previousScrollTop;

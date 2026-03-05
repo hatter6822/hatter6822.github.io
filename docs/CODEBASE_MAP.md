@@ -57,6 +57,8 @@ The map page provides a single operational and proof-aware architecture view of 
 
 - **Integrated flow legend corner:** legend semantics are rendered directly in the flowchart’s upper-right corner so color keys travel with every chart interaction/screenshot while keeping the chart body focused on graph topology.
 
+- **Focused flow viewport:** deprecated post-chart insight badges (`.flowchart-insight-row`) and textual flow summary copy (`.flowchart-summary`) were removed so the chart region remains dedicated to topology and interactive node inspection.
+
 - **Interior declaration explorer:** the flow chart context now exposes all interior Lean declaration kinds via three dropdowns:
   - Object kinds (`inductive`, `structure`, `class`, `def`, `theorem`, `lemma`, `example`, `instance`, `opaque`, `abbrev`, `axiom`, `constant`, `constants`)
   - Extension kinds (`declare_syntax_cat`, `syntax_cat`, `syntax`, `macro`, `macro_rules`, `notation`, `infix`, `infixl`, `infixr`, `prefix`, `postfix`, `elab`, `elab_rules`, `term_elab`, `command_elab`, `tactic`)

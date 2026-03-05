@@ -38,6 +38,8 @@ node scripts/validate-data.mjs
 node scripts/lib/lean-analysis.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
+node scripts/lib/map-toolbar.test.mjs
+node scripts/lib/map-flowchart-layout.test.mjs
 ```
 
 ## Runtime data strategy
@@ -53,7 +55,7 @@ This keeps rendering deterministic while still allowing low-latency live updates
 
 ## Code map interior symbol links
 
-The map flowchart now renders its legend in the chart’s upper-right corner so semantic meaning stays attached to the graph during interaction and screenshots while preserving workspace for core flow nodes.
+The map flowchart now renders its legend in the chart’s upper-right corner so semantic meaning stays attached to the graph during interaction and screenshots while preserving workspace for core flow nodes. Deprecated flowchart insight badges and the detached textual flow summary have been removed to keep focus on node topology and interior declaration analysis.
 
 The code map interior panel links declarations directly to source in `hatter6822/seLe4n`:
 
