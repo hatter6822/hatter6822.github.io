@@ -1823,7 +1823,9 @@
           } else if (target && target.sameOrigin && !target.samePath && target.hash) {
             event.preventDefault();
             storeCrossPageNavIntent(target);
-            window.location.assign(target.url || (target.path + (target.search || "") + target.hash));
+            // Navigate without a hash so the landing page can apply a single, offset-aware
+            // scroll/focus pass from session intent instead of competing with native anchor jumps.
+            window.location.assign(target.path + (target.search || ""));
           }
 
           setNavState(false);
