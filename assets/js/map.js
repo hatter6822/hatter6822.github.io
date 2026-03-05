@@ -5,7 +5,7 @@
   var REF = "main";
   var API = "https://api.github.com/repos/" + REPO;
   var CODEBASE_MAP_PATH = "docs/codebase_map.json";
-  var CODEBASE_MAP_API = API + "/contents/" + CODEBASE_MAP_PATH;
+  var CODEBASE_MAP_RAW_URL = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/" + CODEBASE_MAP_PATH;
   var DATA_ENDPOINT = "data/map-data.json";
 
   var FETCH_OPTIONS = {
@@ -19,9 +19,7 @@
   var CACHE_KEY = "sele4n-code-map-v9";
   var CACHE_SCHEMA_VERSION = 3;
   var CACHE_TTL_MS = 60 * 60 * 1000;
-  var LIVE_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
-  var LIVE_SYNC_JITTER_MAX_MS = 45 * 1000;
-  var LIVE_SYNC_POLL_INTERVAL_MS = 90 * 1000;
+  var LIVE_SYNC_POLL_INTERVAL_MS = 60 * 1000;
   var COMPARE_FILES_TRUNCATION_LIMIT = 300;
   var LIVE_SYNC_META_KEY = "sele4n-code-map-live-sync-meta-v1";
   var FETCH_CONCURRENCY = 8;
@@ -1635,7 +1633,8 @@
       var parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") return null;
       return {
-        nextAllowedAt: Number(parsed.nextAllowedAt) || 0,
+        etag: parsed.etag ? String(parsed.etag) : "",
+        lastModified: parsed.lastModified ? String(parsed.lastModified) : "",
         lastCheckedCommit: parsed.lastCheckedCommit ? String(parsed.lastCheckedCommit) : ""
       };
     } catch (e) {
@@ -1643,22 +1642,15 @@
     }
   }
 
-  function setLiveSyncMeta(lastCheckedCommit) {
-    var jitter = Math.floor(Math.random() * LIVE_SYNC_JITTER_MAX_MS);
-    var nextAllowedAt = Date.now() + LIVE_SYNC_MIN_INTERVAL_MS + jitter;
+  function setLiveSyncMeta(meta) {
+    var payload = meta || {};
     try {
       localStorage.setItem(LIVE_SYNC_META_KEY, JSON.stringify({
-        nextAllowedAt: nextAllowedAt,
-        lastCheckedCommit: lastCheckedCommit || ""
+        etag: payload.etag ? String(payload.etag) : "",
+        lastModified: payload.lastModified ? String(payload.lastModified) : "",
+        lastCheckedCommit: payload.lastCheckedCommit ? String(payload.lastCheckedCommit) : ""
       }));
     } catch (e) {}
-    return nextAllowedAt;
-  }
-
-  function remainingSyncCooldownMs() {
-    var meta = getLiveSyncMeta();
-    if (!meta || !meta.nextAllowedAt) return 0;
-    return Math.max(0, meta.nextAllowedAt - Date.now());
   }
 
   function persistCurrentMapCache() {
@@ -1678,17 +1670,6 @@
   function fetchLatestCommitSha() {
     return safeFetch(API + "/commits/" + REF, false).then(function (payload) {
       return payload && payload.sha ? String(payload.sha) : "";
-    }).catch(function () {
-      return "";
-    });
-  }
-
-  function fetchLatestMapCommitSha() {
-    var url = API + "/commits?sha=" + encodeURIComponent(REF) + "&path=" + encodeURIComponent(CODEBASE_MAP_PATH) + "&per_page=1";
-    return safeFetch(url, false).then(function (payload) {
-      if (!Array.isArray(payload) || !payload.length) return "";
-      var commit = payload[0] || {};
-      return commit.sha ? String(commit.sha) : "";
     }).catch(function () {
       return "";
     });
@@ -1777,21 +1758,39 @@
     });
   }
 
-  function fetchCanonicalMapData() {
-    var cacheBust = "?ref=" + encodeURIComponent(REF) + "&t=" + Date.now();
-    return safeFetch(CODEBASE_MAP_API + cacheBust, false).then(function (payload) {
-      if (!payload || payload.encoding !== "base64" || !payload.content) {
-        throw new Error("Canonical map payload missing base64 content");
-      }
+  function fetchCanonicalMapData(options) {
+    var opts = options || {};
+    var fetchOpts = Object.assign({}, FETCH_OPTIONS, {
+      headers: { "Accept": "application/json" }
+    });
 
-      var decoded = decodeBlobBase64(payload.content);
-      var parsed = JSON.parse(decoded);
-      var normalized = normalizeMapData(parsed);
-      if (!normalized) throw new Error("Canonical map payload invalid");
+    if (opts.useFreshRequest !== false) {
+      fetchOpts.cache = "no-store";
+    }
 
-      if (!normalized.commitSha && payload.sha) normalized.commitSha = String(payload.sha);
-      if (!normalized.generatedAt) normalized.generatedAt = new Date().toISOString();
-      return normalized;
+    var cacheBust = "?t=" + Date.now();
+    return fetch(CODEBASE_MAP_RAW_URL + cacheBust, fetchOpts).then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+
+      var etagHeader = res.headers.get("etag") || "";
+      var lastModifiedHeader = res.headers.get("last-modified") || "";
+
+      return res.text().then(function (raw) {
+        var parsed = JSON.parse(raw);
+        var normalized = normalizeMapData(parsed);
+        if (!normalized) throw new Error("Canonical map payload invalid");
+
+        var etag = String(etagHeader).replace(/^W\//, "").replace(/"/g, "");
+        if (!normalized.commitSha && /^[0-9a-f]{40}$/i.test(etag)) normalized.commitSha = etag;
+        if (!normalized.generatedAt) normalized.generatedAt = new Date().toISOString();
+
+        setLiveSyncMeta({
+          etag: etagHeader,
+          lastModified: lastModifiedHeader,
+          lastCheckedCommit: normalized.commitSha || state.commitSha || ""
+        });
+        return normalized;
+      });
     });
   }
 
@@ -1932,7 +1931,7 @@
 
     return fetchLatestCommitSha().then(function (latestCommitSha) {
       var knownCommit = state.commitSha || cachedCommitSha || "";
-      setLiveSyncMeta(latestCommitSha || knownCommit);
+      setLiveSyncMeta({ lastCheckedCommit: latestCommitSha || knownCommit });
 
       if (knownCommit && latestCommitSha && knownCommit === latestCommitSha) {
         setStatus("Map is already synced to " + latestCommitSha.slice(0, 7) + ".", false);
@@ -2029,12 +2028,11 @@
   function syncFromCanonicalMap(cachedCommitSha, options) {
     var opts = options || {};
     var silentNoChange = Boolean(opts.silentNoChange);
-    if (!silentNoChange) setStatus("Syncing canonical codebase map from docs/codebase_map.json…", false);
+    if (!silentNoChange) setStatus("Syncing canonical codebase map from GitHub…", false);
 
-    return fetchCanonicalMapData().then(function (canonicalData) {
+    return fetchCanonicalMapData({ useFreshRequest: opts.useFreshRequest !== false }).then(function (canonicalData) {
       var knownCommit = state.commitSha || cachedCommitSha || "";
       var canonicalCommit = canonicalData.commitSha || "";
-      setLiveSyncMeta(canonicalCommit || knownCommit);
 
       if (knownCommit && canonicalCommit && knownCommit === canonicalCommit) {
         if (!silentNoChange) setStatus("Map is already synced to " + canonicalCommit.slice(0, 7) + ".", false);
@@ -2053,35 +2051,13 @@
   function refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, options) {
     var opts = options || {};
     var reason = String(opts.reason || "");
-    var bypassCooldown = Boolean(opts.force || reason === "manual" || reason === "visible" || reason === "focus" || reason === "online");
-    var cooldown = remainingSyncCooldownMs();
-
-    if (reason === "poll" && hasLocalData) {
-      var knownCommit = state.commitSha || cachedCommitSha || "";
-      return fetchLatestMapCommitSha().then(function (latestMapCommitSha) {
-        if (!latestMapCommitSha) {
-          if (cooldown > 0 && !opts.force) return;
-          return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true });
-        }
-
-        if (knownCommit && knownCommit === latestMapCommitSha) {
-          setLiveSyncMeta(latestMapCommitSha);
-          return;
-        }
-
-        return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true });
-      });
-    }
-
-    if (hasLocalData && cooldown > 0 && !bypassCooldown) {
-      if (!opts.silentCooldown) {
-        var mins = Math.max(1, Math.ceil(cooldown / 60000));
-        setStatus("Using local snapshot. Next live sync check in about " + mins + " min.", false);
-      }
-      return Promise.resolve();
-    }
-
-    return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: reason === "poll" });
+    return syncFromCanonicalMap(cachedCommitSha, {
+      silentNoChange: reason === "poll",
+      useFreshRequest: true
+    }).catch(function () {
+      if (hasLocalData) return;
+      return fetchAndBuildData(cachedCommitSha);
+    });
   }
 
   function setupLiveSyncPolling() {
