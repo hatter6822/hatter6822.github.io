@@ -58,6 +58,7 @@ The code map interior panel links declarations directly to source in `hatter6822
 - Parses theorem-style declarations (`theorem`, `lemma`)
 - Parses function-style declarations (`def`, `abbrev`, `opaque`, `instance`)
 - Populates all interior declaration groupings used by the UI (`Object kinds`, `Extension kinds`, `Context/Init kinds`)
+- Defaults each interior kind selector to `All kinds (N)` so Object/Extension/Context-Init scrollboxes open with complete group coverage
 - Includes declaration line metadata for line-accurate blob anchors
 - Normalizes legacy symbol payload variants (`byKind`/`by_kind`, `constant`/`constants`) so flow-chart selection updates the interior declaration panels reliably
 - Supports declaration-centric canonical payloads (`modules[].declarations`) and derives theorem totals/import graphs when explicit aggregates are omitted

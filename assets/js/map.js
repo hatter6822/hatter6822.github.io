@@ -49,6 +49,7 @@
     extension: "Extension kinds",
     contextInit: "Context/Init kinds"
   };
+  var INTERIOR_KIND_ALL_VALUE = "__all__";
   var ALL_INTERIOR_KINDS = (function () {
     var out = [];
     for (var i = 0; i < INTERIOR_KIND_GROUP_ORDER.length; i++) {
@@ -320,6 +321,37 @@
 
   function allInteriorKinds() {
     return ALL_INTERIOR_KINDS.slice();
+  }
+
+  function interiorGroupItemCount(interior, kinds) {
+    var total = 0;
+    for (var i = 0; i < kinds.length; i++) {
+      total += ((interior.byKind || {})[kinds[i]] || []).length;
+    }
+    return total;
+  }
+
+  function pickInteriorDefaultKind(interior, groupKinds, remembered) {
+    if (remembered === INTERIOR_KIND_ALL_VALUE) return INTERIOR_KIND_ALL_VALUE;
+    if (remembered && groupKinds.indexOf(remembered) !== -1) return remembered;
+    return INTERIOR_KIND_ALL_VALUE;
+  }
+
+  function interiorItemsForSelection(interior, groupKinds, selectedKind, query) {
+    var q = String(query || "").trim().toLowerCase();
+    var items = [];
+
+    if (selectedKind === INTERIOR_KIND_ALL_VALUE) {
+      for (var i = 0; i < groupKinds.length; i++) {
+        var kindItems = (interior.byKind || {})[groupKinds[i]] || [];
+        for (var j = 0; j < kindItems.length; j++) items.push(kindItems[j]);
+      }
+    } else {
+      items = ((interior.byKind || {})[selectedKind] || []).slice();
+    }
+
+    if (!q) return items;
+    return items.filter(function (entry) { return entry.name.toLowerCase().indexOf(q) !== -1; });
   }
 
   function makeEmptyInteriorSymbols() {
@@ -904,14 +936,8 @@
         key: groupKey,
         label: INTERIOR_KIND_GROUP_LABELS[groupKey] || groupKey,
         kinds: kinds,
-        selectedKind: (function () {
-          var remembered = state.interiorMenuSelections[groupKey] || "";
-          if (remembered && kinds.indexOf(remembered) !== -1) return remembered;
-          for (var i = 0; i < kinds.length; i++) {
-            if (interior.byKind[kinds[i]] && interior.byKind[kinds[i]].length) return kinds[i];
-          }
-          return kinds[0] || "";
-        })()
+        selectedKind: pickInteriorDefaultKind(interior, kinds, state.interiorMenuSelections[groupKey] || ""),
+        totalCount: interiorGroupItemCount(interior, kinds)
       };
     });
 
@@ -956,12 +982,6 @@
       return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath + lineAnchor;
     }
 
-    function filteredItems(kind) {
-      var items = interior.byKind[kind] || [];
-      if (!query) return items;
-      return items.filter(function (entry) { return entry.name.toLowerCase().indexOf(query) !== -1; });
-    }
-
     for (var g = 0; g < groups.length; g++) {
       (function (group) {
         var column = document.createElement("section");
@@ -976,6 +996,11 @@
 
         var select = document.createElement("select");
         select.className = "interior-kind-select";
+        var allOption = document.createElement("option");
+        allOption.value = INTERIOR_KIND_ALL_VALUE;
+        allOption.textContent = "All kinds (" + group.totalCount + ")";
+        allOption.selected = group.selectedKind === INTERIOR_KIND_ALL_VALUE;
+        select.appendChild(allOption);
         for (var i = 0; i < group.kinds.length; i++) {
           var kind = group.kinds[i];
           var option = document.createElement("option");
@@ -993,12 +1018,12 @@
         function repaintList() {
           list.innerHTML = "";
           var activeKind = select.value;
-          var items = filteredItems(activeKind);
+          var items = interiorItemsForSelection(interior, group.kinds, activeKind, query);
           if (!items.length) {
             var empty = document.createElement("p");
             empty.className = "panel-note";
             empty.style.margin = "0";
-            empty.textContent = query ? "No declarations match this filter." : "No declarations detected for this kind.";
+            empty.textContent = query ? "No declarations match this filter." : (activeKind === INTERIOR_KIND_ALL_VALUE ? "No declarations detected for this kind group." : "No declarations detected for this kind.");
             list.replaceWith(empty);
             return;
           }
@@ -2916,7 +2941,10 @@
       normalizeCanonicalPayload: normalizeCanonicalPayload,
       hasCompleteSymbolLines: hasCompleteSymbolLines,
       symbolListsFromRaw: symbolListsFromRaw,
-      makeEmptyInteriorSymbols: makeEmptyInteriorSymbols
+      makeEmptyInteriorSymbols: makeEmptyInteriorSymbols,
+      interiorGroupItemCount: interiorGroupItemCount,
+      pickInteriorDefaultKind: pickInteriorDefaultKind,
+      interiorItemsForSelection: interiorItemsForSelection
     };
     return;
   }

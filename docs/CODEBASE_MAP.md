@@ -58,7 +58,8 @@ The map page provides a single operational and proof-aware architecture view of 
   - Object kinds (`inductive`, `structure`, `class`, `def`, `theorem`, `lemma`, `example`, `instance`, `opaque`, `abbrev`, `axiom`, `constant`, `constants`)
   - Extension kinds (`declare_syntax_cat`, `syntax_cat`, `syntax`, `macro`, `macro_rules`, `notation`, `infix`, `infixl`, `infixr`, `prefix`, `postfix`, `elab`, `elab_rules`, `term_elab`, `command_elab`, `tactic`)
   - Context/Init kinds (`universe`, `universes`, `variable`, `variables`, `parameter`, `parameters`, `section`, `namespace`, `end`, `initialize`)
-  - Each dropdown remembers its selected kind while filtering so analysts can refine queries without losing active context.
+  - Each dropdown now defaults to `All kinds (N)` so Object, Extension, and Context/Init scrollboxes are populated with the full declaration inventory on first render.
+  - Users can still switch to individual kinds, and each dropdown remembers that selected kind while filtering so analysts can refine queries without losing active context.
   - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.
 
 ## Accessibility and mobile
