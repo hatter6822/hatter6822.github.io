@@ -75,7 +75,8 @@
     interiorMenuQuery: "",
     interiorMenuSelections: { object: "", extension: "", contextInit: "" },
     commitSha: "",
-    generatedAt: ""
+    generatedAt: "",
+    flowScrollTarget: ""
   };
 
   var renderScheduled = false;
@@ -780,13 +781,25 @@
     });
   }
 
-  function selectModule(name) {
+  function prefersCompactViewport() {
+    return window.matchMedia && window.matchMedia("(max-width: 900px)").matches;
+  }
+
+  function minimumFlowWidth() {
+    var width = window.innerWidth || 1200;
+    if (width <= 640) return 900;
+    if (width <= 900) return 980;
+    return 1180;
+  }
+
+  function selectModule(name, preserveScroll) {
     if (!name || !state.moduleMap[name]) return;
     if (state.selectedModule === name) {
       renderFlowNodeInteriorMenu(name);
       return;
     }
     state.selectedModule = name;
+    state.flowScrollTarget = preserveScroll ? "" : name;
     if (state.interiorMenuModule !== name) {
       state.interiorMenuModule = name;
       state.interiorMenuQuery = "";
@@ -1146,8 +1159,9 @@
   function renderFlowchart() {
     var wrap = document.getElementById("flowchart-wrap");
     if (!wrap) return;
-    var previousScrollLeft = wrap.scrollLeft;
-    var previousScrollTop = wrap.scrollTop;
+    var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
+    var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
+    var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
     wrap.innerHTML = "";
 
     var selected = state.selectedModule;
@@ -1205,7 +1219,7 @@
     }
 
     var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
-    var flowWidth = Math.max(1180, wrapWidth || 0);
+    var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
     var framePad = 34;
     var laneGap = 24;
 
@@ -1503,6 +1517,17 @@
     wrap.appendChild(svg);
 
     renderFlowNodeInteriorMenu(selected);
+
+    if (state.flowScrollTarget === selected) {
+      var targetScrollLeft = Math.max(0, center.x + center.w / 2 - wrap.clientWidth / 2);
+      var targetScrollTop = Math.max(0, center.y + center.h / 2 - wrap.clientHeight / 2);
+      var maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
+      var maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+      wrap.scrollLeft = Math.min(maxScrollLeft, targetScrollLeft);
+      wrap.scrollTop = Math.min(maxScrollTop, targetScrollTop);
+      state.flowScrollTarget = "";
+      return;
+    }
 
     wrap.scrollLeft = previousScrollLeft;
     wrap.scrollTop = previousScrollTop;
