@@ -140,3 +140,58 @@ test('normalizeCanonicalPayload unwraps branch-keyed canonical map payloads', as
   assert.equal(normalized.moduleMap['SeLe4n.Core.Main'], 'SeLe4n/Core/Main.lean');
   assert.equal(normalized.generatedAt, '2026-01-01T00:00:00.000Z');
 });
+
+test('normalizeCanonicalPayload prioritizes modules array and ignores branch-ref metadata keys', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeCanonicalPayload({
+    main: 'https://githubusercontent.com/hatter6822/seLe4n/refs/heads/main',
+    generatedAt: '2026-02-03T04:05:06.000Z',
+    modules: ['SeLe4n.Core.Main'],
+    moduleMap: {
+      'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean',
+      main: 'https://githubusercontent.com/hatter6822/seLe4n/refs/heads/main'
+    },
+    importsFrom: {
+      'SeLe4n.Core.Main': [],
+      main: ['SeLe4n.Core.Main']
+    },
+    moduleMeta: {
+      'SeLe4n.Core.Main': { theorems: 2 }
+    }
+  });
+
+  assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Main']);
+  assert.deepEqual(Object.keys(normalized.moduleMap), ['SeLe4n.Core.Main']);
+  assert.ok(!Object.prototype.hasOwnProperty.call(normalized.importsFrom, 'main'));
+  assert.equal(normalized.generatedAt, '2026-02-03T04:05:06.000Z');
+});
+
+test('normalizeCanonicalPayload prefers nested branch payload over weak top-level metadata', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeCanonicalPayload({
+    moduleMap: { main: 'https://githubusercontent.com/hatter6822/seLe4n/refs/heads/main' },
+    importsFrom: { main: ['SeLe4n.Core.Main'] },
+    main: {
+      modules: ['SeLe4n.Core.Main', 'SeLe4n.Core.Helper'],
+      moduleMap: {
+        'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean',
+        'SeLe4n.Core.Helper': 'SeLe4n/Core/Helper.lean'
+      },
+      importsFrom: {
+        'SeLe4n.Core.Main': ['SeLe4n.Core.Helper'],
+        'SeLe4n.Core.Helper': []
+      },
+      moduleMeta: {
+        'SeLe4n.Core.Main': { theorems: 1 },
+        'SeLe4n.Core.Helper': { theorems: 0 }
+      }
+    }
+  });
+
+  assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Helper', 'SeLe4n.Core.Main']);
+  assert.deepEqual(Array.from(normalized.importsFrom['SeLe4n.Core.Main']), ['SeLe4n.Core.Helper']);
+  assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, 'main'));
+});
+
