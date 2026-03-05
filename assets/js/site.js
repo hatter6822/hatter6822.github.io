@@ -33,8 +33,8 @@
   function normalizePagePath(pathname, options) {
     var allowEmpty = options && options.allowEmpty;
     var normalized = String(pathname || "").replace(/\/+$/, "");
+    normalized = normalized.replace(/\/index\.html$/i, "");
     if (!normalized) return allowEmpty ? "" : "/";
-    if (normalized === "/index.html") return "/";
     return normalized;
   }
 

@@ -1671,8 +1671,9 @@
     var nav = document.getElementById("nav");
 
     function normalizePagePath(pathname) {
-      var normalized = String(pathname || "").replace(/\/+$/, "") || "/";
-      if (normalized === "/index.html") return "/";
+      var normalized = String(pathname || "").replace(/\/+$/, "");
+      normalized = normalized.replace(/\/index\.html$/i, "");
+      if (!normalized) return "/";
       return normalized;
     }
 
@@ -1769,14 +1770,12 @@
 
       if (!pageLinks.length) return;
 
-      var currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
+      var currentPath = normalizePagePath(window.location.pathname);
       for (var j = 0; j < pageLinks.length; j++) {
         var link = pageLinks[j];
         var href = link.getAttribute("href") || "";
-        var normalizedHref = href.split("#")[0].replace(/^\.\//, "").replace(/\/+$/, "");
-        var linkPath = ("/" + normalizedHref).replace(/\/+/g, "/") || "/";
-        if (linkPath === "/index.html") linkPath = "/";
-        if (currentPath === "/index.html") currentPath = "/";
+        var normalizedHref = href.split("#")[0].replace(/^\.\//, "");
+        var linkPath = normalizePagePath(("/" + normalizedHref).replace(/\/+/g, "/"));
 
         if (linkPath === currentPath) link.setAttribute("aria-current", "page");
         else if (link.hasAttribute("aria-current")) link.removeAttribute("aria-current");
