@@ -11,6 +11,7 @@ This repository uses lightweight Node-based checks.
 ```bash
 node scripts/lib/lean-analysis.test.mjs
 node scripts/lib/data-validation.test.mjs
+node scripts/lib/map-runtime.test.mjs
 ```
 
 Validates:
@@ -19,6 +20,7 @@ Validates:
 - theorem counting behavior
 - README metric table parsing
 - data schema and graph consistency validation behavior
+- map runtime normalization (legacy symbol payload compatibility, import/module sanitization, deterministic module/file ordering, stable per-module defaults, and `symbolsLoaded` correctness)
 
 ### Bundled data integrity
 

@@ -49,6 +49,16 @@
     extension: "Extension kinds",
     contextInit: "Context/Init kinds"
   };
+  var ALL_INTERIOR_KINDS = (function () {
+    var out = [];
+    for (var i = 0; i < INTERIOR_KIND_GROUP_ORDER.length; i++) {
+      var group = INTERIOR_KIND_GROUP_ORDER[i];
+      var kinds = INTERIOR_KIND_GROUPS[group] || [];
+      for (var j = 0; j < kinds.length; j++) out.push(kinds[j]);
+    }
+    return out;
+  })();
+  var BUSY_STATUS_RE = /loading|refreshing|checking|analyzing|syncing/i;
 
   var state = {
     files: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
@@ -107,7 +117,7 @@
     el.classList.toggle("error", Boolean(isError));
 
     var main = document.getElementById("main-content");
-    if (main) main.setAttribute("aria-busy", /loading|refreshing|checking|analyzing|syncing/i.test(text) ? "true" : "false");
+    if (main) main.setAttribute("aria-busy", BUSY_STATUS_RE.test(text) ? "true" : "false");
   }
 
   function updateMetric(key, value) {
@@ -302,13 +312,13 @@
   }
 
   function allInteriorKinds() {
-    var out = [];
-    for (var i = 0; i < INTERIOR_KIND_GROUP_ORDER.length; i++) {
-      var group = INTERIOR_KIND_GROUP_ORDER[i];
-      var kinds = INTERIOR_KIND_GROUPS[group] || [];
-      for (var j = 0; j < kinds.length; j++) out.push(kinds[j]);
-    }
-    return out;
+    return ALL_INTERIOR_KINDS.slice();
+  }
+
+  function makeEmptyInteriorSymbols() {
+    var byKind = Object.create(null);
+    for (var i = 0; i < ALL_INTERIOR_KINDS.length; i++) byKind[ALL_INTERIOR_KINDS[i]] = [];
+    return { byKind: byKind, theorems: [], functions: [] };
   }
 
   function symbolKindLabel(kind) {
@@ -1899,49 +1909,155 @@
       return names;
     }
 
+    function normalizeModuleMap(moduleMap, modules) {
+      var source = moduleMap && typeof moduleMap === "object" ? moduleMap : {};
+      var out = Object.create(null);
+
+      for (var key in source) {
+        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        var moduleName = sanitizeModuleName(key);
+        var path = String(source[key] || "").trim();
+        if (!moduleName || !path) continue;
+        out[moduleName] = path;
+      }
+
+      for (var i = 0; i < modules.length; i++) {
+        var fallback = modules[i];
+        if (!fallback || out[fallback]) continue;
+        out[fallback] = fallback.replace(/\./g, "/") + ".lean";
+      }
+
+      return out;
+    }
+
+    function normalizeImportIndex(index, moduleMap) {
+      var source = index && typeof index === "object" ? index : {};
+      var out = Object.create(null);
+      var modules = Object.keys(moduleMap || {});
+
+      for (var seed = 0; seed < modules.length; seed++) out[modules[seed]] = [];
+
+      for (var key in source) {
+        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        var moduleName = sanitizeModuleName(key);
+        if (!moduleName || !moduleMap[moduleName]) continue;
+
+        var deps = Array.isArray(source[key]) ? source[key] : [];
+        var seen = Object.create(null);
+        var normalized = [];
+        for (var i = 0; i < deps.length; i++) {
+          var dep = sanitizeModuleName(deps[i]);
+          if (!dep || !moduleMap[dep] || dep === moduleName || seen[dep]) continue;
+          seen[dep] = true;
+          normalized.push(dep);
+        }
+
+        out[moduleName] = normalized;
+      }
+
+      return out;
+    }
+
+    function normalizeFiles(files, moduleMap) {
+      var list = Array.isArray(files) ? files : [];
+      var out = [];
+      var seen = Object.create(null);
+
+      for (var i = 0; i < list.length; i++) {
+        var path = String(list[i] || "").trim();
+        if (!path || seen[path]) continue;
+        seen[path] = true;
+        out.push(path);
+      }
+
+      for (var moduleName in moduleMap) {
+        if (!Object.prototype.hasOwnProperty.call(moduleMap, moduleName)) continue;
+        var modulePath = String(moduleMap[moduleName] || "").trim();
+        if (!modulePath || seen[modulePath]) continue;
+        seen[modulePath] = true;
+        out.push(modulePath);
+      }
+
+      out.sort();
+      return out;
+    }
+
+    function normalizeModuleSymbols(rawSymbols) {
+      var symbols = symbolListsFromRaw(rawSymbols || {});
+      var byKind = Object.create(null);
+      var kinds = allInteriorKinds();
+      for (var idx = 0; idx < kinds.length; idx++) {
+        var kind = kinds[idx];
+        byKind[kind] = Array.isArray((symbols.byKind || {})[kind]) ? (symbols.byKind || {})[kind].map(normalizeSymbolEntry).filter(Boolean) : [];
+      }
+
+      var theorems = Array.isArray(symbols.theorems) ? symbols.theorems.map(normalizeSymbolEntry).filter(Boolean) : (byKind.theorem || []).concat(byKind.lemma || []);
+      var functions = Array.isArray(symbols.functions) ? symbols.functions.map(normalizeSymbolEntry).filter(Boolean) : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || []);
+
+      return {
+        byKind: byKind,
+        theorems: theorems,
+        functions: functions
+      };
+    }
+
     var normalizedModules = normalizedModuleNames(data.modules);
+    var normalizedModuleMap = normalizeModuleMap(data.moduleMap || {}, normalizedModules);
+    normalizedModules = Object.keys(normalizedModuleMap).sort();
+
+    var normalizedModuleMeta = (function () {
+      var raw = data.moduleMeta || Object.create(null);
+      var normalized = Object.create(null);
+      for (var idx = 0; idx < normalizedModules.length; idx++) {
+        var moduleName = normalizedModules[idx];
+        var meta = raw[moduleName] || {};
+        var normalizedSymbols = normalizeModuleSymbols(meta.symbols || {});
+        normalized[moduleName] = {
+          layer: meta.layer || classifyLayer(moduleName),
+          kind: meta.kind || moduleKind(moduleName),
+          base: meta.base || moduleBase(moduleName),
+          theorems: Number(meta.theorems || 0),
+          symbols: normalizedSymbols,
+          symbolsLoaded: hasCompleteSymbolLines(normalizedSymbols)
+        };
+      }
+      return normalized;
+    })();
+
+    var normalizedImportsFrom = normalizeImportIndex(data.importsFrom, normalizedModuleMap);
+    var normalizedExternalImportsFrom = (function () {
+      var source = data.externalImportsFrom && typeof data.externalImportsFrom === "object" ? data.externalImportsFrom : {};
+      var out = Object.create(null);
+      for (var seed = 0; seed < normalizedModules.length; seed++) out[normalizedModules[seed]] = [];
+
+      for (var key in source) {
+        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        var moduleName = sanitizeModuleName(key);
+        if (!moduleName || !normalizedModuleMap[moduleName]) continue;
+
+        var deps = Array.isArray(source[key]) ? source[key] : [];
+        var seen = Object.create(null);
+        var normalized = [];
+        for (var i = 0; i < deps.length; i++) {
+          var dep = sanitizeModuleName(deps[i]);
+          if (!dep || normalizedModuleMap[dep] || seen[dep]) continue;
+          seen[dep] = true;
+          normalized.push(dep);
+        }
+        out[moduleName] = normalized;
+      }
+
+      return out;
+    })();
 
     return {
-      files: Array.isArray(data.files) ? data.files : [],
+      files: normalizeFiles(data.files, normalizedModuleMap),
       modules: normalizedModules,
-      moduleMap: data.moduleMap || Object.create(null),
-      moduleMeta: (function () {
-        var raw = data.moduleMeta || Object.create(null);
-        var normalized = Object.create(null);
-        for (var key in raw) {
-          if (!Object.prototype.hasOwnProperty.call(raw, key)) continue;
-          var meta = raw[key] || {};
-          var symbols = symbolListsFromRaw(meta.symbols || {});
-          normalized[key] = {
-            layer: meta.layer || classifyLayer(key),
-            kind: meta.kind || moduleKind(key),
-            base: meta.base || moduleBase(key),
-            theorems: Number(meta.theorems || 0),
-            symbols: (function () {
-              var byKind = Object.create(null);
-              var kinds = allInteriorKinds();
-              for (var idx = 0; idx < kinds.length; idx++) {
-                var kind = kinds[idx];
-                byKind[kind] = Array.isArray((symbols.byKind || {})[kind]) ? (symbols.byKind || {})[kind].map(normalizeSymbolEntry).filter(Boolean) : [];
-              }
-
-              var theorems = Array.isArray(symbols.theorems) ? symbols.theorems.map(normalizeSymbolEntry).filter(Boolean) : (byKind.theorem || []).concat(byKind.lemma || []);
-              var functions = Array.isArray(symbols.functions) ? symbols.functions.map(normalizeSymbolEntry).filter(Boolean) : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || []);
-
-              return {
-                byKind: byKind,
-                theorems: theorems,
-                functions: functions
-              };
-            })(),
-            symbolsLoaded: hasCompleteSymbolLines(symbols)
-          };
-        }
-        return normalized;
-      })(),
-      importsTo: data.importsTo || Object.create(null),
-      importsFrom: data.importsFrom || Object.create(null),
-      externalImportsFrom: data.externalImportsFrom || Object.create(null),
+      moduleMap: normalizedModuleMap,
+      moduleMeta: normalizedModuleMeta,
+      importsTo: Object.create(null),
+      importsFrom: normalizedImportsFrom,
+      externalImportsFrom: normalizedExternalImportsFrom,
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
     };
@@ -2038,7 +2154,7 @@
       kind: moduleKind(moduleName),
       base: moduleBase(moduleName),
       theorems: 0,
-      symbols: { theorems: [], functions: [] },
+      symbols: makeEmptyInteriorSymbols(),
       symbolsLoaded: true
     };
   }
@@ -2648,6 +2764,16 @@
         else setStatus("Refresh failed; showing cached data. " + message, true);
       });
     });
+  }
+
+  if (window && window.__SELE4N_MAP_DISABLE_BOOT__) {
+    window.__SELE4N_MAP_TEST_HOOKS__ = {
+      normalizeMapData: normalizeMapData,
+      hasCompleteSymbolLines: hasCompleteSymbolLines,
+      symbolListsFromRaw: symbolListsFromRaw,
+      makeEmptyInteriorSymbols: makeEmptyInteriorSymbols
+    };
+    return;
   }
 
   boot();

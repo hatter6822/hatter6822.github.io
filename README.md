@@ -37,6 +37,7 @@ node scripts/validate-data.mjs
 ```bash
 node scripts/lib/lean-analysis.test.mjs
 node scripts/lib/data-validation.test.mjs
+node scripts/lib/map-runtime.test.mjs
 ```
 
 ## Runtime data strategy

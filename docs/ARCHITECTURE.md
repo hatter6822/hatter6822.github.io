@@ -50,6 +50,8 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 
 - Added derived-cache invalidation helpers to centralize state reset when filters/data change.
 - Added memoization for `filteredModules()` keyed by active filter state, including correct caching of empty-result filter states.
+- Hardened map hydration by sanitizing module maps/import indexes and normalizing symbol metadata before graph rebuild.
+- Added a boot-disable test hook for `assets/js/map.js` so runtime normalization logic can be validated in Node tests without DOM bootstrapping.
 - Preserved deterministic rendering behavior while reducing repeated list recomputation.
 - Added mobile interaction hint and improved touch/scroll behavior in chart container.
 
