@@ -55,6 +55,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Added canonical sparse-graph recovery: if canonical payloads ship declarations without import edges, the runtime reconstructs imports from raw Lean sources so the flow chart and map-stats remain complete.
 - Added a boot-disable test hook for `assets/js/map.js` so runtime normalization logic can be validated in Node tests without DOM bootstrapping.
 - Preserved deterministic rendering behavior while reducing repeated list recomputation.
+- Consolidated symbol-entry normalization into a shared helper and added per-module interior-symbol memoization to avoid redundant normalization work during rerenders.
 - Added mobile interaction hint and improved touch/scroll behavior in chart container.
 
 ## Mobile hardening decisions
