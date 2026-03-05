@@ -59,13 +59,16 @@
 
   <main id="main-content" class="code-map-page">
     <header class="section code-map-hero" id="map-overview">
-      <div class="container">
-        <div class="section-lead">
+      <div class="container code-map-hero-shell">
+        <div class="code-map-hero-main section-lead">
           <p class="hero-label">seLe4n Architecture Intelligence</p>
-          <h1>Adaptive Codemap Navigator</h1>
+          <h1>Adaptive Codebase Navigator</h1>
+          <p class="section-lead">Navigate module-by-module with one integrated flow map: dependencies, impact edges, proof links, and external boundaries are shown in one canonical graph.</p>
         </div>
-        <p class="section-lead">Navigate module-by-module with one integrated flow map: dependencies, impact edges, proof links, and external boundaries are shown in one canonical graph.</p>
-        <p id="map-status" class="map-status" aria-live="polite">Loading codebase map…</p>
+        <div class="code-map-header-meta" role="status" aria-live="polite">
+          <p id="map-status" class="map-status">Loading codebase map…</p>
+          <p id="module-results" class="results-note">0 modules shown</p>
+        </div>
         <div class="map-stats" aria-live="polite">
           <article class="stat-card"><span class="stat-title">Files</span><strong data-map="files">-</strong></article>
           <article class="stat-card"><span class="stat-title">Lean Modules</span><strong data-map="leanModules">-</strong></article>
@@ -81,14 +84,11 @@
 
     <section class="section section-alt" id="module-graph" aria-label="Module graph workspace">
       <div class="container map-workspace">
-        <div role="region" aria-label="Map controls and filters">
-          <p id="module-results" class="results-note" aria-live="polite">0 modules shown</p>
-        </div>
-
         <div class="navigator-layout">
           <article class="card constellation-panel">
             <div class="panel-header">
               <h2 class="section-title-sm">Interactive dependency/proof flow chart</h2>
+            </div>
             <form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">
               <div class="control-group control-group-wide">
                 <label for="module-search">Current module context</label>

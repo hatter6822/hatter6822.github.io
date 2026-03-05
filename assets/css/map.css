@@ -1,8 +1,24 @@
 .code-map-page { padding-top: var(--nav-height); position: relative; z-index: 1; }
 .code-map-hero h1 { color: var(--heading); margin-bottom: 1rem; line-height: 1.1; overflow-wrap: anywhere; text-wrap: balance; }
 .code-map-hero .container { display: grid; gap: 0.85rem; align-items: start; }
+.code-map-hero-shell {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 0.16rem);
+  padding-block: clamp(1rem, 2.2vw, 1.25rem);
+  background: rgba(20, 28, 45, 0.78);
+  background: color-mix(in oklab, var(--surface) 78%, transparent);
+}
+.code-map-hero-main { display: grid; gap: 0.65rem; }
 .code-map-hero .section-lead { max-width: 72ch; }
-.map-status { margin-top: 0.8rem; color: var(--text-muted); font-size: 0.92rem; }
+.code-map-header-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.2rem;
+}
+.map-status { margin: 0; color: var(--text-muted); font-size: 0.92rem; }
 .map-status.error { color: var(--red); }
 
 .map-workspace {
@@ -20,8 +36,8 @@
 .results-note {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.84rem;
-  text-align: right;
+  font-size: 0.82rem;
+  text-align: left;
 }
 
 .map-stats { margin-top: 1.2rem; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr)); }
@@ -357,8 +373,12 @@
   .section#module-graph .container {
     padding-inline: 0.85rem;
   }
+  .code-map-header-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.24rem;
+  }
   .map-workspace-header { flex-direction: column; align-items: flex-start; }
-  .results-note { text-align: left; }
   .detail-preset-options { width: 100%; }
   .detail-pill { flex: 1 1 0; text-align: center; }
   .flowchart-svg { min-width: 0; }
@@ -381,6 +401,10 @@
     padding-top: 1.9rem;
     padding-bottom: 1.7rem;
   }
+  .code-map-hero-shell {
+    border-radius: 0.85rem;
+    padding-block: 0.95rem;
+  }
   .code-map-hero .container {
     gap: 0.7rem;
   }
@@ -399,6 +423,15 @@
     max-width: 62ch;
   }
   .map-status { font-size: 0.85rem; margin-top: 0.55rem; }
+  .code-map-header-meta {
+    margin-top: 0;
+  }
+  .map-status {
+    margin-top: 0;
+  }
+  .results-note {
+    font-size: 0.78rem;
+  }
   .map-stats {
     margin-top: 0.8rem;
     grid-template-columns: repeat(8, minmax(7.2rem, 76vw));
