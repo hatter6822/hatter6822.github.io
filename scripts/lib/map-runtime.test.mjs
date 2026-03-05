@@ -312,3 +312,29 @@ test('normalizeMapData projects modules[].declarations into symbol buckets', asy
   assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].symbols.byKind.def[0].name, 'step');
   assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].symbolsLoaded, true);
 });
+
+test('interior kind group helpers default to all kinds and aggregate extension/context items', async () => {
+  const hooks = await loadMapTestHooks();
+  const interior = hooks.makeEmptyInteriorSymbols();
+
+  interior.byKind.def = [{ name: 'mainDef', line: 12 }];
+  interior.byKind.theorem = [{ name: 'mainThm', line: 30 }];
+  interior.byKind.syntax = [{ name: 'syntaxAlias', line: 48 }];
+  interior.byKind.macro = [{ name: 'macroExpand', line: 55 }];
+  interior.byKind.namespace = [{ name: 'Core', line: 3 }];
+  interior.byKind.initialize = [{ name: 'initCore', line: 90 }];
+
+  const extensionKinds = ['declare_syntax_cat', 'syntax_cat', 'syntax', 'macro', 'macro_rules', 'notation', 'infix', 'infixl', 'infixr', 'prefix', 'postfix', 'elab', 'elab_rules', 'term_elab', 'command_elab', 'tactic'];
+  const contextKinds = ['universe', 'universes', 'variable', 'variables', 'parameter', 'parameters', 'section', 'namespace', 'end', 'initialize'];
+
+  assert.equal(hooks.pickInteriorDefaultKind(interior, extensionKinds, ''), '__all__');
+  assert.equal(hooks.pickInteriorDefaultKind(interior, contextKinds, ''), '__all__');
+  assert.equal(hooks.interiorGroupItemCount(interior, extensionKinds), 2);
+  assert.equal(hooks.interiorGroupItemCount(interior, contextKinds), 2);
+
+  const allExtensionItems = hooks.interiorItemsForSelection(interior, extensionKinds, '__all__', '');
+  assert.deepEqual(Array.from(allExtensionItems, (item) => item.name), ['syntaxAlias', 'macroExpand']);
+
+  const allContextItems = hooks.interiorItemsForSelection(interior, contextKinds, '__all__', 'init');
+  assert.deepEqual(Array.from(allContextItems, (item) => item.name), ['initCore']);
+});
