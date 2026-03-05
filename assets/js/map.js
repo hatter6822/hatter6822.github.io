@@ -1825,12 +1825,11 @@
             }
           } else if (target && target.sameOrigin && !target.samePath && target.hash) {
             event.preventDefault();
-            var storedIntent = storeCrossPageNavIntent(target);
-            // Prefer intent-only navigation to avoid native hash jumps competing with the
-            // landing page's offset-aware scroll/focus pass. If storage is unavailable,
-            // fall back to hash navigation so deep links still work.
-            if (storedIntent) window.location.assign(target.path + (target.search || ""));
-            else window.location.assign(target.url || (target.path + (target.search || "") + target.hash));
+            storeCrossPageNavIntent(target);
+            // Always include the hash in the destination URL so cross-page section navigation
+            // still works even if sessionStorage is unavailable or cleared between pages.
+            // The landing page will still run an offset-aware adjustment/focus pass.
+            window.location.assign(target.path + (target.search || "") + target.hash);
           }
 
           setNavState(false);

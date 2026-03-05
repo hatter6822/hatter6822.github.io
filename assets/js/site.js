@@ -271,6 +271,22 @@
       }, 220);
     }
 
+    function enforceHashTarget(hash, behavior) {
+      if (!hash || hash === "#") return;
+
+      scheduleHashScroll(hash, behavior || "auto");
+      focusHashTarget(hash);
+
+      var retries = [420, 900];
+      for (var i = 0; i < retries.length; i++) {
+        (function (delay) {
+          window.setTimeout(function () {
+            scheduleHashScroll(hash, "auto");
+          }, delay);
+        })(retries[i]);
+      }
+    }
+
     function setNavState(open) {
       if (!toggle || !links) return;
       links.classList.toggle("open", open);
@@ -327,7 +343,7 @@
     window.addEventListener("orientationchange", syncScrollOffset, { passive: true });
 
     window.addEventListener("hashchange", function () {
-      scheduleHashScroll(window.location.hash, "smooth");
+      enforceHashTarget(window.location.hash, "smooth");
     });
 
     var applyScrolled = function () {
@@ -338,15 +354,13 @@
 
     if (window.location.hash) {
       window.requestAnimationFrame(function () {
-        scheduleHashScroll(window.location.hash, "auto");
-        focusHashTarget(window.location.hash);
+        enforceHashTarget(window.location.hash, "auto");
       });
     } else {
       var storedHash = readStoredNavIntent();
       if (storedHash) {
         window.requestAnimationFrame(function () {
-          scheduleHashScroll(storedHash, "auto");
-          focusHashTarget(storedHash);
+          enforceHashTarget(storedHash, "auto");
           if (window.location.hash !== storedHash) {
             try {
               history.replaceState(null, "", storedHash);
