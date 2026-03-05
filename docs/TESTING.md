@@ -2,12 +2,15 @@
 
 This repository uses lightweight Node-based checks.
 
+> Documentation baseline: website release **0.1.0**.
+
 ## Automated checks
 
 ### Parser and extraction regression tests
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/data-validation.test.mjs
 ```
 
 Validates:
@@ -15,6 +18,7 @@ Validates:
 - interior symbol extraction and line tracking
 - theorem counting behavior
 - README metric table parsing
+- data schema and graph consistency validation behavior
 
 ### Bundled data integrity
 

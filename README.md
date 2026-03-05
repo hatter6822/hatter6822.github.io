@@ -2,6 +2,11 @@
 
 Static site for **seLe4n**, including a marketing homepage and an interactive architecture/codebase map.
 
+## Current website release
+
+- Website version: `0.1.0`
+- Lean toolchain target: `4.28.0`
+
 ## Repository layout
 
 - `index.html`: main marketing page
@@ -31,6 +36,7 @@ node scripts/validate-data.mjs
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/data-validation.test.mjs
 ```
 
 ## Runtime data strategy
