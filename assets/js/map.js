@@ -45,9 +45,9 @@
   };
   var INTERIOR_KIND_GROUP_ORDER = ["object", "extension", "contextInit"];
   var INTERIOR_KIND_GROUP_LABELS = {
-    object: "Object kinds",
-    extension: "Extension kinds",
-    contextInit: "Context/Init kinds"
+    object: "Objects",
+    extension: "Extensions",
+    contextInit: "Contexts/Inits"
   };
   var INTERIOR_KIND_ALL_VALUE = "__all__";
   var ALL_INTERIOR_KINDS = (function () {
@@ -1012,7 +1012,7 @@
         select.className = "interior-kind-select";
         var allOption = document.createElement("option");
         allOption.value = INTERIOR_KIND_ALL_VALUE;
-        allOption.textContent = "All kinds (" + group.totalCount + ")";
+        allOption.textContent = "All (" + group.totalCount + ")";
         allOption.selected = group.selectedKind === INTERIOR_KIND_ALL_VALUE;
         select.appendChild(allOption);
         for (var i = 0; i < group.kinds.length; i++) {

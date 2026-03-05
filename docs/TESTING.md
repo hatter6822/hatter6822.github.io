@@ -50,7 +50,7 @@ node --check assets/js/theme-init.js
 - Confirm map context-search, detail-preset keyboard navigation (Arrow/Home/End), and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
 - Confirm reset restores default balanced detail mode, clears any search validity errors, and preserves a minimal toolbar footprint across desktop/mobile breakpoints.
-- Confirm each interior dropdown (Object, Extension, Context/Init) defaults to `All kinds (N)`, can switch kinds, and deep-link declarations to source lines.
+- Confirm each interior dropdown (Object, Extension, Context/Init) defaults to `All (N)`, can switch kinds, and deep-link declarations to source lines.
 - Confirm the `Filter declarations across all kinds…` search box accepts multi-character typing without dropping focus/caret after each keystroke.
 - Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Extension/Context-Init) to the newly selected module.
 - Confirm modules-array payload compatibility by testing both string and object module entries, including branch-wrapper payloads where top-level `main` metadata must not become a module node.
