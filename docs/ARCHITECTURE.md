@@ -52,6 +52,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Added memoization for `filteredModules()` keyed by active filter state, including correct caching of empty-result filter states.
 - Rebuilt map hydration around `modules[]` as the only source of module identity; top-level maps are now fallback metadata only for modules explicitly listed in the array.
 - Removed map-shape scoring heuristics and replaced canonical payload selection with a deterministic modules-array-first branch chooser, preventing ref metadata (for example top-level `main` URLs) from entering flow-chart nodes or stats.
+- Added canonical sparse-graph recovery: if canonical payloads ship declarations without import edges, the runtime reconstructs imports from raw Lean sources so the flow chart and map-stats remain complete.
 - Added a boot-disable test hook for `assets/js/map.js` so runtime normalization logic can be validated in Node tests without DOM bootstrapping.
 - Preserved deterministic rendering behavior while reducing repeated list recomputation.
 - Added mobile interaction hint and improved touch/scroll behavior in chart container.

@@ -20,7 +20,7 @@ Validates:
 - theorem counting behavior
 - README metric table parsing
 - data schema and graph consistency validation behavior
-- map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, import/module sanitization, deterministic module/file ordering, stable per-module defaults, and `symbolsLoaded` correctness)
+- map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, declaration-centric canonical payload support, declaration projection into symbol buckets, theorem fallback derivation, path-based dependency normalization, deterministic module/file ordering, stable per-module defaults, and `symbolsLoaded` correctness)
 
 ### Bundled data integrity
 

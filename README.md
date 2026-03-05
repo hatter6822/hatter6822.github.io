@@ -60,6 +60,7 @@ The code map interior panel links declarations directly to source in `hatter6822
 - Populates all interior declaration groupings used by the UI (`Object kinds`, `Extension kinds`, `Context/Init kinds`)
 - Includes declaration line metadata for line-accurate blob anchors
 - Normalizes legacy symbol payload variants (`byKind`/`by_kind`, `constant`/`constants`) so flow-chart selection updates the interior declaration panels reliably
+- Supports declaration-centric canonical payloads (`modules[].declarations`) and derives theorem totals/import graphs when explicit aggregates are omitted
 
 ## Documentation index
 

@@ -38,6 +38,9 @@ The map page provides a single operational and proof-aware architecture view of 
    - Branch-ref metadata keys (for example `main` URL strings) are therefore excluded from module inventories, flow-chart nodes, and map stats. Runtime filtering now rejects pseudo-module names like `main` and URL/non-`.lean` module paths.
    - Canonical payload extraction now selects the object (top-level or one nested level) with the strongest `modules[]` payload, then normalizes from that branch payload only.
    - Symbol normalization still accepts legacy buckets (`symbols.by_kind`) and declaration aliases (`constant`/`constants`), and `symbolsLoaded` is computed from normalized symbol entries.
+  - Runtime normalization now supports declaration-centric canonical payloads (`modules[].declarations`) by projecting declaration entries into interior symbol buckets and deriving theorem totals when explicit counts are missing.
+  - When canonical payloads omit import edges, runtime performs a bounded raw-source import reconstruction pass so map stats and the flow chart remain operational instead of collapsing to zero-edge graphs.
+  - Sparse import reconstruction is only triggered when a new canonical commit is detected, preventing repeated per-module source fetches during no-op polling cycles.
 
 5. **Rendering lifecycle**
    - Updates stat cards and status text.
