@@ -27,6 +27,17 @@
 
   var LIVE_NODE_CACHE = Object.create(null);
 
+  function safeScrollTo(top, behavior) {
+    var targetTop = Math.max(0, Number(top) || 0);
+    var mode = behavior || "auto";
+
+    try {
+      window.scrollTo({ top: targetTop, behavior: mode });
+    } catch (e) {
+      window.scrollTo(0, targetTop);
+    }
+  }
+
   function update(key, value) {
     if (value === undefined || value === null || value === "") return;
     var els = LIVE_NODE_CACHE[key];
@@ -175,10 +186,7 @@
       if (!target) return;
 
       var targetTop = target.getBoundingClientRect().top + window.scrollY - getNavOffset();
-      window.scrollTo({
-        top: Math.max(0, targetTop),
-        behavior: behavior || "smooth"
-      });
+      safeScrollTo(targetTop, behavior || "smooth");
 
       return target;
     }

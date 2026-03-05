@@ -82,6 +82,44 @@
   var renderScheduled = false;
   var interiorMenuRenderScheduled = false;
 
+  function safeScrollTo(top, behavior) {
+    var targetTop = Math.max(0, Number(top) || 0);
+    var mode = behavior || "auto";
+
+    try {
+      window.scrollTo({ top: targetTop, behavior: mode });
+    } catch (e) {
+      window.scrollTo(0, targetTop);
+    }
+  }
+
+  function queryParamStateFromSearch(search) {
+    var out = Object.create(null);
+    var raw = typeof search === "string" ? search : "";
+    if (!raw) return out;
+    if (raw.charAt(0) === "?") raw = raw.slice(1);
+    if (!raw) return out;
+
+    var parts = raw.split("&");
+    for (var i = 0; i < parts.length; i++) {
+      var entry = parts[i];
+      if (!entry) continue;
+      var eq = entry.indexOf("=");
+      var keyPart = eq >= 0 ? entry.slice(0, eq) : entry;
+      if (!keyPart) continue;
+      var valuePart = eq >= 0 ? entry.slice(eq + 1) : "";
+      var key = keyPart;
+      var value = valuePart;
+
+      try { key = decodeURIComponent(keyPart.replace(/\+/g, " ")); } catch (e) {}
+      try { value = decodeURIComponent(valuePart.replace(/\+/g, " ")); } catch (e) {}
+
+      if (!Object.prototype.hasOwnProperty.call(out, key)) out[key] = value;
+    }
+
+    return out;
+  }
+
   function scheduleRender() {
     if (renderScheduled) return;
     renderScheduled = true;
@@ -1618,7 +1656,7 @@
       if (!targetInfo || !nav) return;
       var navOffset = Math.ceil((nav.getBoundingClientRect().height || 0) + 12);
       var targetTop = targetInfo.target.getBoundingClientRect().top + window.scrollY - navOffset;
-      window.scrollTo({ top: Math.max(0, targetTop), behavior: behavior || "smooth" });
+      safeScrollTo(targetTop, behavior || "smooth");
     }
 
     function updateCurrentNavLink() {
@@ -2767,30 +2805,39 @@
   }
 
   function readUrlState() {
-    var params = new URLSearchParams(window.location.search);
-    var moduleParam = sanitizeModuleName(params.get("module") || "");
+    var nativeParams = typeof URLSearchParams === "function" ? new URLSearchParams(window.location.search) : null;
+    var fallbackParams = nativeParams ? null : queryParamStateFromSearch(window.location.search);
+    function getParam(name) {
+      if (nativeParams) {
+        var value = nativeParams.get(name);
+        return value === null ? "" : value;
+      }
+      return fallbackParams[name] || "";
+    }
+
+    var moduleParam = sanitizeModuleName(getParam("module"));
     if (moduleParam) state.selectedModule = moduleParam;
 
-    var layer = params.get("layer") || "all";
+    var layer = getParam("layer") || "all";
     if (/^(all|model|kernel|security|platform|other)$/.test(layer)) state.activeLayerFilter = layer;
 
-    var detail = params.get("detail") || "";
+    var detail = getParam("detail") || "";
     if (/^(compact|balanced|expanded)$/.test(detail)) {
       applyDetailLevel(detail);
     } else {
-      var neighbors = Number(params.get("neighbors") || "12");
+      var neighbors = Number(getParam("neighbors") || "12");
       if (neighbors >= 4 && neighbors <= 20) state.neighborLimit = neighbors;
 
-      var radius = Number(params.get("radius") || "2");
+      var radius = Number(getParam("radius") || "2");
       if (radius >= 1 && radius <= 3) state.impactRadius = radius;
 
-      var mode = params.get("mode") || "";
+      var mode = getParam("mode") || "";
       if (mode === "imports") applyDetailLevel("compact");
       else if (mode === "impact") applyDetailLevel("expanded");
     }
 
-    state.proofLinkedOnly = params.get("linked") === "1";
-    state.flowShowAll = params.get("fullflow") === "1";
+    state.proofLinkedOnly = getParam("linked") === "1";
+    state.flowShowAll = getParam("fullflow") === "1";
   }
 
   function syncUrlState() {
