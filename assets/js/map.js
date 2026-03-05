@@ -1605,6 +1605,49 @@
     var links = document.getElementById("nav-links");
     var nav = document.getElementById("nav");
 
+    function samePageHashTarget(href) {
+      if (!href || href.charAt(0) !== "#") return null;
+      var id = href.slice(1);
+      if (!id) return null;
+      var target = document.getElementById(id);
+      return target ? { hash: href, target: target } : null;
+    }
+
+    function scrollToHash(hash, behavior) {
+      var targetInfo = samePageHashTarget(hash);
+      if (!targetInfo || !nav) return;
+      var navOffset = Math.ceil((nav.getBoundingClientRect().height || 0) + 12);
+      var targetTop = targetInfo.target.getBoundingClientRect().top + window.scrollY - navOffset;
+      window.scrollTo({ top: Math.max(0, targetTop), behavior: behavior || "smooth" });
+    }
+
+    function updateCurrentNavLink() {
+      if (!links) return;
+
+      var allLinks = links.querySelectorAll("a");
+      var pageLinks = [];
+      for (var i = 0; i < allLinks.length; i++) {
+        var href = allLinks[i].getAttribute("href") || "";
+        if (!href || href.charAt(0) === "#" || /^https?:\/\//i.test(href)) continue;
+        pageLinks.push(allLinks[i]);
+      }
+
+      if (!pageLinks.length) return;
+
+      var currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
+      for (var j = 0; j < pageLinks.length; j++) {
+        var link = pageLinks[j];
+        var href = link.getAttribute("href") || "";
+        var normalizedHref = href.split("#")[0].replace(/^\.\//, "").replace(/\/+$/, "");
+        var linkPath = ("/" + normalizedHref).replace(/\/+/g, "/") || "/";
+        if (linkPath === "/index.html") linkPath = "/";
+        if (currentPath === "/index.html") currentPath = "/";
+
+        if (linkPath === currentPath) link.setAttribute("aria-current", "page");
+        else if (link.hasAttribute("aria-current")) link.removeAttribute("aria-current");
+      }
+    }
+
     function syncNavMetrics() {
       if (!nav) return;
       var navHeight = Math.ceil(nav.getBoundingClientRect().height || 0);
@@ -1629,7 +1672,14 @@
 
       var items = links.querySelectorAll("a");
       for (var i = 0; i < items.length; i++) {
-        items[i].addEventListener("click", function () {
+        items[i].addEventListener("click", function (event) {
+          var href = event.currentTarget.getAttribute("href") || "";
+          var targetInfo = samePageHashTarget(href);
+          if (targetInfo) {
+            event.preventDefault();
+            scrollToHash(targetInfo.hash, "smooth");
+            if (window.location.hash !== targetInfo.hash) history.pushState(null, "", targetInfo.hash);
+          }
           setNavState(false);
         });
       }
@@ -1652,6 +1702,7 @@
     }
 
     syncNavMetrics();
+    updateCurrentNavLink();
     window.addEventListener("resize", syncNavMetrics, { passive: true });
     window.addEventListener("orientationchange", syncNavMetrics, { passive: true });
 
