@@ -645,7 +645,7 @@
 
   applyData(STATIC_FALLBACK);
   setupTheme();
-  setupNav();
+  if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();
   hardenExternalLinks();
 
   if (typeof requestIdleCallback === "function") requestIdleCallback(refreshLiveData);
