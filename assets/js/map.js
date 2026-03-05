@@ -1875,8 +1875,10 @@
     for (var i = 0; i < state.modules.length; i++) state.moduleMap[state.modules[i]] = inventory.leanFiles[i];
   }
 
-  function normalizeMapData(data) {
+  function normalizeMapData(data, options) {
     if (!data || typeof data !== "object") return null;
+    var opts = options && typeof options === "object" ? options : {};
+    var preferModuleArray = Boolean(opts.preferModuleArray);
 
     function normalizedModuleNames(inputModules) {
       var names = [];
@@ -1893,6 +1895,8 @@
           names.push(name);
         }
       }
+
+      if (preferModuleArray && names.length) return names;
 
       var fallbacks = [data.moduleMap || {}, data.moduleMeta || {}, data.importsFrom || {}];
       for (var f = 0; f < fallbacks.length; f++) {
@@ -1912,12 +1916,15 @@
     function normalizeModuleMap(moduleMap, modules) {
       var source = moduleMap && typeof moduleMap === "object" ? moduleMap : {};
       var out = Object.create(null);
+      var moduleAllowlist = Object.create(null);
+      for (var seed = 0; seed < modules.length; seed++) moduleAllowlist[modules[seed]] = true;
 
       for (var key in source) {
         if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
         var moduleName = sanitizeModuleName(key);
         var path = String(source[key] || "").trim();
         if (!moduleName || !path) continue;
+        if (preferModuleArray && modules.length && !moduleAllowlist[moduleName]) continue;
         out[moduleName] = path;
       }
 
@@ -2070,33 +2077,55 @@
   }
 
   function normalizeCanonicalPayload(payload, fallbackGeneratedAt) {
+    function mapShapeScore(value) {
+      if (!value || typeof value !== "object") return 0;
+
+      var score = 0;
+      if (Array.isArray(value.modules)) {
+        if (value.modules.length) score += 120;
+        else score += 30;
+      }
+      if (value.moduleMap && typeof value.moduleMap === "object") score += 20;
+      if (value.importsFrom && typeof value.importsFrom === "object") score += 12;
+      if (value.moduleMeta && typeof value.moduleMeta === "object") score += 8;
+      if (Array.isArray(value.files)) score += 4;
+      return score;
+    }
+
     function extractCanonicalMapPayload(input) {
       if (!input || typeof input !== "object") return null;
 
-      if (input.modules || input.moduleMap || input.importsFrom || input.moduleMeta) {
-        return input;
+      var best = null;
+      var bestScore = 0;
+
+      function consider(candidate) {
+        var score = mapShapeScore(candidate);
+        if (score <= bestScore) return;
+        best = candidate;
+        bestScore = score;
       }
+
+      consider(input);
 
       var branchHints = [REF, "main", "master", "trunk"];
       for (var i = 0; i < branchHints.length; i++) {
         var branchKey = branchHints[i];
-        if (!branchKey || typeof input[branchKey] !== "object" || !input[branchKey]) continue;
-        var candidate = input[branchKey];
-        if (candidate.modules || candidate.moduleMap || candidate.importsFrom || candidate.moduleMeta) return candidate;
+        if (!branchKey || !input[branchKey] || typeof input[branchKey] !== "object") continue;
+        consider(input[branchKey]);
       }
 
       for (var key in input) {
         if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
         var value = input[key];
         if (!value || typeof value !== "object") continue;
-        if (value.modules || value.moduleMap || value.importsFrom || value.moduleMeta) return value;
+        consider(value);
       }
 
-      return input;
+      return best || input;
     }
 
     var canonicalPayload = extractCanonicalMapPayload(payload);
-    var normalized = normalizeMapData(canonicalPayload);
+    var normalized = normalizeMapData(canonicalPayload, { preferModuleArray: true });
     if (!normalized) throw new Error("Canonical map payload invalid");
     if (!normalized.generatedAt) normalized.generatedAt = fallbackGeneratedAt || new Date().toISOString();
     return normalized;
