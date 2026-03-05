@@ -50,8 +50,8 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 
 - Added derived-cache invalidation helpers to centralize state reset when filters/data change.
 - Added memoization for `filteredModules()` keyed by active filter state, including correct caching of empty-result filter states.
-- Hardened map hydration by sanitizing module maps/import indexes, unwrapping branch-keyed canonical exports, and normalizing symbol metadata before graph rebuild.
-- Canonical map normalization now treats the `modules` array as authoritative when present, preventing branch metadata keys (for example `main` refs) from polluting module inventories, flow-chart nodes, and map stat aggregates.
+- Rebuilt map hydration around `modules[]` as the only source of module identity; top-level maps are now fallback metadata only for modules explicitly listed in the array.
+- Removed map-shape scoring heuristics and replaced canonical payload selection with a deterministic modules-array-first branch chooser, preventing ref metadata (for example top-level `main` URLs) from entering flow-chart nodes or stats.
 - Added a boot-disable test hook for `assets/js/map.js` so runtime normalization logic can be validated in Node tests without DOM bootstrapping.
 - Preserved deterministic rendering behavior while reducing repeated list recomputation.
 - Added mobile interaction hint and improved touch/scroll behavior in chart container.

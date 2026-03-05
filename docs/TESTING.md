@@ -20,7 +20,7 @@ Validates:
 - theorem counting behavior
 - README metric table parsing
 - data schema and graph consistency validation behavior
-- map runtime normalization (legacy symbol payload compatibility, canonical branch-wrapper payload unwrapping, candidate payload scoring, strict `modules`-array precedence for canonical payloads, import/module sanitization, deterministic module/file ordering, stable per-module defaults, and `symbolsLoaded` correctness)
+- map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, import/module sanitization, deterministic module/file ordering, stable per-module defaults, and `symbolsLoaded` correctness)
 
 ### Bundled data integrity
 
@@ -48,5 +48,6 @@ node --check assets/js/theme-init.js
 - Confirm map filtering/search and keyboard traversal still function.
 - Confirm each interior dropdown (Object, Extension, Context/Init) can switch kinds and deep-link declarations to source lines.
 - Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Extension/Context-Init) to the newly selected module.
-- Confirm legacy map payload compatibility by testing with snapshots that use `symbols.by_kind` and/or `constant` declaration keys.
+- Confirm modules-array payload compatibility by testing both string and object module entries, including branch-wrapper payloads where top-level `main` metadata must not become a module node.
+- Confirm legacy symbol compatibility with snapshots that use `symbols.by_kind` and/or `constant` declaration keys.
 - Confirm map live status messaging remains coherent during load/refresh.
