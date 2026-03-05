@@ -291,14 +291,7 @@
 .flow-node.assurance-partial rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #d37cff 16%); }
 .flow-node.assurance-local rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #6de2ff 16%); }
 .flow-node.assurance-none rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #ffad42 16%); }
-.flowchart-summary { margin-top: 0.55rem; margin-bottom: 0; }
-.flowchart-insight-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
-.flowchart-insight { border: 1px solid var(--border); border-radius: 999px; font-size: 0.68rem; color: var(--text-muted); padding: 0.14rem 0.45rem; background: color-mix(in oklab, var(--surface-2) 85%, transparent); }
 .pill-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.trace-row { border-top: 1px solid var(--border); padding-top: 0.55rem; margin-top: 0.5rem; }
-.trail-wrap { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.trail-chip { border: 1px solid var(--border); border-radius: 999px; font-size: 0.7rem; padding: 0.2rem 0.45rem; background: var(--bg-alt); cursor: pointer; color: var(--text); }
-.trail-chip:hover, .trail-chip:focus-visible { border-color: var(--accent); outline: none; }
 
 @media (max-width: 1320px) {
   .map-toolbar { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
