@@ -800,7 +800,6 @@
     }
     if (!fromTrail) rememberTrail(name);
     syncUrlState();
-    updateToolbarSummary();
     scheduleRender();
   }
 
@@ -832,7 +831,6 @@
 
     var list = contextList();
     updateModuleResults(list.length);
-    updateToolbarSummary(list.length);
 
     if (list.length && list.indexOf(state.selectedModule) === -1) {
       state.selectedModule = list[0];
@@ -2589,36 +2587,11 @@
     }
   }
 
-  function updateToolbarSummary(visibleCount) {
-    var el = document.getElementById("toolbar-summary");
-    if (!el) return;
-    var count = typeof visibleCount === "number" ? visibleCount : contextList().length;
-    var selected = state.selectedModule || "No module selected";
-    var layerLabel = state.activeLayerFilter === "all" ? "All subsystems" : (state.activeLayerFilter[0].toUpperCase() + state.activeLayerFilter.slice(1));
-    var detailLabel = detailLevelFromState();
-    var linkedLabel = state.proofLinkedOnly ? "proof-linked only" : "all proof states";
-    var graphLabel = state.flowShowAll ? "full graph" : "focused graph";
-    el.textContent = count + " modules · " + layerLabel + " · " + detailLabel + " detail · " + graphLabel + " · " + linkedLabel + " · " + selected;
-  }
-
   function setupFilters() {
     var toolbar = document.getElementById("map-toolbar");
     var search = document.getElementById("module-search");
-    var focus = document.getElementById("focus-select");
     var selectedDetail = detailLevelFromState();
-    var flowShowAll = document.getElementById("flow-show-all");
-    var proofLinkedOnly = document.getElementById("proof-linked-only");
     var reset = document.getElementById("reset-view");
-
-    var layers = ["model", "kernel", "security", "platform", "other"];
-    if (focus) {
-      for (var i = 0; i < layers.length; i++) {
-        var option = document.createElement("option");
-        option.value = layers[i];
-        option.textContent = layers[i][0].toUpperCase() + layers[i].slice(1);
-        focus.appendChild(option);
-      }
-    }
 
     if (toolbar) {
       toolbar.addEventListener("submit", function (event) {
@@ -2627,14 +2600,13 @@
     }
 
     function apply() {
-      state.activeLayerFilter = focus ? focus.value : "all";
+      state.activeLayerFilter = "all";
       applyDetailLevel(selectedDetail);
       updateDetailPillState(selectedDetail);
-      state.flowShowAll = flowShowAll ? flowShowAll.checked : false;
-      state.proofLinkedOnly = proofLinkedOnly ? proofLinkedOnly.checked : false;
+      state.flowShowAll = false;
+      state.proofLinkedOnly = false;
       invalidateDerivedCaches();
       syncUrlState();
-      updateToolbarSummary();
       scheduleRender();
     }
 
@@ -2730,41 +2702,41 @@
         event.preventDefault();
       });
     }
-    if (focus) focus.addEventListener("change", apply);
-
     var detailPills = document.querySelectorAll(".detail-pill[data-detail]");
+    var detailOrder = ["compact", "balanced", "expanded"];
+    var detailNodes = Object.create(null);
     for (var d = 0; d < detailPills.length; d++) {
+      var detailName = detailPills[d].getAttribute("data-detail") || "";
+      if (detailName) detailNodes[detailName] = detailPills[d];
       detailPills[d].addEventListener("click", function () {
         selectedDetail = this.getAttribute("data-detail") || "balanced";
         apply();
       });
       detailPills[d].addEventListener("keydown", function (event) {
         var key = event.key;
-        if (key !== "ArrowRight" && key !== "ArrowLeft" && key !== "ArrowDown" && key !== "ArrowUp") return;
+        if (key !== "ArrowRight" && key !== "ArrowLeft" && key !== "ArrowDown" && key !== "ArrowUp" && key !== "Home" && key !== "End") return;
         event.preventDefault();
-        var ordered = ["compact", "balanced", "expanded"];
-        var current = ordered.indexOf(selectedDetail);
+        var current = detailOrder.indexOf(selectedDetail);
         if (current < 0) current = 1;
-        var next = current + ((key === "ArrowLeft" || key === "ArrowUp") ? -1 : 1);
-        if (next < 0) next = ordered.length - 1;
-        if (next >= ordered.length) next = 0;
-        selectedDetail = ordered[next];
+        if (key === "Home") selectedDetail = detailOrder[0];
+        else if (key === "End") selectedDetail = detailOrder[detailOrder.length - 1];
+        else {
+          var next = current + ((key === "ArrowLeft" || key === "ArrowUp") ? -1 : 1);
+          if (next < 0) next = detailOrder.length - 1;
+          if (next >= detailOrder.length) next = 0;
+          selectedDetail = detailOrder[next];
+        }
         apply();
-        var nextNode = document.querySelector('.detail-pill[data-detail="' + selectedDetail + '"]');
+        var nextNode = detailNodes[selectedDetail];
         if (nextNode) nextNode.focus();
       });
     }
-    if (flowShowAll) flowShowAll.addEventListener("change", apply);
-    if (proofLinkedOnly) proofLinkedOnly.addEventListener("change", apply);
-
     if (reset) {
       reset.addEventListener("click", function () {
         if (search && state.selectedModule) search.value = state.selectedModule;
-        if (focus) focus.value = "all";
+        setSearchFeedback("", false);
+        if (search && typeof search.setCustomValidity === "function") search.setCustomValidity("");
         selectedDetail = "balanced";
-        updateDetailPillState(selectedDetail);
-        if (flowShowAll) flowShowAll.checked = false;
-        if (proofLinkedOnly) proofLinkedOnly.checked = false;
         apply();
       });
     }
@@ -2820,15 +2792,8 @@
 
   function hydrateFilterControls() {
     var search = document.getElementById("module-search");
-    var focus = document.getElementById("focus-select");
-    var flowShowAll = document.getElementById("flow-show-all");
-    var linked = document.getElementById("proof-linked-only");
     if (search && state.selectedModule) search.value = state.selectedModule;
-    if (focus) focus.value = state.activeLayerFilter;
     updateDetailPillState(detailLevelFromState());
-    if (flowShowAll) flowShowAll.checked = Boolean(state.flowShowAll);
-    if (linked) linked.checked = Boolean(state.proofLinkedOnly);
-    updateToolbarSummary();
     setSearchFeedback("", false);
   }
 
