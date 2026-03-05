@@ -378,8 +378,11 @@
 
 @media (max-width: 640px) {
   .code-map-hero {
-    padding-top: 2.5rem;
-    padding-bottom: 2.2rem;
+    padding-top: 2.15rem;
+    padding-bottom: 2rem;
+  }
+  .code-map-hero .container {
+    gap: 0.7rem;
   }
   .code-map-hero .hero-label {
     font-size: 0.86rem;
@@ -405,8 +408,10 @@
   }
   .stat-card { scroll-snap-align: start; }
   .map-toolbar {
+    top: calc(var(--nav-height) + 0.2rem);
     padding: 0.44rem;
     gap: 0.4rem;
+    border-radius: 0.75rem;
   }
   .detail-pill,
   .control-group input,
