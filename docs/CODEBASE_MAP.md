@@ -37,6 +37,9 @@ The map page provides a single operational and proof-aware architecture view of 
      - declaration aliases like `constant`/`constants`
      - module lists provided as strings, structured objects, or inferred from `moduleMap`/`moduleMeta`/`importsFrom`
    - This normalization ensures that selecting any flow-chart node consistently repaints all three interior declaration columns.
+   - Runtime sanitization now filters malformed module/import keys during hydration, preventing invalid payload entries from polluting flow-graph state.
+   - Normalization seeds empty import/external-import buckets and default module metadata for every discovered module, so rendering paths can rely on stable object shapes.
+   - `symbolsLoaded` now keys off normalized symbol buckets, avoiding unnecessary source refetches when payloads use legacy `by_kind` aliases.
 
 5. **Rendering lifecycle**
    - Updates stat cards and status text.
@@ -68,6 +71,6 @@ The map page provides a single operational and proof-aware architecture view of 
 
 1. Run data sync scripts and commit refreshed snapshots.
 2. Validate snapshots with `node scripts/validate-data.mjs`.
-3. Run parser regression tests with `node scripts/lib/lean-analysis.test.mjs`.
+3. Run parser and runtime-map regression tests with `node scripts/lib/lean-analysis.test.mjs` and `node scripts/lib/map-runtime.test.mjs`.
 4. Verify `map.html` references `assets/css/map.css` and `assets/js/map.js`.
 5. Validate reverse import-edge integrity with `node scripts/validate-data.mjs` (now includes graph symmetry checks).
