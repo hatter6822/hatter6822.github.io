@@ -240,7 +240,7 @@
   justify-content: space-between;
   gap: 0.5rem;
 }
-.interior-menu-controls { display: flex; align-items: center; gap: 0.45rem; }
+.interior-menu-controls { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
 .interior-menu-search {
   width: min(100%, 28rem);
   border: 1px solid var(--border);
@@ -275,6 +275,16 @@
   margin: 0;
   font-size: 0.72rem;
   color: var(--text-muted);
+}
+
+.interior-kind-select {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  color: var(--text);
+  font-size: 0.68rem;
+  padding: 0.2rem 0.35rem;
+  min-width: 11rem;
 }
 .interior-menu-items {
   margin: 0;

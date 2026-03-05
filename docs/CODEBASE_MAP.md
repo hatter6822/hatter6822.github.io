@@ -27,14 +27,14 @@ The map page provides a single operational and proof-aware architecture view of 
 
 4. **Lean module analysis**
    - Derives module paths from `SeLe4n/**/*.lean`.
-   - Parses imports and interior declarations (theorems/functions with line anchors).
+   - Parses imports and interior declarations across all Lean code kinds (object, extension, and context/init groups) with line anchors, while preserving theorem/function rollups for backward compatibility.
    - Normalizes imports against the current module inventory and rebuilds reverse import edges for consistency.
    - Computes module degree, pair linkage, and assurance labels.
 
 5. **Rendering lifecycle**
    - Updates stat cards and status text.
    - Renders filter chooser + options.
-   - Builds flow chart, interior menu, and traversal trail.
+   - Builds flow chart, context strip, three-kind dropdown interior menu (Object, Extension, Context/Init), and traversal trail.
 
 ## Interaction model
 
@@ -42,6 +42,12 @@ The map page provides a single operational and proof-aware architecture view of 
 - **Keyboard walk:** `j` and `k` outside input controls.
 - **Detail levels:** compact/balanced/expanded.
 - **Graph scope toggles:** full flow and proof-linked-only.
+
+- **Interior declaration explorer:** the flow chart context now exposes all interior Lean declaration kinds via three dropdowns:
+  - Object kinds (`inductive`, `structure`, `class`, `def`, `theorem`, `lemma`, `example`, `instance`, `opaque`, `abbrev`, `axiom`, `constant`, `constants`)
+  - Extension kinds (`declare_syntax_cat`, `syntax_cat`, `syntax`, `macro`, `macro_rules`, `notation`, `infix`, `infixl`, `infixr`, `prefix`, `postfix`, `elab`, `elab_rules`, `term_elab`, `command_elab`, `tactic`)
+  - Context/Init kinds (`universe`, `universes`, `variable`, `variables`, `parameter`, `parameters`, `section`, `namespace`, `end`, `initialize`)
+  - Each dropdown remembers its selected kind while filtering so analysts can refine queries without losing active context.
 
 ## Accessibility and mobile
 

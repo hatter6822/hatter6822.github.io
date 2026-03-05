@@ -38,6 +38,18 @@
     expanded: { neighborLimit: 16, impactRadius: 3 }
   };
 
+  var INTERIOR_KIND_GROUPS = {
+    object: ["inductive", "structure", "class", "def", "theorem", "lemma", "example", "instance", "opaque", "abbrev", "axiom", "constant", "constants"],
+    extension: ["declare_syntax_cat", "syntax_cat", "syntax", "macro", "macro_rules", "notation", "infix", "infixl", "infixr", "prefix", "postfix", "elab", "elab_rules", "term_elab", "command_elab", "tactic"],
+    contextInit: ["universe", "universes", "variable", "variables", "parameter", "parameters", "section", "namespace", "end", "initialize"]
+  };
+  var INTERIOR_KIND_GROUP_ORDER = ["object", "extension", "contextInit"];
+  var INTERIOR_KIND_GROUP_LABELS = {
+    object: "Object kinds",
+    extension: "Extension kinds",
+    contextInit: "Context/Init kinds"
+  };
+
   var state = {
     files: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
@@ -50,6 +62,7 @@
     contextListValid: false,
     interiorMenuModule: "",
     interiorMenuQuery: "",
+    interiorMenuSelections: { object: "", extension: "", contextInit: "" },
     commitSha: "",
     generatedAt: ""
   };
@@ -259,18 +272,37 @@
     return { name: name, line: Number.isFinite(line) && line > 0 ? Math.floor(line) : 0 };
   }
 
+  function allInteriorKinds() {
+    var out = [];
+    for (var i = 0; i < INTERIOR_KIND_GROUP_ORDER.length; i++) {
+      var group = INTERIOR_KIND_GROUP_ORDER[i];
+      var kinds = INTERIOR_KIND_GROUPS[group] || [];
+      for (var j = 0; j < kinds.length; j++) out.push(kinds[j]);
+    }
+    return out;
+  }
+
+  function symbolKindLabel(kind) {
+    return String(kind || "")
+      .split("_")
+      .map(function (part) { return part ? part.charAt(0).toUpperCase() + part.slice(1) : ""; })
+      .join(" ");
+  }
+
   function hasCompleteSymbolLines(symbols) {
     if (!symbols || typeof symbols !== "object") return false;
+    var byKind = symbols.byKind || {};
+    var allKinds = allInteriorKinds();
 
-    function listHasLines(list) {
+    for (var i = 0; i < allKinds.length; i++) {
+      var list = byKind[allKinds[i]];
       if (!Array.isArray(list)) return false;
-      for (var i = 0; i < list.length; i++) {
-        if (!list[i] || !(list[i].line > 0)) return false;
+      for (var j = 0; j < list.length; j++) {
+        if (!list[j] || !(list[j].line > 0)) return false;
       }
-      return true;
     }
 
-    return listHasLines(symbols.theorems) && listHasLines(symbols.functions);
+    return true;
   }
 
   function declarationLineFromMatch(match, lineNumberForIndex) {
@@ -280,38 +312,34 @@
   }
 
   function extractInteriorCodeItems(sourceText) {
-    var seenTheorems = Object.create(null);
-    var seenFunctions = Object.create(null);
-    var theoremEntries = [];
-    var functionEntries = [];
     var lineNumberForIndex = createLineLocator(sourceText);
-    var theoremPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+([\w'.`]+)/gm;
-    var functionPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev|opaque)\s+([\w'.`]+)/gm;
-    var instancePattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?instance\s+([\w'.`]+)/gm;
+    var declarationPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(inductive|structure|class|def|theorem|lemma|example|instance|opaque|abbrev|axiom|constants?|declare_syntax_cat|syntax_cat|syntax|macro_rules|macro|notation|infixl|infixr|infix|prefix|postfix|elab_rules|term_elab|command_elab|elab|tactic|universes?|variables?|parameters?|section|namespace|end|initialize)\b[ \t]*([^:\s\n(\[{:=\-]*)/gm;
+    var kinds = allInteriorKinds();
+    var seenByKind = Object.create(null);
+    var byKind = Object.create(null);
+
+    for (var i = 0; i < kinds.length; i++) {
+      seenByKind[kinds[i]] = Object.create(null);
+      byKind[kinds[i]] = [];
+    }
 
     var match;
-    while ((match = theoremPattern.exec(sourceText)) !== null) {
-      var theoremName = normalizeSymbolName(match[1]);
-      if (!theoremName || seenTheorems[theoremName]) continue;
-      seenTheorems[theoremName] = true;
-      theoremEntries.push({ name: theoremName, line: declarationLineFromMatch(match, lineNumberForIndex) });
+    while ((match = declarationPattern.exec(sourceText)) !== null) {
+      var kind = String(match[1] || "").trim();
+      if (!kind || !Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
+      var line = declarationLineFromMatch(match, lineNumberForIndex);
+      var rawName = normalizeSymbolName(match[2]);
+      var name = rawName || "<" + kind + "@L" + line + ">";
+      if (seenByKind[kind][name]) continue;
+      seenByKind[kind][name] = true;
+      byKind[kind].push({ name: name, line: line });
     }
 
-    while ((match = functionPattern.exec(sourceText)) !== null) {
-      var functionName = normalizeSymbolName(match[1]);
-      if (!functionName || seenFunctions[functionName]) continue;
-      seenFunctions[functionName] = true;
-      functionEntries.push({ name: functionName, line: declarationLineFromMatch(match, lineNumberForIndex) });
-    }
-
-    while ((match = instancePattern.exec(sourceText)) !== null) {
-      var instanceName = normalizeSymbolName(match[1]);
-      if (!instanceName || seenFunctions[instanceName]) continue;
-      seenFunctions[instanceName] = true;
-      functionEntries.push({ name: instanceName, line: declarationLineFromMatch(match, lineNumberForIndex) });
-    }
-
-    return { theorems: theoremEntries, functions: functionEntries };
+    return {
+      byKind: byKind,
+      theorems: (byKind.theorem || []).concat(byKind.lemma || []),
+      functions: (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || [])
+    };
   }
 
   function interiorCodeForModule(name) {
@@ -329,9 +357,23 @@
       return out;
     }
 
+    var kinds = allInteriorKinds();
+    var byKind = Object.create(null);
+    var total = 0;
+    for (var i = 0; i < kinds.length; i++) {
+      var kind = kinds[i];
+      byKind[kind] = normalizeList((symbols.byKind || {})[kind]);
+      total += byKind[kind].length;
+    }
+
+    var theoremList = normalizeList(symbols.theorems);
+    var functionList = normalizeList(symbols.functions);
+
     return {
-      theorems: normalizeList(symbols.theorems),
-      functions: normalizeList(symbols.functions)
+      byKind: byKind,
+      theorems: theoremList.length ? theoremList : (byKind.theorem || []).concat(byKind.lemma || []),
+      functions: functionList.length ? functionList : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || []),
+      total: total
     };
   }
 
@@ -342,7 +384,7 @@
     var hasLineAnchors = hasCompleteSymbolLines(meta.symbols || {});
     if (meta.symbolsLoaded && hasLineAnchors) return Promise.resolve();
 
-    meta.symbols = meta.symbols || { theorems: [], functions: [] };
+    meta.symbols = meta.symbols || { byKind: Object.create(null), theorems: [], functions: [] };
     meta.symbolsLoaded = hasCompleteSymbolLines(meta.symbols);
     return Promise.resolve();
   }
@@ -774,6 +816,7 @@
     appendItem("Path", context.path || "Unknown", true);
     appendItem("Layer", context.layer || "other", false);
     appendItem("Kind", context.kind || "other", false);
+    appendItem("Declarations", context.declarations || 0, false);
     appendItem("Assurance", context.assuranceLabel || "Unknown", false);
     appendItem("Hotspot", context.score, false);
     appendItem("Fan-in", context.incoming, false);
@@ -801,20 +844,33 @@
     if (state.interiorMenuModule !== selected) {
       state.interiorMenuModule = selected;
       state.interiorMenuQuery = "";
+      state.interiorMenuSelections = { object: "", extension: "", contextInit: "" };
     }
 
     var interior = interiorCodeForModule(selected);
-    var theoremNames = interior.theorems;
-    var functionNames = interior.functions;
     var query = (state.interiorMenuQuery || "").trim().toLowerCase();
-    var filteredFunctions = query ? functionNames.filter(function (entry) { return entry.name.toLowerCase().indexOf(query) !== -1; }) : functionNames;
-    var filteredTheorems = query ? theoremNames.filter(function (entry) { return entry.name.toLowerCase().indexOf(query) !== -1; }) : theoremNames;
+    var groups = INTERIOR_KIND_GROUP_ORDER.map(function (groupKey) {
+      var kinds = INTERIOR_KIND_GROUPS[groupKey] || [];
+      return {
+        key: groupKey,
+        label: INTERIOR_KIND_GROUP_LABELS[groupKey] || groupKey,
+        kinds: kinds,
+        selectedKind: (function () {
+          var remembered = state.interiorMenuSelections[groupKey] || "";
+          if (remembered && kinds.indexOf(remembered) !== -1) return remembered;
+          for (var i = 0; i < kinds.length; i++) {
+            if (interior.byKind[kinds[i]] && interior.byKind[kinds[i]].length) return kinds[i];
+          }
+          return kinds[0] || "";
+        })()
+      };
+    });
 
     var header = document.createElement("div");
     header.className = "interior-menu-header";
     header.innerHTML = "<h3 class=\"interior-menu-title\"></h3><span class=\"interior-menu-count\"></span>";
     header.children[0].textContent = "Interior code for " + selected;
-    header.children[1].textContent = "functions " + functionNames.length + " · theorems " + theoremNames.length;
+    header.children[1].textContent = interior.total + " declarations across " + allInteriorKinds().length + " kinds";
     menu.appendChild(header);
 
     var controls = document.createElement("div");
@@ -827,7 +883,7 @@
     queryInput.id = "interior-symbol-filter";
     queryInput.className = "interior-menu-search";
     queryInput.type = "search";
-    queryInput.placeholder = "Filter declarations (fn/theorem)…";
+    queryInput.placeholder = "Filter declarations across all kinds…";
     queryInput.autocomplete = "off";
     queryInput.spellcheck = false;
     queryInput.value = state.interiorMenuQuery || "";
@@ -851,47 +907,87 @@
       return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath + lineAnchor;
     }
 
-    function appendColumn(label, items, total, emptyText) {
-      var column = document.createElement("section");
-      column.className = "interior-menu-column";
-
-      var top = document.createElement("div");
-      top.className = "interior-menu-column-top";
-      var heading = document.createElement("h4");
-      heading.textContent = label + " (" + total + ")";
-      top.appendChild(heading);
-
-      column.appendChild(top);
-
-      if (!items.length) {
-        var empty = document.createElement("p");
-        empty.className = "panel-note";
-        empty.textContent = emptyText;
-        empty.style.margin = "0";
-        column.appendChild(empty);
-      } else {
-        var list = document.createElement("ul");
-        list.className = "interior-menu-items";
-        for (var i = 0; i < items.length; i++) {
-          var li = document.createElement("li");
-          li.className = "interior-menu-item";
-          var link = document.createElement("a");
-          link.href = symbolSourceHref(selected, items[i]);
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          link.textContent = items[i].name;
-          link.title = items[i].line > 0 ? "Open declaration at line " + items[i].line : "Open declaration source";
-          li.appendChild(link);
-          list.appendChild(li);
-        }
-        column.appendChild(list);
-      }
-
-      grid.appendChild(column);
+    function filteredItems(kind) {
+      var items = interior.byKind[kind] || [];
+      if (!query) return items;
+      return items.filter(function (entry) { return entry.name.toLowerCase().indexOf(query) !== -1; });
     }
 
-    appendColumn("Functions / defs", filteredFunctions, filteredFunctions.length, query ? "No function-style declarations match this filter." : "No function-style declarations detected.");
-    appendColumn("Theorems / lemmas", filteredTheorems, filteredTheorems.length, query ? "No theorem-style declarations match this filter." : "No theorem-style declarations detected.");
+    for (var g = 0; g < groups.length; g++) {
+      (function (group) {
+        var column = document.createElement("section");
+        column.className = "interior-menu-column";
+
+        var top = document.createElement("div");
+        top.className = "interior-menu-column-top";
+
+        var heading = document.createElement("h4");
+        heading.textContent = group.label;
+        top.appendChild(heading);
+
+        var select = document.createElement("select");
+        select.className = "interior-kind-select";
+        for (var i = 0; i < group.kinds.length; i++) {
+          var kind = group.kinds[i];
+          var option = document.createElement("option");
+          option.value = kind;
+          option.textContent = symbolKindLabel(kind) + " (" + (interior.byKind[kind] || []).length + ")";
+          if (kind === group.selectedKind) option.selected = true;
+          select.appendChild(option);
+        }
+        top.appendChild(select);
+        column.appendChild(top);
+
+        var list = document.createElement("ul");
+        list.className = "interior-menu-items";
+
+        function repaintList() {
+          list.innerHTML = "";
+          var activeKind = select.value;
+          var items = filteredItems(activeKind);
+          if (!items.length) {
+            var empty = document.createElement("p");
+            empty.className = "panel-note";
+            empty.style.margin = "0";
+            empty.textContent = query ? "No declarations match this filter." : "No declarations detected for this kind.";
+            list.replaceWith(empty);
+            return;
+          }
+
+          if (list.parentNode !== column) {
+            for (var c = 0; c < column.children.length; c++) {
+              if (column.children[c].className === "panel-note") {
+                column.removeChild(column.children[c]);
+                break;
+              }
+            }
+            column.appendChild(list);
+          }
+
+          for (var j = 0; j < items.length; j++) {
+            var li = document.createElement("li");
+            li.className = "interior-menu-item";
+            var link = document.createElement("a");
+            link.href = symbolSourceHref(selected, items[j]);
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = items[j].name;
+            link.title = items[j].line > 0 ? "Open declaration at line " + items[j].line : "Open declaration source";
+            li.appendChild(link);
+            list.appendChild(li);
+          }
+        }
+
+        select.addEventListener("change", function () {
+          state.interiorMenuSelections[group.key] = select.value;
+          repaintList();
+        });
+        column.appendChild(list);
+        repaintList();
+        grid.appendChild(column);
+      })(groups[g]);
+    }
+
     menu.appendChild(grid);
   }
 
@@ -1074,16 +1170,16 @@
     function moduleSummary(name) {
       var ctx = contextFor(name);
       var interior = interiorCodeForModule(name);
-      return "thm " + ctx.degree.theorems + " · fn " + interior.functions.length + " · in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing;
+      return "decl " + interior.total + " · thm " + ctx.degree.theorems + " · in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing;
     }
 
     function nodeTooltip(name, roleLabel) {
       if (!state.moduleMap[name]) return roleLabel + ": " + name;
       var ctx = contextFor(name);
       var interior = interiorCodeForModule(name);
-      var fnPreview = interior.functions.slice(0, 3).map(function (entry) { return entry.name; }).join(", ");
-      var thmPreview = interior.theorems.slice(0, 3).map(function (entry) { return entry.name; }).join(", ");
-      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | functions: " + interior.functions.length + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nfn: " + (fnPreview || "none") + "\nthm: " + (thmPreview || "none") + "\nassurance: " + ctx.assurance.label;
+      var topKinds = allInteriorKinds().map(function (kind) { return { kind: kind, count: (interior.byKind[kind] || []).length }; }).filter(function (item) { return item.count > 0; }).sort(function (a, b) { return b.count - a.count; }).slice(0, 3);
+      var kindPreview = topKinds.map(function (item) { return item.kind + "=" + item.count; }).join(", ");
+      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | declarations: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label;
     }
 
     var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
@@ -1378,6 +1474,7 @@
       path: state.moduleMap[selected] || "Unknown",
       layer: selectedMeta.layer || "other",
       kind: selectedMeta.kind || "other",
+      declarations: interiorCodeForModule(selected).total,
       assuranceLabel: selectedAssurance.label,
       score: selectedDegree.score,
       incoming: selectedDegree.incoming,
@@ -1755,10 +1852,23 @@
             kind: meta.kind || moduleKind(key),
             base: meta.base || moduleBase(key),
             theorems: Number(meta.theorems || 0),
-            symbols: {
-              theorems: Array.isArray(symbols.theorems) ? symbols.theorems.map(normalizeSymbolEntry).filter(Boolean) : [],
-              functions: Array.isArray(symbols.functions) ? symbols.functions.map(normalizeSymbolEntry).filter(Boolean) : []
-            },
+            symbols: (function () {
+              var byKind = Object.create(null);
+              var kinds = allInteriorKinds();
+              for (var idx = 0; idx < kinds.length; idx++) {
+                var kind = kinds[idx];
+                byKind[kind] = Array.isArray((symbols.byKind || {})[kind]) ? (symbols.byKind || {})[kind].map(normalizeSymbolEntry).filter(Boolean) : [];
+              }
+
+              var theorems = Array.isArray(symbols.theorems) ? symbols.theorems.map(normalizeSymbolEntry).filter(Boolean) : (byKind.theorem || []).concat(byKind.lemma || []);
+              var functions = Array.isArray(symbols.functions) ? symbols.functions.map(normalizeSymbolEntry).filter(Boolean) : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || []);
+
+              return {
+                byKind: byKind,
+                theorems: theorems,
+                functions: functions
+              };
+            })(),
             symbolsLoaded: hasCompleteSymbolLines(symbols)
           };
         }

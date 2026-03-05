@@ -107,6 +107,7 @@ export function validateMapDataObject(data) {
       }
 
       if (!isObject(meta.symbols)) continue;
+
       for (const kind of ['theorems', 'functions']) {
         const entries = meta.symbols[kind];
         if (!Array.isArray(entries)) {
@@ -117,6 +118,25 @@ export function validateMapDataObject(data) {
           if (!isValidSymbolEntry(entry)) {
             errors.push(`map-data.json: invalid symbol entry in moduleMeta.${moduleName}.symbols.${kind}`);
             break;
+          }
+        }
+      }
+
+      if (meta.symbols.byKind !== undefined) {
+        if (!isObject(meta.symbols.byKind)) {
+          errors.push(`map-data.json: moduleMeta.${moduleName}.symbols.byKind must be an object`);
+        } else {
+          for (const [kind, entries] of Object.entries(meta.symbols.byKind)) {
+            if (!Array.isArray(entries)) {
+              errors.push(`map-data.json: moduleMeta.${moduleName}.symbols.byKind.${kind} must be an array`);
+              continue;
+            }
+            for (const entry of entries) {
+              if (!isValidSymbolEntry(entry)) {
+                errors.push(`map-data.json: invalid symbol entry in moduleMeta.${moduleName}.symbols.byKind.${kind}`);
+                break;
+              }
+            }
           }
         }
       }

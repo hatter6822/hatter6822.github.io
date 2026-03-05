@@ -1,12 +1,24 @@
 #!/usr/bin/env node
 import { writeFile } from 'node:fs/promises';
-import { extractImportTokens, extractInteriorCodeItems, theoremCount } from './lib/lean-analysis.mjs';
+import { extractImportTokens, extractInteriorCodeItems, theoremCount, INTERIOR_KIND_GROUPS } from './lib/lean-analysis.mjs';
 
 const REPO = 'hatter6822/seLe4n';
 const REF = 'main';
 const API = `https://api.github.com/repos/${REPO}`;
 const OUT_FILE = new URL('../data/map-data.json', import.meta.url);
 const FETCH_CONCURRENCY = 8;
+
+const ALL_INTERIOR_KINDS = [
+  ...INTERIOR_KIND_GROUPS.object,
+  ...INTERIOR_KIND_GROUPS.extension,
+  ...INTERIOR_KIND_GROUPS.contextInit
+];
+
+function emptySymbols() {
+  const byKind = Object.create(null);
+  for (const kind of ALL_INTERIOR_KINDS) byKind[kind] = [];
+  return { byKind, theorems: [], functions: [] };
+}
 
 function moduleFromPath(path) {
   return path.replace(/\.lean$/, '').replace(/\//g, '.');
@@ -84,7 +96,7 @@ await runInPool(leanFiles, async (path) => {
   if (!sha) {
     importsFrom[moduleName] = [];
     externalImportsFrom[moduleName] = [];
-    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0, symbols: { theorems: [], functions: [] } };
+    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0, symbols: emptySymbols() };
     return;
   }
 
@@ -92,7 +104,7 @@ await runInPool(leanFiles, async (path) => {
   if (blob?.encoding !== 'base64' || !blob.content) {
     importsFrom[moduleName] = [];
     externalImportsFrom[moduleName] = [];
-    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0, symbols: { theorems: [], functions: [] } };
+    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0, symbols: emptySymbols() };
     return;
   }
 

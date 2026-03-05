@@ -15,7 +15,7 @@ node scripts/lib/data-validation.test.mjs
 
 Validates:
 - Lean import token extraction
-- interior symbol extraction and line tracking
+- interior symbol extraction across all supported declaration kinds and line tracking
 - theorem counting behavior
 - README metric table parsing
 - data schema and graph consistency validation behavior
@@ -44,4 +44,5 @@ node --check assets/js/theme-init.js
 - Confirm `index.html` and `map.html` load from a static server.
 - Test map page on mobile viewport (~390px width).
 - Confirm map filtering/search and keyboard traversal still function.
+- Confirm each interior dropdown (Object, Extension, Context/Init) can switch kinds and deep-link declarations to source lines.
 - Confirm map live status messaging remains coherent during load/refresh.

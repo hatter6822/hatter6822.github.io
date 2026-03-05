@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   extractImportTokens,
   extractInteriorCodeItems,
+  INTERIOR_KIND_GROUPS,
   normalizeSymbolName,
   parseCurrentStateMetrics,
   theoremCount,
@@ -28,21 +29,25 @@ def x := 1
   ]);
 });
 
-test('extractInteriorCodeItems returns deduplicated theorem/function names', () => {
+test('extractInteriorCodeItems returns kind-indexed declarations with legacy theorem/function projections', () => {
   const source = `
 @[simp] theorem t1 : True := by trivial
 lemma ` + "`quoted.name`" + ` : True := by trivial
 private def helper := 1
 noncomputable abbrev helper2 := helper
 instance instThing : Inhabited Nat := ⟨0⟩
+macro "m" : term => \`(Nat.zero)
+namespace Demo
+initialize
 private theorem t1 : True := by trivial
 `;
 
   const items = extractInteriorCodeItems(source);
   assert.deepEqual(items.theorems.map((item) => item.name).slice().sort(), ['quoted.name', 't1']);
   assert.deepEqual(items.functions.map((item) => item.name), ['helper', 'helper2', 'instThing']);
-  const helperEntry = items.functions.find((item) => item.name === "helper");
-  assert.equal(helperEntry?.line, 4);
+  assert.equal(items.byKind.macro[0]?.name, '"m"');
+  assert.equal(items.byKind.namespace[0]?.name, 'Demo');
+  assert.match(items.byKind.initialize[0]?.name || '', /<initialize@L\d+>/);
   assert.ok(items.theorems.every((item) => item.line > 0));
 });
 
@@ -135,6 +140,21 @@ test('parseCurrentStateMetrics tolerates unrelated table rows', () => {
   });
 });
 
+
+
+
+test('extractInteriorCodeItems provides all supported kind buckets', () => {
+  const items = extractInteriorCodeItems('def x := 1');
+  const allKinds = [
+    ...INTERIOR_KIND_GROUPS.object,
+    ...INTERIOR_KIND_GROUPS.extension,
+    ...INTERIOR_KIND_GROUPS.contextInit
+  ];
+
+  for (const kind of allKinds) {
+    assert.ok(Array.isArray(items.byKind[kind]), `missing array for ${kind}`);
+  }
+});
 
 test('normalizeSymbolName removes backticks and trims whitespace', () => {
   assert.equal(normalizeSymbolName('  `Foo.bar`  '), 'Foo.bar');

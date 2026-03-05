@@ -2,6 +2,18 @@ export function normalizeSymbolName(name) {
   return String(name || '').replace(/`/g, '').trim();
 }
 
+export const INTERIOR_KIND_GROUPS = Object.freeze({
+  object: Object.freeze(['inductive', 'structure', 'class', 'def', 'theorem', 'lemma', 'example', 'instance', 'opaque', 'abbrev', 'axiom', 'constant', 'constants']),
+  extension: Object.freeze(['declare_syntax_cat', 'syntax_cat', 'syntax', 'macro', 'macro_rules', 'notation', 'infix', 'infixl', 'infixr', 'prefix', 'postfix', 'elab', 'elab_rules', 'term_elab', 'command_elab', 'tactic']),
+  contextInit: Object.freeze(['universe', 'universes', 'variable', 'variables', 'parameter', 'parameters', 'section', 'namespace', 'end', 'initialize'])
+});
+
+const ALL_INTERIOR_KINDS = Object.freeze([
+  ...INTERIOR_KIND_GROUPS.object,
+  ...INTERIOR_KIND_GROUPS.extension,
+  ...INTERIOR_KIND_GROUPS.contextInit
+]);
+
 export function theoremCount(text) {
   const matches = String(text || '').match(/^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+[\w'.`]+/gm);
   return matches ? matches.length : 0;
@@ -39,38 +51,38 @@ function declarationLineFromMatch(match, lineNumberForIndex) {
 }
 
 export function extractInteriorCodeItems(sourceText) {
-  const theoremPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+([\w'.`]+)/gm;
-  const functionPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:def|abbrev|opaque)\s+([\w'.`]+)/gm;
-  const instancePattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?instance\s+([\w'.`]+)/gm;
-  const seenTheorems = Object.create(null);
-  const seenFunctions = Object.create(null);
-  const theorems = [];
-  const functions = [];
+  const source = String(sourceText || '');
+  const seenByKind = Object.create(null);
+  const byKind = Object.create(null);
+  const declarationPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(inductive|structure|class|def|theorem|lemma|example|instance|opaque|abbrev|axiom|constants?|declare_syntax_cat|syntax_cat|syntax|macro_rules|macro|notation|infixl|infixr|infix|prefix|postfix|elab_rules|term_elab|command_elab|elab|tactic|universes?|variables?|parameters?|section|namespace|end|initialize)\b[ \t]*([^:\s\n(\[{:=\-]*)/gm;
   const lineNumberForIndex = createLineLocator(sourceText);
 
+  for (const kind of ALL_INTERIOR_KINDS) {
+    byKind[kind] = [];
+    seenByKind[kind] = Object.create(null);
+  }
+
   let match;
-  while ((match = theoremPattern.exec(sourceText)) !== null) {
-    const theoremName = normalizeSymbolName(match[1]);
-    if (!theoremName || seenTheorems[theoremName]) continue;
-    seenTheorems[theoremName] = true;
-    theorems.push({ name: theoremName, line: declarationLineFromMatch(match, lineNumberForIndex) });
+  while ((match = declarationPattern.exec(source)) !== null) {
+    const keyword = String(match[1] || '').trim();
+    if (!keyword) continue;
+    const kind = keyword;
+    if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
+
+    const rawName = normalizeSymbolName(match[2] || '');
+    const line = declarationLineFromMatch(match, lineNumberForIndex);
+    const fallbackName = `<${kind}@L${line}>`;
+    const name = rawName || fallbackName;
+    if (seenByKind[kind][name]) continue;
+    seenByKind[kind][name] = true;
+    byKind[kind].push({ name, line });
   }
 
-  while ((match = functionPattern.exec(sourceText)) !== null) {
-    const functionName = normalizeSymbolName(match[1]);
-    if (!functionName || seenFunctions[functionName]) continue;
-    seenFunctions[functionName] = true;
-    functions.push({ name: functionName, line: declarationLineFromMatch(match, lineNumberForIndex) });
-  }
-
-  while ((match = instancePattern.exec(sourceText)) !== null) {
-    const instanceName = normalizeSymbolName(match[1]);
-    if (!instanceName || seenFunctions[instanceName]) continue;
-    seenFunctions[instanceName] = true;
-    functions.push({ name: instanceName, line: declarationLineFromMatch(match, lineNumberForIndex) });
-  }
-
-  return { theorems, functions };
+  return {
+    byKind,
+    theorems: [...byKind.theorem, ...byKind.lemma],
+    functions: [...byKind.def, ...byKind.abbrev, ...byKind.opaque, ...byKind.instance]
+  };
 }
 
 export function isLikelyModuleToken(token) {
