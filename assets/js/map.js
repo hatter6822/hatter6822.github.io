@@ -79,6 +79,7 @@
   };
 
   var renderScheduled = false;
+  var interiorMenuRenderScheduled = false;
 
   function scheduleRender() {
     if (renderScheduled) return;
@@ -86,6 +87,28 @@
     window.requestAnimationFrame(function () {
       renderScheduled = false;
       renderAll();
+    });
+  }
+
+  function normalizeCaretRange(value, start, end) {
+    var length = String(value || "").length;
+    var normalizedStart = typeof start === "number" && isFinite(start) ? Math.max(0, Math.min(length, Math.floor(start))) : length;
+    var normalizedEnd = typeof end === "number" && isFinite(end) ? Math.max(normalizedStart, Math.min(length, Math.floor(end))) : normalizedStart;
+    return { start: normalizedStart, end: normalizedEnd };
+  }
+
+  function scheduleInteriorMenuRender(selected, caretRange, shouldRefocus) {
+    if (interiorMenuRenderScheduled) return;
+    interiorMenuRenderScheduled = true;
+    window.requestAnimationFrame(function () {
+      interiorMenuRenderScheduled = false;
+      renderFlowNodeInteriorMenu(selected);
+      if (!shouldRefocus) return;
+      var queryInput = document.getElementById("interior-symbol-filter");
+      if (!queryInput) return;
+      queryInput.focus();
+      if (!caretRange || typeof queryInput.setSelectionRange !== "function") return;
+      queryInput.setSelectionRange(caretRange.start, caretRange.end);
     });
   }
 
@@ -906,7 +929,8 @@
     queryInput.value = state.interiorMenuQuery || "";
     queryInput.addEventListener("input", function () {
       state.interiorMenuQuery = this.value || "";
-      renderFlowNodeInteriorMenu(selected);
+      var caret = normalizeCaretRange(this.value, this.selectionStart, this.selectionEnd);
+      scheduleInteriorMenuRender(selected, caret, true);
     });
     controls.appendChild(queryLabel);
     controls.appendChild(queryInput);
@@ -2888,7 +2912,8 @@
       interiorGroupItemCount: interiorGroupItemCount,
       pickInteriorDefaultKind: pickInteriorDefaultKind,
       interiorItemsForSelection: interiorItemsForSelection,
-      flowLegendItems: flowLegendItems
+      flowLegendItems: flowLegendItems,
+      normalizeCaretRange: normalizeCaretRange
     };
     return;
   }
