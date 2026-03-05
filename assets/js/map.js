@@ -1669,12 +1669,35 @@
     var links = document.getElementById("nav-links");
     var nav = document.getElementById("nav");
 
+    function resolveNavTarget(href) {
+      if (!href) return null;
+      var parsed;
+      try {
+        parsed = new URL(href, window.location.href);
+      } catch (e) {
+        return null;
+      }
+
+      var currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
+      var targetPath = parsed.pathname.replace(/\/+$/, "") || "/";
+      if (currentPath === "/index.html") currentPath = "/";
+      if (targetPath === "/index.html") targetPath = "/";
+
+      return {
+        href: href,
+        path: targetPath,
+        samePath: currentPath === targetPath,
+        hash: parsed.hash || ""
+      };
+    }
+
     function samePageHashTarget(href) {
-      if (!href || href.charAt(0) !== "#") return null;
-      var id = href.slice(1);
+      var targetInfo = resolveNavTarget(href);
+      if (!targetInfo || !targetInfo.samePath || !targetInfo.hash || targetInfo.hash.charAt(0) !== "#") return null;
+      var id = targetInfo.hash.slice(1);
       if (!id) return null;
       var target = document.getElementById(id);
-      return target ? { hash: href, target: target } : null;
+      return target ? { hash: targetInfo.hash, target: target } : null;
     }
 
     function scrollToHash(hash, behavior) {
@@ -1738,12 +1761,21 @@
       for (var i = 0; i < items.length; i++) {
         items[i].addEventListener("click", function (event) {
           var href = event.currentTarget.getAttribute("href") || "";
+          var target = resolveNavTarget(href);
           var targetInfo = samePageHashTarget(href);
+
           if (targetInfo) {
             event.preventDefault();
             scrollToHash(targetInfo.hash, "smooth");
             if (window.location.hash !== targetInfo.hash) history.pushState(null, "", targetInfo.hash);
+          } else if (target && target.samePath && !target.hash) {
+            event.preventDefault();
+            safeScrollTo(0, "smooth");
+            if (window.location.pathname !== target.path || window.location.search || window.location.hash) {
+              history.replaceState(null, "", target.path);
+            }
           }
+
           setNavState(false);
         });
       }

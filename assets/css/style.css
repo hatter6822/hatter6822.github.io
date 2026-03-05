@@ -305,6 +305,7 @@ em {
   padding: 0.6rem 0.75rem;
   border-radius: var(--radius);
   transition: color 0.2s, background 0.2s;
+  touch-action: manipulation;
 }
 .nav-links a:hover {
   color: var(--text-bright);
@@ -329,29 +330,33 @@ em {
 .nav-toggle {
   display: none;
   flex-direction: column;
-  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 4px;
+  padding: 0;
+  box-sizing: border-box;
+  line-height: 0;
   touch-action: manipulation;
 }
 .nav-toggle span {
   display: block;
-  width: 22px;
+  width: 20px;
   height: 2px;
   background: var(--text-muted);
   border-radius: 2px;
   transition: transform 0.3s, opacity 0.3s;
 }
 .nav-toggle.open span:nth-child(1) {
-  transform: translateY(7px) rotate(45deg);
+  transform: translateY(6px) rotate(45deg);
 }
 .nav-toggle.open span:nth-child(2) {
   opacity: 0;
 }
 .nav-toggle.open span:nth-child(3) {
-  transform: translateY(-7px) rotate(-45deg);
+  transform: translateY(-6px) rotate(-45deg);
 }
 
 /* --- Theme Toggle --- */
@@ -1503,10 +1508,15 @@ html:not([data-theme="light"]) .hero-subtitle {
 
   /* Nav mobile */
   .nav-toggle {
-    display: flex;
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
   }
   .nav-controls {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
   }
   .nav-links {
     display: none;
@@ -1529,6 +1539,7 @@ html:not([data-theme="light"]) .hero-subtitle {
     padding-left: max(1rem, env(safe-area-inset-left));
     padding-right: max(1rem, env(safe-area-inset-right));
     padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.32);
   }
   [data-theme="light"] .nav-links {
     background: rgba(248, 249, 252, 0.97);
@@ -1537,10 +1548,12 @@ html:not([data-theme="light"]) .hero-subtitle {
     display: flex;
   }
   .nav-links a {
-    padding: 0.8rem 0;
+    padding: 0.85rem 0.2rem;
     min-height: 2.75rem;
     width: 100%;
     font-size: 1rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
   }
   .nav-links li {
     width: 100%;
@@ -1558,6 +1571,7 @@ html:not([data-theme="light"]) .hero-subtitle {
   .nav-toggle {
     width: 2.5rem;
     height: 2.5rem;
+    touch-action: manipulation;
   }
 
   /* Grids */
