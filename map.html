@@ -81,17 +81,11 @@
       </div>
     </header>
 
-    <section class="section section-alt" id="module-graph" aria-labelledby="workspace-title">
+    <section class="section section-alt" id="module-graph" aria-label="Module graph workspace">
       <div class="container map-workspace">
-        <header class="map-workspace-header card" role="region" aria-label="Map controls and filters">
-          <div>
-            <h2 id="workspace-title" class="section-title-sm">Navigation workspace</h2>
-            <p class="panel-note">Use filters to focus by subsystem, then inspect the single flow map for relationships, proof reachability, and metadata.</p>
-          </div>
+        <div role="region" aria-label="Map controls and filters">
           <p id="module-results" class="results-note" aria-live="polite">0 modules shown</p>
-        </header>
-
-        <p id="module-search-help" class="panel-note">Context jump: start typing any Lean module or file path, then press Enter. Keyboard walk: press <kbd>j</kbd>/<kbd>k</kbd> outside inputs to move through the ranked module list.</p>
+        </div>
 
         <div class="navigator-layout">
           <article class="card constellation-panel">
@@ -102,7 +96,7 @@
             <form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">
               <div class="control-group control-group-wide">
                 <label for="module-search">Current module context</label>
-                <input id="module-search" type="search" list="context-options" placeholder="Type module/path and press Enter" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-describedby="module-search-help module-search-feedback">
+                <input id="module-search" type="search" list="context-options" placeholder="Type module/path and press Enter" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-describedby="module-search-feedback">
                 <datalist id="context-options"></datalist>
                 <p id="module-search-feedback" class="search-feedback" aria-live="polite"></p>
               </div>
