@@ -27,6 +27,7 @@
   var LIVE_SYNC_META_KEY = "sele4n-code-map-live-sync-meta-v1";
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
+  var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
   var NODE_CACHE = Object.create(null);
   var LABEL_WRAP_CACHE = new Map();
   var LABEL_WRAP_CACHE_LIMIT = 1200;
@@ -1708,6 +1709,42 @@
       safeScrollTo(targetTop, behavior || "smooth");
     }
 
+    function focusHashTarget(hash) {
+      var targetInfo = samePageHashTarget(hash);
+      if (!targetInfo || !targetInfo.target || typeof targetInfo.target.focus !== "function") return;
+
+      var target = targetInfo.target;
+      var shouldRestoreTabIndex = false;
+      if (!target.hasAttribute("tabindex")) {
+        target.setAttribute("tabindex", "-1");
+        shouldRestoreTabIndex = true;
+      }
+
+      try {
+        target.focus({ preventScroll: true });
+      } catch (e) {
+        target.focus();
+      }
+
+      if (shouldRestoreTabIndex) {
+        target.addEventListener("blur", function cleanupTabIndex() {
+          target.removeAttribute("tabindex");
+          target.removeEventListener("blur", cleanupTabIndex);
+        });
+      }
+    }
+
+    function storeCrossPageNavIntent(targetInfo) {
+      if (!targetInfo || !targetInfo.hash || !targetInfo.path) return;
+      try {
+        sessionStorage.setItem(NAV_INTENT_KEY, JSON.stringify({
+          path: targetInfo.path,
+          hash: targetInfo.hash,
+          ts: Date.now()
+        }));
+      } catch (e) {}
+    }
+
     function updateCurrentNavLink() {
       if (!links) return;
 
@@ -1767,6 +1804,7 @@
           if (targetInfo) {
             event.preventDefault();
             scrollToHash(targetInfo.hash, "smooth");
+            focusHashTarget(targetInfo.hash);
             if (window.location.hash !== targetInfo.hash) history.pushState(null, "", targetInfo.hash);
           } else if (target && target.samePath && !target.hash) {
             event.preventDefault();
@@ -1774,6 +1812,8 @@
             if (window.location.pathname !== target.path || window.location.search || window.location.hash) {
               history.replaceState(null, "", target.path);
             }
+          } else if (target && !target.samePath && target.hash) {
+            storeCrossPageNavIntent(target);
           }
 
           setNavState(false);

@@ -15,6 +15,8 @@
   var CACHE_TTL = 6 * 60 * 60 * 1000;
   var CACHE_MAX_STALE = 30 * 24 * 60 * 60 * 1000;
   var DATA_SCHEMA_VERSION = 4;
+  var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
+  var NAV_INTENT_MAX_AGE_MS = 60 * 1000;
 
   var FETCH_TIMEOUT_MS = 8000;
   var FETCH_OPTIONS = {
@@ -191,6 +193,55 @@
       return target;
     }
 
+    function focusHashTarget(hash) {
+      if (!hash || hash === "#") return;
+
+      var id = hash.charAt(0) === "#" ? hash.slice(1) : hash;
+      try {
+        id = decodeURIComponent(id);
+      } catch (e) {}
+      if (!id) return;
+
+      var target = document.getElementById(id);
+      if (!target || typeof target.focus !== "function") return;
+
+      var shouldRestoreTabIndex = false;
+      if (!target.hasAttribute("tabindex")) {
+        target.setAttribute("tabindex", "-1");
+        shouldRestoreTabIndex = true;
+      }
+
+      try {
+        target.focus({ preventScroll: true });
+      } catch (e) {
+        target.focus();
+      }
+
+      if (shouldRestoreTabIndex) {
+        target.addEventListener("blur", function cleanupTabIndex() {
+          target.removeAttribute("tabindex");
+          target.removeEventListener("blur", cleanupTabIndex);
+        });
+      }
+    }
+
+    function readStoredNavIntent() {
+      try {
+        var raw = sessionStorage.getItem(NAV_INTENT_KEY);
+        if (!raw) return null;
+        sessionStorage.removeItem(NAV_INTENT_KEY);
+
+        var parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return null;
+        if (typeof parsed.hash !== "string" || parsed.hash.charAt(0) !== "#") return null;
+        if (Math.abs(Date.now() - Number(parsed.ts || 0)) > NAV_INTENT_MAX_AGE_MS) return null;
+
+        return parsed.hash;
+      } catch (e) {
+        return null;
+      }
+    }
+
     function scheduleHashScroll(hash, behavior) {
       var target = scrollToHash(hash, behavior);
       if (!target) return;
@@ -231,6 +282,7 @@
 
           event.preventDefault();
           scheduleHashScroll(href, "smooth");
+          focusHashTarget(href);
 
           if (window.location.hash !== href) {
             history.pushState(null, "", href);
@@ -274,7 +326,16 @@
     if (window.location.hash) {
       window.requestAnimationFrame(function () {
         scheduleHashScroll(window.location.hash, "auto");
+        focusHashTarget(window.location.hash);
       });
+    } else {
+      var storedHash = readStoredNavIntent();
+      if (storedHash) {
+        window.requestAnimationFrame(function () {
+          scheduleHashScroll(storedHash, "auto");
+          focusHashTarget(storedHash);
+        });
+      }
     }
 
     var ticking = false;
