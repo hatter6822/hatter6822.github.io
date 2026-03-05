@@ -31,6 +31,13 @@ The map page provides a single operational and proof-aware architecture view of 
    - Normalizes imports against the current module inventory and rebuilds reverse import edges for consistency.
    - Computes module degree, pair linkage, and assurance labels.
 
+4.1 **Schema-compat normalization (runtime)**
+   - Map hydration now tolerates legacy payload shapes from older snapshots/canonical exports:
+     - symbol buckets in either `symbols.byKind` or `symbols.by_kind`
+     - declaration aliases like `constant`/`constants`
+     - module lists provided as strings, structured objects, or inferred from `moduleMap`/`moduleMeta`/`importsFrom`
+   - This normalization ensures that selecting any flow-chart node consistently repaints all three interior declaration columns.
+
 5. **Rendering lifecycle**
    - Updates stat cards and status text.
    - Renders filter chooser + options.
@@ -48,6 +55,7 @@ The map page provides a single operational and proof-aware architecture view of 
   - Extension kinds (`declare_syntax_cat`, `syntax_cat`, `syntax`, `macro`, `macro_rules`, `notation`, `infix`, `infixl`, `infixr`, `prefix`, `postfix`, `elab`, `elab_rules`, `term_elab`, `command_elab`, `tactic`)
   - Context/Init kinds (`universe`, `universes`, `variable`, `variables`, `parameter`, `parameters`, `section`, `namespace`, `end`, `initialize`)
   - Each dropdown remembers its selected kind while filtering so analysts can refine queries without losing active context.
+  - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.
 
 ## Accessibility and mobile
 

@@ -45,4 +45,6 @@ node --check assets/js/theme-init.js
 - Test map page on mobile viewport (~390px width).
 - Confirm map filtering/search and keyboard traversal still function.
 - Confirm each interior dropdown (Object, Extension, Context/Init) can switch kinds and deep-link declarations to source lines.
+- Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Extension/Context-Init) to the newly selected module.
+- Confirm legacy map payload compatibility by testing with snapshots that use `symbols.by_kind` and/or `constant` declaration keys.
 - Confirm map live status messaging remains coherent during load/refresh.

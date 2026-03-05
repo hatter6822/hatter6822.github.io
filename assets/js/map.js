@@ -272,6 +272,35 @@
     return { name: name, line: Number.isFinite(line) && line > 0 ? Math.floor(line) : 0 };
   }
 
+  function symbolListsFromRaw(rawSymbols) {
+    var symbols = rawSymbols && typeof rawSymbols === "object" ? rawSymbols : {};
+    var byKindSource = symbols.byKind || symbols.by_kind || symbols.kinds || {};
+    var kinds = allInteriorKinds();
+    var byKind = Object.create(null);
+
+    for (var i = 0; i < kinds.length; i++) {
+      var kind = kinds[i];
+      var candidates = [kind];
+      if (kind === "constant") candidates.push("constants");
+      if (kind === "constants") candidates.push("constant");
+      var list = [];
+      for (var c = 0; c < candidates.length; c++) {
+        var key = candidates[c];
+        if (Array.isArray(byKindSource[key])) {
+          list = byKindSource[key];
+          break;
+        }
+      }
+      byKind[kind] = list;
+    }
+
+    return {
+      byKind: byKind,
+      theorems: Array.isArray(symbols.theorems) ? symbols.theorems : [],
+      functions: Array.isArray(symbols.functions) ? symbols.functions : []
+    };
+  }
+
   function allInteriorKinds() {
     var out = [];
     for (var i = 0; i < INTERIOR_KIND_GROUP_ORDER.length; i++) {
@@ -344,7 +373,7 @@
 
   function interiorCodeForModule(name) {
     var meta = state.moduleMeta[name] || {};
-    var symbols = meta.symbols || {};
+    var symbols = symbolListsFromRaw(meta.symbols || {});
 
     function normalizeList(list) {
       var out = [];
@@ -695,7 +724,10 @@
 
   function selectModule(name, fromTrail) {
     if (!name || !state.moduleMap[name]) return;
-    if (state.selectedModule === name) return;
+    if (state.selectedModule === name) {
+      renderFlowNodeInteriorMenu(name);
+      return;
+    }
     state.selectedModule = name;
     if (state.interiorMenuModule !== name) {
       state.interiorMenuModule = name;
@@ -1836,9 +1868,42 @@
   function normalizeMapData(data) {
     if (!data || typeof data !== "object") return null;
 
+    function normalizedModuleNames(inputModules) {
+      var names = [];
+      var seen = Object.create(null);
+
+      if (Array.isArray(inputModules)) {
+        for (var idx = 0; idx < inputModules.length; idx++) {
+          var raw = inputModules[idx];
+          var name = "";
+          if (typeof raw === "string") name = sanitizeModuleName(raw);
+          else if (raw && typeof raw === "object") name = sanitizeModuleName(raw.name || raw.module || raw.id || "");
+          if (!name || seen[name]) continue;
+          seen[name] = true;
+          names.push(name);
+        }
+      }
+
+      var fallbacks = [data.moduleMap || {}, data.moduleMeta || {}, data.importsFrom || {}];
+      for (var f = 0; f < fallbacks.length; f++) {
+        var source = fallbacks[f];
+        for (var key in source) {
+          if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+          var candidate = sanitizeModuleName(key);
+          if (!candidate || seen[candidate]) continue;
+          seen[candidate] = true;
+          names.push(candidate);
+        }
+      }
+
+      return names;
+    }
+
+    var normalizedModules = normalizedModuleNames(data.modules);
+
     return {
       files: Array.isArray(data.files) ? data.files : [],
-      modules: Array.isArray(data.modules) ? data.modules : [],
+      modules: normalizedModules,
       moduleMap: data.moduleMap || Object.create(null),
       moduleMeta: (function () {
         var raw = data.moduleMeta || Object.create(null);
@@ -1846,7 +1911,7 @@
         for (var key in raw) {
           if (!Object.prototype.hasOwnProperty.call(raw, key)) continue;
           var meta = raw[key] || {};
-          var symbols = meta.symbols || {};
+          var symbols = symbolListsFromRaw(meta.symbols || {});
           normalized[key] = {
             layer: meta.layer || classifyLayer(key),
             kind: meta.kind || moduleKind(key),
