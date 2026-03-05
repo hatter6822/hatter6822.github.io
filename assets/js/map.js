@@ -1743,14 +1743,17 @@
     }
 
     function storeCrossPageNavIntent(targetInfo) {
-      if (!targetInfo || !targetInfo.hash || !targetInfo.path) return;
+      if (!targetInfo || !targetInfo.hash || !targetInfo.path) return false;
       try {
         sessionStorage.setItem(NAV_INTENT_KEY, JSON.stringify({
           path: targetInfo.path,
           hash: targetInfo.hash,
           ts: Date.now()
         }));
-      } catch (e) {}
+        return true;
+      } catch (e) {
+        return false;
+      }
     }
 
     function updateCurrentNavLink() {
@@ -1822,8 +1825,12 @@
             }
           } else if (target && target.sameOrigin && !target.samePath && target.hash) {
             event.preventDefault();
-            storeCrossPageNavIntent(target);
-            window.location.assign(target.url || (target.path + (target.search || "") + target.hash));
+            var storedIntent = storeCrossPageNavIntent(target);
+            // Prefer intent-only navigation to avoid native hash jumps competing with the
+            // landing page's offset-aware scroll/focus pass. If storage is unavailable,
+            // fall back to hash navigation so deep links still work.
+            if (storedIntent) window.location.assign(target.path + (target.search || ""));
+            else window.location.assign(target.url || (target.path + (target.search || "") + target.hash));
           }
 
           setNavState(false);
