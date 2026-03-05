@@ -22,7 +22,7 @@
   text-align: right;
 }
 
-.map-stats { margin-top: 1.2rem; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
+.map-stats { margin-top: 1.2rem; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr)); }
 .stat-card {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -337,9 +337,26 @@
 
 @media (max-width: 640px) {
   .code-map-page { padding-top: 3.25rem; }
+  .code-map-hero {
+    padding-top: 2.5rem;
+    padding-bottom: 2.2rem;
+  }
+  .code-map-hero .hero-label {
+    font-size: 0.86rem;
+    line-height: 1.35;
+  }
+  .code-map-hero h1 {
+    font-size: clamp(2rem, 11vw, 2.5rem);
+    line-height: 1.2;
+    margin-bottom: 0.75rem;
+  }
+  .code-map-hero .section-lead {
+    font-size: 1.02rem;
+    line-height: 1.7;
+  }
   .map-status { font-size: 0.9rem; }
   .map-stats {
-    grid-template-columns: repeat(8, minmax(8.5rem, 1fr));
+    grid-template-columns: repeat(8, minmax(7.5rem, 80vw));
     overflow-x: auto;
     padding-bottom: 0.25rem;
     scroll-snap-type: x proximity;
