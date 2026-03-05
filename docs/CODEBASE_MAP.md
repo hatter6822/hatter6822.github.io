@@ -39,6 +39,7 @@ The map page provides a single operational and proof-aware architecture view of 
    - This normalization ensures that selecting any flow-chart node consistently repaints all three interior declaration columns.
    - Runtime sanitization now filters malformed module/import keys during hydration, preventing invalid payload entries from polluting flow-graph state.
    - Normalization seeds empty import/external-import buckets and default module metadata for every discovered module, so rendering paths can rely on stable object shapes.
+   - Canonical payload hydration now also unwraps branch-keyed exports (for example `{ "main": { ...mapPayload } }`) before schema normalization so branch names are never misclassified as Lean modules.
    - `symbolsLoaded` now keys off normalized symbol buckets, avoiding unnecessary source refetches when payloads use legacy `by_kind` aliases.
 
 5. **Rendering lifecycle**

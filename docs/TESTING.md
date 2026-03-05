@@ -20,7 +20,7 @@ Validates:
 - theorem counting behavior
 - README metric table parsing
 - data schema and graph consistency validation behavior
-- map runtime normalization (legacy symbol payload compatibility, import/module sanitization, deterministic module/file ordering, stable per-module defaults, and `symbolsLoaded` correctness)
+- map runtime normalization (legacy symbol payload compatibility, canonical branch-wrapper payload unwrapping, import/module sanitization, deterministic module/file ordering, stable per-module defaults, and `symbolsLoaded` correctness)
 
 ### Bundled data integrity
 
