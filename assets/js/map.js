@@ -6,6 +6,7 @@
   var API = "https://api.github.com/repos/" + REPO;
   var CODEBASE_MAP_PATH = "docs/codebase_map.json";
   var CODEBASE_MAP_API = API + "/contents/" + CODEBASE_MAP_PATH;
+  var CODEBASE_MAP_RAW = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/" + CODEBASE_MAP_PATH;
   var DATA_ENDPOINT = "data/map-data.json";
 
   var FETCH_OPTIONS = {
@@ -1777,7 +1778,21 @@
     });
   }
 
-  function fetchCanonicalMapData() {
+  function normalizeCanonicalPayload(payload, fallbackGeneratedAt) {
+    var normalized = normalizeMapData(payload);
+    if (!normalized) throw new Error("Canonical map payload invalid");
+    if (!normalized.generatedAt) normalized.generatedAt = fallbackGeneratedAt || new Date().toISOString();
+    return normalized;
+  }
+
+  function fetchCanonicalMapDataFromRaw() {
+    var cacheBust = "?t=" + Date.now();
+    return safeFetch(CODEBASE_MAP_RAW + cacheBust, false).then(function (payload) {
+      return normalizeCanonicalPayload(payload);
+    });
+  }
+
+  function fetchCanonicalMapDataFromContentsApi() {
     var cacheBust = "?ref=" + encodeURIComponent(REF) + "&t=" + Date.now();
     return safeFetch(CODEBASE_MAP_API + cacheBust, false).then(function (payload) {
       if (!payload || payload.encoding !== "base64" || !payload.content) {
@@ -1786,12 +1801,16 @@
 
       var decoded = decodeBlobBase64(payload.content);
       var parsed = JSON.parse(decoded);
-      var normalized = normalizeMapData(parsed);
-      if (!normalized) throw new Error("Canonical map payload invalid");
+      var normalized = normalizeCanonicalPayload(parsed);
 
       if (!normalized.commitSha && payload.sha) normalized.commitSha = String(payload.sha);
-      if (!normalized.generatedAt) normalized.generatedAt = new Date().toISOString();
       return normalized;
+    });
+  }
+
+  function fetchCanonicalMapData() {
+    return fetchCanonicalMapDataFromRaw().catch(function () {
+      return fetchCanonicalMapDataFromContentsApi();
     });
   }
 
