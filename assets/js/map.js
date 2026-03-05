@@ -3016,7 +3016,7 @@
 
   function boot() {
     setupTheme();
-    setupNav();
+    if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();
     hardenExternalLinks();
     readUrlState();
     setupFilters();
