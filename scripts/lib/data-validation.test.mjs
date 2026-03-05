@@ -74,3 +74,31 @@ test('validateMapDataObject accepts minimal empty snapshot', () => {
 
   assert.deepEqual(errors, []);
 });
+
+
+test('validateMapDataObject validates symbols.byKind entries when present', () => {
+  const errors = validateMapDataObject({
+    files: [],
+    modules: ['A.Core'],
+    moduleMap: { 'A.Core': 'A/Core.lean' },
+    moduleMeta: {
+      'A.Core': {
+        symbols: {
+          theorems: [],
+          functions: [],
+          byKind: {
+            theorem: [{ name: 'x', line: 2 }],
+            macro: [{}]
+          }
+        }
+      }
+    },
+    importsTo: {},
+    importsFrom: {},
+    externalImportsFrom: {},
+    commitSha: 'abc',
+    generatedAt: '2026-03-03T00:00:00Z'
+  });
+
+  assert.ok(errors.some((msg) => msg.includes('symbols.byKind.macro')));
+});
