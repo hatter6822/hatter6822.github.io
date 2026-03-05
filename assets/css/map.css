@@ -1,6 +1,6 @@
 .code-map-page { padding-top: var(--nav-height); position: relative; z-index: 1; }
 .code-map-hero h1 { color: var(--heading); margin-bottom: 1rem; line-height: 1.1; overflow-wrap: anywhere; text-wrap: balance; }
-.code-map-hero .container { display: grid; gap: 0.85rem; }
+.code-map-hero .container { display: grid; gap: 0.85rem; align-items: start; }
 .code-map-hero .section-lead { max-width: 72ch; }
 .map-status { margin-top: 0.8rem; color: var(--text-muted); font-size: 0.92rem; }
 .map-status.error { color: var(--red); }
@@ -378,8 +378,8 @@
 
 @media (max-width: 640px) {
   .code-map-hero {
-    padding-top: 2.15rem;
-    padding-bottom: 2rem;
+    padding-top: 1.9rem;
+    padding-bottom: 1.7rem;
   }
   .code-map-hero .container {
     gap: 0.7rem;
@@ -389,17 +389,19 @@
     line-height: 1.35;
   }
   .code-map-hero h1 {
-    font-size: clamp(2rem, 11vw, 2.5rem);
-    line-height: 1.2;
-    margin-bottom: 0.75rem;
+    font-size: clamp(1.85rem, 10.2vw, 2.35rem);
+    line-height: 1.14;
+    margin-bottom: 0.65rem;
   }
   .code-map-hero .section-lead {
-    font-size: 1.02rem;
-    line-height: 1.7;
+    font-size: 0.96rem;
+    line-height: 1.55;
+    max-width: 62ch;
   }
-  .map-status { font-size: 0.9rem; }
+  .map-status { font-size: 0.85rem; margin-top: 0.55rem; }
   .map-stats {
-    grid-template-columns: repeat(8, minmax(7.5rem, 80vw));
+    margin-top: 0.8rem;
+    grid-template-columns: repeat(8, minmax(7.2rem, 76vw));
     overflow-x: auto;
     padding-bottom: 0.25rem;
     scroll-snap-type: x proximity;

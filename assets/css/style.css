@@ -259,6 +259,13 @@ em {
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  border-radius: var(--radius);
+  -webkit-tap-highlight-color: transparent;
 }
 .nav-logo:hover {
   color: var(--accent);
@@ -1504,6 +1511,17 @@ html:not([data-theme="light"]) .hero-subtitle {
   :root {
     --nav-height: 3.5rem;
     --section-pad: 3.5rem 0;
+  }
+
+
+  .nav {
+    background: color-mix(in oklab, var(--bg) 84%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .nav-inner {
+    gap: 0.5rem;
   }
 
   /* Nav mobile */
