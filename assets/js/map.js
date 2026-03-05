@@ -907,6 +907,25 @@
     ];
   }
 
+  function flowLaneLabelVisibility(options) {
+    var source = options || {};
+    var importsVisible = Number(source.importCount || 0) > 0;
+    var impactedVisible = Number(source.importerCount || 0) > 0;
+    var proofVisible = Number(source.proofCount || 0) > 0;
+    var linkedPathVisible = Number(source.linkedPathLength || 0) > 1;
+    var externalVisible = Number(source.externalCount || 0) > 0;
+    var hasAuxiliaryContext = importsVisible || impactedVisible || proofVisible || linkedPathVisible || externalVisible;
+
+    return {
+      imports: importsVisible,
+      selected: hasAuxiliaryContext,
+      impacted: impactedVisible,
+      proof: proofVisible,
+      linkedPath: linkedPathVisible,
+      external: externalVisible
+    };
+  }
+
   function renderFlowNodeInteriorMenu(selected) {
     var menu = document.getElementById("flow-node-interior-menu");
     if (!menu) return;
@@ -1220,6 +1239,13 @@
     var external = allExternal.slice(0, externalBudget);
     var proofRelated = relatedProofModules(selected);
     var linkedPath = findNearestLinkedPath(selected, state.impactRadius);
+    var laneLabels = flowLaneLabelVisibility({
+      importCount: allImports.length,
+      importerCount: allImporters.length,
+      proofCount: proofRelated.length,
+      linkedPathLength: linkedPath.length,
+      externalCount: allExternal.length
+    });
     var contextCache = Object.create(null);
     var interiorCache = Object.create(null);
 
@@ -1385,7 +1411,9 @@
     } else {
       externalBottom = externalStartY + 36;
     }
-    var flowHeight = Math.max(620, externalBottom + 68);
+    var hasExternalSection = external.length > 0;
+    var effectiveBottom = hasExternalSection ? externalBottom : pathBlockBottom;
+    var flowHeight = Math.max(620, effectiveBottom + (hasExternalSection ? 68 : 40));
 
     var legend = document.createElement("div");
     legend.className = "flowchart-legend flowchart-legend-corner";
@@ -1486,9 +1514,9 @@
       return { name: name, x: x, y: y, w: w, h: h };
     }
 
-    laneLabel("Imports used by selected", leftX, 30, "#35c98f");
-    laneLabel("Selected module context", centerX, centerY - 12, "#7c9cff");
-    laneLabel("Modules impacted by selected", rightX, 30, "#ffad42");
+    if (laneLabels.imports) laneLabel("Imports used by selected", leftX, 30, "#35c98f");
+    if (laneLabels.selected) laneLabel("Selected module context", centerX, centerY - 12, "#7c9cff");
+    if (laneLabels.impacted) laneLabel("Modules impacted by selected", rightX, 30, "#ffad42");
 
     var center = createNode(selected, centerX, centerY, centerWidth, centerHeight, "#7c9cff", moduleSummary(selected), nodeTooltip(selected, "Selected module context"), true, false, contextFor(selected).assurance.level);
 
@@ -1521,7 +1549,7 @@
     }
 
     if (proofRelated.length) {
-      laneLabel("Proof pair context", centerX, proofStartY - 16, "#d37cff");
+      if (laneLabels.proof) laneLabel("Proof pair context", centerX, proofStartY - 16, "#d37cff");
       var proofY = proofStartY;
       for (var n = 0; n < proofRelated.length; n++) {
         var proofHeight = nodeContentHeight(proofRelated[n], moduleSummary(proofRelated[n]), centerWidth, true);
@@ -1532,7 +1560,7 @@
     }
 
     if (linkedPath.length > 1) {
-      laneLabel("Nearest linked-proof path (radius " + state.impactRadius + ")", Math.max(framePad, centerX - 180), pathStartY - 14, "#6de2ff");
+      if (laneLabels.linkedPath) laneLabel("Nearest linked-proof path (radius " + state.impactRadius + ")", Math.max(framePad, centerX - 180), pathStartY - 14, "#6de2ff");
       var previousNode = center;
       for (var q = 0; q < pathItems.length; q++) {
         var pathItem = pathItems[q];
@@ -1542,10 +1570,8 @@
       }
     }
 
-    laneLabel("External imports", leftX, externalStartY - 10, "#b9c0d0");
-    if (!external.length) {
-      createNode("No external imports detected", leftX, externalStartY, sideWidth, 36, "#b9c0d0", "", "", false, true, "");
-    } else {
+    if (laneLabels.external) {
+      laneLabel("External imports", leftX, externalStartY - 10, "#b9c0d0");
       for (var z = 0; z < externalItems.length; z++) {
         var externalItem = externalItems[z];
         createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", "", "", false, true, "");
@@ -2949,6 +2975,7 @@
       pickInteriorDefaultKind: pickInteriorDefaultKind,
       interiorItemsForSelection: interiorItemsForSelection,
       flowLegendItems: flowLegendItems,
+      flowLaneLabelVisibility: flowLaneLabelVisibility,
       normalizeCaretRange: normalizeCaretRange
     };
     return;

@@ -380,6 +380,40 @@ test('interior kind group helpers default to all kinds and aggregate extension/c
   assert.deepEqual(Array.from(allContextItems, (item) => item.name), ['initCore']);
 });
 
+test('flowLaneLabelVisibility hides context labels for empty lanes', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const emptyLanes = hooks.flowLaneLabelVisibility({
+    importCount: 0,
+    importerCount: 0,
+    proofCount: 0,
+    linkedPathLength: 1,
+    externalCount: 0
+  });
+
+  assert.equal(emptyLanes.imports, false);
+  assert.equal(emptyLanes.impacted, false);
+  assert.equal(emptyLanes.proof, false);
+  assert.equal(emptyLanes.linkedPath, false);
+  assert.equal(emptyLanes.external, false);
+  assert.equal(emptyLanes.selected, false);
+
+  const populatedLanes = hooks.flowLaneLabelVisibility({
+    importCount: 3,
+    importerCount: 2,
+    proofCount: 1,
+    linkedPathLength: 3,
+    externalCount: 4
+  });
+
+  assert.equal(populatedLanes.imports, true);
+  assert.equal(populatedLanes.impacted, true);
+  assert.equal(populatedLanes.proof, true);
+  assert.equal(populatedLanes.linkedPath, true);
+  assert.equal(populatedLanes.external, true);
+  assert.equal(populatedLanes.selected, true);
+});
+
 test('flowLegendItems returns canonical flow legend entries', async () => {
   const hooks = await loadMapTestHooks();
   const items = hooks.flowLegendItems();
