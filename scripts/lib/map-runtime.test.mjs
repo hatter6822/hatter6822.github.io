@@ -115,3 +115,28 @@ test('normalizeMapData marks symbolsLoaded when normalized symbol lines are comp
 
   assert.equal(normalized.moduleMeta['SeLe4n.Model.State'].symbolsLoaded, true);
 });
+
+test('normalizeCanonicalPayload unwraps branch-keyed canonical map payloads', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeCanonicalPayload({
+    main: {
+      modules: ['SeLe4n.Core.Main'],
+      moduleMap: { 'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean' },
+      importsFrom: { 'SeLe4n.Core.Main': [] },
+      moduleMeta: {
+        'SeLe4n.Core.Main': {
+          layer: 'other',
+          kind: 'other',
+          base: 'SeLe4n.Core.Main',
+          theorems: 1
+        }
+      },
+      generatedAt: '2026-01-01T00:00:00.000Z'
+    }
+  });
+
+  assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Main']);
+  assert.equal(normalized.moduleMap['SeLe4n.Core.Main'], 'SeLe4n/Core/Main.lean');
+  assert.equal(normalized.generatedAt, '2026-01-01T00:00:00.000Z');
+});

@@ -2070,7 +2070,33 @@
   }
 
   function normalizeCanonicalPayload(payload, fallbackGeneratedAt) {
-    var normalized = normalizeMapData(payload);
+    function extractCanonicalMapPayload(input) {
+      if (!input || typeof input !== "object") return null;
+
+      if (input.modules || input.moduleMap || input.importsFrom || input.moduleMeta) {
+        return input;
+      }
+
+      var branchHints = [REF, "main", "master", "trunk"];
+      for (var i = 0; i < branchHints.length; i++) {
+        var branchKey = branchHints[i];
+        if (!branchKey || typeof input[branchKey] !== "object" || !input[branchKey]) continue;
+        var candidate = input[branchKey];
+        if (candidate.modules || candidate.moduleMap || candidate.importsFrom || candidate.moduleMeta) return candidate;
+      }
+
+      for (var key in input) {
+        if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
+        var value = input[key];
+        if (!value || typeof value !== "object") continue;
+        if (value.modules || value.moduleMap || value.importsFrom || value.moduleMeta) return value;
+      }
+
+      return input;
+    }
+
+    var canonicalPayload = extractCanonicalMapPayload(payload);
+    var normalized = normalizeMapData(canonicalPayload);
     if (!normalized) throw new Error("Canonical map payload invalid");
     if (!normalized.generatedAt) normalized.generatedAt = fallbackGeneratedAt || new Date().toISOString();
     return normalized;
@@ -2769,6 +2795,7 @@
   if (window && window.__SELE4N_MAP_DISABLE_BOOT__) {
     window.__SELE4N_MAP_TEST_HOOKS__ = {
       normalizeMapData: normalizeMapData,
+      normalizeCanonicalPayload: normalizeCanonicalPayload,
       hasCompleteSymbolLines: hasCompleteSymbolLines,
       symbolListsFromRaw: symbolListsFromRaw,
       makeEmptyInteriorSymbols: makeEmptyInteriorSymbols
