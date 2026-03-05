@@ -347,6 +347,11 @@
         window.requestAnimationFrame(function () {
           scheduleHashScroll(storedHash, "auto");
           focusHashTarget(storedHash);
+          if (window.location.hash !== storedHash) {
+            try {
+              history.replaceState(null, "", storedHash);
+            } catch (e) {}
+          }
         });
       }
     }
