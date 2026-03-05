@@ -1,5 +1,7 @@
-.code-map-page { padding-top: 3.75rem; position: relative; z-index: 1; }
-.code-map-hero h1 { color: var(--heading); margin-bottom: 1rem; }
+.code-map-page { padding-top: var(--nav-height); position: relative; z-index: 1; }
+.code-map-hero h1 { color: var(--heading); margin-bottom: 1rem; line-height: 1.1; text-wrap: balance; }
+.code-map-hero .container { display: grid; gap: 0.85rem; }
+.code-map-hero .section-lead { max-width: 72ch; }
 .map-status { margin-top: 0.8rem; color: var(--text-muted); font-size: 0.92rem; }
 .map-status.error { color: var(--red); }
 
@@ -320,7 +322,7 @@
   }
   .map-toolbar {
     position: sticky;
-    top: calc(3.6rem + env(safe-area-inset-top) + 0.25rem);
+    top: calc(var(--nav-height) + 0.25rem);
     z-index: 6;
     backdrop-filter: blur(10px);
   }
@@ -336,7 +338,6 @@
 }
 
 @media (max-width: 640px) {
-  .code-map-page { padding-top: 3.25rem; }
   .code-map-hero {
     padding-top: 2.5rem;
     padding-bottom: 2.2rem;

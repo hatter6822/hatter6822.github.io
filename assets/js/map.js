@@ -1603,6 +1603,16 @@
   function setupNav() {
     var toggle = document.getElementById("nav-toggle");
     var links = document.getElementById("nav-links");
+    var nav = document.getElementById("nav");
+
+    function syncNavMetrics() {
+      if (!nav) return;
+      var navHeight = Math.ceil(nav.getBoundingClientRect().height || 0);
+      if (navHeight > 0) {
+        document.documentElement.style.setProperty("--nav-height", navHeight + "px");
+        document.documentElement.style.setProperty("--nav-scroll-offset", Math.ceil(navHeight + 12) + "px");
+      }
+    }
 
     function setNavState(open) {
       if (!toggle || !links) return;
@@ -1628,9 +1638,23 @@
         if (event.key !== "Escape") return;
         setNavState(false);
       });
+
+      document.addEventListener("click", function (event) {
+        if (!links.classList.contains("open")) return;
+        var target = event.target;
+        if (toggle.contains(target) || links.contains(target)) return;
+        setNavState(false);
+      });
+
+      window.addEventListener("resize", function () {
+        if (window.innerWidth > 768) setNavState(false);
+      }, { passive: true });
     }
 
-    var nav = document.getElementById("nav");
+    syncNavMetrics();
+    window.addEventListener("resize", syncNavMetrics, { passive: true });
+    window.addEventListener("orientationchange", syncNavMetrics, { passive: true });
+
     if (!nav) return;
 
     if (nav.getAttribute("data-force-scrolled") === "true") {
