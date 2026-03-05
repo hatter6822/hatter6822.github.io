@@ -154,7 +154,12 @@
     }
 
     function syncScrollOffset() {
-      document.documentElement.style.setProperty("--nav-scroll-offset", getNavOffset() + "px");
+      var navOffset = getNavOffset();
+      document.documentElement.style.setProperty("--nav-scroll-offset", navOffset + "px");
+      if (nav) {
+        var navHeight = Math.ceil(nav.getBoundingClientRect().height || 0);
+        if (navHeight > 0) document.documentElement.style.setProperty("--nav-height", navHeight + "px");
+      }
     }
 
     function scrollToHash(hash, behavior) {
@@ -229,6 +234,17 @@
         if (event.key !== "Escape") return;
         setNavState(false);
       });
+
+      document.addEventListener("click", function (event) {
+        if (!links.classList.contains("open")) return;
+        var target = event.target;
+        if (toggle.contains(target) || links.contains(target)) return;
+        setNavState(false);
+      });
+
+      window.addEventListener("resize", function () {
+        if (window.innerWidth > 768) setNavState(false);
+      }, { passive: true });
     }
 
     if (!nav) return;
