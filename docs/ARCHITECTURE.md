@@ -56,6 +56,8 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Added a boot-disable test hook for `assets/js/map.js` so runtime normalization logic can be validated in Node tests without DOM bootstrapping.
 - Preserved deterministic rendering behavior while reducing repeated list recomputation.
 - Consolidated symbol-entry normalization into a shared helper and added per-module interior-symbol memoization to avoid redundant normalization work during rerenders.
+- Integrated the flow legend into the flowchart container’s upper-right corner so semantic keys travel with the graph while preserving node/layout space.
+- Added render-pass local interior caching in flowchart rendering to reduce repeated declaration aggregation calls while preserving deterministic node metadata.
 - Added mobile interaction hint and improved touch/scroll behavior in chart container.
 
 ## Mobile hardening decisions

@@ -843,12 +843,8 @@
     if (state.selectedModule && document.activeElement !== picker) picker.value = state.selectedModule;
   }
 
-  function renderFlowchartLegend() {
-    var legend = document.getElementById("flowchart-legend");
-    if (!legend) return;
-    if (legend.childNodes.length) return;
-
-    var items = [
+  function flowLegendItems() {
+    return [
       { label: "Selected module", color: "#7c9cff" },
       { label: "Imports used by selected", color: "#35c98f" },
       { label: "Modules impacted by selected", color: "#ffad42" },
@@ -857,53 +853,6 @@
       { label: "External dependency", color: "#b9c0d0" },
       { label: "Node tint = assurance level", color: "#8fa3bf" }
     ];
-
-    for (var i = 0; i < items.length; i++) {
-      var chip = document.createElement("span");
-      chip.className = "legend-item";
-      var swatch = document.createElement("span");
-      swatch.className = "legend-swatch";
-      swatch.style.backgroundColor = items[i].color;
-      chip.appendChild(swatch);
-      chip.appendChild(document.createTextNode(items[i].label));
-      legend.appendChild(chip);
-    }
-  }
-
-  function renderFlowContextStrip(selected, context) {
-    var strip = document.getElementById("flow-context-strip");
-    if (!strip) return;
-    strip.innerHTML = "";
-    if (!selected) return;
-
-    function appendItem(label, value, mono) {
-      if (!value && value !== 0) return;
-      var item = document.createElement("span");
-      item.className = "flow-context-item" + (mono ? " mono" : "");
-      item.innerHTML = "<strong></strong><span></span>";
-      item.children[0].textContent = label + ": ";
-      item.children[1].textContent = String(value);
-      strip.appendChild(item);
-    }
-
-    appendItem("Module", selected, true);
-    appendItem("Path", context.path || "Unknown", true);
-    appendItem("Layer", context.layer || "other", false);
-    appendItem("Kind", context.kind || "other", false);
-    appendItem("Declarations", context.declarations || 0, false);
-    appendItem("Assurance", context.assuranceLabel || "Unknown", false);
-    appendItem("Hotspot", context.score, false);
-    appendItem("Fan-in", context.incoming, false);
-    appendItem("Fan-out", context.outgoing, false);
-    appendItem("Coupling", context.coupling, false);
-
-    if (context.proofPair) {
-      appendItem("Proof pair theorems", context.proofPair.operationsTheorems + context.proofPair.invariantTheorems, false);
-      appendItem("Proof-linked", context.proofPair.invariantImportsOperations ? "yes" : "no", false);
-    }
-    if (context.shift) {
-      appendItem("Traversal shift", "from " + context.shift.previous + " (shared " + context.shift.shared.length + ", new " + context.shift.newDeps.length + ")", false);
-    }
   }
 
   function renderFlowNodeInteriorMenu(selected) {
@@ -1193,7 +1142,6 @@
   }
 
   function renderFlowchart() {
-    renderFlowchartLegend();
     var wrap = document.getElementById("flowchart-wrap");
     if (!wrap) return;
     var previousScrollLeft = wrap.scrollLeft;
@@ -1202,7 +1150,6 @@
 
     var selected = state.selectedModule;
     if (!selected) {
-      renderFlowContextStrip("", null);
       renderFlowNodeInteriorMenu("");
       wrap.textContent = "Select a module to render interaction and proof flow.";
       return;
@@ -1220,6 +1167,14 @@
     var proofRelated = relatedProofModules(selected);
     var linkedPath = findNearestLinkedPath(selected, state.impactRadius);
     var contextCache = Object.create(null);
+    var interiorCache = Object.create(null);
+
+    function interiorFor(name) {
+      if (!name) return makeEmptyInteriorSymbols();
+      if (interiorCache[name]) return interiorCache[name];
+      interiorCache[name] = interiorCodeForModule(name);
+      return interiorCache[name];
+    }
 
     function contextFor(name) {
       if (!name) return { degree: { incoming: 0, outgoing: 0, theorems: 0, score: 0 }, assurance: { label: "Unknown" }, path: "" };
@@ -1234,14 +1189,14 @@
 
     function moduleSummary(name) {
       var ctx = contextFor(name);
-      var interior = interiorCodeForModule(name);
+      var interior = interiorFor(name);
       return "decl " + interior.total + " · thm " + ctx.degree.theorems + " · in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing;
     }
 
     function nodeTooltip(name, roleLabel) {
       if (!state.moduleMap[name]) return roleLabel + ": " + name;
       var ctx = contextFor(name);
-      var interior = interiorCodeForModule(name);
+      var interior = interiorFor(name);
       var topKinds = allInteriorKinds().map(function (kind) { return { kind: kind, count: (interior.byKind[kind] || []).length }; }).filter(function (item) { return item.count > 0; }).sort(function (a, b) { return b.count - a.count; }).slice(0, 3);
       var kindPreview = topKinds.map(function (item) { return item.kind + "=" + item.count; }).join(", ");
       return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | declarations: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label;
@@ -1377,6 +1332,22 @@
       externalBottom = externalStartY + 36;
     }
     var flowHeight = Math.max(620, externalBottom + 68);
+
+    var legend = document.createElement("div");
+    legend.className = "flowchart-legend flowchart-legend-corner";
+    legend.setAttribute("aria-label", "Flow chart legend");
+    var legendItems = flowLegendItems();
+    for (var li = 0; li < legendItems.length; li++) {
+      var chip = document.createElement("span");
+      chip.className = "legend-item";
+      var swatch = document.createElement("span");
+      swatch.className = "legend-swatch";
+      swatch.style.backgroundColor = legendItems[li].color;
+      chip.appendChild(swatch);
+      chip.appendChild(document.createTextNode(legendItems[li].label));
+      legend.appendChild(chip);
+    }
+    wrap.appendChild(legend);
 
     var svg = createSvgNode("svg", {
       "class": "flowchart-svg",
@@ -1529,25 +1500,6 @@
 
     wrap.appendChild(svg);
 
-    var selectedMeta = state.moduleMeta[selected] || {};
-    var selectedDegree = moduleDegree(selected);
-    var selectedPair = findProofPair(selected);
-    var shift = computeContextShift(selected);
-    var selectedAssurance = assuranceForModule(selected);
-
-    renderFlowContextStrip(selected, {
-      path: state.moduleMap[selected] || "Unknown",
-      layer: selectedMeta.layer || "other",
-      kind: selectedMeta.kind || "other",
-      declarations: interiorCodeForModule(selected).total,
-      assuranceLabel: selectedAssurance.label,
-      score: selectedDegree.score,
-      incoming: selectedDegree.incoming,
-      outgoing: selectedDegree.outgoing,
-      coupling: selectedDegree.incoming * selectedDegree.outgoing,
-      proofPair: selectedPair,
-      shift: shift
-    });
     renderFlowNodeInteriorMenu(selected);
 
     var insightRow = document.createElement("div");
@@ -1571,7 +1523,7 @@
 
     var summary = document.createElement("p");
     summary.className = "panel-note flowchart-summary";
-    summary.textContent = "Flow summary" + (state.flowShowAll ? " (full-flow)" : "") + ": imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Selected-module metadata is surfaced in the context strip above; hover any node for path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
+    summary.textContent = "Flow summary" + (state.flowShowAll ? " (full-flow)" : "") + ": imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Hover any node for path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
     wrap.appendChild(summary);
 
     wrap.scrollLeft = previousScrollLeft;
@@ -2935,7 +2887,8 @@
       makeEmptyInteriorSymbols: makeEmptyInteriorSymbols,
       interiorGroupItemCount: interiorGroupItemCount,
       pickInteriorDefaultKind: pickInteriorDefaultKind,
-      interiorItemsForSelection: interiorItemsForSelection
+      interiorItemsForSelection: interiorItemsForSelection,
+      flowLegendItems: flowLegendItems
     };
     return;
   }

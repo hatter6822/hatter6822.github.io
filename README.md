@@ -53,6 +53,8 @@ This keeps rendering deterministic while still allowing low-latency live updates
 
 ## Code map interior symbol links
 
+The map flowchart now renders its legend in the chart’s upper-right corner so semantic meaning stays attached to the graph during interaction and screenshots while preserving workspace for core flow nodes.
+
 The code map interior panel links declarations directly to source in `hatter6822/seLe4n`:
 
 - Parses theorem-style declarations (`theorem`, `lemma`)

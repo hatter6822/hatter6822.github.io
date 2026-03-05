@@ -187,6 +187,14 @@
   gap: 0.35rem;
   margin-bottom: 0.45rem;
 }
+.flowchart-legend-corner {
+  position: sticky;
+  top: 0.35rem;
+  z-index: 4;
+  margin-left: auto;
+  justify-content: flex-end;
+  max-width: min(52rem, calc(100% - 0.35rem));
+}
 .legend-item {
   display: inline-flex;
   align-items: center;
@@ -203,28 +211,6 @@
   height: 0.68rem;
   border-radius: 50%;
 }
-.flow-context-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 0.5rem;
-}
-.flow-context-item {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  padding: 0.16rem 0.5rem;
-  background: color-mix(in oklab, var(--surface-2) 84%, transparent);
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-.flow-context-item strong {
-  color: var(--text);
-  font-weight: 600;
-}
-.flow-context-item.mono { font-family: var(--font-mono); }
-
 .flow-node-interior-menu {
   display: grid;
   gap: 0.4rem;

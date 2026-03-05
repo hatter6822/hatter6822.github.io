@@ -363,3 +363,14 @@ test('interior kind group helpers default to all kinds and aggregate extension/c
   const allContextItems = hooks.interiorItemsForSelection(interior, contextKinds, '__all__', 'init');
   assert.deepEqual(Array.from(allContextItems, (item) => item.name), ['initCore']);
 });
+
+test('flowLegendItems returns canonical flow legend entries', async () => {
+  const hooks = await loadMapTestHooks();
+  const items = hooks.flowLegendItems();
+
+  assert.equal(items.length, 7);
+  assert.equal(items[0].label, 'Selected module');
+  assert.equal(items[0].color, '#7c9cff');
+  assert.equal(items[6].label, 'Node tint = assurance level');
+  assert.equal(items[6].color, '#8fa3bf');
+});
