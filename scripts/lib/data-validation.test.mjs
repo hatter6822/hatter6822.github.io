@@ -5,7 +5,7 @@ import { validateMapDataObject, validateSiteDataObject } from './data-validation
 
 test('validateSiteDataObject accepts valid payload', () => {
   const errors = validateSiteDataObject({
-    version: '0.13.0',
+    version: '0.1.0',
     leanVersion: '4.28.0',
     modules: 23,
     lines: '25,648',
@@ -24,7 +24,7 @@ test('validateSiteDataObject accepts valid payload', () => {
 
 test('validateSiteDataObject rejects invalid timestamps', () => {
   const errors = validateSiteDataObject({
-    version: '0.13.0',
+    version: '0.1.0',
     leanVersion: '4.28.0',
     modules: 23,
     lines: '25,648',

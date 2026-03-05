@@ -2,6 +2,8 @@
 
 Thanks for improving the seLe4n website.
 
+> Current release target: **0.1.0**
+
 ## Repository principles
 
 - Keep pages static and fast to render.
@@ -24,6 +26,7 @@ Run all checks below from repository root:
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/data-validation.test.mjs
 node scripts/validate-data.mjs
 node --check assets/js/map.js
 node --check assets/js/site.js

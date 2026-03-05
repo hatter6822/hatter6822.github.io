@@ -1,5 +1,7 @@
 # Codebase Map: End-to-End Guide
 
+> Documentation baseline: website release **0.1.0**.
+
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
 - import dependency flow,

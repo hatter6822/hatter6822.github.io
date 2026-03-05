@@ -2,6 +2,8 @@
 
 This repository uses lightweight Node-based checks.
 
+> Documentation baseline: website release **0.1.0**.
+
 ## Automated checks
 
 ### Parser and extraction regression tests
