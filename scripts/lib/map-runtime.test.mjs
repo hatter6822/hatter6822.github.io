@@ -255,3 +255,60 @@ test('normalizeCanonicalPayload prefers nested branch payload over weak top-leve
   assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, 'main'));
 });
 
+
+
+test('normalizeMapData derives theorem totals from symbol payloads when explicit counts are missing', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: ['SeLe4n.Core.Main'],
+    moduleMeta: {
+      'SeLe4n.Core.Main': {
+        symbols: {
+          by_kind: {
+            theorem: [{ name: 'main_safe', line: 12 }],
+            lemma: [{ name: 'helper', line: 18 }]
+          }
+        }
+      }
+    }
+  });
+
+  assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].theorems, 2);
+});
+
+test('normalizeMapData resolves dependency paths to module names', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Core.Main', path: 'SeLe4n/Core/Main.lean', imports: [{ path: 'SeLe4n/Core/Helper.lean' }] },
+      { name: 'SeLe4n.Core.Helper', path: 'SeLe4n/Core/Helper.lean' }
+    ]
+  });
+
+  assert.deepEqual(Array.from(normalized.importsFrom['SeLe4n.Core.Main']), ['SeLe4n.Core.Helper']);
+});
+
+
+test('normalizeMapData projects modules[].declarations into symbol buckets', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'theorem', name: 'safe_main', line: 14 },
+          { kind: 'def', name: 'step', line: 20 }
+        ]
+      }
+    ]
+  });
+
+  assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].theorems, 1);
+  assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].symbols.byKind.theorem[0].name, 'safe_main');
+  assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].symbols.byKind.def[0].name, 'step');
+  assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].symbolsLoaded, true);
+});

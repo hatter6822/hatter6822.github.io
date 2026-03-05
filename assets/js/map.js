@@ -245,6 +245,13 @@
     return String(name || "").replace(/`/g, "").trim();
   }
 
+  function normalizeDeclarationKind(kind) {
+    var normalized = String(kind || "").trim().toLowerCase();
+    if (!normalized) return "";
+    if (normalized === "constants") return "constant";
+    return normalized;
+  }
+
   function createLineLocator(text) {
     var source = String(text || "");
     var lineStarts = [0];
@@ -1934,16 +1941,41 @@
       return records;
     }
 
-    function normalizeDependencyList(list, moduleMap, moduleName, allowExternal) {
+    function dependencyNameFromRaw(raw, moduleMap, modulePathToName) {
+      var depName = "";
+      var depPath = "";
+
+      if (typeof raw === "string") {
+        depName = sanitizeModuleName(raw);
+        if (!depName) depPath = String(raw || "").trim();
+      } else if (raw && typeof raw === "object") {
+        depName = sanitizeModuleName(raw.name || raw.module || raw.id || "");
+        depPath = String(raw.path || raw.file || raw.modulePath || raw.source || "").trim();
+      }
+
+      if (!depName && depPath) {
+        var normalizedPath = depPath.replace(/^\/+/, "");
+        if (/\.lean$/i.test(normalizedPath)) {
+          depName = modulePathToName[normalizedPath] || sanitizeModuleName(normalizedPath.replace(/\.lean$/i, "").replace(/\//g, "."));
+        }
+      }
+
+      if (depName && !moduleMap[depName] && depPath && /\.lean$/i.test(depPath)) {
+        var normalizedDepPath = depPath.replace(/^\/+/, "");
+        var pathName = modulePathToName[normalizedDepPath] || sanitizeModuleName(normalizedDepPath.replace(/\.lean$/i, "").replace(/\//g, "."));
+        if (pathName) depName = pathName;
+      }
+
+      return depName;
+    }
+
+    function normalizeDependencyList(list, moduleMap, modulePathToName, moduleName, allowExternal) {
       var deps = Array.isArray(list) ? list : [];
       var out = [];
       var seen = Object.create(null);
 
       for (var i = 0; i < deps.length; i++) {
-        var raw = deps[i];
-        var depName = "";
-        if (typeof raw === "string") depName = sanitizeModuleName(raw);
-        else if (raw && typeof raw === "object") depName = sanitizeModuleName(raw.name || raw.module || raw.id || "");
+        var depName = dependencyNameFromRaw(deps[i], moduleMap, modulePathToName);
         if (!depName || depName === moduleName || seen[depName]) continue;
 
         var knownModule = Boolean(moduleMap[depName]);
@@ -1982,7 +2014,22 @@
     }
 
     function normalizeModuleSymbols(rawSymbols) {
-      var symbols = symbolListsFromRaw(rawSymbols || {});
+      var source = rawSymbols || {};
+      if (Array.isArray(source.declarations) && !source.byKind && !source.by_kind) {
+        var declarationKinds = Object.create(null);
+        for (var decIdx = 0; decIdx < source.declarations.length; decIdx++) {
+          var declaration = source.declarations[decIdx] || {};
+          var kind = normalizeDeclarationKind(declaration.kind || "");
+          var name = normalizeSymbolName(declaration.name || "");
+          var line = Number(declaration.line || 0);
+          if (!kind || !name) continue;
+          if (!declarationKinds[kind]) declarationKinds[kind] = [];
+          declarationKinds[kind].push({ name: name, line: line > 0 ? line : null });
+        }
+        source = { byKind: declarationKinds };
+      }
+
+      var symbols = symbolListsFromRaw(source);
       var byKind = Object.create(null);
       var kinds = allInteriorKinds();
       for (var idx = 0; idx < kinds.length; idx++) {
@@ -2005,10 +2052,12 @@
 
     var normalizedModules = [];
     var normalizedModuleMap = Object.create(null);
+    var modulePathToName = Object.create(null);
     for (var rec = 0; rec < moduleRecords.length; rec++) {
       var record = moduleRecords[rec];
       normalizedModules.push(record.name);
       normalizedModuleMap[record.name] = record.path;
+      modulePathToName[record.path] = record.name;
     }
 
     var normalizedModuleMeta = (function () {
@@ -2019,12 +2068,14 @@
         var moduleRaw = moduleRecords[idx].raw || {};
         var moduleMeta = moduleRaw.meta && typeof moduleRaw.meta === "object" ? moduleRaw.meta : moduleRaw;
         var meta = Object.assign({}, rawMetaByModule[moduleName] || {}, moduleMeta || {});
-        var normalizedSymbols = normalizeModuleSymbols(meta.symbols || {});
+        var normalizedSymbols = normalizeModuleSymbols(meta.symbols || { declarations: moduleRaw.declarations || [] });
+        var explicitTheorems = Number(meta.theorems || meta.theoremCount || ((meta.stats && meta.stats.theorems) || 0));
+        var derivedTheorems = normalizedSymbols.theorems.length || (normalizedSymbols.byKind.theorem || []).length + (normalizedSymbols.byKind.lemma || []).length;
         normalized[moduleName] = {
           layer: meta.layer || classifyLayer(moduleName),
           kind: meta.kind || moduleKind(moduleName),
           base: meta.base || moduleBase(moduleName),
-          theorems: Number(meta.theorems || 0),
+          theorems: explicitTheorems > 0 ? explicitTheorems : derivedTheorems,
           symbols: normalizedSymbols,
           symbolsLoaded: hasCompleteSymbolLines(normalizedSymbols)
         };
@@ -2039,7 +2090,7 @@
       var importModuleRaw = moduleRecords[importIdx].raw || {};
       var importCandidates = importModuleRaw.imports || importModuleRaw.importsFrom || importModuleRaw.dependencies;
       var importList = Array.isArray(importCandidates) ? importCandidates : topLevelImports[importModuleName];
-      normalizedImportsFrom[importModuleName] = normalizeDependencyList(importList, normalizedModuleMap, importModuleName, false);
+      normalizedImportsFrom[importModuleName] = normalizeDependencyList(importList, normalizedModuleMap, modulePathToName, importModuleName, false);
     }
 
     var normalizedExternalImportsFrom = (function () {
@@ -2051,7 +2102,7 @@
         var moduleRaw = moduleRecords[idx].raw || {};
         var extCandidates = moduleRaw.externalImports || moduleRaw.externalImportsFrom || moduleRaw.externalDependencies;
         var extList = Array.isArray(extCandidates) ? extCandidates : source[moduleName];
-        out[moduleName] = normalizeDependencyList(extList, normalizedModuleMap, moduleName, true);
+        out[moduleName] = normalizeDependencyList(extList, normalizedModuleMap, modulePathToName, moduleName, true);
       }
       return out;
     })();
@@ -2067,6 +2118,62 @@
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
     };
+  }
+
+  function enrichSparseMapData(data, options) {
+    if (!data || !Array.isArray(data.modules) || !data.modules.length) return Promise.resolve(data);
+
+    var modules = data.modules.slice();
+    var moduleLookup = Object.create(null);
+    for (var i = 0; i < modules.length; i++) moduleLookup[modules[i]] = true;
+
+    var totalEdges = 0;
+    for (var j = 0; j < modules.length; j++) totalEdges += (data.importsFrom[modules[j]] || []).length;
+    if (totalEdges > 0) return Promise.resolve(data);
+
+    var opts = options && typeof options === "object" ? options : {};
+    if (!opts.silent) setStatus("Canonical map missing import edges; deriving imports from Lean source files…", false);
+
+    return runInPool(modules, function (moduleName) {
+      var path = String((data.moduleMap && data.moduleMap[moduleName]) || "").trim();
+      if (!path) return;
+      var url = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/" + path;
+      return safeFetch(url, true).then(function (sourceText) {
+        var imports = [];
+        var external = [];
+        var seenIn = Object.create(null);
+        var seenOut = Object.create(null);
+        var tokens = extractImportTokens(sourceText);
+
+        for (var idx = 0; idx < tokens.length; idx++) {
+          var dep = tokens[idx];
+          if (!dep || dep === moduleName) continue;
+          if (moduleLookup[dep]) {
+            if (seenIn[dep]) continue;
+            seenIn[dep] = true;
+            imports.push(dep);
+          } else {
+            if (seenOut[dep]) continue;
+            seenOut[dep] = true;
+            external.push(dep);
+          }
+        }
+
+        data.importsFrom[moduleName] = imports;
+        data.externalImportsFrom[moduleName] = external;
+
+        var meta = data.moduleMeta[moduleName] || (data.moduleMeta[moduleName] = {
+          layer: classifyLayer(moduleName),
+          kind: moduleKind(moduleName),
+          base: moduleBase(moduleName),
+          theorems: 0,
+          symbols: emptySymbols()
+        });
+        if (!(meta.theorems > 0)) meta.theorems = theoremCount(sourceText);
+      }).catch(function () {});
+    }).then(function () {
+      return data;
+    });
   }
 
   function fetchBundledMapData() {
@@ -2381,9 +2488,13 @@
 
       if (knownCommit && canonicalCommit && knownCommit === canonicalCommit) {
         if (!silentNoChange) setStatus("Map is already synced to " + canonicalCommit.slice(0, 7) + ".", false);
-        return;
+        return null;
       }
 
+      return enrichSparseMapData(canonicalData, { silent: silentNoChange });
+    }).then(function (canonicalData) {
+      if (!canonicalData) return;
+      var canonicalCommit = canonicalData.commitSha || "";
       applyData(canonicalData);
       persistCurrentMapCache();
       var statusSuffix = canonicalCommit ? " Synced commit " + canonicalCommit.slice(0, 7) + "." : "";
