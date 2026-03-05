@@ -59,8 +59,8 @@ The code map interior panel links declarations directly to source in `hatter6822
 
 - Parses theorem-style declarations (`theorem`, `lemma`)
 - Parses function-style declarations (`def`, `abbrev`, `opaque`, `instance`)
-- Populates all interior declaration groupings used by the UI (`Object kinds`, `Extension kinds`, `Context/Init kinds`)
-- Defaults each interior kind selector to `All kinds (N)` so Object/Extension/Context-Init scrollboxes open with complete group coverage
+- Populates all interior declaration groupings used by the UI (`Objects`, `Extensions`, `Contexts/Inits`)
+- Defaults each interior kind selector to `All (N)` so Object/Extension/Context-Init scrollboxes open with complete group coverage
 - Keeps the interior declaration filter input focused while typing, preserving caret position across panel rerenders so multi-character filters can be entered reliably
 - Includes declaration line metadata for line-accurate blob anchors
 - Normalizes legacy symbol payload variants (`byKind`/`by_kind`, `constant`/`constants`) so flow-chart selection updates the interior declaration panels reliably
