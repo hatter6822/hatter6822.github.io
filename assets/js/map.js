@@ -1670,6 +1670,12 @@
     var links = document.getElementById("nav-links");
     var nav = document.getElementById("nav");
 
+    function normalizePagePath(pathname) {
+      var normalized = String(pathname || "").replace(/\/+$/, "") || "/";
+      if (normalized === "/index.html") return "/";
+      return normalized;
+    }
+
     function resolveNavTarget(href) {
       if (!href) return null;
       var parsed;
@@ -1679,22 +1685,24 @@
         return null;
       }
 
-      var currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
-      var targetPath = parsed.pathname.replace(/\/+$/, "") || "/";
-      if (currentPath === "/index.html") currentPath = "/";
-      if (targetPath === "/index.html") targetPath = "/";
+      var currentPath = normalizePagePath(window.location.pathname);
+      var targetPath = normalizePagePath(parsed.pathname);
+      var sameOrigin = parsed.origin === window.location.origin;
 
       return {
         href: href,
+        url: parsed.href,
         path: targetPath,
-        samePath: currentPath === targetPath,
+        search: parsed.search || "",
+        samePath: sameOrigin && currentPath === targetPath,
+        sameOrigin: sameOrigin,
         hash: parsed.hash || ""
       };
     }
 
     function samePageHashTarget(href) {
       var targetInfo = resolveNavTarget(href);
-      if (!targetInfo || !targetInfo.samePath || !targetInfo.hash || targetInfo.hash.charAt(0) !== "#") return null;
+      if (!targetInfo || !targetInfo.sameOrigin || !targetInfo.samePath || !targetInfo.hash || targetInfo.hash.charAt(0) !== "#") return null;
       var id = targetInfo.hash.slice(1);
       if (!id) return null;
       var target = document.getElementById(id);
@@ -1812,8 +1820,10 @@
             if (window.location.pathname !== target.path || window.location.search || window.location.hash) {
               history.replaceState(null, "", target.path);
             }
-          } else if (target && !target.samePath && target.hash) {
+          } else if (target && target.sameOrigin && !target.samePath && target.hash) {
+            event.preventDefault();
             storeCrossPageNavIntent(target);
+            window.location.assign(target.url || (target.path + (target.search || "") + target.hash));
           }
 
           setNavState(false);

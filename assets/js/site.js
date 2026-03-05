@@ -29,6 +29,15 @@
 
   var LIVE_NODE_CACHE = Object.create(null);
 
+
+  function normalizePagePath(pathname, options) {
+    var allowEmpty = options && options.allowEmpty;
+    var normalized = String(pathname || "").replace(/\/+$/, "");
+    if (!normalized) return allowEmpty ? "" : "/";
+    if (normalized === "/index.html") return "/";
+    return normalized;
+  }
+
   function safeScrollTo(top, behavior) {
     var targetTop = Math.max(0, Number(top) || 0);
     var mode = behavior || "auto";
@@ -235,6 +244,10 @@
         if (!parsed || typeof parsed !== "object") return null;
         if (typeof parsed.hash !== "string" || parsed.hash.charAt(0) !== "#") return null;
         if (Math.abs(Date.now() - Number(parsed.ts || 0)) > NAV_INTENT_MAX_AGE_MS) return null;
+
+        var currentPath = normalizePagePath(window.location.pathname);
+        var intentPath = normalizePagePath(parsed.path, { allowEmpty: true });
+        if (intentPath && intentPath !== currentPath) return null;
 
         return parsed.hash;
       } catch (e) {
