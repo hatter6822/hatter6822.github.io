@@ -100,6 +100,22 @@ test('normalizeMapData sanitizes modules/imports and accepts legacy symbol bucke
   assert.equal(normalized.moduleMeta['SeLe4n.Core.Helper'].theorems, 0);
 });
 
+test('normalizeCaretRange clamps out-of-range selections and defaults to input length', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const first = hooks.normalizeCaretRange('alphabet', 2, 99);
+  assert.equal(first.start, 2);
+  assert.equal(first.end, 8);
+
+  const second = hooks.normalizeCaretRange('alphabet', -5, 3.9);
+  assert.equal(second.start, 0);
+  assert.equal(second.end, 3);
+
+  const third = hooks.normalizeCaretRange('alphabet', undefined, undefined);
+  assert.equal(third.start, 8);
+  assert.equal(third.end, 8);
+});
+
 
 
 
