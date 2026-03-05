@@ -31,6 +31,7 @@ node scripts/validate-data.mjs
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/data-validation.test.mjs
 ```
 
 ## Runtime data strategy
@@ -58,6 +59,7 @@ The code map interior panel links declarations directly to source in `hatter6822
 - [Architecture audit and growth plan](docs/ARCHITECTURE.md)
 - [Codebase map end-to-end guide](docs/CODEBASE_MAP.md)
 - [Testing and validation matrix](docs/TESTING.md)
+- [Open PR #100/#101 audit + synthesis](docs/PR_AUDIT_100_101.md)
 - [Contributing guide](CONTRIBUTING.md)
 
 ## Third-party notices

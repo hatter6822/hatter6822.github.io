@@ -54,3 +54,4 @@ The map page provides a single operational and proof-aware architecture view of 
 2. Validate snapshots with `node scripts/validate-data.mjs`.
 3. Run parser regression tests with `node scripts/lib/lean-analysis.test.mjs`.
 4. Verify `map.html` references `assets/css/map.css` and `assets/js/map.js`.
+5. Validate reverse import-edge integrity with `node scripts/validate-data.mjs` (now includes graph symmetry checks).

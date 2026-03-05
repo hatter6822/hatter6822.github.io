@@ -8,6 +8,7 @@ This repository uses lightweight Node-based checks.
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/data-validation.test.mjs
 ```
 
 Validates:
@@ -15,6 +16,7 @@ Validates:
 - interior symbol extraction and line tracking
 - theorem counting behavior
 - README metric table parsing
+- data schema and graph consistency validation behavior
 
 ### Bundled data integrity
 
