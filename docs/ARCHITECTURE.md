@@ -59,6 +59,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Integrated the flow legend into the flowchart container’s upper-right corner so semantic keys travel with the graph while preserving node/layout space.
 - Added render-pass local interior caching in flowchart rendering to reduce repeated declaration aggregation calls while preserving deterministic node metadata.
 - Added mobile interaction hint and improved touch/scroll behavior in chart container.
+- Repositioned and simplified the map toolbar into the flow panel header region, removing subsystem/full-flow/proof-linked toggles in favor of a compact context-search + detail + reset control surface with explicit flowchart ownership (`aria-controls`), compact-density tagging, and stronger detail-preset keyboard navigation (Arrow/Home/End).
 
 ## Mobile hardening decisions
 

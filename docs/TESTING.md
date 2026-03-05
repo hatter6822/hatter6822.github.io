@@ -12,6 +12,7 @@ This repository uses lightweight Node-based checks.
 node scripts/lib/lean-analysis.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
+node scripts/lib/map-toolbar.test.mjs
 ```
 
 Validates:
@@ -45,8 +46,10 @@ node --check assets/js/theme-init.js
 
 - Confirm `index.html` and `map.html` load from a static server.
 - Test map page on mobile viewport (~390px width).
-- Confirm map filtering/search and keyboard traversal still function.
+- Confirm the compact toolbar is rendered directly below the "Interactive dependency/proof flow chart" header, before the interior declaration panel, and contains only current module context search, flow detail presets, and reset, and includes compact-density toolbar semantics.
+- Confirm map context-search, detail-preset keyboard navigation (Arrow/Home/End), and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
+- Confirm reset restores default balanced detail mode, clears any search validity errors, and preserves a minimal toolbar footprint across desktop/mobile breakpoints.
 - Confirm each interior dropdown (Object, Extension, Context/Init) defaults to `All kinds (N)`, can switch kinds, and deep-link declarations to source lines.
 - Confirm the `Filter declarations across all kinds…` search box accepts multi-character typing without dropping focus/caret after each keystroke.
 - Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Extension/Context-Init) to the newly selected module.

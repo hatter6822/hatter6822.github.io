@@ -91,21 +91,21 @@
           <p id="module-results" class="results-note" aria-live="polite">0 modules shown</p>
         </header>
 
-        <form class="map-toolbar card" id="map-toolbar" role="search" aria-label="Module filters">
-          <div class="toolbar-main">
-            <div class="control-group control-group-wide">
-              <label for="module-search">Current module context</label>
-              <input id="module-search" type="search" list="context-options" placeholder="Type module/path and press Enter" autocomplete="off" spellcheck="false" aria-describedby="module-search-help toolbar-summary module-search-feedback">
-              <datalist id="context-options"></datalist>
-              <p id="module-search-feedback" class="search-feedback" aria-live="polite"></p>
+        <p id="module-search-help" class="panel-note">Context jump: start typing any Lean module or file path, then press Enter. Keyboard walk: press <kbd>j</kbd>/<kbd>k</kbd> outside inputs to move through the ranked module list.</p>
+
+        <div class="navigator-layout">
+          <article class="card constellation-panel">
+            <div class="panel-header">
+              <h2 class="section-title-sm">Interactive dependency/proof flow chart</h2>
+              <p class="panel-note">Primary source of truth: the chart now encodes dependencies, impact surface, proof neighbors, linked-proof reachability, selected-module metadata, full interior declaration kinds (Object/Extension/Context-Init), and external boundaries directly in-node.</p>
             </div>
-
-            <div class="control-row">
-              <div class="control-group">
-                <label for="focus-select">Subsystem</label>
-                <select id="focus-select"><option value="all">All modules</option></select>
+            <form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">
+              <div class="control-group control-group-wide">
+                <label for="module-search">Current module context</label>
+                <input id="module-search" type="search" list="context-options" placeholder="Type module/path and press Enter" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-describedby="module-search-help module-search-feedback">
+                <datalist id="context-options"></datalist>
+                <p id="module-search-feedback" class="search-feedback" aria-live="polite"></p>
               </div>
-
               <fieldset class="detail-preset" aria-label="Flow detail level">
                 <legend>Flow detail</legend>
                 <div class="detail-preset-options" role="radiogroup" aria-label="Flow detail level">
@@ -114,35 +114,10 @@
                   <button type="button" class="detail-pill" data-detail="expanded" role="radio" aria-checked="false" aria-label="Expanded detail: 16 neighbors and 3 proof hops">Expanded</button>
                 </div>
               </fieldset>
-            </div>
-          </div>
-
-          <div class="toolbar-toggles" aria-label="Graph scope toggles">
-            <label class="toggle-pill" for="flow-show-all">
-              <input id="flow-show-all" type="checkbox" aria-describedby="module-search-help toolbar-summary">
-              <span>Show full flow graph</span>
-            </label>
-
-            <label class="toggle-pill" for="proof-linked-only">
-              <input id="proof-linked-only" type="checkbox" aria-describedby="proof-linked-help toolbar-summary">
-              <span>Proof-linked modules only</span>
-            </label>
-          </div>
-
-          <div class="toolbar-actions">
-            <p id="toolbar-summary" class="toolbar-summary" aria-live="polite" aria-atomic="true"></p>
-            <button id="reset-view" class="btn btn-secondary" type="button">Reset</button>
-          </div>
-        </form>
-        <p id="module-search-help" class="panel-note">Context jump: start typing any Lean module or file path, then press Enter. Keyboard walk: press <kbd>j</kbd>/<kbd>k</kbd> outside inputs to move through the ranked module list.</p>
-        <p id="proof-linked-help" class="panel-note">When enabled, show only modules that have an Operations/Invariant pair with an explicit import link.</p>
-
-        <div class="navigator-layout">
-          <article class="card constellation-panel">
-            <div class="panel-header">
-              <h2 class="section-title-sm">Interactive dependency/proof flow chart</h2>
-              <p class="panel-note">Primary source of truth: the chart now encodes dependencies, impact surface, proof neighbors, linked-proof reachability, selected-module metadata, full interior declaration kinds (Object/Extension/Context-Init), and external boundaries directly in-node.</p>
-            </div>
+              <div class="toolbar-actions">
+                <button id="reset-view" class="btn btn-secondary" type="button">Reset</button>
+              </div>
+            </form>
             <div id="flow-node-interior-menu" class="flow-node-interior-menu" aria-live="polite"></div>
             <div class="flowchart-shell">
               <p class="flowchart-mobile-hint" aria-hidden="true">Tip: On mobile, drag to pan the chart and tap a node to inspect details.</p>

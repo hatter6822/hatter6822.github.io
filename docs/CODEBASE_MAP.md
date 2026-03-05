@@ -44,7 +44,7 @@ The map page provides a single operational and proof-aware architecture view of 
 
 5. **Rendering lifecycle**
    - Updates stat cards and status text.
-   - Renders filter chooser + options.
+   - Renders a compact in-panel control toolbar (context search with search-key hint, detail presets, reset in a density-compact form).
    - Builds flow chart with an integrated upper-right legend, three-kind dropdown interior menu (Object, Extension, Context/Init), and traversal trail.
    - Interior declaration normalization now reuses a per-module cache keyed by symbol payload identity, avoiding repeated symbol-list normalization during dense flowchart rerenders while preserving deterministic output.
 
@@ -52,8 +52,8 @@ The map page provides a single operational and proof-aware architecture view of 
 
 - **Context jump:** module/path search + Enter.
 - **Keyboard walk:** `j` and `k` outside input controls.
-- **Detail levels:** compact/balanced/expanded.
-- **Graph scope toggles:** full flow and proof-linked-only.
+- **Detail levels:** compact/balanced/expanded (Arrow keys cycle; Home/End jump to first/last preset).
+- **Toolbar layout:** the module-control toolbar is placed directly under the flow-chart header, before the interior declaration panel, and only includes module context search, flow detail presets, and reset in a compact density-tagged shell.
 
 - **Integrated flow legend corner:** legend semantics are rendered directly in the flowchart’s upper-right corner so color keys travel with every chart interaction/screenshot while keeping the chart body focused on graph topology.
 
