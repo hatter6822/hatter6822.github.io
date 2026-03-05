@@ -5,6 +5,7 @@
   var REF = "main";
   var API = "https://api.github.com/repos/" + REPO;
   var CODEBASE_MAP_PATH = "docs/codebase_map.json";
+  var CODEBASE_MAP_RAW_URL = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/" + CODEBASE_MAP_PATH;
   var CODEBASE_MAP_API = API + "/contents/" + CODEBASE_MAP_PATH;
   var DATA_ENDPOINT = "data/map-data.json";
 
@@ -17,7 +18,7 @@
   };
 
   var CACHE_KEY = "sele4n-code-map-v9";
-  var CACHE_SCHEMA_VERSION = 3;
+  var CACHE_SCHEMA_VERSION = 4;
   var CACHE_TTL_MS = 60 * 60 * 1000;
   var LIVE_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
   var LIVE_SYNC_JITTER_MAX_MS = 45 * 1000;
@@ -49,6 +50,7 @@
     contextListValid: false,
     interiorMenuModule: "",
     interiorMenuQuery: "",
+    mapBlobSha: "",
     commitSha: "",
     generatedAt: ""
   };
@@ -1670,6 +1672,7 @@
       importsTo: state.importsTo,
       importsFrom: state.importsFrom,
       externalImportsFrom: state.externalImportsFrom,
+      mapBlobSha: state.mapBlobSha,
       commitSha: state.commitSha,
       generatedAt: state.generatedAt
     }, state.commitSha);
@@ -1766,6 +1769,7 @@
       importsTo: data.importsTo || Object.create(null),
       importsFrom: data.importsFrom || Object.create(null),
       externalImportsFrom: data.externalImportsFrom || Object.create(null),
+      mapBlobSha: data.mapBlobSha ? String(data.mapBlobSha) : "",
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
     };
@@ -1778,20 +1782,27 @@
   }
 
   function fetchCanonicalMapData() {
-    var cacheBust = "?ref=" + encodeURIComponent(REF) + "&t=" + Date.now();
-    return safeFetch(CODEBASE_MAP_API + cacheBust, false).then(function (payload) {
-      if (!payload || payload.encoding !== "base64" || !payload.content) {
-        throw new Error("Canonical map payload missing base64 content");
-      }
-
-      var decoded = decodeBlobBase64(payload.content);
-      var parsed = JSON.parse(decoded);
+    var cacheBust = "?t=" + Date.now();
+    return safeFetch(CODEBASE_MAP_RAW_URL + cacheBust, false).then(function (parsed) {
       var normalized = normalizeMapData(parsed);
       if (!normalized) throw new Error("Canonical map payload invalid");
-
-      if (!normalized.commitSha && payload.sha) normalized.commitSha = String(payload.sha);
       if (!normalized.generatedAt) normalized.generatedAt = new Date().toISOString();
       return normalized;
+    }).catch(function () {
+      var apiCacheBust = "?ref=" + encodeURIComponent(REF) + "&t=" + Date.now();
+      return safeFetch(CODEBASE_MAP_API + apiCacheBust, false).then(function (payload) {
+        if (!payload || payload.encoding !== "base64" || !payload.content) {
+          throw new Error("Canonical map payload missing base64 content");
+        }
+
+        var decoded = decodeBlobBase64(payload.content);
+        var parsed = JSON.parse(decoded);
+        var normalized = normalizeMapData(parsed);
+        if (!normalized) throw new Error("Canonical map payload invalid");
+        normalized.mapBlobSha = payload.sha ? String(payload.sha) : "";
+        if (!normalized.generatedAt) normalized.generatedAt = new Date().toISOString();
+        return normalized;
+      });
     });
   }
 
@@ -1820,6 +1831,7 @@
     state.importsTo = data.importsTo || Object.create(null);
     state.importsFrom = data.importsFrom || Object.create(null);
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
+    state.mapBlobSha = data.mapBlobSha || "";
     invalidateDerivedCaches();
     state.contextList = [];
     state.commitSha = data.commitSha || "";
@@ -2010,6 +2022,7 @@
         });
       }).then(function () {
           rebuildImportsToIndex();
+          state.mapBlobSha = "";
           state.commitSha = latestCommitSha || "";
           state.generatedAt = new Date().toISOString();
           buildPairs();
@@ -2033,10 +2046,18 @@
 
     return fetchCanonicalMapData().then(function (canonicalData) {
       var knownCommit = state.commitSha || cachedCommitSha || "";
+      var knownBlobSha = state.mapBlobSha || "";
+      var knownGeneratedAt = state.generatedAt || "";
       var canonicalCommit = canonicalData.commitSha || "";
+      var canonicalBlobSha = canonicalData.mapBlobSha || "";
+      var canonicalGeneratedAt = canonicalData.generatedAt || "";
       setLiveSyncMeta(canonicalCommit || knownCommit);
 
-      if (knownCommit && canonicalCommit && knownCommit === canonicalCommit) {
+      var commitMatch = knownCommit && canonicalCommit && knownCommit === canonicalCommit;
+      var blobMatch = knownBlobSha && canonicalBlobSha && knownBlobSha === canonicalBlobSha;
+      var generatedAtMatch = knownGeneratedAt && canonicalGeneratedAt && knownGeneratedAt === canonicalGeneratedAt;
+
+      if (commitMatch && (blobMatch || generatedAtMatch)) {
         if (!silentNoChange) setStatus("Map is already synced to " + canonicalCommit.slice(0, 7) + ".", false);
         return;
       }
