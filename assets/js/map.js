@@ -66,7 +66,7 @@
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeLayerFilter: "all",
-    trail: [], neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
+    neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
     flowShowAll: false, contextListKey: "", contextList: [],
     contextOptionsKey: "", searchIndex: Object.create(null),
     filteredModulesKey: "", filteredModulesList: [], filteredModulesValid: false,
@@ -780,14 +780,7 @@
     });
   }
 
-  function rememberTrail(name) {
-    if (!name) return;
-    if (state.trail[state.trail.length - 1] === name) return;
-    state.trail.push(name);
-    if (state.trail.length > 10) state.trail.shift();
-  }
-
-  function selectModule(name, fromTrail) {
+  function selectModule(name) {
     if (!name || !state.moduleMap[name]) return;
     if (state.selectedModule === name) {
       renderFlowNodeInteriorMenu(name);
@@ -798,20 +791,8 @@
       state.interiorMenuModule = name;
       state.interiorMenuQuery = "";
     }
-    if (!fromTrail) rememberTrail(name);
     syncUrlState();
     scheduleRender();
-  }
-
-  function computeContextShift(name) {
-    if (state.trail.length < 2) return null;
-    var previous = state.trail[state.trail.length - 2];
-    if (!previous || previous === name) return null;
-    var previousImports = state.importsFrom[previous] || [];
-    var currentImports = state.importsFrom[name] || [];
-    var shared = currentImports.filter(function (item) { return previousImports.indexOf(item) !== -1; });
-    var newDeps = currentImports.filter(function (item) { return previousImports.indexOf(item) === -1; });
-    return { previous: previous, shared: shared, newDeps: newDeps };
   }
 
   function contextList() {
@@ -834,7 +815,6 @@
 
     if (list.length && list.indexOf(state.selectedModule) === -1) {
       state.selectedModule = list[0];
-      rememberTrail(state.selectedModule);
       syncUrlState();
     }
 
@@ -1524,30 +1504,6 @@
 
     renderFlowNodeInteriorMenu(selected);
 
-    var insightRow = document.createElement("div");
-    insightRow.className = "flowchart-insight-row";
-    insightRow.setAttribute("role", "list");
-    var insightItems = [
-      "Imports shown " + imports.length + "/" + allImports.length,
-      "Impacted shown " + importers.length + "/" + allImporters.length,
-      "Proof neighbors " + proofRelated.length,
-      "Linked path steps " + Math.max(0, linkedPath.length - 1),
-      "External shown " + external.length + "/" + allExternal.length
-    ];
-    for (var aa = 0; aa < insightItems.length; aa++) {
-      var badge = document.createElement("span");
-      badge.className = "flowchart-insight";
-      badge.setAttribute("role", "listitem");
-      badge.textContent = insightItems[aa];
-      insightRow.appendChild(badge);
-    }
-    wrap.appendChild(insightRow);
-
-    var summary = document.createElement("p");
-    summary.className = "panel-note flowchart-summary";
-    summary.textContent = "Flow summary" + (state.flowShowAll ? " (full-flow)" : "") + ": imports=" + allImports.length + ", impacted modules=" + allImporters.length + ", proof neighbors=" + proofRelated.length + ", linked-path length=" + (linkedPath.length || 0) + ", external imports=" + allExternal.length + ". Hover any node for path + theorem/fan-in/fan-out metadata. Node tint conveys assurance state.";
-    wrap.appendChild(summary);
-
     wrap.scrollLeft = previousScrollLeft;
     wrap.scrollTop = previousScrollTop;
   }
@@ -1557,30 +1513,6 @@
     if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) return true;
     if (target.isContentEditable) return true;
     return false;
-  }
-
-  function renderTrail() {
-    var wrap = document.getElementById("trail-wrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-
-    if (!state.trail.length) {
-      wrap.textContent = "Start selecting modules to build a contextual walk.";
-      return;
-    }
-
-    var fragment = document.createDocumentFragment();
-    for (var i = 0; i < state.trail.length; i++) {
-      var chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "trail-chip";
-      chip.textContent = (i + 1) + ". " + state.trail[i];
-      chip.addEventListener("click", (function (moduleName) {
-        return function () { selectModule(moduleName, true); };
-      })(state.trail[i]));
-      fragment.appendChild(chip);
-    }
-    wrap.appendChild(fragment);
   }
 
   function buildPairs() {
@@ -1640,7 +1572,6 @@
   function renderAll() {
     renderContextChooser();
     renderFlowchart();
-    renderTrail();
   }
 
 
@@ -1857,7 +1788,6 @@
     delete state.moduleMeta[moduleName];
     delete state.importsFrom[moduleName];
     delete state.externalImportsFrom[moduleName];
-    state.trail = state.trail.filter(function (name) { return name !== moduleName; });
     if (state.selectedModule === moduleName) state.selectedModule = null;
     if (state.interiorMenuModule === moduleName) {
       state.interiorMenuModule = "";
@@ -2270,9 +2200,6 @@
 
     buildPairs();
     if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
-    if (state.selectedModule) {
-      rememberTrail(state.selectedModule);
-    }
     renderAll();
   }
 
@@ -2454,9 +2381,6 @@
           state.generatedAt = new Date().toISOString();
           buildPairs();
           if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
-          if (state.selectedModule) {
-            rememberTrail(state.selectedModule);
-          }
           scheduleRender();
           syncUrlState();
           var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
