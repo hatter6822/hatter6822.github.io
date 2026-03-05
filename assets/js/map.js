@@ -4,7 +4,8 @@
   var REPO = "hatter6822/seLe4n";
   var REF = "main";
   var API = "https://api.github.com/repos/" + REPO;
-  var RAW_BASE = "https://raw.githubusercontent.com/" + REPO;
+  var CODEBASE_MAP_PATH = "docs/codebase_map.json";
+  var CODEBASE_MAP_API = API + "/contents/" + CODEBASE_MAP_PATH;
   var DATA_ENDPOINT = "data/map-data.json";
 
   var FETCH_OPTIONS = {
@@ -15,8 +16,8 @@
     referrerPolicy: "no-referrer"
   };
 
-  var CACHE_KEY = "sele4n-code-map-v8";
-  var CACHE_SCHEMA_VERSION = 2;
+  var CACHE_KEY = "sele4n-code-map-v9";
+  var CACHE_SCHEMA_VERSION = 3;
   var CACHE_TTL_MS = 60 * 60 * 1000;
   var LIVE_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
   var LIVE_SYNC_JITTER_MAX_MS = 45 * 1000;
@@ -29,7 +30,6 @@
   var LABEL_WRAP_CACHE = new Map();
   var LABEL_WRAP_CACHE_LIMIT = 1200;
   var ASSURANCE_CACHE = Object.create(null);
-  var INTERIOR_FETCH_INFLIGHT = Object.create(null);
 
   var DETAIL_PRESETS = {
     compact: { neighborLimit: 8, impactRadius: 1 },
@@ -340,26 +340,10 @@
     var meta = state.moduleMeta[moduleName] || (state.moduleMeta[moduleName] = {});
     var hasLineAnchors = hasCompleteSymbolLines(meta.symbols || {});
     if (meta.symbolsLoaded && hasLineAnchors) return Promise.resolve();
-    if (INTERIOR_FETCH_INFLIGHT[moduleName]) return INTERIOR_FETCH_INFLIGHT[moduleName];
 
-    var ref = state.commitSha || REF;
-    var path = state.moduleMap[moduleName];
-    var url = RAW_BASE + "/" + encodeURIComponent(ref) + "/" + path.split("/").map(encodeURIComponent).join("/");
-
-    INTERIOR_FETCH_INFLIGHT[moduleName] = safeFetch(url, true).then(function (sourceText) {
-      var interior = extractInteriorCodeItems(String(sourceText || ""));
-      meta.symbols = interior;
-      meta.theorems = interior.theorems.length;
-      meta.symbolsLoaded = hasCompleteSymbolLines(meta.symbols);
-    }).catch(function () {
-      meta.symbols = meta.symbols || { theorems: [], functions: [] };
-      meta.symbolsLoaded = hasCompleteSymbolLines(meta.symbols);
-    }).finally(function () {
-      delete INTERIOR_FETCH_INFLIGHT[moduleName];
-      scheduleRender();
-    });
-
-    return INTERIOR_FETCH_INFLIGHT[moduleName];
+    meta.symbols = meta.symbols || { theorems: [], functions: [] };
+    meta.symbolsLoaded = hasCompleteSymbolLines(meta.symbols);
+    return Promise.resolve();
   }
 
   function isLikelyModuleToken(token) {
@@ -1699,6 +1683,17 @@
     });
   }
 
+  function fetchLatestMapCommitSha() {
+    var url = API + "/commits?sha=" + encodeURIComponent(REF) + "&path=" + encodeURIComponent(CODEBASE_MAP_PATH) + "&per_page=1";
+    return safeFetch(url, false).then(function (payload) {
+      if (!Array.isArray(payload) || !payload.length) return "";
+      var commit = payload[0] || {};
+      return commit.sha ? String(commit.sha) : "";
+    }).catch(function () {
+      return "";
+    });
+  }
+
   function isLeanModulePath(path) {
     return /^SeLe4n\/.*\.lean$/.test(path || "");
   }
@@ -1779,6 +1774,24 @@
   function fetchBundledMapData() {
     return safeFetch(DATA_ENDPOINT, false).then(normalizeMapData).catch(function () {
       return null;
+    });
+  }
+
+  function fetchCanonicalMapData() {
+    var cacheBust = "?ref=" + encodeURIComponent(REF) + "&t=" + Date.now();
+    return safeFetch(CODEBASE_MAP_API + cacheBust, false).then(function (payload) {
+      if (!payload || payload.encoding !== "base64" || !payload.content) {
+        throw new Error("Canonical map payload missing base64 content");
+      }
+
+      var decoded = decodeBlobBase64(payload.content);
+      var parsed = JSON.parse(decoded);
+      var normalized = normalizeMapData(parsed);
+      if (!normalized) throw new Error("Canonical map payload invalid");
+
+      if (!normalized.commitSha && payload.sha) normalized.commitSha = String(payload.sha);
+      if (!normalized.generatedAt) normalized.generatedAt = new Date().toISOString();
+      return normalized;
     });
   }
 
@@ -2013,10 +2026,54 @@
     });
   }
 
+  function syncFromCanonicalMap(cachedCommitSha, options) {
+    var opts = options || {};
+    var silentNoChange = Boolean(opts.silentNoChange);
+    if (!silentNoChange) setStatus("Syncing canonical codebase map from docs/codebase_map.json…", false);
+
+    return fetchCanonicalMapData().then(function (canonicalData) {
+      var knownCommit = state.commitSha || cachedCommitSha || "";
+      var canonicalCommit = canonicalData.commitSha || "";
+      setLiveSyncMeta(canonicalCommit || knownCommit);
+
+      if (knownCommit && canonicalCommit && knownCommit === canonicalCommit) {
+        if (!silentNoChange) setStatus("Map is already synced to " + canonicalCommit.slice(0, 7) + ".", false);
+        return;
+      }
+
+      applyData(canonicalData);
+      persistCurrentMapCache();
+      var statusSuffix = canonicalCommit ? " Synced commit " + canonicalCommit.slice(0, 7) + "." : "";
+      setStatus("Map ready. Canonical seLe4n codebase map loaded." + statusSuffix, false);
+    }).catch(function () {
+      return fetchAndBuildData(cachedCommitSha);
+    });
+  }
+
   function refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, options) {
     var opts = options || {};
+    var reason = String(opts.reason || "");
+    var bypassCooldown = Boolean(opts.force || reason === "manual" || reason === "visible" || reason === "focus" || reason === "online");
     var cooldown = remainingSyncCooldownMs();
-    if (hasLocalData && cooldown > 0) {
+
+    if (reason === "poll" && hasLocalData) {
+      var knownCommit = state.commitSha || cachedCommitSha || "";
+      return fetchLatestMapCommitSha().then(function (latestMapCommitSha) {
+        if (!latestMapCommitSha) {
+          if (cooldown > 0 && !opts.force) return;
+          return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true });
+        }
+
+        if (knownCommit && knownCommit === latestMapCommitSha) {
+          setLiveSyncMeta(latestMapCommitSha);
+          return;
+        }
+
+        return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true });
+      });
+    }
+
+    if (hasLocalData && cooldown > 0 && !bypassCooldown) {
       if (!opts.silentCooldown) {
         var mins = Math.max(1, Math.ceil(cooldown / 60000));
         setStatus("Using local snapshot. Next live sync check in about " + mins + " min.", false);
@@ -2024,7 +2081,7 @@
       return Promise.resolve();
     }
 
-    return fetchAndBuildData(cachedCommitSha);
+    return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: reason === "poll" });
   }
 
   function setupLiveSyncPolling() {
@@ -2036,7 +2093,7 @@
       inFlight = true;
       var knownCommit = state.commitSha || "";
       var hasLocalData = Boolean(state.modules && state.modules.length);
-      refreshMapDataWithPolicy(knownCommit, hasLocalData, { silentCooldown: reason !== "manual" }).finally(function () {
+      refreshMapDataWithPolicy(knownCommit, hasLocalData, { silentCooldown: reason !== "manual", reason: reason }).finally(function () {
         inFlight = false;
       });
     }
@@ -2391,7 +2448,7 @@
     }).finally(function () {
       var cachedCommitSha = cached && cached.commitSha ? String(cached.commitSha) : "";
       var hasLocalData = Boolean(state.modules && state.modules.length);
-      refreshMapDataWithPolicy(cachedCommitSha, hasLocalData).catch(function (error) {
+      refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, { force: true, reason: "boot" }).catch(function (error) {
         var message = error && error.message ? error.message : "Unknown error";
         if (!hasLocalData) setStatus("Unable to load codebase map. " + message, true);
         else setStatus("Refresh failed; showing cached data. " + message, true);
