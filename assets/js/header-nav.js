@@ -283,9 +283,8 @@
       var navSelectionLockHash = "";
       var navSelectionLockUntil = 0;
       var lastDetectedHash = "";
-      var lastScrollYForDetection = window.scrollY || 0;
-      var maxForceHashMs = 12000;
-      var settleLockMs = 2200;
+      var maxForceHashMs = 15000;
+      var settleLockMs = 2600;
 
       for (var i = 0; i < samePageLinks.length; i++) {
         var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
@@ -368,39 +367,51 @@
         var currentScrollY = window.scrollY || 0;
         var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
         var anchorTop = Math.max(0, Math.round(currentScrollY + navOffset(0) + Math.min(120, Math.max(24, viewportHeight * 0.2))));
-        var scrollYNow = currentScrollY;
-        var direction = 0;
-        if (scrollYNow > lastScrollYForDetection + 1) direction = 1;
-        else if (scrollYNow < lastScrollYForDetection - 1) direction = -1;
-        lastScrollYForDetection = scrollYNow;
-
         var bestHash = sectionEntries[0] ? sectionEntries[0].hash : null;
         var bestIndex = sectionEntries.length ? 0 : -1;
-        var bestTop = -Infinity;
         var sectionTops = [];
         for (var i = 0; i < sectionEntries.length; i++) {
           var top = Math.max(0, Math.round(sectionEntries[i].section.getBoundingClientRect().top + window.scrollY));
           sectionTops.push(top);
-          if (top <= anchorTop && top >= bestTop) {
-            bestTop = top;
-            bestHash = sectionEntries[i].hash;
-            bestIndex = i;
+        }
+
+        for (var index = 0; index < sectionEntries.length; index++) {
+          if (index === sectionEntries.length - 1) {
+            bestIndex = index;
+            bestHash = sectionEntries[index].hash;
+            break;
+          }
+
+          var midpoint = Math.round((sectionTops[index] + sectionTops[index + 1]) / 2);
+          if (anchorTop < midpoint) {
+            bestIndex = index;
+            bestHash = sectionEntries[index].hash;
+            break;
           }
         }
 
         if (bestHash && lastDetectedHash && bestHash !== lastDetectedHash) {
           var lastIndex = sectionIndexForHash(lastDetectedHash);
           if (lastIndex !== -1 && bestIndex !== -1) {
-            var hysteresisPx = 28;
-            if (direction >= 0 && bestIndex > lastIndex) {
-              if (anchorTop < sectionTops[bestIndex] + hysteresisPx) return lastDetectedHash;
-            } else if (direction <= 0 && bestIndex < lastIndex) {
-              if (anchorTop > sectionTops[lastIndex] - hysteresisPx) return lastDetectedHash;
+            var low = Math.min(lastIndex, bestIndex);
+            var high = Math.max(lastIndex, bestIndex);
+            if (high - low === 1) {
+              var sharedBoundary = Math.round((sectionTops[low] + sectionTops[high]) / 2);
+              var hysteresisPx = 32;
+              if (Math.abs(anchorTop - sharedBoundary) <= hysteresisPx) return lastDetectedHash;
             }
           }
         }
 
         return bestHash;
+      }
+
+      function lockDurationForHash(hash) {
+        var targetTop = sectionTopForHash(hash, { includeGap: false });
+        if (targetTop === null) return settleLockMs;
+        var distance = Math.abs((window.scrollY || 0) - targetTop);
+        var estimatedMs = 900 + (distance / 1.35);
+        return Math.max(settleLockMs, Math.min(maxForceHashMs - 1200, Math.round(estimatedMs)));
       }
 
       function lockActiveHash(hash, durationMs) {
@@ -452,8 +463,9 @@
           else stablePasses = 0;
 
           if (stablePasses >= requiredStablePasses) {
-            lockActiveHash(hash, settleLockMs);
-            lockNavSelection(hash, settleLockMs);
+            var dynamicLockMs = lockDurationForHash(hash);
+            lockActiveHash(hash, dynamicLockMs);
+            lockNavSelection(hash, dynamicLockMs);
             stopForcingHash();
             detectActiveHash();
             return;
@@ -564,7 +576,7 @@
 
         clearActiveHashLock();
         startForcingHash(activeTarget.hash);
-        lockNavSelection(activeTarget.hash, maxForceHashMs);
+        lockNavSelection(activeTarget.hash, lockDurationForHash(activeTarget.hash));
         markActiveHash(activeTarget.hash);
         lastDetectedHash = activeTarget.hash;
         scheduleForcedHashSettleCheck(activeTarget.hash);
