@@ -277,16 +277,18 @@
       var navSelectionSession = {
         hash: "",
         index: -1,
+        startedAt: 0,
         expiresAt: 0,
-        targetTop: null,
-        stableSince: 0,
+        lastScrollAt: 0,
+        releaseArmedAt: 0,
+        userInterrupted: false,
         rafId: 0,
         timeoutId: 0,
-        releaseDistancePx: 4,
-        idleHoldMs: 170
+        idleTimeoutId: 0,
+        idleHoldMs: 180,
+        maxHoldMs: 12000,
+        idleGraceMs: 36
       };
-      var selectionHoldMaxMs = 14000;
-      var selectionHoldMinMs = 2400;
       var boundaryHysteresisPx = 42;
 
       for (var i = 0; i < samePageLinks.length; i++) {
@@ -324,6 +326,10 @@
           window.clearTimeout(navSelectionSession.timeoutId);
           navSelectionSession.timeoutId = 0;
         }
+        if (navSelectionSession.idleTimeoutId) {
+          window.clearTimeout(navSelectionSession.idleTimeoutId);
+          navSelectionSession.idleTimeoutId = 0;
+        }
         if (navSelectionSession.rafId) {
           window.cancelAnimationFrame(navSelectionSession.rafId);
           navSelectionSession.rafId = 0;
@@ -331,9 +337,11 @@
 
         navSelectionSession.hash = "";
         navSelectionSession.index = -1;
+        navSelectionSession.startedAt = 0;
         navSelectionSession.expiresAt = 0;
-        navSelectionSession.targetTop = null;
-        navSelectionSession.stableSince = 0;
+        navSelectionSession.lastScrollAt = 0;
+        navSelectionSession.releaseArmedAt = 0;
+        navSelectionSession.userInterrupted = false;
       }
 
       function sectionIndexForHash(hash) {
@@ -357,12 +365,48 @@
         markActiveHash(sectionEntries[index].hash);
       }
 
-      function lockDurationForHash(hash) {
-        var targetTop = sectionTopForHash(hash, { includeGap: false });
-        if (targetTop === null) return selectionHoldMinMs;
-        var distance = Math.abs((window.scrollY || 0) - targetTop);
-        var estimatedMs = 950 + (distance / 1.5);
-        return Math.max(selectionHoldMinMs, Math.min(selectionHoldMaxMs - 800, Math.round(estimatedMs)));
+      function armNavSelectionIdleRelease() {
+        if (!navSelectionSession.hash) return;
+        if (navSelectionSession.idleTimeoutId) window.clearTimeout(navSelectionSession.idleTimeoutId);
+        navSelectionSession.idleTimeoutId = window.setTimeout(function () {
+          navSelectionSession.idleTimeoutId = 0;
+          if (!navSelectionSession.hash) return;
+          detectActiveHash();
+        }, navSelectionSession.idleHoldMs + 20);
+      }
+
+      function focusedSectionIndex() {
+        if (!sectionEntries.length) return -1;
+
+        var navTop = navOffset(0);
+        var focusWindowMin = navTop - 8;
+        var focusWindowMax = navTop + 84;
+
+        for (var focusedIndex = 0; focusedIndex < sectionEntries.length; focusedIndex++) {
+          var sectionTop = Math.round(sectionEntries[focusedIndex].section.getBoundingClientRect().top);
+          if (sectionTop >= focusWindowMin && sectionTop <= focusWindowMax) return focusedIndex;
+        }
+
+        return -1;
+      }
+
+      function shouldReleaseSelectionSession() {
+        if (!navSelectionSession.hash) return true;
+        var now = Date.now();
+        if (navSelectionSession.userInterrupted) return true;
+        if (now >= navSelectionSession.expiresAt) return true;
+
+        var focusedIndex = focusedSectionIndex();
+        if (focusedIndex !== navSelectionSession.index) {
+          navSelectionSession.releaseArmedAt = 0;
+          return false;
+        }
+
+        if (!navSelectionSession.releaseArmedAt) navSelectionSession.releaseArmedAt = now;
+
+        var idleSatisfied = navSelectionSession.lastScrollAt && now - navSelectionSession.lastScrollAt >= navSelectionSession.idleHoldMs + navSelectionSession.idleGraceMs;
+        var armedSatisfied = now - navSelectionSession.releaseArmedAt >= navSelectionSession.idleHoldMs;
+        return idleSatisfied && armedSatisfied;
       }
 
       function startNavSelectionSession(hash) {
@@ -377,9 +421,11 @@
         stopNavSelectionSession();
         navSelectionSession.hash = hash;
         navSelectionSession.index = index;
-        navSelectionSession.expiresAt = Date.now() + lockDurationForHash(hash);
-        navSelectionSession.targetTop = sectionTopForHash(hash, { includeGap: false });
-        navSelectionSession.stableSince = 0;
+        navSelectionSession.startedAt = Date.now();
+        navSelectionSession.expiresAt = navSelectionSession.startedAt + navSelectionSession.maxHoldMs;
+        navSelectionSession.lastScrollAt = navSelectionSession.startedAt;
+        navSelectionSession.releaseArmedAt = 0;
+        navSelectionSession.userInterrupted = false;
 
         navSelectionSession.timeoutId = window.setTimeout(function () {
           stopNavSelectionSession();
@@ -390,25 +436,11 @@
           navSelectionSession.rafId = 0;
           if (!navSelectionSession.hash || navSelectionSession.hash !== hash) return;
 
-          if (Date.now() >= navSelectionSession.expiresAt) {
+          if (shouldReleaseSelectionSession()) {
             stopNavSelectionSession();
             detectActiveHash();
             return;
           }
-
-          if (typeof navSelectionSession.targetTop !== "number") {
-            navSelectionSession.targetTop = sectionTopForHash(hash, { includeGap: false });
-          }
-
-          var nearTarget = typeof navSelectionSession.targetTop === "number" && Math.abs((window.scrollY || 0) - navSelectionSession.targetTop) <= navSelectionSession.releaseDistancePx;
-          if (nearTarget) {
-            if (!navSelectionSession.stableSince) navSelectionSession.stableSince = Date.now();
-            if (Date.now() - navSelectionSession.stableSince >= navSelectionSession.idleHoldMs) {
-              stopNavSelectionSession();
-              detectActiveHash();
-              return;
-            }
-          } else navSelectionSession.stableSince = 0;
 
           navSelectionSession.rafId = window.requestAnimationFrame(checkSessionSettlement);
         }
@@ -419,9 +451,13 @@
       function detectActiveIndexFromScroll() {
         if (!sectionEntries.length) return -1;
 
+        var focusedIndex = focusedSectionIndex();
+        if (focusedIndex !== -1) return focusedIndex;
+
+        var navTop = navOffset(0);
         var currentScrollY = window.scrollY || 0;
         var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-        var anchorTop = Math.max(0, Math.round(currentScrollY + navOffset(0) + Math.min(120, Math.max(28, viewportHeight * 0.2))));
+        var anchorTop = Math.max(0, Math.round(currentScrollY + navTop + Math.min(120, Math.max(28, viewportHeight * 0.2))));
 
         var candidateIndex = 0;
         for (var i = 0; i < sectionBoundaries.length; i++) {
@@ -442,7 +478,7 @@
       }
 
       function detectActiveHash() {
-        if (navSelectionSession.hash && Date.now() <= navSelectionSession.expiresAt && findSectionEntryByHash(navSelectionSession.hash)) {
+        if (navSelectionSession.hash && !shouldReleaseSelectionSession() && findSectionEntryByHash(navSelectionSession.hash)) {
           markActiveIndex(navSelectionSession.index);
           return;
         }
@@ -454,6 +490,11 @@
       var scrollTicking = false;
       function handleScrollAria() {
         if (scrollTicking) return;
+        if (navSelectionSession.hash) {
+          navSelectionSession.lastScrollAt = Date.now();
+          navSelectionSession.releaseArmedAt = 0;
+          armNavSelectionIdleRelease();
+        }
         scrollTicking = true;
         window.requestAnimationFrame(function () {
           detectActiveHash();
@@ -481,16 +522,16 @@
       });
 
       window.addEventListener("wheel", function (event) {
-        if (event && event.isTrusted) stopNavSelectionSession();
+        if (event && event.isTrusted && navSelectionSession.hash) navSelectionSession.userInterrupted = true;
       }, { passive: true });
       window.addEventListener("touchstart", function (event) {
-        if (event && event.isTrusted) stopNavSelectionSession();
+        if (event && event.isTrusted && navSelectionSession.hash) navSelectionSession.userInterrupted = true;
       }, { passive: true });
       window.addEventListener("keydown", function (event) {
         var key = event && event.key;
         if (!key) return;
         if (key.indexOf("Arrow") === 0 || key === "PageDown" || key === "PageUp" || key === "Home" || key === "End" || key === " ") {
-          stopNavSelectionSession();
+          if (navSelectionSession.hash) navSelectionSession.userInterrupted = true;
         }
       });
 
