@@ -1539,11 +1539,21 @@
       importerNodes.push(createNode(importerItem.name, rightX, importerItem.y, sideWidth, importerItem.h, "#ffad42", importerItem.subtitle, nodeTooltip(importerItem.name, "Impacted module"), false, false, contextFor(importerItem.name).assurance.level));
     }
 
-    if (allImports.length > imports.length) {
+    var hasHiddenImports = allImports.length > imports.length;
+    var hasHiddenImporters = allImporters.length > importers.length;
+    var canMinimizeImports = state.flowShowAll && allImports.length > state.neighborLimit;
+    var canMinimizeImporters = state.flowShowAll && allImporters.length > state.neighborLimit;
+
+    if (hasHiddenImports) {
       createNode("+" + (allImports.length - imports.length) + " more imports", leftX, importLayout.bottom + laneGapY, sideWidth, 36, "#35c98f", "switch to Expanded mode", "Activate expanded mode", false, true, "", setExpandedFlowMode);
+    } else if (canMinimizeImports) {
+      createNode("Return to Compact mode", leftX, importLayout.bottom + laneGapY, sideWidth, 36, "#35c98f", "hide extra imports", "Activate compact mode", false, true, "", setCompactFlowMode);
     }
-    if (allImporters.length > importers.length) {
+
+    if (hasHiddenImporters) {
       createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", "switch to Expanded mode", "Activate expanded mode", false, true, "", setExpandedFlowMode);
+    } else if (canMinimizeImporters) {
+      createNode("Return to Compact mode", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", "hide extra impacted modules", "Activate compact mode", false, true, "", setCompactFlowMode);
     }
 
     var importSpread = Math.min(52, Math.max(14, importNodes.length * 2));
@@ -2761,6 +2771,13 @@
 
   function setExpandedFlowMode() {
     applyDetailLevel("expanded");
+    state.flowShowAll = true;
+    syncUrlState();
+    scheduleRender();
+  }
+
+  function setCompactFlowMode() {
+    applyDetailLevel("compact");
     state.flowShowAll = false;
     syncUrlState();
     scheduleRender();
