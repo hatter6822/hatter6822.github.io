@@ -279,7 +279,8 @@
       var settledHashLockUntil = 0;
       var lastDetectedHash = "";
       var lastScrollYForDetection = window.scrollY || 0;
-      var maxForceHashMs = 5000;
+      var maxForceHashMs = 12000;
+      var settleLockMs = 1400;
 
       for (var i = 0; i < samePageLinks.length; i++) {
         var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
@@ -346,8 +347,10 @@
       }
 
       function detectActiveHashFromScroll() {
-        var anchorTop = Math.max(0, Math.round(window.scrollY + navOffset(0) + 2));
-        var scrollYNow = window.scrollY || 0;
+        var currentScrollY = window.scrollY || 0;
+        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        var anchorTop = Math.max(0, Math.round(currentScrollY + navOffset(0) + Math.min(120, Math.max(24, viewportHeight * 0.2))));
+        var scrollYNow = currentScrollY;
         var direction = 0;
         if (scrollYNow > lastScrollYForDetection + 1) direction = 1;
         else if (scrollYNow < lastScrollYForDetection - 1) direction = -1;
@@ -370,7 +373,7 @@
         if (bestHash && lastDetectedHash && bestHash !== lastDetectedHash) {
           var lastIndex = sectionIndexForHash(lastDetectedHash);
           if (lastIndex !== -1 && bestIndex !== -1) {
-            var hysteresisPx = 12;
+            var hysteresisPx = 28;
             if (direction >= 0 && bestIndex > lastIndex) {
               if (anchorTop < sectionTops[bestIndex] + hysteresisPx) return lastDetectedHash;
             } else if (direction <= 0 && bestIndex < lastIndex) {
@@ -399,7 +402,7 @@
 
         var idleFrames = 0;
         var previousY = window.scrollY;
-        var requiredIdleFrames = 3;
+        var requiredIdleFrames = 5;
 
         function check() {
           forcedHashSettleRafId = 0;
@@ -419,10 +422,10 @@
 
           var expectedTop = navOffset(0);
           var currentTop = Math.round(entry.section.getBoundingClientRect().top);
-          var withinTarget = Math.abs(currentTop - expectedTop) <= 3;
+          var withinTarget = Math.abs(currentTop - expectedTop) <= 6;
 
           if (withinTarget && idleFrames >= requiredIdleFrames) {
-            lockActiveHash(hash, 420);
+            lockActiveHash(hash, settleLockMs);
             stopForcingHash();
             detectActiveHash();
             return;
