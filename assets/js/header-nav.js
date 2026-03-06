@@ -271,6 +271,9 @@
     function setupSectionAriaTracking() {
       var samePageLinks = links.querySelectorAll('a[href*="#"]');
       var sectionEntries = [];
+      var pendingHash = "";
+      var pendingHashExpiresAt = 0;
+      var pendingHashLockMs = 1500;
 
       for (var i = 0; i < samePageLinks.length; i++) {
         var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
@@ -284,6 +287,25 @@
 
       if (!sectionEntries.length) return;
 
+      function findSectionEntryByHash(hash) {
+        for (var i = 0; i < sectionEntries.length; i++) {
+          if (sectionEntries[i].hash === hash) return sectionEntries[i];
+        }
+        return null;
+      }
+
+      function lockActiveHash(hash) {
+        if (!hash) {
+          pendingHash = "";
+          pendingHashExpiresAt = 0;
+          return;
+        }
+
+        if (!findSectionEntryByHash(hash)) return;
+        pendingHash = hash;
+        pendingHashExpiresAt = Date.now() + pendingHashLockMs;
+      }
+
       function markActiveHash(hash) {
         for (var j = 0; j < sectionEntries.length; j++) {
           if (sectionEntries[j].hash === hash) sectionEntries[j].link.setAttribute("aria-current", "page");
@@ -292,13 +314,42 @@
       }
 
       function detectActiveHash() {
-        var best = null;
+        var bestPast = null;
+        var bestFuture = null;
+        var bestPastTop = -Infinity;
+        var bestFutureTop = Infinity;
         var topBoundary = navOffset(0) + 2;
+
+        if (pendingHash && Date.now() <= pendingHashExpiresAt) {
+          var pendingEntry = findSectionEntryByHash(pendingHash);
+          if (pendingEntry) {
+            var pendingTop = pendingEntry.section.getBoundingClientRect().top;
+            var pendingWithinBand = pendingTop >= topBoundary - 24 && pendingTop <= topBoundary + 24;
+            var pendingAboveBoundary = pendingTop < topBoundary;
+            if (!pendingWithinBand && !pendingAboveBoundary) {
+              markActiveHash(pendingHash);
+              return;
+            }
+          }
+
+          pendingHash = "";
+          pendingHashExpiresAt = 0;
+        }
+
         for (var k = 0; k < sectionEntries.length; k++) {
           var rectTop = sectionEntries[k].section.getBoundingClientRect().top;
-          if (rectTop <= topBoundary) best = sectionEntries[k];
-          else break;
+          if (rectTop <= topBoundary) {
+            if (rectTop > bestPastTop) {
+              bestPastTop = rectTop;
+              bestPast = sectionEntries[k];
+            }
+          } else if (rectTop < bestFutureTop) {
+            bestFutureTop = rectTop;
+            bestFuture = sectionEntries[k];
+          }
         }
+
+        var best = bestPast || bestFuture;
         if (!best) best = sectionEntries[0];
         markActiveHash(best.hash);
       }
@@ -317,8 +368,24 @@
       window.addEventListener("scroll", handleScrollAria, { passive: true });
       window.addEventListener("resize", detectActiveHash, { passive: true });
       window.addEventListener("hashchange", function () {
-        if (window.location.hash) markActiveHash(window.location.hash);
+        if (window.location.hash) {
+          lockActiveHash(window.location.hash);
+          markActiveHash(window.location.hash);
+        }
         else detectActiveHash();
+      });
+
+      links.addEventListener("click", function (event) {
+        var link = event.target;
+        if (!link || typeof link.closest !== "function") return;
+        var activeLink = link.closest("a");
+        if (!activeLink) return;
+
+        var activeTarget = resolveNavTarget(activeLink.getAttribute("href") || "");
+        if (!activeTarget || !activeTarget.sameOrigin || !activeTarget.samePath || !activeTarget.hash) return;
+
+        lockActiveHash(activeTarget.hash);
+        markActiveHash(activeTarget.hash);
       });
     }
 
