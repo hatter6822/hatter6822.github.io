@@ -47,7 +47,8 @@ node --check assets/js/theme-init.js
 
 - Confirm `index.html` and `map.html` load from a static server.
 - Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="page"`) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
-- Stress-test long hash jumps (top-to-lower sections and back) in Chromium: active nav state should transition once per section boundary and stay stable near boundaries (no alternating flicker).
+- Stress-test long hash jumps (top-to-lower sections and back) in Chromium: active nav state should transition once per section boundary and stay stable near boundaries (no alternating flicker), including after repeated clicks on links whose sections are near midpoint boundaries.
+- Verify hash-near-header behavior: when the URL hash matches a section whose heading is currently inside the fixed-header focus window, that section's nav link remains active even if tiny scroll jitter is present.
 - Verify repeated same-page hash clicks (especially `/#verification`, `/#api`, `/#roadmap`) do not produce alternating `aria-current` assignments in Chrome after smooth-scroll completes.
 - Confirm only one nav controller is active on `index.html`: with normal script order (`site.js` before `header-nav.js`), `header-nav.js` should own same-page hash behavior and no duplicate `aria-current` toggling should be observable in DevTools event listener traces.
 - Test map page on mobile viewport (~390px width).

@@ -71,9 +71,9 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 ## Header navigation stability hardening
 
 - Refined the **nav selection session** state machine to track deterministic lifecycle fields (`hash`, section index, last scroll tick, user interruption flag, and bounded max-hold timeout).
-- During a same-page hash selection, the state machine now keeps `aria-current` pinned to the clicked link until that same section is actually in the fixed-header focus window and scroll has remained idle for a guarded hold interval.
+- During a same-page hash selection, the state machine keeps `aria-current` pinned to the clicked link until scroll becomes idle and a short mismatch dwell threshold confirms the viewport has actually settled into a different section.
 - Rebuilt section geometry tracking into precomputed section tops + midpoint boundaries, refreshed on resize/orientation/load so section detection uses a stable topology snapshot.
-- Kept midpoint boundary classification, but increased adjacent-boundary hysteresis so tiny Chrome smooth-scroll jitter cannot ping-pong `aria-current` between neighboring links.
+- Increased adjacent-boundary hysteresis and added hash-near-header anchoring so tiny smooth-scroll jitter near section boundaries cannot ping-pong `aria-current` between neighboring links.
 - Preserved user override semantics by marking trusted wheel/touch/keyboard navigation as an immediate user interruption and releasing lock ownership on the next detection pass, ensuring explicit input always wins over automatic locking.
 - Result: deterministic active-link transitions with no random nav-link/section oscillation during hash jumps, including long-distance transitions that previously produced occasional active-link/section mismatches.
 - Eliminated dual nav-controller races by deferring `site.js` fallback nav initialization to the next animation frame and rechecking for `header-nav.js`; this prevents both scripts from mutating `aria-current` concurrently when script load order places `site.js` first.
