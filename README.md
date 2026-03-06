@@ -71,6 +71,7 @@ The code map interior panel links declarations directly to source in `hatter6822
 - [Architecture audit and growth plan](docs/ARCHITECTURE.md)
 - [Codebase map end-to-end guide](docs/CODEBASE_MAP.md)
 - [Testing and validation matrix](docs/TESTING.md)
+- [Developer guide (file-by-file orientation)](docs/DEVELOPER_GUIDE.md)
 - [Contributing guide](CONTRIBUTING.md)
 
 ## Third-party notices
