@@ -271,18 +271,17 @@
     function setupSectionAriaTracking() {
       var samePageLinks = links.querySelectorAll('a[href*="#"]');
       var sectionEntries = [];
-      var lockedHash = "";
-      var lockedHashExpiresAt = 0;
-      var lockTimeoutId = 0;
-      var releaseAttemptId = 0;
-      var maxLockMs = 5000;
+      var forcedHash = "";
+      var forcedHashExpiresAt = 0;
+      var forcedHashTimeoutId = 0;
+      var forcedHashSettleRafId = 0;
+      var maxForceHashMs = 5000;
 
       for (var i = 0; i < samePageLinks.length; i++) {
         var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
         if (!sameTarget || !sameTarget.sameOrigin || !sameTarget.samePath || !sameTarget.hash) continue;
         var hash = sameTarget.hash;
-        var id = hash.slice(1);
-        var section = document.getElementById(id);
+        var section = hashTarget(hash);
         if (!section) continue;
         sectionEntries.push({ hash: hash, section: section, link: samePageLinks[i] });
       }
@@ -296,27 +295,33 @@
         return null;
       }
 
-      function clearLockedHash() {
-        if (lockTimeoutId) {
-          window.clearTimeout(lockTimeoutId);
-          lockTimeoutId = 0;
+      function stopForcingHash() {
+        if (forcedHashTimeoutId) {
+          window.clearTimeout(forcedHashTimeoutId);
+          forcedHashTimeoutId = 0;
         }
-        if (releaseAttemptId) {
-          window.clearTimeout(releaseAttemptId);
-          releaseAttemptId = 0;
+        if (forcedHashSettleRafId) {
+          window.cancelAnimationFrame(forcedHashSettleRafId);
+          forcedHashSettleRafId = 0;
         }
-        lockedHash = "";
-        lockedHashExpiresAt = 0;
+        forcedHash = "";
+        forcedHashExpiresAt = 0;
       }
 
-      function lockActiveHash(hash) {
-        if (!hash) return clearLockedHash();
+      function startForcingHash(hash) {
+        if (!hash) {
+          stopForcingHash();
+          return;
+        }
 
         if (!findSectionEntryByHash(hash)) return;
-        if (lockTimeoutId) window.clearTimeout(lockTimeoutId);
-        lockedHash = hash;
-        lockedHashExpiresAt = Date.now() + maxLockMs;
-        lockTimeoutId = window.setTimeout(clearLockedHash, maxLockMs);
+        stopForcingHash();
+        forcedHash = hash;
+        forcedHashExpiresAt = Date.now() + maxForceHashMs;
+        forcedHashTimeoutId = window.setTimeout(function () {
+          stopForcingHash();
+          detectActiveHash();
+        }, maxForceHashMs);
       }
 
       function markActiveHash(hash) {
@@ -340,44 +345,58 @@
         return bestHash;
       }
 
-      function scheduleLockReleaseCheck(hash) {
-        if (!hash || lockedHash !== hash) return;
-        if (releaseAttemptId) window.clearTimeout(releaseAttemptId);
+      function scheduleForcedHashSettleCheck(hash) {
+        if (!hash || forcedHash !== hash) return;
+        if (forcedHashSettleRafId) window.cancelAnimationFrame(forcedHashSettleRafId);
 
-        releaseAttemptId = window.setTimeout(function () {
-          releaseAttemptId = 0;
-          if (lockedHash !== hash) return;
+        var idleFrames = 0;
+        var previousY = window.scrollY;
+        var requiredIdleFrames = 3;
+
+        function check() {
+          forcedHashSettleRafId = 0;
+          if (forcedHash !== hash) return;
 
           var entry = findSectionEntryByHash(hash);
           if (!entry) {
-            clearLockedHash();
+            stopForcingHash();
+            detectActiveHash();
             return;
           }
+
+          var currentY = window.scrollY;
+          if (Math.abs(currentY - previousY) <= 1) idleFrames += 1;
+          else idleFrames = 0;
+          previousY = currentY;
 
           var expectedTop = navOffset(0);
           var currentTop = Math.round(entry.section.getBoundingClientRect().top);
-          if (Math.abs(currentTop - expectedTop) <= 3) {
-            clearLockedHash();
+          var withinTarget = Math.abs(currentTop - expectedTop) <= 3;
+
+          if (withinTarget && idleFrames >= requiredIdleFrames) {
+            stopForcingHash();
             detectActiveHash();
             return;
           }
 
-          if (Date.now() >= lockedHashExpiresAt) {
-            clearLockedHash();
+          if (Date.now() >= forcedHashExpiresAt) {
+            stopForcingHash();
             detectActiveHash();
             return;
           }
 
-          scheduleLockReleaseCheck(hash);
-        }, 140);
+          forcedHashSettleRafId = window.requestAnimationFrame(check);
+        }
+
+        forcedHashSettleRafId = window.requestAnimationFrame(check);
       }
 
       function detectActiveHash() {
-        if (lockedHash && Date.now() <= lockedHashExpiresAt) {
-          markActiveHash(lockedHash);
+        if (forcedHash && Date.now() <= forcedHashExpiresAt) {
+          markActiveHash(forcedHash);
           return;
         }
-        clearLockedHash();
+        stopForcingHash();
 
         var activeHash = detectActiveHashFromScroll();
         if (activeHash) markActiveHash(activeHash);
@@ -406,20 +425,20 @@
       });
       window.addEventListener("hashchange", function () {
         if (window.location.hash) {
-          lockActiveHash(window.location.hash);
+          startForcingHash(window.location.hash);
           markActiveHash(window.location.hash);
-          scheduleLockReleaseCheck(window.location.hash);
+          scheduleForcedHashSettleCheck(window.location.hash);
         }
         else detectActiveHash();
       });
 
-      window.addEventListener("wheel", clearLockedHash, { passive: true });
-      window.addEventListener("touchstart", clearLockedHash, { passive: true });
+      window.addEventListener("wheel", stopForcingHash, { passive: true });
+      window.addEventListener("touchstart", stopForcingHash, { passive: true });
       window.addEventListener("keydown", function (event) {
         var key = event && event.key;
         if (!key) return;
         if (key.indexOf("Arrow") === 0 || key === "PageDown" || key === "PageUp" || key === "Home" || key === "End" || key === " ") {
-          clearLockedHash();
+          stopForcingHash();
         }
       });
 
@@ -432,15 +451,15 @@
         var activeTarget = resolveNavTarget(activeLink.getAttribute("href") || "");
         if (!activeTarget || !activeTarget.sameOrigin || !activeTarget.samePath || !activeTarget.hash) return;
 
-        lockActiveHash(activeTarget.hash);
+        startForcingHash(activeTarget.hash);
         markActiveHash(activeTarget.hash);
-        scheduleLockReleaseCheck(activeTarget.hash);
+        scheduleForcedHashSettleCheck(activeTarget.hash);
       });
 
       if ("onscrollend" in window) {
         window.addEventListener("scrollend", function () {
-          if (!lockedHash) return;
-          scheduleLockReleaseCheck(lockedHash);
+          if (!forcedHash) return;
+          scheduleForcedHashSettleCheck(forcedHash);
         }, { passive: true });
       }
     }
