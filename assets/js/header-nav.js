@@ -280,6 +280,7 @@
         startedAt: 0,
         expiresAt: 0,
         lastScrollAt: 0,
+        mismatchSince: 0,
         releaseArmedAt: 0,
         userInterrupted: false,
         rafId: 0,
@@ -289,7 +290,7 @@
         maxHoldMs: 12000,
         idleGraceMs: 36
       };
-      var boundaryHysteresisPx = 42;
+      var boundaryHysteresisPx = 56;
 
       for (var i = 0; i < samePageLinks.length; i++) {
         var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
@@ -340,6 +341,7 @@
         navSelectionSession.startedAt = 0;
         navSelectionSession.expiresAt = 0;
         navSelectionSession.lastScrollAt = 0;
+        navSelectionSession.mismatchSince = 0;
         navSelectionSession.releaseArmedAt = 0;
         navSelectionSession.userInterrupted = false;
       }
@@ -398,9 +400,15 @@
 
         var focusedIndex = focusedSectionIndex();
         if (focusedIndex !== navSelectionSession.index) {
+          if (!navSelectionSession.mismatchSince) navSelectionSession.mismatchSince = now;
           navSelectionSession.releaseArmedAt = 0;
+          var mismatchIdle = navSelectionSession.lastScrollAt && now - navSelectionSession.lastScrollAt >= navSelectionSession.idleHoldMs + navSelectionSession.idleGraceMs;
+          var mismatchHeldLongEnough = now - navSelectionSession.mismatchSince >= 140;
+          if (mismatchIdle && mismatchHeldLongEnough) return true;
           return false;
         }
+
+        navSelectionSession.mismatchSince = 0;
 
         if (!navSelectionSession.releaseArmedAt) navSelectionSession.releaseArmedAt = now;
 
@@ -424,6 +432,7 @@
         navSelectionSession.startedAt = Date.now();
         navSelectionSession.expiresAt = navSelectionSession.startedAt + navSelectionSession.maxHoldMs;
         navSelectionSession.lastScrollAt = navSelectionSession.startedAt;
+        navSelectionSession.mismatchSince = 0;
         navSelectionSession.releaseArmedAt = 0;
         navSelectionSession.userInterrupted = false;
 
@@ -483,6 +492,16 @@
           return;
         }
         if (navSelectionSession.hash) stopNavSelectionSession();
+
+        var hashIndex = sectionIndexForHash(window.location.hash || "");
+        if (hashIndex !== -1) {
+          var navTop = navOffset(0);
+          var hashTop = Math.round(sectionEntries[hashIndex].section.getBoundingClientRect().top);
+          if (hashTop >= navTop - 20 && hashTop <= navTop + 120) {
+            markActiveIndex(hashIndex);
+            return;
+          }
+        }
 
         markActiveIndex(detectActiveIndexFromScroll());
       }

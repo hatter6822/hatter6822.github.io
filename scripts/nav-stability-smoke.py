@@ -13,8 +13,8 @@ from playwright.async_api import async_playwright
 
 BASE_URL = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 INITIAL_SETTLE_MS = 2800
-SAMPLE_COUNT = 26
-SAMPLE_INTERVAL_MS = 120
+SAMPLE_COUNT = 30
+SAMPLE_INTERVAL_MS = 100
 
 TARGET_HREFS = (
     "/#features",
@@ -22,6 +22,8 @@ TARGET_HREFS = (
     "/#verification",
     "/#getting-started",
 )
+REPEATED_TARGET = "/#verification"
+REPEATED_CLICKS = 3
 
 
 async def sample_nav_state(page, target_href):
@@ -91,6 +93,20 @@ async def run_probe(browser_type, name):
         if not passed:
             failures.append(result)
 
+    # Repeated-click regression: same link selected multiple times should not oscillate after settle.
+    for repeat_index in range(REPEATED_CLICKS):
+        await page.click(f'#nav-links a[href="{REPEATED_TARGET}"]')
+        await page.wait_for_timeout(INITIAL_SETTLE_MS)
+        result = await sample_nav_state(page, REPEATED_TARGET)
+        passed = result["active_stable"] and result["focus_stable"]
+        print(
+            f"{name}: repeated target={REPEATED_TARGET} run={repeat_index + 1}/{REPEATED_CLICKS} "
+            f"pass={passed} transitions={result['transitions']} active_stable={result['active_stable']} "
+            f"focus_stable={result['focus_stable']}"
+        )
+        if not passed:
+            failures.append(result)
+
     await browser.close()
     return failures
 
@@ -112,7 +128,7 @@ async def main():
             print(f"FAIL {browser}: {browser_failures}")
         raise SystemExit(1)
 
-    print("PASS: nav stability confirmed across links for chromium/firefox/webkit")
+    print("PASS: nav stability confirmed across links and repeated-click regression for chromium/firefox/webkit")
 
 
 if __name__ == "__main__":
