@@ -72,8 +72,9 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 
 - Refined the **nav selection session** state machine to track deterministic lifecycle fields (`hash`, section index, last scroll tick, user interruption flag, and bounded max-hold timeout).
 - During a same-page hash selection, the state machine keeps `aria-current` pinned to the clicked link until scroll becomes idle and a short mismatch dwell threshold confirms the viewport has actually settled into a different section.
-- Rebuilt section geometry tracking into precomputed section tops + midpoint boundaries, refreshed on resize/orientation/load so section detection uses a stable topology snapshot.
-- Increased adjacent-boundary hysteresis and added hash-near-header anchoring so tiny smooth-scroll jitter near section boundaries cannot ping-pong `aria-current` between neighboring links.
+- Replaced static midpoint snapshots with live section-top/boundary reads so active-link detection tracks asynchronous layout shifts (content hydration, font swap, responsive reflow) without stale geometry drift.
+- Added candidate-confirmation gating (two consecutive detections before commit) plus directional boundary hysteresis and hash-near-header anchoring so tiny smooth-scroll jitter near section boundaries cannot ping-pong `aria-current` between neighboring links.
+- Added debounced `MutationObserver` + per-section `ResizeObserver` refresh scheduling so section geometry is re-evaluated deterministically after DOM/layout mutations instead of relying only on resize/load events.
 - Preserved user override semantics by marking trusted wheel/touch/keyboard navigation as an immediate user interruption and releasing lock ownership on the next detection pass, ensuring explicit input always wins over automatic locking.
 - Result: deterministic active-link transitions with no random nav-link/section oscillation during hash jumps, including long-distance transitions that previously produced occasional active-link/section mismatches.
 - Eliminated dual nav-controller races by deferring `site.js` fallback nav initialization to the next animation frame and rechecking for `header-nav.js`; this prevents both scripts from mutating `aria-current` concurrently when script load order places `site.js` first.

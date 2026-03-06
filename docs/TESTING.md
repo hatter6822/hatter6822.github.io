@@ -48,6 +48,7 @@ node --check assets/js/theme-init.js
 - Confirm `index.html` and `map.html` load from a static server.
 - Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="page"`) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
 - Stress-test long hash jumps (top-to-lower sections and back) in Chromium: active nav state should transition once per section boundary and stay stable near boundaries (no alternating flicker), including after repeated clicks on links whose sections are near midpoint boundaries.
+- While a lower section is active (for example `/#verification`), trigger an asynchronous layout shift (expand/collapse content above the fold using DevTools or temporary DOM edits): active nav selection should remain deterministic (no back-and-forth oscillation) and converge to the true in-focus section after layout settles.
 - Verify hash-near-header behavior: when the URL hash matches a section whose heading is currently inside the fixed-header focus window, that section's nav link remains active even if tiny scroll jitter is present.
 - Verify repeated same-page hash clicks (especially `/#verification`, `/#api`, `/#roadmap`) do not produce alternating `aria-current` assignments in Chrome after smooth-scroll completes.
 - Confirm only one nav controller is active on `index.html`: with normal script order (`site.js` before `header-nav.js`), `header-nav.js` should own same-page hash behavior and no duplicate `aria-current` toggling should be observable in DevTools event listener traces.
@@ -75,4 +76,4 @@ python3 -m http.server 4173 --bind 0.0.0.0
 python3 scripts/nav-stability-smoke.py
 ```
 
-Expected: for each tested nav hash (`/#features`, `/#security`, `/#verification`, `/#getting-started`), the selected link remains active through the full sample window **and** the corresponding section remains in-focus under the fixed header offset window, with no unexpected active-link transitions after initial settle.
+Expected: for each tested nav hash (`/#features`, `/#security`, `/#verification`, `/#getting-started`), the selected link remains active through the full sample window **and** the corresponding section remains in-focus under the fixed header offset window, with no unexpected active-link transitions after initial settle. The probe also injects a synthetic asynchronous layout shift while `/#verification` is active; `aria-current` must remain stable and the target section must stay aligned under the fixed header window.
