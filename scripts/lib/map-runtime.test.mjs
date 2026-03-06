@@ -360,8 +360,8 @@ test('interior kind group helpers default to all kinds and aggregate extension/c
 
   interior.byKind.def = [{ name: 'mainDef', line: 12 }];
   interior.byKind.theorem = [{ name: 'mainThm', line: 30 }];
-  interior.byKind.syntax = [{ name: 'syntaxAlias', line: 48 }];
-  interior.byKind.macro = [{ name: 'macroExpand', line: 55 }];
+  interior.byKind.syntax = [{ name: 'betaSyntax', line: 48 }];
+  interior.byKind.macro = [{ name: 'AlphaMacro', line: 55 }];
   interior.byKind.namespace = [{ name: 'Core', line: 3 }];
   interior.byKind.initialize = [{ name: 'initCore', line: 90 }];
 
@@ -374,10 +374,20 @@ test('interior kind group helpers default to all kinds and aggregate extension/c
   assert.equal(hooks.interiorGroupItemCount(interior, contextKinds), 2);
 
   const allExtensionItems = hooks.interiorItemsForSelection(interior, extensionKinds, '__all__', '');
-  assert.deepEqual(Array.from(allExtensionItems, (item) => item.name), ['syntaxAlias', 'macroExpand']);
+  assert.deepEqual(Array.from(allExtensionItems, (item) => item.name), ['AlphaMacro', 'betaSyntax']);
 
   const allContextItems = hooks.interiorItemsForSelection(interior, contextKinds, '__all__', 'init');
   assert.deepEqual(Array.from(allContextItems, (item) => item.name), ['initCore']);
+});
+
+
+
+test('interiorKindColor maps known kinds and produces deterministic fallback colors', async () => {
+  const hooks = await loadMapTestHooks();
+
+  assert.equal(hooks.interiorKindColor('theorem'), '#72a7ff');
+  assert.equal(hooks.interiorKindColor(''), '#8fa3bf');
+  assert.match(hooks.interiorKindColor('custom_kind_xyz'), /^hsl\(\d+ 58% 64%\)$/);
 });
 
 test('flowLaneLabelVisibility hides context labels for empty lanes', async () => {
