@@ -276,7 +276,12 @@
   overflow: auto;
   padding-right: 0.15rem;
 }
+.interior-menu-items .interior-menu-item::before {
+  content: none;
+  display: none;
+}
 .interior-menu-item {
+  list-style: none;
   font-family: var(--font-mono);
   font-size: 0.67rem;
   border: 1px solid var(--border);
