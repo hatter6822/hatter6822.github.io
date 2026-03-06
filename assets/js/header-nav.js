@@ -271,10 +271,11 @@
     function setupSectionAriaTracking() {
       var samePageLinks = links.querySelectorAll('a[href*="#"]');
       var sectionEntries = [];
-      var sectionTops = [];
       var lockedHash = "";
       var lockedHashExpiresAt = 0;
-      var lockMs = 1400;
+      var lockTimeoutId = 0;
+      var releaseAttemptId = 0;
+      var maxLockMs = 5000;
 
       for (var i = 0; i < samePageLinks.length; i++) {
         var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
@@ -295,19 +296,15 @@
         return null;
       }
 
-      function absoluteTop(element) {
-        return Math.max(0, Math.round(element.getBoundingClientRect().top + window.scrollY));
-      }
-
-      function recomputeSectionTops() {
-        sectionTops = [];
-        for (var i = 0; i < sectionEntries.length; i++) {
-          sectionTops.push({ hash: sectionEntries[i].hash, top: absoluteTop(sectionEntries[i].section) });
-        }
-        sectionTops.sort(function (a, b) { return a.top - b.top; });
-      }
-
       function clearLockedHash() {
+        if (lockTimeoutId) {
+          window.clearTimeout(lockTimeoutId);
+          lockTimeoutId = 0;
+        }
+        if (releaseAttemptId) {
+          window.clearTimeout(releaseAttemptId);
+          releaseAttemptId = 0;
+        }
         lockedHash = "";
         lockedHashExpiresAt = 0;
       }
@@ -316,8 +313,10 @@
         if (!hash) return clearLockedHash();
 
         if (!findSectionEntryByHash(hash)) return;
+        if (lockTimeoutId) window.clearTimeout(lockTimeoutId);
         lockedHash = hash;
-        lockedHashExpiresAt = Date.now() + lockMs;
+        lockedHashExpiresAt = Date.now() + maxLockMs;
+        lockTimeoutId = window.setTimeout(clearLockedHash, maxLockMs);
       }
 
       function markActiveHash(hash) {
@@ -328,23 +327,49 @@
       }
 
       function detectActiveHashFromScroll() {
-        if (!sectionTops.length) return null;
         var anchorTop = Math.max(0, Math.round(window.scrollY + navOffset(0) + 2));
-        var low = 0;
-        var high = sectionTops.length - 1;
-        var bestIndex = 0;
-
-        while (low <= high) {
-          var middle = (low + high) >> 1;
-          if (sectionTops[middle].top <= anchorTop) {
-            bestIndex = middle;
-            low = middle + 1;
-          } else {
-            high = middle - 1;
+        var bestHash = sectionEntries[0] ? sectionEntries[0].hash : null;
+        var bestTop = -Infinity;
+        for (var i = 0; i < sectionEntries.length; i++) {
+          var top = Math.max(0, Math.round(sectionEntries[i].section.getBoundingClientRect().top + window.scrollY));
+          if (top <= anchorTop && top >= bestTop) {
+            bestTop = top;
+            bestHash = sectionEntries[i].hash;
           }
         }
+        return bestHash;
+      }
 
-        return sectionTops[bestIndex].hash;
+      function scheduleLockReleaseCheck(hash) {
+        if (!hash || lockedHash !== hash) return;
+        if (releaseAttemptId) window.clearTimeout(releaseAttemptId);
+
+        releaseAttemptId = window.setTimeout(function () {
+          releaseAttemptId = 0;
+          if (lockedHash !== hash) return;
+
+          var entry = findSectionEntryByHash(hash);
+          if (!entry) {
+            clearLockedHash();
+            return;
+          }
+
+          var expectedTop = navOffset(0);
+          var currentTop = Math.round(entry.section.getBoundingClientRect().top);
+          if (Math.abs(currentTop - expectedTop) <= 3) {
+            clearLockedHash();
+            detectActiveHash();
+            return;
+          }
+
+          if (Date.now() >= lockedHashExpiresAt) {
+            clearLockedHash();
+            detectActiveHash();
+            return;
+          }
+
+          scheduleLockReleaseCheck(hash);
+        }, 140);
       }
 
       function detectActiveHash() {
@@ -368,25 +393,22 @@
         });
       }
 
-      recomputeSectionTops();
       detectActiveHash();
       window.addEventListener("scroll", handleScrollAria, { passive: true });
       window.addEventListener("resize", function () {
-        recomputeSectionTops();
         detectActiveHash();
       }, { passive: true });
       window.addEventListener("orientationchange", function () {
-        recomputeSectionTops();
         detectActiveHash();
       }, { passive: true });
       window.addEventListener("load", function () {
-        recomputeSectionTops();
         detectActiveHash();
       });
       window.addEventListener("hashchange", function () {
         if (window.location.hash) {
           lockActiveHash(window.location.hash);
           markActiveHash(window.location.hash);
+          scheduleLockReleaseCheck(window.location.hash);
         }
         else detectActiveHash();
       });
@@ -412,7 +434,15 @@
 
         lockActiveHash(activeTarget.hash);
         markActiveHash(activeTarget.hash);
+        scheduleLockReleaseCheck(activeTarget.hash);
       });
+
+      if ("onscrollend" in window) {
+        window.addEventListener("scrollend", function () {
+          if (!lockedHash) return;
+          scheduleLockReleaseCheck(lockedHash);
+        }, { passive: true });
+      }
     }
 
     if (toggle) toggle.addEventListener("click", function () { setNavState(!links.classList.contains("open")); });
