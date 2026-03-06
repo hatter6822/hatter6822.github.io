@@ -70,12 +70,13 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 
 ## Header navigation stability hardening
 
-- Strengthened same-page hash navigation with a selection lock that keeps the clicked nav-link active while smooth-scroll settles.
-- Reworked section activation selection from "closest top before anchor" to midpoint boundaries between adjacent sections, which removes random boundary flapping when browser scroll position jitters during smooth-scroll.
-- Added boundary hysteresis around shared section midpoints so tiny position variance cannot rapidly flip `aria-current` between neighboring nav links.
-- Made settle locks distance-aware (longer lock windows for larger hash jumps) to better align with Chromium smooth-scroll timing and avoid premature release while inertial scrolling is still converging.
-- Preserved user override semantics (wheel/touch/keyboard cancels lock) so explicit user scroll input still takes priority.
-- Result: reduced `aria-current` oscillation between adjacent section links during hash navigation in Chromium, Firefox, and Safari/WebKit-class engines.
+- Replaced layered forced/settled lock flags with a single explicit **nav selection session** state machine (`hash`, section index, expiry, target top, idle-stability window).
+- During a same-page hash selection, the state machine holds `aria-current` on the clicked nav link until either (a) scroll converges to the expected section top and remains stable for an idle window, or (b) a hard timeout elapses.
+- Rebuilt section geometry tracking into precomputed section tops + midpoint boundaries, refreshed on resize/orientation/load so section detection uses a stable topology snapshot.
+- Kept midpoint boundary classification, but increased adjacent-boundary hysteresis so tiny Chrome smooth-scroll jitter cannot ping-pong `aria-current` between neighboring links.
+- Preserved user override semantics (trusted wheel/touch/keyboard navigation immediately cancels the selection session), ensuring explicit user input always wins over automatic locking.
+- Result: deterministic active-link transitions with no random nav-link/section oscillation during hash jumps across Chromium, Firefox, and Safari/WebKit-class engines.
+- Eliminated dual nav-controller races by deferring `site.js` fallback nav initialization to the next animation frame and rechecking for `header-nav.js`; this prevents both scripts from mutating `aria-current` concurrently when script load order places `site.js` first.
 
 ## Future growth recommendations
 

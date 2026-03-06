@@ -271,20 +271,23 @@
     function setupSectionAriaTracking() {
       var samePageLinks = links.querySelectorAll('a[href*="#"]');
       var sectionEntries = [];
-      var forcedHash = "";
-      var forcedHashExpiresAt = 0;
-      var forcedHashTimeoutId = 0;
-      var forcedHashSettleRafId = 0;
-      var settledHash = "";
-      var settledHashLockUntil = 0;
-      // Locks the selected nav hash while browser scroll settling is still in-flight.
-      // This prevents random aria-current oscillation between adjacent sections,
-      // especially during smooth-scroll timing differences across engines.
-      var navSelectionLockHash = "";
-      var navSelectionLockUntil = 0;
-      var lastDetectedHash = "";
-      var maxForceHashMs = 15000;
-      var settleLockMs = 2600;
+      var sectionTops = [];
+      var sectionBoundaries = [];
+      var activeIndex = -1;
+      var navSelectionSession = {
+        hash: "",
+        index: -1,
+        expiresAt: 0,
+        targetTop: null,
+        stableSince: 0,
+        rafId: 0,
+        timeoutId: 0,
+        releaseDistancePx: 4,
+        idleHoldMs: 170
+      };
+      var selectionHoldMaxMs = 14000;
+      var selectionHoldMinMs = 2400;
+      var boundaryHysteresisPx = 42;
 
       for (var i = 0; i < samePageLinks.length; i++) {
         var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
@@ -304,55 +307,33 @@
         return null;
       }
 
-      function stopForcingHash() {
-        if (forcedHashTimeoutId) {
-          window.clearTimeout(forcedHashTimeoutId);
-          forcedHashTimeoutId = 0;
-        }
-        if (forcedHashSettleRafId) {
-          window.cancelAnimationFrame(forcedHashSettleRafId);
-          forcedHashSettleRafId = 0;
-        }
-        forcedHash = "";
-        forcedHashExpiresAt = 0;
-      }
-
-      function lockNavSelection(hash, durationMs) {
-        if (!hash) return;
-        navSelectionLockHash = hash;
-        navSelectionLockUntil = Date.now() + Math.max(0, Number(durationMs) || 0);
-      }
-
-      function clearNavSelectionLock() {
-        navSelectionLockHash = "";
-        navSelectionLockUntil = 0;
-      }
-
-      function startForcingHash(hash) {
-        if (!hash) {
-          stopForcingHash();
-          return;
+      function rebuildSectionGeometry() {
+        sectionTops = [];
+        sectionBoundaries = [];
+        for (var i = 0; i < sectionEntries.length; i++) {
+          sectionTops.push(Math.max(0, Math.round(sectionEntries[i].section.getBoundingClientRect().top + window.scrollY)));
         }
 
-        if (!findSectionEntryByHash(hash)) return;
-        stopForcingHash();
-        forcedHash = hash;
-        forcedHashExpiresAt = Date.now() + maxForceHashMs;
-        lockNavSelection(hash, maxForceHashMs);
-        settledHash = "";
-        settledHashLockUntil = 0;
-        forcedHashTimeoutId = window.setTimeout(function () {
-          stopForcingHash();
-          clearNavSelectionLock();
-          detectActiveHash();
-        }, maxForceHashMs);
+        for (var j = 0; j < sectionTops.length - 1; j++) {
+          sectionBoundaries.push(Math.round((sectionTops[j] + sectionTops[j + 1]) / 2));
+        }
       }
 
-      function markActiveHash(hash) {
-        for (var j = 0; j < sectionEntries.length; j++) {
-          if (sectionEntries[j].hash === hash) sectionEntries[j].link.setAttribute("aria-current", "page");
-          else sectionEntries[j].link.removeAttribute("aria-current");
+      function stopNavSelectionSession() {
+        if (navSelectionSession.timeoutId) {
+          window.clearTimeout(navSelectionSession.timeoutId);
+          navSelectionSession.timeoutId = 0;
         }
+        if (navSelectionSession.rafId) {
+          window.cancelAnimationFrame(navSelectionSession.rafId);
+          navSelectionSession.rafId = 0;
+        }
+
+        navSelectionSession.hash = "";
+        navSelectionSession.index = -1;
+        navSelectionSession.expiresAt = 0;
+        navSelectionSession.targetTop = null;
+        navSelectionSession.stableSince = 0;
       }
 
       function sectionIndexForHash(hash) {
@@ -363,153 +344,111 @@
         return -1;
       }
 
-      function detectActiveHashFromScroll() {
-        var currentScrollY = window.scrollY || 0;
-        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-        var anchorTop = Math.max(0, Math.round(currentScrollY + navOffset(0) + Math.min(120, Math.max(24, viewportHeight * 0.2))));
-        var bestHash = sectionEntries[0] ? sectionEntries[0].hash : null;
-        var bestIndex = sectionEntries.length ? 0 : -1;
-        var sectionTops = [];
-        for (var i = 0; i < sectionEntries.length; i++) {
-          var top = Math.max(0, Math.round(sectionEntries[i].section.getBoundingClientRect().top + window.scrollY));
-          sectionTops.push(top);
+      function markActiveHash(hash) {
+        for (var j = 0; j < sectionEntries.length; j++) {
+          if (sectionEntries[j].hash === hash) sectionEntries[j].link.setAttribute("aria-current", "page");
+          else sectionEntries[j].link.removeAttribute("aria-current");
         }
+      }
 
-        for (var index = 0; index < sectionEntries.length; index++) {
-          if (index === sectionEntries.length - 1) {
-            bestIndex = index;
-            bestHash = sectionEntries[index].hash;
-            break;
-          }
-
-          var midpoint = Math.round((sectionTops[index] + sectionTops[index + 1]) / 2);
-          if (anchorTop < midpoint) {
-            bestIndex = index;
-            bestHash = sectionEntries[index].hash;
-            break;
-          }
-        }
-
-        if (bestHash && lastDetectedHash && bestHash !== lastDetectedHash) {
-          var lastIndex = sectionIndexForHash(lastDetectedHash);
-          if (lastIndex !== -1 && bestIndex !== -1) {
-            var low = Math.min(lastIndex, bestIndex);
-            var high = Math.max(lastIndex, bestIndex);
-            if (high - low === 1) {
-              var sharedBoundary = Math.round((sectionTops[low] + sectionTops[high]) / 2);
-              var hysteresisPx = 32;
-              if (Math.abs(anchorTop - sharedBoundary) <= hysteresisPx) return lastDetectedHash;
-            }
-          }
-        }
-
-        return bestHash;
+      function markActiveIndex(index) {
+        if (index < 0 || index >= sectionEntries.length) return;
+        activeIndex = index;
+        markActiveHash(sectionEntries[index].hash);
       }
 
       function lockDurationForHash(hash) {
         var targetTop = sectionTopForHash(hash, { includeGap: false });
-        if (targetTop === null) return settleLockMs;
+        if (targetTop === null) return selectionHoldMinMs;
         var distance = Math.abs((window.scrollY || 0) - targetTop);
-        var estimatedMs = 900 + (distance / 1.35);
-        return Math.max(settleLockMs, Math.min(maxForceHashMs - 1200, Math.round(estimatedMs)));
+        var estimatedMs = 950 + (distance / 1.5);
+        return Math.max(selectionHoldMinMs, Math.min(selectionHoldMaxMs - 800, Math.round(estimatedMs)));
       }
 
-      function lockActiveHash(hash, durationMs) {
-        if (!hash) return;
-        settledHash = hash;
-        settledHashLockUntil = Date.now() + Math.max(0, Number(durationMs) || 0);
-      }
-
-      function clearActiveHashLock() {
-        settledHash = "";
-        settledHashLockUntil = 0;
-      }
-
-      function scheduleForcedHashSettleCheck(hash) {
-        if (!hash || forcedHash !== hash) return;
-        if (forcedHashSettleRafId) window.cancelAnimationFrame(forcedHashSettleRafId);
-
-        var stablePasses = 0;
-        var previousY = window.scrollY;
-        var lastMovementAt = Date.now();
-        var requiredIdleMs = 170;
-        var requiredStablePasses = 2;
-
-        function check() {
-          forcedHashSettleRafId = 0;
-          if (forcedHash !== hash) return;
-
-          var entry = findSectionEntryByHash(hash);
-          if (!entry) {
-            stopForcingHash();
-            detectActiveHash();
-            return;
-          }
-
-          var currentY = window.scrollY;
-          if (Math.abs(currentY - previousY) <= 1) {
-            // no-op
-          } else {
-            lastMovementAt = Date.now();
-          }
-          previousY = currentY;
-
-          var expectedTop = navOffset(0);
-          var currentTop = Math.round(entry.section.getBoundingClientRect().top);
-          var withinTarget = Math.abs(currentTop - expectedTop) <= 8;
-          var idleLongEnough = Date.now() - lastMovementAt >= requiredIdleMs;
-
-          if (withinTarget && idleLongEnough) stablePasses += 1;
-          else stablePasses = 0;
-
-          if (stablePasses >= requiredStablePasses) {
-            var dynamicLockMs = lockDurationForHash(hash);
-            lockActiveHash(hash, dynamicLockMs);
-            lockNavSelection(hash, dynamicLockMs);
-            stopForcingHash();
-            detectActiveHash();
-            return;
-          }
-
-          if (Date.now() >= forcedHashExpiresAt) {
-            stopForcingHash();
-            detectActiveHash();
-            return;
-          }
-
-          forcedHashSettleRafId = window.requestAnimationFrame(check);
+      function startNavSelectionSession(hash) {
+        if (!hash) {
+          stopNavSelectionSession();
+          return;
         }
 
-        forcedHashSettleRafId = window.requestAnimationFrame(check);
+        var index = sectionIndexForHash(hash);
+        if (index === -1) return;
+
+        stopNavSelectionSession();
+        navSelectionSession.hash = hash;
+        navSelectionSession.index = index;
+        navSelectionSession.expiresAt = Date.now() + lockDurationForHash(hash);
+        navSelectionSession.targetTop = sectionTopForHash(hash, { includeGap: false });
+        navSelectionSession.stableSince = 0;
+
+        navSelectionSession.timeoutId = window.setTimeout(function () {
+          stopNavSelectionSession();
+          detectActiveHash();
+        }, Math.max(0, navSelectionSession.expiresAt - Date.now()));
+
+        function checkSessionSettlement() {
+          navSelectionSession.rafId = 0;
+          if (!navSelectionSession.hash || navSelectionSession.hash !== hash) return;
+
+          if (Date.now() >= navSelectionSession.expiresAt) {
+            stopNavSelectionSession();
+            detectActiveHash();
+            return;
+          }
+
+          if (typeof navSelectionSession.targetTop !== "number") {
+            navSelectionSession.targetTop = sectionTopForHash(hash, { includeGap: false });
+          }
+
+          var nearTarget = typeof navSelectionSession.targetTop === "number" && Math.abs((window.scrollY || 0) - navSelectionSession.targetTop) <= navSelectionSession.releaseDistancePx;
+          if (nearTarget) {
+            if (!navSelectionSession.stableSince) navSelectionSession.stableSince = Date.now();
+            if (Date.now() - navSelectionSession.stableSince >= navSelectionSession.idleHoldMs) {
+              stopNavSelectionSession();
+              detectActiveHash();
+              return;
+            }
+          } else navSelectionSession.stableSince = 0;
+
+          navSelectionSession.rafId = window.requestAnimationFrame(checkSessionSettlement);
+        }
+
+        navSelectionSession.rafId = window.requestAnimationFrame(checkSessionSettlement);
+      }
+
+      function detectActiveIndexFromScroll() {
+        if (!sectionEntries.length) return -1;
+
+        var currentScrollY = window.scrollY || 0;
+        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        var anchorTop = Math.max(0, Math.round(currentScrollY + navOffset(0) + Math.min(120, Math.max(28, viewportHeight * 0.2))));
+
+        var candidateIndex = 0;
+        for (var i = 0; i < sectionBoundaries.length; i++) {
+          if (anchorTop < sectionBoundaries[i]) break;
+          candidateIndex = i + 1;
+        }
+
+        if (activeIndex !== -1 && activeIndex !== candidateIndex) {
+          var low = Math.min(activeIndex, candidateIndex);
+          var high = Math.max(activeIndex, candidateIndex);
+          if (high - low === 1) {
+            var boundary = sectionBoundaries[low];
+            if (typeof boundary === "number" && Math.abs(anchorTop - boundary) <= boundaryHysteresisPx) return activeIndex;
+          }
+        }
+
+        return candidateIndex;
       }
 
       function detectActiveHash() {
-        if (navSelectionLockHash && Date.now() <= navSelectionLockUntil && findSectionEntryByHash(navSelectionLockHash)) {
-          markActiveHash(navSelectionLockHash);
-          lastDetectedHash = navSelectionLockHash;
+        if (navSelectionSession.hash && Date.now() <= navSelectionSession.expiresAt && findSectionEntryByHash(navSelectionSession.hash)) {
+          markActiveIndex(navSelectionSession.index);
           return;
         }
-        if (navSelectionLockHash) clearNavSelectionLock();
+        if (navSelectionSession.hash) stopNavSelectionSession();
 
-        if (forcedHash && Date.now() <= forcedHashExpiresAt) {
-          markActiveHash(forcedHash);
-          lastDetectedHash = forcedHash;
-          return;
-        }
-        if (forcedHash) stopForcingHash();
-
-        if (settledHash && Date.now() <= settledHashLockUntil && findSectionEntryByHash(settledHash)) {
-          markActiveHash(settledHash);
-          lastDetectedHash = settledHash;
-          return;
-        }
-        if (settledHash) clearActiveHashLock();
-
-        var activeHash = detectActiveHashFromScroll();
-        if (activeHash) {
-          markActiveHash(activeHash);
-          lastDetectedHash = activeHash;
-        }
+        markActiveIndex(detectActiveIndexFromScroll());
       }
 
       var scrollTicking = false;
@@ -525,43 +464,33 @@
       detectActiveHash();
       window.addEventListener("scroll", handleScrollAria, { passive: true });
       window.addEventListener("resize", function () {
+        rebuildSectionGeometry();
         detectActiveHash();
       }, { passive: true });
       window.addEventListener("orientationchange", function () {
+        rebuildSectionGeometry();
         detectActiveHash();
       }, { passive: true });
       window.addEventListener("load", function () {
+        rebuildSectionGeometry();
         detectActiveHash();
       });
       window.addEventListener("hashchange", function () {
-        if (window.location.hash) {
-          startForcingHash(window.location.hash);
-          if (forcedHash) {
-            markActiveHash(forcedHash);
-            lastDetectedHash = forcedHash;
-            scheduleForcedHashSettleCheck(forcedHash);
-          } else detectActiveHash();
-        }
-        else detectActiveHash();
+        if (window.location.hash) startNavSelectionSession(window.location.hash);
+        detectActiveHash();
       });
 
-      window.addEventListener("wheel", function () {
-        stopForcingHash();
-        clearNavSelectionLock();
-        clearActiveHashLock();
+      window.addEventListener("wheel", function (event) {
+        if (event && event.isTrusted) stopNavSelectionSession();
       }, { passive: true });
-      window.addEventListener("touchstart", function () {
-        stopForcingHash();
-        clearNavSelectionLock();
-        clearActiveHashLock();
+      window.addEventListener("touchstart", function (event) {
+        if (event && event.isTrusted) stopNavSelectionSession();
       }, { passive: true });
       window.addEventListener("keydown", function (event) {
         var key = event && event.key;
         if (!key) return;
         if (key.indexOf("Arrow") === 0 || key === "PageDown" || key === "PageUp" || key === "Home" || key === "End" || key === " ") {
-          stopForcingHash();
-          clearNavSelectionLock();
-          clearActiveHashLock();
+          stopNavSelectionSession();
         }
       });
 
@@ -574,20 +503,20 @@
         var activeTarget = resolveNavTarget(activeLink.getAttribute("href") || "");
         if (!activeTarget || !activeTarget.sameOrigin || !activeTarget.samePath || !activeTarget.hash) return;
 
-        clearActiveHashLock();
-        startForcingHash(activeTarget.hash);
-        lockNavSelection(activeTarget.hash, lockDurationForHash(activeTarget.hash));
-        markActiveHash(activeTarget.hash);
-        lastDetectedHash = activeTarget.hash;
-        scheduleForcedHashSettleCheck(activeTarget.hash);
+        startNavSelectionSession(activeTarget.hash);
+        detectActiveHash();
       });
 
       if ("onscrollend" in window) {
         window.addEventListener("scrollend", function () {
-          if (!forcedHash) return;
-          scheduleForcedHashSettleCheck(forcedHash);
+          if (!navSelectionSession.hash) return;
+          if (navSelectionSession.rafId) window.cancelAnimationFrame(navSelectionSession.rafId);
+          navSelectionSession.rafId = window.requestAnimationFrame(function () { detectActiveHash(); });
         }, { passive: true });
       }
+
+      rebuildSectionGeometry();
+      detectActiveHash();
     }
 
     if (toggle) toggle.addEventListener("click", function () { setNavState(!links.classList.contains("open")); });

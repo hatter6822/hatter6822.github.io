@@ -48,6 +48,8 @@ node --check assets/js/theme-init.js
 - Confirm `index.html` and `map.html` load from a static server.
 - Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="page"`) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
 - Stress-test long hash jumps (top-to-lower sections and back) in Chromium: active nav state should transition once per section boundary and stay stable near boundaries (no alternating flicker).
+- Verify repeated same-page hash clicks (especially `/#verification`, `/#api`, `/#roadmap`) do not produce alternating `aria-current` assignments in Chrome after smooth-scroll completes.
+- Confirm only one nav controller is active on `index.html`: with normal script order (`site.js` before `header-nav.js`), `header-nav.js` should own same-page hash behavior and no duplicate `aria-current` toggling should be observable in DevTools event listener traces.
 - Test map page on mobile viewport (~390px width).
 - Confirm the compact toolbar is rendered directly below the "Interactive dependency/proof flow chart" header, before the interior declaration panel, and contains only current module context search, flow detail presets, and reset, and includes compact-density toolbar semantics.
 - Confirm map context-search, detail-preset keyboard navigation (Arrow/Home/End), and keyboard traversal still function.
@@ -72,4 +74,4 @@ python3 -m http.server 4173 --bind 0.0.0.0
 python3 scripts/nav-stability-smoke.py
 ```
 
-Expected: selected hash link remains active through the full sample window in Chromium, Firefox, and WebKit/Safari-compatible engines.
+Expected: selected hash link remains active through the full sample window in Chromium, Firefox, and WebKit/Safari-compatible engines, with zero unexpected active-link transitions after initial settle.

@@ -645,7 +645,11 @@
 
   applyData(STATIC_FALLBACK);
   setupTheme();
-  if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();
+  if (typeof window.sele4nSetupHeaderNav !== "function") {
+    window.requestAnimationFrame(function () {
+      if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();
+    });
+  }
   hardenExternalLinks();
 
   if (typeof requestIdleCallback === "function") requestIdleCallback(refreshLiveData);
