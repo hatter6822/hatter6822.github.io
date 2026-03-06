@@ -16,6 +16,8 @@ assert(/<form class="map-toolbar" id="map-toolbar" role="search" aria-label="Mod
 assert(!/class="map-toolbar\s+card"/.test(html), "toolbar should not use the generic card shell");
 assert(/<label for="module-search">Current module context<\/label>/.test(html), "toolbar should include module context search");
 assert(/id="module-search"[^>]*enterkeyhint="search"/.test(html), "module search should provide search enter key hint");
+assert(/id="module-search"[^>]*role="combobox"[^>]*aria-controls="module-search-options"/.test(html), "module search should expose combobox semantics for cross-browser suggestion support");
+assert(/id="module-search-options"[^>]*role="listbox"/.test(html), "module search should include an explicit listbox suggestion container");
 assert(!/class="detail-preset-options"/.test(html), "toolbar should not include flow detail presets");
 assert(/id="reset-view"/.test(html), "toolbar should include reset button");
 

@@ -70,6 +70,8 @@
     neighborLimit: 8, impactRadius: 1, proofLinkedOnly: false,
     flowShowAll: false, contextListKey: "", contextList: [],
     contextOptionsKey: "", searchIndex: Object.create(null),
+    searchVisibleOptions: [],
+    searchActiveOption: -1,
     filteredModulesKey: "", filteredModulesList: [], filteredModulesValid: false,
     contextListValid: false,
     interiorMenuModule: "",
@@ -873,8 +875,7 @@
 
   function renderContextChooser() {
     var picker = document.getElementById("module-search");
-    var options = document.getElementById("context-options");
-    if (!picker || !options) return;
+    if (!picker) return;
 
     var list = contextList();
     updateModuleResults(list.length);
@@ -884,24 +885,10 @@
       syncUrlState();
     }
 
-    var signature = state.contextListKey + "::" + list.join("\u001f");
-    if (signature !== state.contextOptionsKey) {
-      options.innerHTML = "";
-      var fragment = document.createDocumentFragment();
-      for (var i = 0; i < list.length; i++) {
-        var name = list[i];
-        var opt = document.createElement("option");
-        opt.value = name;
-        opt.label = (state.moduleMap[name] || "") + " · score " + moduleDegree(name).score;
-        fragment.appendChild(opt);
-      }
-      options.appendChild(fragment);
-      state.contextOptionsKey = signature;
-    }
-
     if (!list.length) {
       picker.value = "";
       picker.placeholder = "No modules matched current filters";
+      closeModuleSearchOptions();
       return;
     }
 
@@ -909,6 +896,7 @@
 
     if (state.selectedModule && document.activeElement !== picker) picker.value = state.selectedModule;
   }
+
 
   function flowLegendItems() {
     return [
@@ -2808,9 +2796,128 @@
     }
   }
 
+  function moduleSearchMatches(query, list) {
+    var value = (query || "").trim();
+    if (!value) return list.slice(0, 10);
+
+    var lower = value.toLowerCase();
+    var normalized = normalizeSearchValue(value);
+    var queryTokens = normalized ? normalized.split(/\s+/).filter(Boolean) : [];
+    var scored = [];
+
+    for (var i = 0; i < list.length; i++) {
+      var name = list[i];
+      var idx = state.searchIndex[name] || {
+        nameLower: name.toLowerCase(),
+        pathLower: (state.moduleMap[name] || "").toLowerCase(),
+        nameTokens: [],
+        pathTokens: []
+      };
+
+      var score = -1;
+      if (idx.nameLower === lower || idx.pathLower === lower) score = 2000;
+      if (score < 0 && idx.nameLower.indexOf(lower) === 0) score = 1600 - idx.nameLower.length;
+      if (score < 0 && idx.pathLower.indexOf(lower) === 0) score = 1500 - idx.pathLower.length;
+      if (score < 0 && idx.nameLower.indexOf(lower) !== -1) score = 1200 - idx.nameLower.indexOf(lower);
+      if (score < 0 && idx.pathLower.indexOf(lower) !== -1) score = 1100 - idx.pathLower.indexOf(lower);
+
+      if (queryTokens.length) {
+        var tokenHits = 0;
+        var nameJoined = idx.nameTokens.join(" ");
+        var pathJoined = idx.pathTokens.join(" ");
+        for (var q = 0; q < queryTokens.length; q++) {
+          var token = queryTokens[q];
+          if (nameJoined.indexOf(token) !== -1 || pathJoined.indexOf(token) !== -1) tokenHits += 1;
+        }
+        if (tokenHits) score = Math.max(score, 700 + tokenHits * 45);
+      }
+
+      if (score >= 0) {
+        score += Math.max(0, 25 - Math.floor(moduleDegree(name).score / 10));
+        scored.push({ name: name, score: score });
+      }
+    }
+
+    scored.sort(function (a, b) {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.name.localeCompare(b.name);
+    });
+
+    var out = [];
+    for (var j = 0; j < scored.length && j < 10; j++) out.push(scored[j].name);
+    return out;
+  }
+
+  function closeModuleSearchOptions() {
+    var search = document.getElementById("module-search");
+    var options = document.getElementById("module-search-options");
+    if (!options) return;
+    options.hidden = true;
+    options.innerHTML = "";
+    state.searchVisibleOptions = [];
+    state.searchActiveOption = -1;
+    if (search) {
+      search.setAttribute("aria-expanded", "false");
+      search.removeAttribute("aria-activedescendant");
+    }
+  }
+
+  function openModuleSearchOptions(matches) {
+    var search = document.getElementById("module-search");
+    var options = document.getElementById("module-search-options");
+    if (!search || !options || !matches || !matches.length) {
+      closeModuleSearchOptions();
+      return;
+    }
+
+    options.innerHTML = "";
+    var fragment = document.createDocumentFragment();
+    for (var i = 0; i < matches.length; i++) {
+      var name = matches[i];
+      var item = document.createElement("li");
+      item.id = "module-search-option-" + i;
+      item.className = "module-search-option";
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", i === 0 ? "true" : "false");
+      item.setAttribute("data-module", name);
+      item.textContent = name + " — " + (state.moduleMap[name] || "");
+      fragment.appendChild(item);
+    }
+    options.appendChild(fragment);
+
+    options.hidden = false;
+    state.searchVisibleOptions = matches.slice();
+    state.searchActiveOption = 0;
+    search.setAttribute("aria-expanded", "true");
+    search.setAttribute("aria-activedescendant", "module-search-option-0");
+  }
+
+  function setActiveModuleSearchOption(index) {
+    var search = document.getElementById("module-search");
+    var options = document.getElementById("module-search-options");
+    if (!search || !options) return;
+    var len = state.searchVisibleOptions.length;
+    if (!len) return;
+    var next = index;
+    if (next < 0) next = len - 1;
+    if (next >= len) next = 0;
+    state.searchActiveOption = next;
+
+    for (var i = 0; i < len; i++) {
+      var el = document.getElementById("module-search-option-" + i);
+      if (!el) continue;
+      var active = i === next;
+      el.setAttribute("aria-selected", active ? "true" : "false");
+      if (active && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest" });
+    }
+
+    search.setAttribute("aria-activedescendant", "module-search-option-" + next);
+  }
+
   function setupFilters() {
     var toolbar = document.getElementById("map-toolbar");
     var search = document.getElementById("module-search");
+    var options = document.getElementById("module-search-options");
     var selectedDetail = "compact";
     var reset = document.getElementById("reset-view");
 
@@ -2847,50 +2954,8 @@
         var direct = sanitizeModuleName(value);
         if (direct && state.moduleMap[direct]) return direct;
 
-        var lower = value.toLowerCase();
-        var normalized = normalizeSearchValue(value);
-        var queryTokens = normalized ? normalized.split(/\s+/).filter(Boolean) : [];
-        var best = "";
-        var bestScore = -1;
-
-        for (var i = 0; i < list.length; i++) {
-          var name = list[i];
-          var idx = state.searchIndex[name] || {
-            nameLower: name.toLowerCase(),
-            pathLower: (state.moduleMap[name] || "").toLowerCase(),
-            nameTokens: [],
-            pathTokens: []
-          };
-
-          if (idx.nameLower === lower) return name;
-          if (idx.pathLower === lower) return name;
-
-          var score = 0;
-          if (idx.nameLower.indexOf(lower) === 0) score = Math.max(score, 1200 - idx.nameLower.length);
-          if (idx.pathLower.indexOf(lower) === 0) score = Math.max(score, 1000 - idx.pathLower.length);
-          if (idx.nameLower.indexOf(lower) !== -1) score = Math.max(score, 800 - idx.nameLower.indexOf(lower));
-          if (idx.pathLower.indexOf(lower) !== -1) score = Math.max(score, 700 - idx.pathLower.indexOf(lower));
-
-          if (queryTokens.length) {
-            var tokenHits = 0;
-            var nameJoined = idx.nameTokens.join(" ");
-            var pathJoined = idx.pathTokens.join(" ");
-            for (var q = 0; q < queryTokens.length; q++) {
-              var token = queryTokens[q];
-              if (nameJoined.indexOf(token) !== -1 || pathJoined.indexOf(token) !== -1) tokenHits += 1;
-            }
-            if (tokenHits) score = Math.max(score, 400 + tokenHits * 35);
-          }
-
-          score += Math.max(0, 20 - Math.floor(moduleDegree(name).score / 10));
-
-          if (score > bestScore) {
-            best = name;
-            bestScore = score;
-          }
-        }
-
-        return bestScore > 0 ? best : "";
+        var matches = moduleSearchMatches(value, list);
+        return matches.length ? matches[0] : "";
       }
 
       var choose = function () {
@@ -2902,6 +2967,7 @@
         if (match) {
           if (search.value !== match) search.value = match;
           selectModule(match, false);
+          closeModuleSearchOptions();
           return;
         }
 
@@ -2920,16 +2986,30 @@
         if (!listHasModule(list, direct)) return false;
         if (search.value !== direct) search.value = direct;
         selectModule(direct, false);
+        closeModuleSearchOptions();
         return true;
+      }
+
+      function refreshSuggestions() {
+        var list = contextList();
+        var matches = moduleSearchMatches(search.value, list);
+        if (matches.length) openModuleSearchOptions(matches);
+        else closeModuleSearchOptions();
       }
 
       search.addEventListener("input", function () {
         setSearchFeedback("", false);
         if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
-        chooseExactFromCurrentValue();
+        if (!chooseExactFromCurrentValue()) refreshSuggestions();
       });
+      search.addEventListener("focus", refreshSuggestions);
       search.addEventListener("change", choose);
-      search.addEventListener("blur", chooseExactFromCurrentValue);
+      search.addEventListener("blur", function () {
+        window.setTimeout(function () {
+          chooseExactFromCurrentValue();
+          closeModuleSearchOptions();
+        }, 80);
+      });
       search.addEventListener("search", choose);
       search.addEventListener("compositionend", chooseExactFromCurrentValue);
       search.addEventListener("keydown", function (event) {
@@ -2938,24 +3018,60 @@
           if (state.selectedModule) search.value = state.selectedModule;
           setSearchFeedback("", false);
           if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
+          closeModuleSearchOptions();
+          event.preventDefault();
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          setActiveModuleSearchOption(state.searchActiveOption + 1);
+          event.preventDefault();
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          setActiveModuleSearchOption(state.searchActiveOption - 1);
           event.preventDefault();
           return;
         }
         if (event.key !== "Enter") return;
+        if (state.searchVisibleOptions.length && state.searchActiveOption >= 0) {
+          var selected = state.searchVisibleOptions[state.searchActiveOption];
+          if (selected) {
+            search.value = selected;
+            chooseExactFromCurrentValue();
+            closeModuleSearchOptions();
+            event.preventDefault();
+            return;
+          }
+        }
         choose();
         event.preventDefault();
       });
+
+      if (options) {
+        options.addEventListener("mousedown", function (event) {
+          var node = event.target && event.target.closest ? event.target.closest(".module-search-option") : null;
+          if (!node) return;
+          var selected = node.getAttribute("data-module") || "";
+          if (!selected) return;
+          search.value = selected;
+          chooseExactFromCurrentValue();
+          closeModuleSearchOptions();
+          event.preventDefault();
+        });
+      }
     }
     if (reset) {
       reset.addEventListener("click", function () {
         if (search && state.selectedModule) search.value = state.selectedModule;
         setSearchFeedback("", false);
         if (search && typeof search.setCustomValidity === "function") search.setCustomValidity("");
+        closeModuleSearchOptions();
         selectedDetail = "compact";
         apply();
       });
     }
   }
+
 
   function readUrlState() {
     var nativeParams = typeof URLSearchParams === "function" ? new URLSearchParams(window.location.search) : null;
