@@ -424,6 +424,14 @@
       items = ((interior.byKind || {})[selectedKind] || []).slice();
     }
 
+    items.sort(function (a, b) {
+      var left = String((a && a.name) || "");
+      var right = String((b && b.name) || "");
+      var byName = left.localeCompare(right, undefined, { sensitivity: "base" });
+      if (byName !== 0) return byName;
+      return ((a && a.line) || 0) - ((b && b.line) || 0);
+    });
+
     if (!q) return items;
     return items.filter(function (entry) { return entry.name.toLowerCase().indexOf(q) !== -1; });
   }
