@@ -70,14 +70,13 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 
 ## Header navigation stability hardening
 
-- Refined the **nav selection session** state machine to track deterministic lifecycle fields (`hash`, section index, last scroll tick, user interruption flag, and bounded max-hold timeout).
-- During a same-page hash selection, the state machine keeps `aria-current` pinned to the clicked link until scroll becomes idle and a short mismatch dwell threshold confirms the viewport has actually settled into a different section.
-- Replaced static midpoint snapshots with live section-top/boundary reads so active-link detection tracks asynchronous layout shifts (content hydration, font swap, responsive reflow) without stale geometry drift.
-- Added candidate-confirmation gating (two consecutive detections before commit) plus directional boundary hysteresis and hash-near-header anchoring so tiny smooth-scroll jitter near section boundaries cannot ping-pong `aria-current` between neighboring links.
-- Added debounced `MutationObserver` + per-section `ResizeObserver` refresh scheduling so section geometry is re-evaluated deterministically after DOM/layout mutations instead of relying only on resize/load events.
-- Preserved user override semantics by marking trusted wheel/touch/keyboard navigation as an immediate user interruption and releasing lock ownership on the next detection pass, ensuring explicit input always wins over automatic locking.
-- Result: deterministic active-link transitions with no random nav-link/section oscillation during hash jumps, including long-distance transitions that previously produced occasional active-link/section mismatches.
-- Eliminated dual nav-controller races by deferring `site.js` fallback nav initialization to the next animation frame and rechecking for `header-nav.js`; this prevents both scripts from mutating `aria-current` concurrently when script load order places `site.js` first.
+- Replaced the previous mismatch-driven nav-selection session flow with a simpler **selection lock + monotonic boundary model** in `header-nav.js`.
+- A same-page hash click now opens a short-lived lock that pins `aria-current` to the selected hash while smooth scrolling is still in motion, then releases once the target is in the fixed-header focus band and scrolling is idle; if a different section stays focused long enough, lock ownership is released early so `aria-current` can converge to the true in-focus section.
+- Active section detection now derives from cached document-top geometry and a monotonic scroll anchor (`scrollY + nav offset`) so section ownership changes are stable and directional.
+- Added explicit midpoint hysteresis for forward/backward boundary crossings, plus two-pass candidate confirmation, to suppress near-boundary ping-pong under tiny scroll jitter.
+- Kept hash-near-header anchoring so if the URL hash target is already in the focus window, that section remains authoritative.
+- Kept debounced `MutationObserver` and per-section `ResizeObserver` geometry refresh to survive asynchronous layout shifts without stale section boundaries.
+- Result: active-link assignment converges deterministically through long jumps, rapid repeated selections, and async layout movement, while avoiding prolonged stale lock ownership when viewport focus clearly shifts.
 
 ## Future growth recommendations
 
