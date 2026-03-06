@@ -57,8 +57,13 @@
       return defaultBehavior || "smooth";
     }
 
-    function navOffset() {
-      return Math.ceil((nav.getBoundingClientRect().height || 0) + 12);
+    function navHeight() {
+      return Math.ceil(nav.getBoundingClientRect().height || 0);
+    }
+
+    function navOffset(extraGap) {
+      var gap = typeof extraGap === "number" ? extraGap : 0;
+      return Math.ceil(navHeight() + Math.max(0, gap));
     }
 
     function syncNavMetrics() {
@@ -145,10 +150,17 @@
       return supportsFocusPreventScroll;
     }
 
-    function scrollToHash(hash, behavior) {
+    function sectionTopForHash(hash, options) {
       var target = hashTarget(hash);
-      if (!target) return false;
-      var targetTop = target.getBoundingClientRect().top + window.scrollY - navOffset();
+      if (!target) return null;
+      var includeGap = !options || options.includeGap !== false;
+      var gap = includeGap ? 12 : 0;
+      return target.getBoundingClientRect().top + window.scrollY - navOffset(gap);
+    }
+
+    function scrollToHash(hash, behavior, options) {
+      var targetTop = sectionTopForHash(hash, options);
+      if (targetTop === null) return false;
       safeScrollTo(targetTop, preferredScrollBehavior(behavior || "smooth"));
       return true;
     }
@@ -163,7 +175,7 @@
       }
       var maintainOffset = !(options && options.maintainOffset === false);
       var supportsPreventScroll = canFocusWithoutScroll();
-      var fallbackTop = maintainOffset ? target.getBoundingClientRect().top + window.scrollY - navOffset() : null;
+      var fallbackTop = maintainOffset ? sectionTopForHash(hash, { includeGap: false }) : null;
       try {
         if (supportsPreventScroll) target.focus({ preventScroll: true });
         else target.focus();
@@ -183,16 +195,16 @@
       }
     }
 
-    function scheduleHashScroll(hash, behavior) {
-      if (!scrollToHash(hash, behavior)) return;
-      window.requestAnimationFrame(function () { scrollToHash(hash, behavior); });
+    function scheduleHashScroll(hash, behavior, options) {
+      if (!scrollToHash(hash, behavior, options)) return;
+      window.requestAnimationFrame(function () { scrollToHash(hash, behavior, options); });
       window.setTimeout(function () {
         var target = hashTarget(hash);
         if (!target) return;
         var top = target.getBoundingClientRect().top;
-        var offset = navOffset();
+        var offset = navOffset(options && options.includeGap === false ? 0 : 12);
         if (top >= offset && top <= offset + 24) return;
-        scrollToHash(hash, "instant");
+        scrollToHash(hash, "instant", options);
       }, 220);
     }
 
@@ -204,10 +216,10 @@
         attempts += 1;
         var target = hashTarget(hash);
         if (!target) return;
-        var offset = navOffset();
+        var offset = navOffset(0);
         var top = target.getBoundingClientRect().top;
         if (top >= offset && top <= offset + 24) return;
-        scrollToHash(hash, "instant");
+        scrollToHash(hash, "instant", { includeGap: false });
         if (attempts < maxAttempts) window.setTimeout(runAttempt, attempts < 3 ? 90 : 220);
       }
       runAttempt();
@@ -256,6 +268,60 @@
       }
     }
 
+    function setupSectionAriaTracking() {
+      var samePageLinks = links.querySelectorAll('a[href*="#"]');
+      var sectionEntries = [];
+
+      for (var i = 0; i < samePageLinks.length; i++) {
+        var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
+        if (!sameTarget || !sameTarget.sameOrigin || !sameTarget.samePath || !sameTarget.hash) continue;
+        var hash = sameTarget.hash;
+        var id = hash.slice(1);
+        var section = document.getElementById(id);
+        if (!section) continue;
+        sectionEntries.push({ hash: hash, section: section, link: samePageLinks[i] });
+      }
+
+      if (!sectionEntries.length) return;
+
+      function markActiveHash(hash) {
+        for (var j = 0; j < sectionEntries.length; j++) {
+          if (sectionEntries[j].hash === hash) sectionEntries[j].link.setAttribute("aria-current", "page");
+          else sectionEntries[j].link.removeAttribute("aria-current");
+        }
+      }
+
+      function detectActiveHash() {
+        var best = null;
+        var topBoundary = navOffset(0) + 2;
+        for (var k = 0; k < sectionEntries.length; k++) {
+          var rectTop = sectionEntries[k].section.getBoundingClientRect().top;
+          if (rectTop <= topBoundary) best = sectionEntries[k];
+          else break;
+        }
+        if (!best) best = sectionEntries[0];
+        markActiveHash(best.hash);
+      }
+
+      var scrollTicking = false;
+      function handleScrollAria() {
+        if (scrollTicking) return;
+        scrollTicking = true;
+        window.requestAnimationFrame(function () {
+          detectActiveHash();
+          scrollTicking = false;
+        });
+      }
+
+      detectActiveHash();
+      window.addEventListener("scroll", handleScrollAria, { passive: true });
+      window.addEventListener("resize", detectActiveHash, { passive: true });
+      window.addEventListener("hashchange", function () {
+        if (window.location.hash) markActiveHash(window.location.hash);
+        else detectActiveHash();
+      });
+    }
+
     if (toggle) toggle.addEventListener("click", function () { setNavState(!links.classList.contains("open")); });
 
     var items = links.querySelectorAll("a");
@@ -292,10 +358,11 @@
         if (target.samePath && target.hash) {
           event.preventDefault();
           runPostCloseNavigation(function () {
-            scheduleHashScroll(target.hash, "smooth");
+            scheduleHashScroll(target.hash, "smooth", { includeGap: false });
             settleHashNavigation(target.hash);
             focusHashTarget(target.hash);
             if (window.location.hash !== target.hash) history.pushState(null, "", target.hash);
+            refreshCurrentPageAria();
           });
         } else if (target.samePath && !target.hash) {
           event.preventDefault();
@@ -332,10 +399,11 @@
 
     syncNavMetrics();
     refreshCurrentPageAria();
+    setupSectionAriaTracking();
 
     if (window.location.hash) {
       window.requestAnimationFrame(function () {
-        scheduleHashScroll(window.location.hash, "auto");
+        scheduleHashScroll(window.location.hash, "auto", { includeGap: false });
         settleHashNavigation(window.location.hash);
         focusHashTarget(window.location.hash);
       });
@@ -343,7 +411,7 @@
       var storedHash = consumeStoredNavIntent();
       if (storedHash) {
         window.requestAnimationFrame(function () {
-          scheduleHashScroll(storedHash, "auto");
+          scheduleHashScroll(storedHash, "auto", { includeGap: false });
           settleHashNavigation(storedHash);
           focusHashTarget(storedHash);
           if (window.location.hash !== storedHash) {
@@ -367,32 +435,6 @@
       nav.classList.add("scrolled");
     }
 
-    if (typeof IntersectionObserver === "function") {
-      var samePageLinks = nav.querySelectorAll('a[href*="#"]');
-      var sectionMap = Object.create(null);
-      for (var j = 0; j < samePageLinks.length; j++) {
-        var sameTarget = resolveNavTarget(samePageLinks[j].getAttribute("href") || "");
-        if (!sameTarget || !sameTarget.sameOrigin || !sameTarget.samePath || !sameTarget.hash) continue;
-        sectionMap[sameTarget.hash.slice(1)] = samePageLinks[j];
-      }
-
-      var observer = new IntersectionObserver(function (entries) {
-        for (var k = 0; k < entries.length; k++) {
-          if (!entries[k].isIntersecting) continue;
-          var active = sectionMap[entries[k].target.id];
-          if (!active) continue;
-          var keys = Object.keys(sectionMap);
-          for (var m = 0; m < keys.length; m++) sectionMap[keys[m]].removeAttribute("aria-current");
-          active.setAttribute("aria-current", "page");
-        }
-      }, { rootMargin: "-30% 0px -60% 0px", threshold: 0.01 });
-
-      var ids = Object.keys(sectionMap);
-      for (var n = 0; n < ids.length; n++) {
-        var section = document.getElementById(ids[n]);
-        if (section) observer.observe(section);
-      }
-    }
   }
 
   window.sele4nSetupHeaderNav = setupHeaderNav;
