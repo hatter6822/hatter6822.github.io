@@ -11,6 +11,7 @@
   var API = "https://api.github.com/repos/" + REPO;
   var RAW = "https://raw.githubusercontent.com/" + REPO + "/";
   var REF = "main";
+  var CODEBASE_MAP_PATH = "docs/codebase_map.json";
   var CACHE_KEY = "sele4n-live-v2";
   var CACHE_TTL = 6 * 60 * 60 * 1000;
   var CACHE_MAX_STALE = 30 * 24 * 60 * 60 * 1000;
@@ -535,6 +536,43 @@
     return metrics;
   }
 
+
+  function theoremCountFromCodebaseMap(codebaseMap) {
+    var map = codebaseMap && typeof codebaseMap === "object" ? codebaseMap : null;
+    if (!map) return 0;
+
+    var topLevel = Number(map.theorems);
+    if (Number.isFinite(topLevel) && topLevel > 0) return topLevel;
+
+    var statsTheorems = Number(map.stats && map.stats.theorems);
+    if (Number.isFinite(statsTheorems) && statsTheorems > 0) return statsTheorems;
+
+    var moduleMeta = map.moduleMeta;
+    if (!moduleMeta || typeof moduleMeta !== "object") return 0;
+
+    var total = 0;
+    var moduleNames = Object.keys(moduleMeta);
+    for (var i = 0; i < moduleNames.length; i++) {
+      var meta = moduleMeta[moduleNames[i]] || {};
+      var explicit = Number(meta.theorems || meta.theoremCount || (meta.stats && meta.stats.theorems));
+      if (Number.isFinite(explicit) && explicit > 0) {
+        total += explicit;
+        continue;
+      }
+
+      var symbols = meta.symbols;
+      if (!symbols || typeof symbols !== "object") continue;
+
+      var theoremEntries = Array.isArray(symbols.theorems) ? symbols.theorems.length : 0;
+      var byKind = symbols.byKind && typeof symbols.byKind === "object" ? symbols.byKind : {};
+      var byKindTheorems = Array.isArray(byKind.theorem) ? byKind.theorem.length : 0;
+      var byKindLemmas = Array.isArray(byKind.lemma) ? byKind.lemma.length : 0;
+      total += theoremEntries > 0 ? theoremEntries : byKindTheorems + byKindLemmas;
+    }
+
+    return total;
+  }
+
   function fetchText(url) {
     return fetchWithTimeout(url).then(function (r) {
       if (!r.ok) throw new Error(r.status);
@@ -581,8 +619,24 @@
         var metrics = parseCurrentStateMetrics(readmeText);
         if (metrics.version) data.version = metrics.version;
         if (metrics.lines) data.lines = metrics.lines;
-        if (typeof metrics.theorems === "number" && metrics.theorems > 0) data.theorems = metrics.theorems;
         if (typeof metrics.buildJobs === "number" && metrics.buildJobs > 0) data.buildJobs = metrics.buildJobs;
+      }).catch(function () {}),
+      fetchJSON(API + "/contents/" + CODEBASE_MAP_PATH + "?ref=" + encodeURIComponent(REF)).then(function (payload) {
+        if (!payload || payload.encoding !== "base64" || !payload.content) return;
+        var decoded = "";
+        try {
+          decoded = atob(String(payload.content).replace(/\n/g, ""));
+        } catch (e) {
+          return;
+        }
+        var parsed = null;
+        try {
+          parsed = JSON.parse(decoded);
+        } catch (e) {
+          return;
+        }
+        var theoremTotal = theoremCountFromCodebaseMap(parsed);
+        if (theoremTotal > 0) data.theorems = theoremTotal;
       }).catch(function () {}),
       fetchText(RAW + REF + "/lean-toolchain").then(function (toolchainText) {
         var toolchainMatch = toolchainText && toolchainText.match(/(\d+\.\d+\.\d+)/);

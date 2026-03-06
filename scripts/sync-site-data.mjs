@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from 'node:fs/promises';
-import { parseCurrentStateMetrics, theoremCount } from './lib/lean-analysis.mjs';
+import { parseCurrentStateMetrics, theoremCountFromCodebaseMap } from './lib/lean-analysis.mjs';
 
 const REPO = 'hatter6822/seLe4n';
 const REF = 'main';
@@ -26,13 +26,18 @@ function formatNumber(n) {
 
 const data = JSON.parse(await readFile(OUT_FILE, 'utf8'));
 
-const [toolchain, lakefile, readme, tree, langs, commit] = await Promise.all([
+const [toolchain, lakefile, readme, tree, langs, commit, codebaseMap] = await Promise.all([
   fetchText(`${RAW}lean-toolchain`),
   fetchText(`${RAW}lakefile.toml`),
   fetchText(`${RAW}README.md`),
   fetchJson(`${API}/git/trees/${REF}?recursive=1`),
   fetchJson(`${API}/languages`),
-  fetchJson(`${API}/commits/${REF}`)
+  fetchJson(`${API}/commits/${REF}`),
+  fetchJson(`${API}/contents/docs/codebase_map.json?ref=${REF}`).then((payload) => {
+    if (!payload || payload.encoding !== 'base64' || !payload.content) return null;
+    const decoded = Buffer.from(payload.content, 'base64').toString('utf8');
+    return JSON.parse(decoded);
+  }).catch(() => null)
 ]);
 
 const toolchainMatch = toolchain.match(/(\d+\.\d+\.\d+)/);
@@ -46,7 +51,6 @@ else if (versionMatch) data.version = versionMatch[1];
 let modules = 0;
 let scripts = 0;
 let docs = 0;
-let theoremTotal = 0;
 for (const item of tree.tree ?? []) {
   if (item.type !== 'blob') continue;
   const p = item.path;
@@ -55,24 +59,15 @@ for (const item of tree.tree ?? []) {
   if (/^docs\/.*\.(md|txt)$/.test(p)) docs += 1;
 }
 
-const leanPaths = (tree.tree ?? [])
-  .filter((item) => item.type === 'blob' && /^SeLe4n\/Kernel\/.*\.lean$/.test(item.path));
-
-for (const item of leanPaths) {
-  const blob = await fetchJson(`${API}/git/blobs/${item.sha}`);
-  if (blob?.encoding !== 'base64' || !blob.content) continue;
-  const content = Buffer.from(blob.content, 'base64').toString('utf8');
-  theoremTotal += theoremCount(content);
-}
-
 data.modules = modules;
 data.scripts = scripts;
 data.docs = docs;
 if (typeof currentStateMetrics.buildJobs === 'number' && currentStateMetrics.buildJobs > 0) data.buildJobs = currentStateMetrics.buildJobs;
 else data.buildJobs = modules * 2;
 
-if (typeof currentStateMetrics.theorems === 'number' && currentStateMetrics.theorems > 0) data.theorems = currentStateMetrics.theorems;
-else if (theoremTotal > 0) data.theorems = theoremTotal;
+const codebaseMapTheorems = theoremCountFromCodebaseMap(codebaseMap);
+if (codebaseMapTheorems > 0) data.theorems = codebaseMapTheorems;
+else if (typeof currentStateMetrics.theorems === 'number' && currentStateMetrics.theorems > 0) data.theorems = currentStateMetrics.theorems;
 
 if (currentStateMetrics.lines) data.lines = currentStateMetrics.lines;
 else if (langs?.Lean) data.lines = formatNumber(Math.round(langs.Lean / 38));
