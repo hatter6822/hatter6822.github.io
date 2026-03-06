@@ -271,9 +271,11 @@
     function setupSectionAriaTracking() {
       var samePageLinks = links.querySelectorAll('a[href*="#"]');
       var sectionEntries = [];
-      var sectionTops = [];
-      var sectionBoundaries = [];
       var activeIndex = -1;
+      var pendingActiveIndex = -1;
+      var pendingActiveObservations = 0;
+      var geometryRefreshRafId = 0;
+      var geometryRefreshTimeoutId = 0;
       var navSelectionSession = {
         hash: "",
         index: -1,
@@ -310,16 +312,24 @@
         return null;
       }
 
-      function rebuildSectionGeometry() {
-        sectionTops = [];
-        sectionBoundaries = [];
-        for (var i = 0; i < sectionEntries.length; i++) {
-          sectionTops.push(Math.max(0, Math.round(sectionEntries[i].section.getBoundingClientRect().top + window.scrollY)));
-        }
+      function readSectionDocumentTop(index) {
+        if (index < 0 || index >= sectionEntries.length) return 0;
+        return Math.max(0, Math.round(sectionEntries[index].section.getBoundingClientRect().top + window.scrollY));
+      }
 
-        for (var j = 0; j < sectionTops.length - 1; j++) {
-          sectionBoundaries.push(Math.round((sectionTops[j] + sectionTops[j + 1]) / 2));
-        }
+      function previousBoundary(index) {
+        if (index <= 0 || index >= sectionEntries.length) return null;
+        return Math.round((readSectionDocumentTop(index - 1) + readSectionDocumentTop(index)) / 2);
+      }
+
+      function nextBoundary(index) {
+        if (index < 0 || index >= sectionEntries.length - 1) return null;
+        return Math.round((readSectionDocumentTop(index) + readSectionDocumentTop(index + 1)) / 2);
+      }
+
+      function rebuildSectionGeometry() {
+        pendingActiveIndex = -1;
+        pendingActiveObservations = 0;
       }
 
       function stopNavSelectionSession() {
@@ -363,8 +373,34 @@
 
       function markActiveIndex(index) {
         if (index < 0 || index >= sectionEntries.length) return;
+        pendingActiveIndex = -1;
+        pendingActiveObservations = 0;
         activeIndex = index;
         markActiveHash(sectionEntries[index].hash);
+      }
+
+      function markCandidateIndex(index, options) {
+        if (index < 0 || index >= sectionEntries.length) return;
+        if (index === activeIndex) {
+          pendingActiveIndex = -1;
+          pendingActiveObservations = 0;
+          return;
+        }
+
+        var immediate = options && options.immediate;
+        if (immediate) {
+          markActiveIndex(index);
+          return;
+        }
+
+        if (pendingActiveIndex !== index) {
+          pendingActiveIndex = index;
+          pendingActiveObservations = 1;
+          return;
+        }
+
+        pendingActiveObservations += 1;
+        if (pendingActiveObservations >= 2) markActiveIndex(index);
       }
 
       function armNavSelectionIdleRelease() {
@@ -469,17 +505,19 @@
         var anchorTop = Math.max(0, Math.round(currentScrollY + navTop + Math.min(120, Math.max(28, viewportHeight * 0.2))));
 
         var candidateIndex = 0;
-        for (var i = 0; i < sectionBoundaries.length; i++) {
-          if (anchorTop < sectionBoundaries[i]) break;
-          candidateIndex = i + 1;
+        for (var i = 0; i < sectionEntries.length; i++) {
+          var sectionTop = readSectionDocumentTop(i);
+          if (anchorTop < sectionTop) break;
+          candidateIndex = i;
         }
 
         if (activeIndex !== -1 && activeIndex !== candidateIndex) {
-          var low = Math.min(activeIndex, candidateIndex);
-          var high = Math.max(activeIndex, candidateIndex);
-          if (high - low === 1) {
-            var boundary = sectionBoundaries[low];
-            if (typeof boundary === "number" && Math.abs(anchorTop - boundary) <= boundaryHysteresisPx) return activeIndex;
+          if (candidateIndex > activeIndex) {
+            var lowerBoundary = nextBoundary(activeIndex);
+            if (typeof lowerBoundary === "number" && anchorTop < lowerBoundary + boundaryHysteresisPx) return activeIndex;
+          } else {
+            var upperBoundary = previousBoundary(activeIndex);
+            if (typeof upperBoundary === "number" && anchorTop > upperBoundary - boundaryHysteresisPx) return activeIndex;
           }
         }
 
@@ -498,12 +536,21 @@
           var navTop = navOffset(0);
           var hashTop = Math.round(sectionEntries[hashIndex].section.getBoundingClientRect().top);
           if (hashTop >= navTop - 20 && hashTop <= navTop + 120) {
-            markActiveIndex(hashIndex);
+            markCandidateIndex(hashIndex, { immediate: true });
             return;
           }
         }
 
-        markActiveIndex(detectActiveIndexFromScroll());
+        markCandidateIndex(detectActiveIndexFromScroll());
+      }
+
+      function scheduleGeometryRefresh() {
+        if (geometryRefreshRafId) return;
+        geometryRefreshRafId = window.requestAnimationFrame(function () {
+          geometryRefreshRafId = 0;
+          rebuildSectionGeometry();
+          detectActiveHash();
+        });
       }
 
       var scrollTicking = false;
@@ -524,16 +571,13 @@
       detectActiveHash();
       window.addEventListener("scroll", handleScrollAria, { passive: true });
       window.addEventListener("resize", function () {
-        rebuildSectionGeometry();
-        detectActiveHash();
+        scheduleGeometryRefresh();
       }, { passive: true });
       window.addEventListener("orientationchange", function () {
-        rebuildSectionGeometry();
-        detectActiveHash();
+        scheduleGeometryRefresh();
       }, { passive: true });
       window.addEventListener("load", function () {
-        rebuildSectionGeometry();
-        detectActiveHash();
+        scheduleGeometryRefresh();
       });
       window.addEventListener("hashchange", function () {
         if (window.location.hash) startNavSelectionSession(window.location.hash);
@@ -573,6 +617,33 @@
           if (navSelectionSession.rafId) window.cancelAnimationFrame(navSelectionSession.rafId);
           navSelectionSession.rafId = window.requestAnimationFrame(function () { detectActiveHash(); });
         }, { passive: true });
+      }
+
+      if (typeof MutationObserver === "function") {
+        var mutationObserver = new MutationObserver(function () {
+          if (geometryRefreshTimeoutId) window.clearTimeout(geometryRefreshTimeoutId);
+          geometryRefreshTimeoutId = window.setTimeout(function () {
+            geometryRefreshTimeoutId = 0;
+            scheduleGeometryRefresh();
+          }, 50);
+        });
+
+        mutationObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+          attributeFilter: ["style", "class", "hidden", "open", "aria-expanded"]
+        });
+      }
+
+      if (typeof ResizeObserver === "function") {
+        var sectionResizeObserver = new ResizeObserver(function () {
+          scheduleGeometryRefresh();
+        });
+        for (var sectionIndex = 0; sectionIndex < sectionEntries.length; sectionIndex++) {
+          sectionResizeObserver.observe(sectionEntries[sectionIndex].section);
+        }
       }
 
       rebuildSectionGeometry();

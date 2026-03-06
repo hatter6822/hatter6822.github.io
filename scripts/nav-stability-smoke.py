@@ -13,8 +13,10 @@ from playwright.async_api import async_playwright
 
 BASE_URL = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 INITIAL_SETTLE_MS = 2800
-SAMPLE_COUNT = 30
-SAMPLE_INTERVAL_MS = 100
+SAMPLE_COUNT = 32
+SAMPLE_INTERVAL_MS = 90
+LAYOUT_SHIFT_TARGET = "/#verification"
+LAYOUT_SHIFT_HEIGHT_PX = 260
 
 TARGET_HREFS = (
     "/#features",
@@ -75,6 +77,28 @@ async def sample_nav_state(page, target_href):
     }
 
 
+
+
+async def induce_layout_shift(page, shift_height):
+    await page.evaluate(
+        """(height) => {
+          let probe = document.getElementById('nav-stability-layout-probe');
+          if (!probe) {
+            probe = document.createElement('div');
+            probe.id = 'nav-stability-layout-probe';
+            probe.setAttribute('aria-hidden', 'true');
+            probe.style.width = '100%';
+            probe.style.pointerEvents = 'none';
+            probe.style.transition = 'height 120ms linear';
+            const about = document.getElementById('about');
+            if (about && about.parentNode) about.parentNode.insertBefore(probe, about);
+            else document.body.insertBefore(probe, document.body.firstChild);
+          }
+          probe.style.height = `${Math.max(0, Number(height) || 0)}px`;
+        }""",
+        shift_height,
+    )
+
 async def run_probe(browser_type, name):
     browser = await browser_type.launch()
     page = await browser.new_page(viewport={"width": 1280, "height": 900})
@@ -92,6 +116,20 @@ async def run_probe(browser_type, name):
         )
         if not passed:
             failures.append(result)
+
+    # Dynamic layout-shift regression: same active link should remain stable after asynchronous geometry changes.
+    await page.click(f'#nav-links a[href="{LAYOUT_SHIFT_TARGET}"]')
+    await page.wait_for_timeout(INITIAL_SETTLE_MS)
+    await induce_layout_shift(page, LAYOUT_SHIFT_HEIGHT_PX)
+    await page.wait_for_timeout(260)
+    layout_result = await sample_nav_state(page, LAYOUT_SHIFT_TARGET)
+    layout_passed = layout_result["active_stable"] and layout_result["focus_stable"]
+    print(
+        f"{name}: layout-shift target={LAYOUT_SHIFT_TARGET} pass={layout_passed} transitions={layout_result['transitions']} "
+        f"active_stable={layout_result['active_stable']} focus_stable={layout_result['focus_stable']}"
+    )
+    if not layout_passed:
+        failures.append(layout_result)
 
     # Repeated-click regression: same link selected multiple times should not oscillate after settle.
     for repeat_index in range(REPEATED_CLICKS):
@@ -128,7 +166,7 @@ async def main():
             print(f"FAIL {browser}: {browser_failures}")
         raise SystemExit(1)
 
-    print("PASS: nav stability confirmed across links and repeated-click regression for chromium/firefox/webkit")
+    print("PASS: nav stability confirmed across links, dynamic layout-shift, and repeated-click regressions for chromium/firefox/webkit")
 
 
 if __name__ == "__main__":
