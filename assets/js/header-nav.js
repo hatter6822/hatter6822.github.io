@@ -277,10 +277,15 @@
       var forcedHashSettleRafId = 0;
       var settledHash = "";
       var settledHashLockUntil = 0;
+      // Locks the selected nav hash while browser scroll settling is still in-flight.
+      // This prevents random aria-current oscillation between adjacent sections,
+      // especially during smooth-scroll timing differences across engines.
+      var navSelectionLockHash = "";
+      var navSelectionLockUntil = 0;
       var lastDetectedHash = "";
       var lastScrollYForDetection = window.scrollY || 0;
       var maxForceHashMs = 12000;
-      var settleLockMs = 1400;
+      var settleLockMs = 2200;
 
       for (var i = 0; i < samePageLinks.length; i++) {
         var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
@@ -313,6 +318,17 @@
         forcedHashExpiresAt = 0;
       }
 
+      function lockNavSelection(hash, durationMs) {
+        if (!hash) return;
+        navSelectionLockHash = hash;
+        navSelectionLockUntil = Date.now() + Math.max(0, Number(durationMs) || 0);
+      }
+
+      function clearNavSelectionLock() {
+        navSelectionLockHash = "";
+        navSelectionLockUntil = 0;
+      }
+
       function startForcingHash(hash) {
         if (!hash) {
           stopForcingHash();
@@ -323,10 +339,12 @@
         stopForcingHash();
         forcedHash = hash;
         forcedHashExpiresAt = Date.now() + maxForceHashMs;
+        lockNavSelection(hash, maxForceHashMs);
         settledHash = "";
         settledHashLockUntil = 0;
         forcedHashTimeoutId = window.setTimeout(function () {
           stopForcingHash();
+          clearNavSelectionLock();
           detectActiveHash();
         }, maxForceHashMs);
       }
@@ -400,9 +418,11 @@
         if (!hash || forcedHash !== hash) return;
         if (forcedHashSettleRafId) window.cancelAnimationFrame(forcedHashSettleRafId);
 
-        var idleFrames = 0;
+        var stablePasses = 0;
         var previousY = window.scrollY;
-        var requiredIdleFrames = 5;
+        var lastMovementAt = Date.now();
+        var requiredIdleMs = 170;
+        var requiredStablePasses = 2;
 
         function check() {
           forcedHashSettleRafId = 0;
@@ -416,16 +436,24 @@
           }
 
           var currentY = window.scrollY;
-          if (Math.abs(currentY - previousY) <= 1) idleFrames += 1;
-          else idleFrames = 0;
+          if (Math.abs(currentY - previousY) <= 1) {
+            // no-op
+          } else {
+            lastMovementAt = Date.now();
+          }
           previousY = currentY;
 
           var expectedTop = navOffset(0);
           var currentTop = Math.round(entry.section.getBoundingClientRect().top);
-          var withinTarget = Math.abs(currentTop - expectedTop) <= 6;
+          var withinTarget = Math.abs(currentTop - expectedTop) <= 8;
+          var idleLongEnough = Date.now() - lastMovementAt >= requiredIdleMs;
 
-          if (withinTarget && idleFrames >= requiredIdleFrames) {
+          if (withinTarget && idleLongEnough) stablePasses += 1;
+          else stablePasses = 0;
+
+          if (stablePasses >= requiredStablePasses) {
             lockActiveHash(hash, settleLockMs);
+            lockNavSelection(hash, settleLockMs);
             stopForcingHash();
             detectActiveHash();
             return;
@@ -444,6 +472,13 @@
       }
 
       function detectActiveHash() {
+        if (navSelectionLockHash && Date.now() <= navSelectionLockUntil && findSectionEntryByHash(navSelectionLockHash)) {
+          markActiveHash(navSelectionLockHash);
+          lastDetectedHash = navSelectionLockHash;
+          return;
+        }
+        if (navSelectionLockHash) clearNavSelectionLock();
+
         if (forcedHash && Date.now() <= forcedHashExpiresAt) {
           markActiveHash(forcedHash);
           lastDetectedHash = forcedHash;
@@ -500,10 +535,12 @@
 
       window.addEventListener("wheel", function () {
         stopForcingHash();
+        clearNavSelectionLock();
         clearActiveHashLock();
       }, { passive: true });
       window.addEventListener("touchstart", function () {
         stopForcingHash();
+        clearNavSelectionLock();
         clearActiveHashLock();
       }, { passive: true });
       window.addEventListener("keydown", function (event) {
@@ -511,6 +548,7 @@
         if (!key) return;
         if (key.indexOf("Arrow") === 0 || key === "PageDown" || key === "PageUp" || key === "Home" || key === "End" || key === " ") {
           stopForcingHash();
+          clearNavSelectionLock();
           clearActiveHashLock();
         }
       });
@@ -526,6 +564,7 @@
 
         clearActiveHashLock();
         startForcingHash(activeTarget.hash);
+        lockNavSelection(activeTarget.hash, maxForceHashMs);
         markActiveHash(activeTarget.hash);
         lastDetectedHash = activeTarget.hash;
         scheduleForcedHashSettleCheck(activeTarget.hash);

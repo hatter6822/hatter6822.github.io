@@ -37,6 +37,7 @@ Validates:
 
 ```bash
 node --check assets/js/map.js
+node --check assets/js/header-nav.js
 node --check assets/js/site.js
 node --check assets/js/background-pattern.js
 node --check assets/js/theme-init.js
@@ -45,6 +46,7 @@ node --check assets/js/theme-init.js
 ## Manual verification recommendations
 
 - Confirm `index.html` and `map.html` load from a static server.
+- Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="page"`) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
 - Test map page on mobile viewport (~390px width).
 - Confirm the compact toolbar is rendered directly below the "Interactive dependency/proof flow chart" header, before the interior declaration panel, and contains only current module context search, flow detail presets, and reset, and includes compact-density toolbar semantics.
 - Confirm map context-search, detail-preset keyboard navigation (Arrow/Home/End), and keyboard traversal still function.
@@ -56,3 +58,17 @@ node --check assets/js/theme-init.js
 - Confirm modules-array payload compatibility by testing both string and object module entries, including branch-wrapper payloads where top-level `main` metadata must not become a module node.
 - Confirm legacy symbol compatibility with snapshots that use `symbols.by_kind` and/or `constant` declaration keys.
 - Confirm map live status messaging remains coherent during load/refresh.
+
+### Cross-browser nav stability probe (optional, Playwright)
+
+If Playwright browsers are available in your environment, run a smoke probe that clicks a hash nav link and samples active nav state over time.
+
+```bash
+# serve the repository root
+python3 -m http.server 4173 --bind 0.0.0.0
+
+# in another shell, use Playwright (chromium/firefox/webkit)
+python3 scripts/nav-stability-smoke.py
+```
+
+Expected: selected hash link remains active through the full sample window in Chromium, Firefox, and WebKit/Safari-compatible engines.

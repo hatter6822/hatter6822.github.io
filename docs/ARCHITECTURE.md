@@ -68,6 +68,13 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Enabled smooth touch overflow behavior and constrained overscroll to chart container.
 - Added chart region focusability (`tabindex="0"`) for keyboard and assistive navigation.
 
+## Header navigation stability hardening
+
+- Strengthened same-page hash navigation with a selection lock that keeps the clicked nav-link active while smooth-scroll settles.
+- Updated scroll-settle detection from frame-count assumptions to time-based idle + positional tolerance checks for better cross-engine consistency.
+- Preserved user override semantics (wheel/touch/keyboard cancels lock) so explicit user scroll input still takes priority.
+- Result: reduced `aria-current` oscillation between adjacent section links during hash navigation in Chromium, Firefox, and Safari/WebKit-class engines.
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:
