@@ -272,27 +272,26 @@
       var samePageLinks = links.querySelectorAll('a[href*="#"]');
       var sectionEntries = [];
       var activeIndex = -1;
-      var pendingActiveIndex = -1;
-      var pendingActiveObservations = 0;
+      var pendingIndex = -1;
+      var pendingObservations = 0;
       var geometryRefreshRafId = 0;
       var geometryRefreshTimeoutId = 0;
-      var navSelectionSession = {
-        hash: "",
+      var sectionTops = [];
+      var hysteresisPx = 36;
+      var selectionLock = {
         index: -1,
-        startedAt: 0,
+        hash: "",
         expiresAt: 0,
+        timeoutId: 0,
+        isUserInterrupted: false,
+        startedAt: 0,
         lastScrollAt: 0,
         mismatchSince: 0,
-        releaseArmedAt: 0,
-        userInterrupted: false,
-        rafId: 0,
-        timeoutId: 0,
-        idleTimeoutId: 0,
+        epoch: 0,
         idleHoldMs: 180,
-        maxHoldMs: 12000,
-        idleGraceMs: 36
+        mismatchReleaseMs: 140,
+        maxHoldMs: 1800
       };
-      var boundaryHysteresisPx = 56;
 
       for (var i = 0; i < samePageLinks.length; i++) {
         var sameTarget = resolveNavTarget(samePageLinks[i].getAttribute("href") || "");
@@ -305,57 +304,6 @@
 
       if (!sectionEntries.length) return;
 
-      function findSectionEntryByHash(hash) {
-        for (var i = 0; i < sectionEntries.length; i++) {
-          if (sectionEntries[i].hash === hash) return sectionEntries[i];
-        }
-        return null;
-      }
-
-      function readSectionDocumentTop(index) {
-        if (index < 0 || index >= sectionEntries.length) return 0;
-        return Math.max(0, Math.round(sectionEntries[index].section.getBoundingClientRect().top + window.scrollY));
-      }
-
-      function previousBoundary(index) {
-        if (index <= 0 || index >= sectionEntries.length) return null;
-        return Math.round((readSectionDocumentTop(index - 1) + readSectionDocumentTop(index)) / 2);
-      }
-
-      function nextBoundary(index) {
-        if (index < 0 || index >= sectionEntries.length - 1) return null;
-        return Math.round((readSectionDocumentTop(index) + readSectionDocumentTop(index + 1)) / 2);
-      }
-
-      function rebuildSectionGeometry() {
-        pendingActiveIndex = -1;
-        pendingActiveObservations = 0;
-      }
-
-      function stopNavSelectionSession() {
-        if (navSelectionSession.timeoutId) {
-          window.clearTimeout(navSelectionSession.timeoutId);
-          navSelectionSession.timeoutId = 0;
-        }
-        if (navSelectionSession.idleTimeoutId) {
-          window.clearTimeout(navSelectionSession.idleTimeoutId);
-          navSelectionSession.idleTimeoutId = 0;
-        }
-        if (navSelectionSession.rafId) {
-          window.cancelAnimationFrame(navSelectionSession.rafId);
-          navSelectionSession.rafId = 0;
-        }
-
-        navSelectionSession.hash = "";
-        navSelectionSession.index = -1;
-        navSelectionSession.startedAt = 0;
-        navSelectionSession.expiresAt = 0;
-        navSelectionSession.lastScrollAt = 0;
-        navSelectionSession.mismatchSince = 0;
-        navSelectionSession.releaseArmedAt = 0;
-        navSelectionSession.userInterrupted = false;
-      }
-
       function sectionIndexForHash(hash) {
         if (!hash) return -1;
         for (var i = 0; i < sectionEntries.length; i++) {
@@ -364,172 +312,167 @@
         return -1;
       }
 
-      function markActiveHash(hash) {
-        for (var j = 0; j < sectionEntries.length; j++) {
-          if (sectionEntries[j].hash === hash) sectionEntries[j].link.setAttribute("aria-current", "page");
-          else sectionEntries[j].link.removeAttribute("aria-current");
+      function updateSectionTops() {
+        sectionTops = [];
+        for (var i = 0; i < sectionEntries.length; i++) {
+          sectionTops.push(Math.max(0, Math.round(sectionEntries[i].section.getBoundingClientRect().top + window.scrollY)));
         }
+      }
+
+      function midBoundary(leftIndex, rightIndex) {
+        if (leftIndex < 0 || rightIndex < 0) return null;
+        if (leftIndex >= sectionTops.length || rightIndex >= sectionTops.length) return null;
+        return Math.round((sectionTops[leftIndex] + sectionTops[rightIndex]) / 2);
       }
 
       function markActiveIndex(index) {
         if (index < 0 || index >= sectionEntries.length) return;
-        pendingActiveIndex = -1;
-        pendingActiveObservations = 0;
         activeIndex = index;
-        markActiveHash(sectionEntries[index].hash);
+        pendingIndex = -1;
+        pendingObservations = 0;
+
+        for (var i = 0; i < sectionEntries.length; i++) {
+          if (i === index) sectionEntries[i].link.setAttribute("aria-current", "page");
+          else sectionEntries[i].link.removeAttribute("aria-current");
+        }
       }
 
       function markCandidateIndex(index, options) {
         if (index < 0 || index >= sectionEntries.length) return;
         if (index === activeIndex) {
-          pendingActiveIndex = -1;
-          pendingActiveObservations = 0;
+          pendingIndex = -1;
+          pendingObservations = 0;
           return;
         }
 
-        var immediate = options && options.immediate;
-        if (immediate) {
+        if (options && options.immediate) {
           markActiveIndex(index);
           return;
         }
 
-        if (pendingActiveIndex !== index) {
-          pendingActiveIndex = index;
-          pendingActiveObservations = 1;
+        if (pendingIndex !== index) {
+          pendingIndex = index;
+          pendingObservations = 1;
           return;
         }
 
-        pendingActiveObservations += 1;
-        if (pendingActiveObservations >= 2) markActiveIndex(index);
+        pendingObservations += 1;
+        if (pendingObservations >= 2) markActiveIndex(index);
       }
 
-      function armNavSelectionIdleRelease() {
-        if (!navSelectionSession.hash) return;
-        if (navSelectionSession.idleTimeoutId) window.clearTimeout(navSelectionSession.idleTimeoutId);
-        navSelectionSession.idleTimeoutId = window.setTimeout(function () {
-          navSelectionSession.idleTimeoutId = 0;
-          if (!navSelectionSession.hash) return;
-          detectActiveHash();
-        }, navSelectionSession.idleHoldMs + 20);
+      function clearSelectionLock() {
+        if (selectionLock.timeoutId) {
+          window.clearTimeout(selectionLock.timeoutId);
+          selectionLock.timeoutId = 0;
+        }
+        selectionLock.index = -1;
+        selectionLock.hash = "";
+        selectionLock.expiresAt = 0;
+        selectionLock.isUserInterrupted = false;
+        selectionLock.startedAt = 0;
+        selectionLock.lastScrollAt = 0;
+        selectionLock.mismatchSince = 0;
       }
 
       function focusedSectionIndex() {
-        if (!sectionEntries.length) return -1;
-
         var navTop = navOffset(0);
-        var focusWindowMin = navTop - 8;
-        var focusWindowMax = navTop + 84;
+        var minTop = navTop - 8;
+        var maxTop = navTop + 96;
 
-        for (var focusedIndex = 0; focusedIndex < sectionEntries.length; focusedIndex++) {
-          var sectionTop = Math.round(sectionEntries[focusedIndex].section.getBoundingClientRect().top);
-          if (sectionTop >= focusWindowMin && sectionTop <= focusWindowMax) return focusedIndex;
+        for (var i = 0; i < sectionEntries.length; i++) {
+          var top = Math.round(sectionEntries[i].section.getBoundingClientRect().top);
+          if (top >= minTop && top <= maxTop) return i;
         }
 
         return -1;
       }
 
-      function shouldReleaseSelectionSession() {
-        if (!navSelectionSession.hash) return true;
-        var now = Date.now();
-        if (navSelectionSession.userInterrupted) return true;
-        if (now >= navSelectionSession.expiresAt) return true;
-
-        var focusedIndex = focusedSectionIndex();
-        if (focusedIndex !== navSelectionSession.index) {
-          if (!navSelectionSession.mismatchSince) navSelectionSession.mismatchSince = now;
-          navSelectionSession.releaseArmedAt = 0;
-          var mismatchIdle = navSelectionSession.lastScrollAt && now - navSelectionSession.lastScrollAt >= navSelectionSession.idleHoldMs + navSelectionSession.idleGraceMs;
-          var mismatchHeldLongEnough = now - navSelectionSession.mismatchSince >= 140;
-          if (mismatchIdle && mismatchHeldLongEnough) return true;
-          return false;
-        }
-
-        navSelectionSession.mismatchSince = 0;
-
-        if (!navSelectionSession.releaseArmedAt) navSelectionSession.releaseArmedAt = now;
-
-        var idleSatisfied = navSelectionSession.lastScrollAt && now - navSelectionSession.lastScrollAt >= navSelectionSession.idleHoldMs + navSelectionSession.idleGraceMs;
-        var armedSatisfied = now - navSelectionSession.releaseArmedAt >= navSelectionSession.idleHoldMs;
-        return idleSatisfied && armedSatisfied;
-      }
-
-      function startNavSelectionSession(hash) {
-        if (!hash) {
-          stopNavSelectionSession();
-          return;
-        }
-
+      function startSelectionLock(hash) {
         var index = sectionIndexForHash(hash);
         if (index === -1) return;
 
-        stopNavSelectionSession();
-        navSelectionSession.hash = hash;
-        navSelectionSession.index = index;
-        navSelectionSession.startedAt = Date.now();
-        navSelectionSession.expiresAt = navSelectionSession.startedAt + navSelectionSession.maxHoldMs;
-        navSelectionSession.lastScrollAt = navSelectionSession.startedAt;
-        navSelectionSession.mismatchSince = 0;
-        navSelectionSession.releaseArmedAt = 0;
-        navSelectionSession.userInterrupted = false;
+        clearSelectionLock();
+        selectionLock.index = index;
+        selectionLock.hash = hash;
+        selectionLock.isUserInterrupted = false;
+        selectionLock.startedAt = Date.now();
+        selectionLock.lastScrollAt = selectionLock.startedAt;
+        selectionLock.mismatchSince = 0;
+        selectionLock.epoch += 1;
+        var currentEpoch = selectionLock.epoch;
+        selectionLock.expiresAt = selectionLock.startedAt + selectionLock.maxHoldMs;
+        markActiveIndex(index);
 
-        navSelectionSession.timeoutId = window.setTimeout(function () {
-          stopNavSelectionSession();
+        selectionLock.timeoutId = window.setTimeout(function () {
+          if (selectionLock.index === -1 || selectionLock.epoch !== currentEpoch) return;
+          clearSelectionLock();
           detectActiveHash();
-        }, Math.max(0, navSelectionSession.expiresAt - Date.now()));
-
-        function checkSessionSettlement() {
-          navSelectionSession.rafId = 0;
-          if (!navSelectionSession.hash || navSelectionSession.hash !== hash) return;
-
-          if (shouldReleaseSelectionSession()) {
-            stopNavSelectionSession();
-            detectActiveHash();
-            return;
-          }
-
-          navSelectionSession.rafId = window.requestAnimationFrame(checkSessionSettlement);
-        }
-
-        navSelectionSession.rafId = window.requestAnimationFrame(checkSessionSettlement);
+        }, selectionLock.maxHoldMs + 20);
       }
 
-      function detectActiveIndexFromScroll() {
+      function shouldKeepSelectionLock() {
+        if (selectionLock.index === -1) return false;
+        if (selectionLock.isUserInterrupted) return false;
+
+        var now = Date.now();
+        if (now >= selectionLock.expiresAt) return false;
+
+        var focusIndex = focusedSectionIndex();
+        if (focusIndex === selectionLock.index) {
+          selectionLock.mismatchSince = 0;
+          return (now - selectionLock.lastScrollAt) < selectionLock.idleHoldMs;
+        }
+
+        if (focusIndex !== -1 && focusIndex !== selectionLock.index) {
+          if (!selectionLock.mismatchSince) selectionLock.mismatchSince = now;
+          var mismatchElapsed = now - selectionLock.mismatchSince;
+          var idleElapsed = now - selectionLock.lastScrollAt;
+          if (mismatchElapsed >= selectionLock.mismatchReleaseMs && idleElapsed >= 40) return false;
+          return true;
+        }
+
+        selectionLock.mismatchSince = 0;
+        return true;
+      }
+
+      function preferredIndexFromScrollPosition() {
         if (!sectionEntries.length) return -1;
 
-        var focusedIndex = focusedSectionIndex();
-        if (focusedIndex !== -1) return focusedIndex;
-
         var navTop = navOffset(0);
-        var currentScrollY = window.scrollY || 0;
-        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-        var anchorTop = Math.max(0, Math.round(currentScrollY + navTop + Math.min(120, Math.max(28, viewportHeight * 0.2))));
+        var scrollAnchor = Math.max(0, Math.round(window.scrollY + navTop));
+        var candidate = 0;
 
-        var candidateIndex = 0;
-        for (var i = 0; i < sectionEntries.length; i++) {
-          var sectionTop = readSectionDocumentTop(i);
-          if (anchorTop < sectionTop) break;
-          candidateIndex = i;
+        for (var i = 0; i < sectionTops.length; i++) {
+          if (scrollAnchor >= sectionTops[i]) candidate = i;
+          else break;
         }
 
-        if (activeIndex !== -1 && activeIndex !== candidateIndex) {
-          if (candidateIndex > activeIndex) {
-            var lowerBoundary = nextBoundary(activeIndex);
-            if (typeof lowerBoundary === "number" && anchorTop < lowerBoundary + boundaryHysteresisPx) return activeIndex;
-          } else {
-            var upperBoundary = previousBoundary(activeIndex);
-            if (typeof upperBoundary === "number" && anchorTop > upperBoundary - boundaryHysteresisPx) return activeIndex;
-          }
+        var documentHeight = Math.max(document.body.scrollHeight || 0, document.documentElement.scrollHeight || 0);
+        var viewportBottom = Math.round(window.scrollY + (window.innerHeight || document.documentElement.clientHeight || 0));
+        if (viewportBottom >= documentHeight - 4) candidate = sectionEntries.length - 1;
+
+        if (activeIndex === -1 || activeIndex === candidate) return candidate;
+
+        if (candidate > activeIndex) {
+          var forwardBoundary = midBoundary(activeIndex, Math.min(sectionEntries.length - 1, activeIndex + 1));
+          if (typeof forwardBoundary === "number" && scrollAnchor < forwardBoundary + hysteresisPx) return activeIndex;
+          return candidate;
         }
 
-        return candidateIndex;
+        var backwardBoundary = midBoundary(Math.max(0, activeIndex - 1), activeIndex);
+        if (typeof backwardBoundary === "number" && scrollAnchor > backwardBoundary - hysteresisPx) return activeIndex;
+        return candidate;
       }
 
       function detectActiveHash() {
-        if (navSelectionSession.hash && !shouldReleaseSelectionSession() && findSectionEntryByHash(navSelectionSession.hash)) {
-          markActiveIndex(navSelectionSession.index);
+        if (!sectionEntries.length) return;
+
+        if (shouldKeepSelectionLock()) {
+          markActiveIndex(selectionLock.index);
           return;
         }
-        if (navSelectionSession.hash) stopNavSelectionSession();
+
+        if (selectionLock.index !== -1) clearSelectionLock();
 
         var hashIndex = sectionIndexForHash(window.location.hash || "");
         if (hashIndex !== -1) {
@@ -541,14 +484,14 @@
           }
         }
 
-        markCandidateIndex(detectActiveIndexFromScroll());
+        markCandidateIndex(preferredIndexFromScrollPosition());
       }
 
       function scheduleGeometryRefresh() {
         if (geometryRefreshRafId) return;
         geometryRefreshRafId = window.requestAnimationFrame(function () {
           geometryRefreshRafId = 0;
-          rebuildSectionGeometry();
+          updateSectionTops();
           detectActiveHash();
         });
       }
@@ -556,16 +499,16 @@
       var scrollTicking = false;
       function handleScrollAria() {
         if (scrollTicking) return;
-        if (navSelectionSession.hash) {
-          navSelectionSession.lastScrollAt = Date.now();
-          navSelectionSession.releaseArmedAt = 0;
-          armNavSelectionIdleRelease();
-        }
+        if (selectionLock.index !== -1) selectionLock.lastScrollAt = Date.now();
         scrollTicking = true;
         window.requestAnimationFrame(function () {
           detectActiveHash();
           scrollTicking = false;
         });
+      }
+
+      function interruptSelectionLock(event) {
+        if (event && event.isTrusted && selectionLock.index !== -1) selectionLock.isUserInterrupted = true;
       }
 
       detectActiveHash();
@@ -580,21 +523,17 @@
         scheduleGeometryRefresh();
       });
       window.addEventListener("hashchange", function () {
-        if (window.location.hash) startNavSelectionSession(window.location.hash);
+        if (window.location.hash) startSelectionLock(window.location.hash);
         detectActiveHash();
       });
 
-      window.addEventListener("wheel", function (event) {
-        if (event && event.isTrusted && navSelectionSession.hash) navSelectionSession.userInterrupted = true;
-      }, { passive: true });
-      window.addEventListener("touchstart", function (event) {
-        if (event && event.isTrusted && navSelectionSession.hash) navSelectionSession.userInterrupted = true;
-      }, { passive: true });
+      window.addEventListener("wheel", interruptSelectionLock, { passive: true });
+      window.addEventListener("touchstart", interruptSelectionLock, { passive: true });
       window.addEventListener("keydown", function (event) {
         var key = event && event.key;
         if (!key) return;
         if (key.indexOf("Arrow") === 0 || key === "PageDown" || key === "PageUp" || key === "Home" || key === "End" || key === " ") {
-          if (navSelectionSession.hash) navSelectionSession.userInterrupted = true;
+          interruptSelectionLock({ isTrusted: true });
         }
       });
 
@@ -607,15 +546,13 @@
         var activeTarget = resolveNavTarget(activeLink.getAttribute("href") || "");
         if (!activeTarget || !activeTarget.sameOrigin || !activeTarget.samePath || !activeTarget.hash) return;
 
-        startNavSelectionSession(activeTarget.hash);
+        startSelectionLock(activeTarget.hash);
         detectActiveHash();
       });
 
       if ("onscrollend" in window) {
         window.addEventListener("scrollend", function () {
-          if (!navSelectionSession.hash) return;
-          if (navSelectionSession.rafId) window.cancelAnimationFrame(navSelectionSession.rafId);
-          navSelectionSession.rafId = window.requestAnimationFrame(function () { detectActiveHash(); });
+          detectActiveHash();
         }, { passive: true });
       }
 
@@ -646,9 +583,10 @@
         }
       }
 
-      rebuildSectionGeometry();
+      updateSectionTops();
       detectActiveHash();
     }
+
 
     if (toggle) toggle.addEventListener("click", function () { setNavState(!links.classList.contains("open")); });
 

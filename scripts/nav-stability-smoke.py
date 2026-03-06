@@ -26,6 +26,16 @@ TARGET_HREFS = (
 )
 REPEATED_TARGET = "/#verification"
 REPEATED_CLICKS = 3
+STRESS_SEQUENCE = (
+    "/#features",
+    "/#security",
+    "/#verification",
+    "/#getting-started",
+    "/#security",
+    "/#features",
+    "/#verification",
+)
+STRESS_CLICK_GAP_MS = 120
 
 
 async def sample_nav_state(page, target_href):
@@ -50,11 +60,20 @@ async def sample_nav_state(page, target_href):
               const top = Math.round(target.getBoundingClientRect().top);
               const minTop = navHeight - 6;
               const maxTop = navHeight + 80;
+              let activeInFocus = null;
+              if (activeHash) {
+                const activeTarget = document.querySelector(activeHash);
+                if (activeTarget) {
+                  const activeTop = Math.round(activeTarget.getBoundingClientRect().top);
+                  activeInFocus = activeTop >= minTop && activeTop <= maxTop;
+                }
+              }
               return {
                 activeHref,
                 activeHash,
                 targetHash,
                 inFocus: top >= minTop && top <= maxTop,
+                activeInFocus,
                 top,
               };
             }""",
@@ -68,11 +87,15 @@ async def sample_nav_state(page, target_href):
 
     active_stable = all(s["activeHref"] == target_href for s in samples)
     focus_stable = all(s.get("inFocus") is True for s in samples if s.get("inFocus") is not None)
+    active_focus_consistent = all(
+        s.get("activeInFocus") is True for s in samples if s.get("activeInFocus") is not None
+    )
     return {
         "target": target_href,
         "samples": samples,
         "active_stable": active_stable,
         "focus_stable": focus_stable,
+        "active_focus_consistent": active_focus_consistent,
         "transitions": max(0, len(unique_sequence) - 1),
     }
 
@@ -109,10 +132,10 @@ async def run_probe(browser_type, name):
         await page.click(f'#nav-links a[href="{href}"]')
         await page.wait_for_timeout(INITIAL_SETTLE_MS)
         result = await sample_nav_state(page, href)
-        passed = result["active_stable"] and result["focus_stable"]
+        passed = result["active_stable"] and result["focus_stable"] and result["active_focus_consistent"]
         print(
             f"{name}: target={href} pass={passed} transitions={result['transitions']} "
-            f"active_stable={result['active_stable']} focus_stable={result['focus_stable']}"
+            f"active_stable={result['active_stable']} focus_stable={result['focus_stable']} active_focus_consistent={result['active_focus_consistent']}"
         )
         if not passed:
             failures.append(result)
@@ -123,10 +146,10 @@ async def run_probe(browser_type, name):
     await induce_layout_shift(page, LAYOUT_SHIFT_HEIGHT_PX)
     await page.wait_for_timeout(260)
     layout_result = await sample_nav_state(page, LAYOUT_SHIFT_TARGET)
-    layout_passed = layout_result["active_stable"] and layout_result["focus_stable"]
+    layout_passed = layout_result["active_stable"] and layout_result["focus_stable"] and layout_result["active_focus_consistent"]
     print(
         f"{name}: layout-shift target={LAYOUT_SHIFT_TARGET} pass={layout_passed} transitions={layout_result['transitions']} "
-        f"active_stable={layout_result['active_stable']} focus_stable={layout_result['focus_stable']}"
+        f"active_stable={layout_result['active_stable']} focus_stable={layout_result['focus_stable']} active_focus_consistent={layout_result['active_focus_consistent']}"
     )
     if not layout_passed:
         failures.append(layout_result)
@@ -136,14 +159,31 @@ async def run_probe(browser_type, name):
         await page.click(f'#nav-links a[href="{REPEATED_TARGET}"]')
         await page.wait_for_timeout(INITIAL_SETTLE_MS)
         result = await sample_nav_state(page, REPEATED_TARGET)
-        passed = result["active_stable"] and result["focus_stable"]
+        passed = result["active_stable"] and result["focus_stable"] and result["active_focus_consistent"]
         print(
             f"{name}: repeated target={REPEATED_TARGET} run={repeat_index + 1}/{REPEATED_CLICKS} "
             f"pass={passed} transitions={result['transitions']} active_stable={result['active_stable']} "
-            f"focus_stable={result['focus_stable']}"
+            f"focus_stable={result['focus_stable']} active_focus_consistent={result['active_focus_consistent']}"
         )
         if not passed:
             failures.append(result)
+
+    # Stress regression: rapid alternating clicks must converge to the final target
+    # without post-settle oscillation of aria-current.
+    for href in STRESS_SEQUENCE:
+        await page.click(f'#nav-links a[href="{href}"]')
+        await page.wait_for_timeout(STRESS_CLICK_GAP_MS)
+
+    final_target = STRESS_SEQUENCE[-1]
+    await page.wait_for_timeout(INITIAL_SETTLE_MS)
+    stress_result = await sample_nav_state(page, final_target)
+    stress_passed = stress_result["active_stable"] and stress_result["focus_stable"] and stress_result["active_focus_consistent"]
+    print(
+        f"{name}: stress final_target={final_target} pass={stress_passed} transitions={stress_result['transitions']} "
+        f"active_stable={stress_result['active_stable']} focus_stable={stress_result['focus_stable']} active_focus_consistent={stress_result['active_focus_consistent']}"
+    )
+    if not stress_passed:
+        failures.append(stress_result)
 
     await browser.close()
     return failures
