@@ -74,4 +74,4 @@ python3 -m http.server 4173 --bind 0.0.0.0
 python3 scripts/nav-stability-smoke.py
 ```
 
-Expected: selected hash link remains active through the full sample window in Chromium, Firefox, and WebKit/Safari-compatible engines, with zero unexpected active-link transitions after initial settle.
+Expected: for each tested nav hash (`/#features`, `/#security`, `/#verification`, `/#getting-started`), the selected link remains active through the full sample window **and** the corresponding section remains in-focus under the fixed header offset window, with no unexpected active-link transitions after initial settle.
