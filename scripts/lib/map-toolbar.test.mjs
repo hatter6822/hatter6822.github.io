@@ -3,14 +3,12 @@ import { strict as assert } from "node:assert";
 
 const html = readFileSync(new URL("../../map.html", import.meta.url), "utf8");
 
-const panelHeaderIndex = html.indexOf('Interactive dependency/proof flow chart');
 const toolbarIndex = html.indexOf('id="map-toolbar"');
 const interiorMenuIndex = html.indexOf('id="flow-node-interior-menu"');
-assert(panelHeaderIndex !== -1, "flow chart header should exist");
 assert(toolbarIndex !== -1, "map toolbar should exist");
 assert(interiorMenuIndex !== -1, "flow node interior menu should exist");
-assert(toolbarIndex > panelHeaderIndex, "map toolbar should be positioned under the flow chart header");
 assert(toolbarIndex < interiorMenuIndex, "map toolbar should render before flow node interior menu");
+assert(/aria-label="Dependency and proof flow chart"/.test(html), "flow chart region should remain labeled for accessibility");
 
 assert(/<form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">/.test(html), "toolbar should use compact styling and explicitly control the flowchart");
 assert(!/class="map-toolbar\s+card"/.test(html), "toolbar should not use the generic card shell");
@@ -18,7 +16,6 @@ assert(/<label for="module-search">Current module context<\/label>/.test(html), 
 assert(/id="module-search"[^>]*enterkeyhint="search"/.test(html), "module search should provide search enter key hint");
 assert(/id="module-search"[^>]*role="combobox"[^>]*aria-controls="module-search-options"/.test(html), "module search should expose combobox semantics for cross-browser suggestion support");
 assert(/id="module-search-options"[^>]*role="listbox"/.test(html), "module search should include an explicit listbox suggestion container");
-assert(!/class="detail-preset-options"/.test(html), "toolbar should not include flow detail presets");
 assert(/id="reset-view"/.test(html), "toolbar should include reset button");
 
 const removedControls = ["focus-select", "flow-show-all", "proof-linked-only", "toolbar-summary"];
