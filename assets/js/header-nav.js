@@ -37,6 +37,16 @@
     if (!nav || !links) return;
 
     var supportsFocusPreventScroll = null;
+    var hashNavigationEpoch = 0;
+
+    function beginHashNavigation() {
+      hashNavigationEpoch += 1;
+      return hashNavigationEpoch;
+    }
+
+    function isCurrentHashNavigation(epoch) {
+      return epoch === hashNavigationEpoch;
+    }
 
     function shouldBypassClientNavigation(event, element) {
       if (!event || !element) return true;
@@ -196,9 +206,14 @@
     }
 
     function scheduleHashScroll(hash, behavior, options) {
+      var navEpoch = options && typeof options.navEpoch === "number" ? options.navEpoch : hashNavigationEpoch;
       if (!scrollToHash(hash, behavior, options)) return;
-      window.requestAnimationFrame(function () { scrollToHash(hash, behavior, options); });
+      window.requestAnimationFrame(function () {
+        if (!isCurrentHashNavigation(navEpoch)) return;
+        scrollToHash(hash, behavior, options);
+      });
       window.setTimeout(function () {
+        if (!isCurrentHashNavigation(navEpoch)) return;
         var target = hashTarget(hash);
         if (!target) return;
         var top = target.getBoundingClientRect().top;
@@ -208,11 +223,13 @@
       }, 220);
     }
 
-    function settleHashNavigation(hash) {
+    function settleHashNavigation(hash, navEpoch) {
       if (!hash) return;
+      var epoch = typeof navEpoch === "number" ? navEpoch : hashNavigationEpoch;
       var attempts = 0;
       var maxAttempts = 8;
       function runAttempt() {
+        if (!isCurrentHashNavigation(epoch)) return;
         attempts += 1;
         var target = hashTarget(hash);
         if (!target) return;
@@ -223,7 +240,10 @@
         if (attempts < maxAttempts) window.setTimeout(runAttempt, attempts < 3 ? 90 : 220);
       }
       runAttempt();
-      window.addEventListener("load", runAttempt, { once: true });
+      window.addEventListener("load", function onLoad() {
+        if (!isCurrentHashNavigation(epoch)) return;
+        runAttempt();
+      }, { once: true });
     }
 
     function storeCrossPageNavIntent(target) {
@@ -623,15 +643,17 @@
 
         if (target.samePath && target.hash) {
           event.preventDefault();
+          var selectionEpoch = beginHashNavigation();
           runPostCloseNavigation(function () {
-            scheduleHashScroll(target.hash, "smooth", { includeGap: false });
-            settleHashNavigation(target.hash);
+            scheduleHashScroll(target.hash, "smooth", { includeGap: false, navEpoch: selectionEpoch });
+            settleHashNavigation(target.hash, selectionEpoch);
             focusHashTarget(target.hash);
             if (window.location.hash !== target.hash) history.pushState(null, "", target.hash);
             refreshCurrentPageAria();
           });
         } else if (target.samePath && !target.hash) {
           event.preventDefault();
+          beginHashNavigation();
           runPostCloseNavigation(function () {
             safeScrollTo(0, "smooth");
             if (window.location.pathname !== target.path || window.location.search || window.location.hash) history.replaceState(null, "", target.path);
@@ -669,16 +691,18 @@
 
     if (window.location.hash) {
       window.requestAnimationFrame(function () {
-        scheduleHashScroll(window.location.hash, "auto", { includeGap: false });
-        settleHashNavigation(window.location.hash);
+        var initialHashEpoch = beginHashNavigation();
+        scheduleHashScroll(window.location.hash, "auto", { includeGap: false, navEpoch: initialHashEpoch });
+        settleHashNavigation(window.location.hash, initialHashEpoch);
         focusHashTarget(window.location.hash);
       });
     } else {
       var storedHash = consumeStoredNavIntent();
       if (storedHash) {
         window.requestAnimationFrame(function () {
-          scheduleHashScroll(storedHash, "auto", { includeGap: false });
-          settleHashNavigation(storedHash);
+          var storedHashEpoch = beginHashNavigation();
+          scheduleHashScroll(storedHash, "auto", { includeGap: false, navEpoch: storedHashEpoch });
+          settleHashNavigation(storedHash, storedHashEpoch);
           focusHashTarget(storedHash);
           if (window.location.hash !== storedHash) {
             try { history.replaceState(null, "", storedHash); } catch (e) {}
