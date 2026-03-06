@@ -21,7 +21,7 @@ Validates:
 - theorem counting behavior
 - README metric table parsing
 - data schema and graph consistency validation behavior
-- map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, declaration-centric canonical payload support, declaration projection into symbol buckets, theorem/function fallback derivation from `byKind` when explicit arrays are empty, path-based dependency normalization, deterministic module/file ordering, stable per-module defaults, `symbolsLoaded` correctness, interior-kind group aggregation/default-selection behavior, and interior search caret-range normalization used by live filter rerenders)
+- map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, declaration-centric canonical payload support, declaration projection into symbol buckets, theorem/function fallback derivation from `byKind` when explicit arrays are empty, path-based dependency normalization, deterministic module/file ordering, stable per-module defaults, `symbolsLoaded` correctness, interior-kind group aggregation/default-selection behavior, case-insensitive interior declaration ordering for `All` aggregations, declaration-kind color key mapping, and interior search caret-range normalization used by live filter rerenders)
 
 ### Bundled data integrity
 
@@ -58,7 +58,8 @@ node --check assets/js/theme-init.js
 - Confirm map context-search keyboard navigation (Arrow/Home/End) and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
 - Confirm reset clears any search validity errors and preserves a minimal toolbar footprint across desktop/mobile breakpoints.
-- Confirm each interior dropdown (Object, Extension, Context/Init) defaults to `All (N)`, can switch kinds, and deep-link declarations to source lines.
+- Confirm each interior dropdown (Object, Extension, Context/Init) defaults to `All (N)`, can switch kinds, color-codes option text as a declaration-kind key, and deep-link declarations to source lines.
+- Confirm interior declaration chips reflect declaration-kind color coding and that list ordering is case-insensitive alphabetical for both specific-kind and `All` views.
 - Confirm the `Filter declarations across all kinds…` search box accepts multi-character typing without dropping focus/caret after each keystroke.
 - Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Extension/Context-Init) to the newly selected module.
 - Confirm modules-array payload compatibility by testing both string and object module entries, including branch-wrapper payloads where top-level `main` metadata must not become a module node.
