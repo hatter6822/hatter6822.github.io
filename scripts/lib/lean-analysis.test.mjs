@@ -8,6 +8,7 @@ import {
   normalizeSymbolName,
   parseCurrentStateMetrics,
   theoremCount,
+  theoremCountFromCodebaseMap,
   tokenizeImportSegment
 } from './lean-analysis.mjs';
 
@@ -172,4 +173,38 @@ test('tokenizeImportSegment extracts valid module-like tokens only', () => {
 
 test('parseCurrentStateMetrics returns empty object for missing table', () => {
   assert.deepEqual(parseCurrentStateMetrics('No metrics here'), {});
+});
+
+
+test('theoremCountFromCodebaseMap prefers top-level aggregate theorem count', () => {
+  assert.equal(theoremCountFromCodebaseMap({ theorems: 734, moduleMeta: { A: { theorems: 1 } } }), 734);
+});
+
+test('theoremCountFromCodebaseMap falls back to stats aggregate theorem count', () => {
+  assert.equal(theoremCountFromCodebaseMap({ stats: { theorems: 222 } }), 222);
+});
+
+test('theoremCountFromCodebaseMap derives theorem totals from module meta and symbols', () => {
+  const codebaseMap = {
+    moduleMeta: {
+      Core: { theorems: 3 },
+      API: { theoremCount: 4 },
+      Model: { stats: { theorems: 5 } },
+      Sched: {
+        symbols: {
+          theorems: [{ name: 'a' }, { name: 'b' }]
+        }
+      },
+      Device: {
+        symbols: {
+          byKind: {
+            theorem: [{ name: 'c' }],
+            lemma: [{ name: 'd' }, { name: 'e' }]
+          }
+        }
+      }
+    }
+  };
+
+  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 17);
 });

@@ -171,3 +171,36 @@ export function parseCurrentStateMetrics(readmeText) {
 
   return metrics;
 }
+
+export function theoremCountFromCodebaseMap(codebaseMap) {
+  const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
+  if (!map) return 0;
+
+  const topLevel = Number(map.theorems);
+  if (Number.isFinite(topLevel) && topLevel > 0) return topLevel;
+
+  const statsTheorems = Number(map.stats?.theorems);
+  if (Number.isFinite(statsTheorems) && statsTheorems > 0) return statsTheorems;
+
+  const moduleMeta = map.moduleMeta;
+  if (!moduleMeta || typeof moduleMeta !== 'object') return 0;
+
+  let total = 0;
+  for (const meta of Object.values(moduleMeta)) {
+    const explicit = Number(meta?.theorems ?? meta?.theoremCount ?? meta?.stats?.theorems);
+    if (Number.isFinite(explicit) && explicit > 0) {
+      total += explicit;
+      continue;
+    }
+
+    const symbols = meta?.symbols;
+    if (!symbols || typeof symbols !== 'object') continue;
+
+    const theoremEntries = Array.isArray(symbols.theorems) ? symbols.theorems.length : 0;
+    const byKindTheorems = Array.isArray(symbols.byKind?.theorem) ? symbols.byKind.theorem.length : 0;
+    const byKindLemmas = Array.isArray(symbols.byKind?.lemma) ? symbols.byKind.lemma.length : 0;
+    total += theoremEntries > 0 ? theoremEntries : byKindTheorems + byKindLemmas;
+  }
+
+  return total;
+}
