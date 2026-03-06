@@ -63,8 +63,6 @@ The map page provides a single operational and proof-aware architecture view of 
   - Contexts/Inits (`universe`, `universes`, `variable`, `variables`, `parameter`, `parameters`, `section`, `namespace`, `end`, `initialize`)
   - Each dropdown now defaults to `All (N)` so Object, Extension, and Context/Init scrollboxes are populated with the full declaration inventory on first render.
   - Users can still switch to individual kinds, and each dropdown remembers that selected kind while filtering so analysts can refine queries without losing active context.
-  - Selector options are color-coded by declaration kind and each declaration chip uses the same kind color so the dropdown doubles as a visual key.
-  - Declaration lists are sorted case-insensitively by name, including aggregated `All` views across multiple kinds.
   - The interior declaration search box now preserves focus and caret position during live filtering rerenders, preventing one-character input stalls while users type longer symbol queries.
   - The interior declaration panel no longer renders a dedicated header row; declaration filtering controls now anchor the panel start directly.
   - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.

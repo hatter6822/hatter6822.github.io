@@ -434,10 +434,10 @@
     if (selectedKind === INTERIOR_KIND_ALL_VALUE) {
       var aggregated = [];
       for (var i = 0; i < groupKinds.length; i++) {
-        var kindItems = ((interior.byKind || {})[groupKinds[i]] || []).slice();
+        var kindItems = ((interior.byKind || {})[groupKinds[i]] || []).slice().sort(byNameThenLine);
         for (var j = 0; j < kindItems.length; j++) aggregated.push(kindItems[j]);
       }
-      return filterByQuery(aggregated).sort(byNameThenLine);
+      return filterByQuery(aggregated);
     }
 
     var selectedItems = ((interior.byKind || {})[selectedKind] || []).slice().sort(byNameThenLine);
@@ -455,60 +455,6 @@
       .split("_")
       .map(function (part) { return part ? part.charAt(0).toUpperCase() + part.slice(1) : ""; })
       .join(" ");
-  }
-
-  var INTERIOR_KIND_COLORS = {
-    theorem: "#72a7ff",
-    abbreviation: "#8ab4ff",
-    abbrev: "#8ab4ff",
-    opaque: "#7ca8ff",
-    axiom: "#96b7ff",
-    inductive: "#5c90ff",
-    structure: "#4f9de8",
-    class: "#58b5d8",
-    instance: "#66c4cc",
-    def: "#56a3ff",
-    lemma: "#6f8fff",
-    constant: "#8aa0ff",
-    constants: "#8aa0ff",
-
-    declare_syntax_cat: "#d39b52",
-    syntax_cat: "#d8a160",
-    syntax: "#d1aa4f",
-    macro: "#bc7de5",
-    macro_rules: "#a66fdd",
-    notation: "#d88959",
-    infix: "#f09b67",
-    infixl: "#ea8e60",
-    infixr: "#e28359",
-    prefix: "#f3a85a",
-    postfix: "#f7b36b",
-    elab: "#be89e8",
-    elab_rules: "#b27fe0",
-    term_elab: "#c392ed",
-    command_elab: "#ce9bf1",
-    tactic: "#a47de3",
-
-    universe: "#62c69f",
-    universes: "#5bbf98",
-    variable: "#58c48f",
-    variables: "#52bc88",
-    parameter: "#4eb67f",
-    parameters: "#49ad77",
-    section: "#7aa6c0",
-    namespace: "#6f9fbb",
-    end: "#819bb0",
-    initialize: "#4fbda8"
-  };
-
-  function interiorKindColor(kind) {
-    var key = String(kind || "");
-    if (INTERIOR_KIND_COLORS[key]) return INTERIOR_KIND_COLORS[key];
-    if (!key) return "#8fa3bf";
-    var hash = 0;
-    for (var i = 0; i < key.length; i++) hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
-    var hue = Math.abs(hash) % 360;
-    return "hsl(" + hue + " 58% 64%)";
   }
 
   function hasCompleteSymbolLines(symbols) {
@@ -1064,24 +1010,15 @@
         allOption.value = INTERIOR_KIND_ALL_VALUE;
         allOption.textContent = "All (" + group.totalCount + ")";
         allOption.selected = group.selectedKind === INTERIOR_KIND_ALL_VALUE;
-        allOption.style.color = "#8fa3bf";
         select.appendChild(allOption);
         for (var i = 0; i < group.kinds.length; i++) {
           var kind = group.kinds[i];
           var option = document.createElement("option");
           option.value = kind;
           option.textContent = symbolKindLabel(kind) + " (" + (interior.byKind[kind] || []).length + ")";
-          option.style.color = interiorKindColor(kind);
           if (kind === group.selectedKind) option.selected = true;
           select.appendChild(option);
         }
-        function repaintSelectKey() {
-          var activeKind = select.value === INTERIOR_KIND_ALL_VALUE ? "" : select.value;
-          var color = activeKind ? interiorKindColor(activeKind) : "#8fa3bf";
-          select.style.setProperty("--interior-kind-color", color);
-          select.style.color = color;
-        }
-
         top.appendChild(select);
         column.appendChild(top);
 
@@ -1112,11 +1049,8 @@
           }
 
           for (var j = 0; j < items.length; j++) {
-            var itemKind = items[j] && items[j].kind ? items[j].kind : (activeKind === INTERIOR_KIND_ALL_VALUE ? "" : activeKind);
             var li = document.createElement("li");
             li.className = "interior-menu-item";
-            li.dataset.kind = itemKind;
-            li.style.setProperty("--interior-kind-color", interiorKindColor(itemKind));
             var link = document.createElement("a");
             link.href = symbolSourceHref(selected, items[j]);
             link.target = "_blank";
@@ -1128,10 +1062,8 @@
           }
         }
 
-        repaintSelectKey();
         select.addEventListener("change", function () {
           state.interiorMenuSelections[group.key] = select.value;
-          repaintSelectKey();
           repaintList();
         });
         column.appendChild(list);
@@ -3278,7 +3210,6 @@
       interiorGroupItemCount: interiorGroupItemCount,
       pickInteriorDefaultKind: pickInteriorDefaultKind,
       interiorItemsForSelection: interiorItemsForSelection,
-      interiorKindColor: interiorKindColor,
       flowLegendItems: flowLegendItems,
       flowLaneLabelVisibility: flowLaneLabelVisibility,
       normalizeCaretRange: normalizeCaretRange
