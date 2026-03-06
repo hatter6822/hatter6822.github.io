@@ -413,27 +413,33 @@
 
   function interiorItemsForSelection(interior, groupKinds, selectedKind, query) {
     var q = String(query || "").trim().toLowerCase();
-    var items = [];
 
-    if (selectedKind === INTERIOR_KIND_ALL_VALUE) {
-      for (var i = 0; i < groupKinds.length; i++) {
-        var kindItems = (interior.byKind || {})[groupKinds[i]] || [];
-        for (var j = 0; j < kindItems.length; j++) items.push(kindItems[j]);
-      }
-    } else {
-      items = ((interior.byKind || {})[selectedKind] || []).slice();
-    }
-
-    items.sort(function (a, b) {
+    function byNameThenLine(a, b) {
       var left = String((a && a.name) || "");
       var right = String((b && b.name) || "");
       var byName = left.localeCompare(right, undefined, { sensitivity: "base" });
       if (byName !== 0) return byName;
       return ((a && a.line) || 0) - ((b && b.line) || 0);
-    });
+    }
 
-    if (!q) return items;
-    return items.filter(function (entry) { return entry.name.toLowerCase().indexOf(q) !== -1; });
+    function filterByQuery(list) {
+      if (!q) return list;
+      return list.filter(function (entry) {
+        return String((entry && entry.name) || "").toLowerCase().indexOf(q) !== -1;
+      });
+    }
+
+    if (selectedKind === INTERIOR_KIND_ALL_VALUE) {
+      var aggregated = [];
+      for (var i = 0; i < groupKinds.length; i++) {
+        var kindItems = ((interior.byKind || {})[groupKinds[i]] || []).slice().sort(byNameThenLine);
+        for (var j = 0; j < kindItems.length; j++) aggregated.push(kindItems[j]);
+      }
+      return filterByQuery(aggregated);
+    }
+
+    var selectedItems = ((interior.byKind || {})[selectedKind] || []).slice().sort(byNameThenLine);
+    return filterByQuery(selectedItems);
   }
 
   function makeEmptyInteriorSymbols() {
@@ -2826,6 +2832,14 @@
     }
 
     if (search) {
+      function listHasModule(list, name) {
+        if (!name) return false;
+        for (var i = 0; i < list.length; i++) {
+          if (list[i] === name) return true;
+        }
+        return false;
+      }
+
       function matchModule(query, list) {
         var value = (query || "").trim();
         if (!value) return "";
@@ -2899,12 +2913,27 @@
         }
       };
 
+      function chooseExactFromCurrentValue() {
+        var direct = sanitizeModuleName(search.value);
+        if (!direct) return false;
+        var list = contextList();
+        if (!listHasModule(list, direct)) return false;
+        if (search.value !== direct) search.value = direct;
+        selectModule(direct, false);
+        return true;
+      }
+
       search.addEventListener("input", function () {
         setSearchFeedback("", false);
         if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
+        chooseExactFromCurrentValue();
       });
       search.addEventListener("change", choose);
+      search.addEventListener("blur", chooseExactFromCurrentValue);
+      search.addEventListener("search", choose);
+      search.addEventListener("compositionend", chooseExactFromCurrentValue);
       search.addEventListener("keydown", function (event) {
+        if (event.isComposing) return;
         if (event.key === "Escape") {
           if (state.selectedModule) search.value = state.selectedModule;
           setSearchFeedback("", false);
