@@ -275,6 +275,10 @@
       var forcedHashExpiresAt = 0;
       var forcedHashTimeoutId = 0;
       var forcedHashSettleRafId = 0;
+      var settledHash = "";
+      var settledHashLockUntil = 0;
+      var lastDetectedHash = "";
+      var lastScrollYForDetection = window.scrollY || 0;
       var maxForceHashMs = 5000;
 
       for (var i = 0; i < samePageLinks.length; i++) {
@@ -318,6 +322,8 @@
         stopForcingHash();
         forcedHash = hash;
         forcedHashExpiresAt = Date.now() + maxForceHashMs;
+        settledHash = "";
+        settledHashLockUntil = 0;
         forcedHashTimeoutId = window.setTimeout(function () {
           stopForcingHash();
           detectActiveHash();
@@ -331,18 +337,60 @@
         }
       }
 
+      function sectionIndexForHash(hash) {
+        if (!hash) return -1;
+        for (var i = 0; i < sectionEntries.length; i++) {
+          if (sectionEntries[i].hash === hash) return i;
+        }
+        return -1;
+      }
+
       function detectActiveHashFromScroll() {
         var anchorTop = Math.max(0, Math.round(window.scrollY + navOffset(0) + 2));
+        var scrollYNow = window.scrollY || 0;
+        var direction = 0;
+        if (scrollYNow > lastScrollYForDetection + 1) direction = 1;
+        else if (scrollYNow < lastScrollYForDetection - 1) direction = -1;
+        lastScrollYForDetection = scrollYNow;
+
         var bestHash = sectionEntries[0] ? sectionEntries[0].hash : null;
+        var bestIndex = sectionEntries.length ? 0 : -1;
         var bestTop = -Infinity;
+        var sectionTops = [];
         for (var i = 0; i < sectionEntries.length; i++) {
           var top = Math.max(0, Math.round(sectionEntries[i].section.getBoundingClientRect().top + window.scrollY));
+          sectionTops.push(top);
           if (top <= anchorTop && top >= bestTop) {
             bestTop = top;
             bestHash = sectionEntries[i].hash;
+            bestIndex = i;
           }
         }
+
+        if (bestHash && lastDetectedHash && bestHash !== lastDetectedHash) {
+          var lastIndex = sectionIndexForHash(lastDetectedHash);
+          if (lastIndex !== -1 && bestIndex !== -1) {
+            var hysteresisPx = 12;
+            if (direction >= 0 && bestIndex > lastIndex) {
+              if (anchorTop < sectionTops[bestIndex] + hysteresisPx) return lastDetectedHash;
+            } else if (direction <= 0 && bestIndex < lastIndex) {
+              if (anchorTop > sectionTops[lastIndex] - hysteresisPx) return lastDetectedHash;
+            }
+          }
+        }
+
         return bestHash;
+      }
+
+      function lockActiveHash(hash, durationMs) {
+        if (!hash) return;
+        settledHash = hash;
+        settledHashLockUntil = Date.now() + Math.max(0, Number(durationMs) || 0);
+      }
+
+      function clearActiveHashLock() {
+        settledHash = "";
+        settledHashLockUntil = 0;
       }
 
       function scheduleForcedHashSettleCheck(hash) {
@@ -374,6 +422,7 @@
           var withinTarget = Math.abs(currentTop - expectedTop) <= 3;
 
           if (withinTarget && idleFrames >= requiredIdleFrames) {
+            lockActiveHash(hash, 420);
             stopForcingHash();
             detectActiveHash();
             return;
@@ -394,12 +443,23 @@
       function detectActiveHash() {
         if (forcedHash && Date.now() <= forcedHashExpiresAt) {
           markActiveHash(forcedHash);
+          lastDetectedHash = forcedHash;
           return;
         }
-        stopForcingHash();
+        if (forcedHash) stopForcingHash();
+
+        if (settledHash && Date.now() <= settledHashLockUntil && findSectionEntryByHash(settledHash)) {
+          markActiveHash(settledHash);
+          lastDetectedHash = settledHash;
+          return;
+        }
+        if (settledHash) clearActiveHashLock();
 
         var activeHash = detectActiveHashFromScroll();
-        if (activeHash) markActiveHash(activeHash);
+        if (activeHash) {
+          markActiveHash(activeHash);
+          lastDetectedHash = activeHash;
+        }
       }
 
       var scrollTicking = false;
@@ -426,19 +486,29 @@
       window.addEventListener("hashchange", function () {
         if (window.location.hash) {
           startForcingHash(window.location.hash);
-          markActiveHash(window.location.hash);
-          scheduleForcedHashSettleCheck(window.location.hash);
+          if (forcedHash) {
+            markActiveHash(forcedHash);
+            lastDetectedHash = forcedHash;
+            scheduleForcedHashSettleCheck(forcedHash);
+          } else detectActiveHash();
         }
         else detectActiveHash();
       });
 
-      window.addEventListener("wheel", stopForcingHash, { passive: true });
-      window.addEventListener("touchstart", stopForcingHash, { passive: true });
+      window.addEventListener("wheel", function () {
+        stopForcingHash();
+        clearActiveHashLock();
+      }, { passive: true });
+      window.addEventListener("touchstart", function () {
+        stopForcingHash();
+        clearActiveHashLock();
+      }, { passive: true });
       window.addEventListener("keydown", function (event) {
         var key = event && event.key;
         if (!key) return;
         if (key.indexOf("Arrow") === 0 || key === "PageDown" || key === "PageUp" || key === "Home" || key === "End" || key === " ") {
           stopForcingHash();
+          clearActiveHashLock();
         }
       });
 
@@ -451,8 +521,10 @@
         var activeTarget = resolveNavTarget(activeLink.getAttribute("href") || "");
         if (!activeTarget || !activeTarget.sameOrigin || !activeTarget.samePath || !activeTarget.hash) return;
 
+        clearActiveHashLock();
         startForcingHash(activeTarget.hash);
         markActiveHash(activeTarget.hash);
+        lastDetectedHash = activeTarget.hash;
         scheduleForcedHashSettleCheck(activeTarget.hash);
       });
 
