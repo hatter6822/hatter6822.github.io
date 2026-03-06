@@ -53,6 +53,7 @@
 .stat-title { color: var(--text-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.07em; }
 
 .map-toolbar {
+  --toolbar-label-offset: calc(0.78rem * 1.2 + 0.24rem);
   display: grid;
   grid-template-columns: minmax(14rem, 1fr) auto;
   gap: 0.24rem;
@@ -131,6 +132,8 @@
 .toolbar-actions {
   display: flex;
   justify-content: flex-end;
+  align-self: start;
+  margin-top: var(--toolbar-label-offset);
 }
 .toolbar-actions .btn { min-height: 2rem; padding: 0.24rem 0.7rem; font-size: 0.74rem; white-space: nowrap; }
 .visually-hidden {
@@ -359,7 +362,7 @@
 @media (max-width: 1320px) {
   .map-toolbar { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
   .detail-preset { width: 100%; }
-  .toolbar-actions { justify-content: flex-start; }
+  .toolbar-actions { justify-content: flex-start; margin-top: 0; }
   .toolbar-actions .btn { min-width: 8rem; }
 }
 
