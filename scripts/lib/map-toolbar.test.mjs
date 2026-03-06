@@ -8,6 +8,8 @@ const interiorMenuIndex = html.indexOf('id="flow-node-interior-menu"');
 assert(toolbarIndex !== -1, "map toolbar should exist");
 assert(interiorMenuIndex !== -1, "flow node interior menu should exist");
 assert(toolbarIndex < interiorMenuIndex, "map toolbar should render before flow node interior menu");
+assert(!html.includes('class="interior-menu-header"'), "interior menu header shell should not render in map markup");
+
 assert(/aria-label="Dependency and proof flow chart"/.test(html), "flow chart region should remain labeled for accessibility");
 
 assert(/<form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">/.test(html), "toolbar should use compact styling and explicitly control the flowchart");

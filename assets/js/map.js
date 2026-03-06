@@ -957,13 +957,6 @@
       };
     });
 
-    var header = document.createElement("div");
-    header.className = "interior-menu-header";
-    header.innerHTML = "<h3 class=\"interior-menu-title\"></h3><span class=\"interior-menu-count\"></span>";
-    header.children[0].textContent = "Interior code for " + selected;
-    header.children[1].textContent = interior.total + " declarations across " + allInteriorKinds().length + " kinds";
-    menu.appendChild(header);
-
     var controls = document.createElement("div");
     controls.className = "interior-menu-controls";
     var queryLabel = document.createElement("label");
