@@ -59,3 +59,4 @@ If you changed scripts or map data flow:
 - Prefer task-oriented docs over long narrative prose.
 - Keep command examples copy/paste-ready.
 - Cross-link docs from `README.md` when adding new guides.
+- Keep `docs/DEVELOPER_GUIDE.md` in sync when adding/renaming top-level runtime or script files so new contributors can still navigate the codebase quickly.
