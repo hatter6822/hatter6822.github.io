@@ -54,7 +54,7 @@
 
 .map-toolbar {
   display: grid;
-  grid-template-columns: minmax(14rem, 1fr) auto auto;
+  grid-template-columns: minmax(14rem, 1fr) auto;
   gap: 0.24rem;
   align-items: end;
   padding: 0.34rem 0.44rem;
@@ -334,6 +334,7 @@
 .flow-node .flow-meta { fill: var(--text-muted); font-size: 10px; }
 .flow-lane-label { font-family: var(--font-mono); letter-spacing: 0.02em; }
 .flow-node.static { cursor: default; }
+.flow-node.static.action { cursor: pointer; }
 .flow-node:not(.static):hover rect,
 .flow-node:not(.static):focus-visible rect { stroke: var(--accent); filter: brightness(1.03); }
 .flow-node.active rect { stroke-width: 2; }

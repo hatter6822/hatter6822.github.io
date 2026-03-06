@@ -16,7 +16,7 @@ assert(/<form class="map-toolbar" id="map-toolbar" role="search" aria-label="Mod
 assert(!/class="map-toolbar\s+card"/.test(html), "toolbar should not use the generic card shell");
 assert(/<label for="module-search">Current module context<\/label>/.test(html), "toolbar should include module context search");
 assert(/id="module-search"[^>]*enterkeyhint="search"/.test(html), "module search should provide search enter key hint");
-assert(/class="detail-preset-options"/.test(html), "toolbar should include flow detail presets");
+assert(!/class="detail-preset-options"/.test(html), "toolbar should not include flow detail presets");
 assert(/id="reset-view"/.test(html), "toolbar should include reset button");
 
 const removedControls = ["focus-select", "flow-show-all", "proof-linked-only", "toolbar-summary"];

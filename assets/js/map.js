@@ -67,7 +67,7 @@
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeLayerFilter: "all",
-    neighborLimit: 12, impactRadius: 2, proofLinkedOnly: false,
+    neighborLimit: 8, impactRadius: 1, proofLinkedOnly: false,
     flowShowAll: false, contextListKey: "", contextList: [],
     contextOptionsKey: "", searchIndex: Object.create(null),
     filteredModulesKey: "", filteredModulesList: [], filteredModulesValid: false,
@@ -1466,11 +1466,13 @@
       labelLayer.appendChild(label);
     }
 
-    function createNode(name, x, y, w, h, color, subtitle, tooltip, active, isStatic, assuranceLevel) {
+    function createNode(name, x, y, w, h, color, subtitle, tooltip, active, isStatic, assuranceLevel, onActivate) {
       var className = "flow-node" + (active ? " active" : "") + (isStatic ? " static" : "");
+      if (onActivate) className += " action";
       if (assuranceLevel && !isStatic) className += " assurance-" + assuranceLevel;
-      var group = createSvgNode("g", { "class": className, tabindex: isStatic ? "-1" : "0", role: isStatic ? "note" : "button", "aria-label": isStatic ? name : ("Select module " + name) });
-      if (!isStatic) group.setAttribute("focusable", "true");
+      var interactive = !isStatic || Boolean(onActivate);
+      var group = createSvgNode("g", { "class": className, tabindex: interactive ? "0" : "-1", role: interactive ? "button" : "note", "aria-label": interactive ? (onActivate ? name : ("Select module " + name)) : name });
+      if (interactive) group.setAttribute("focusable", "true");
 
       var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
       var full = createSvgNode("title", {});
@@ -1501,12 +1503,16 @@
         group.appendChild(meta);
       }
 
-      if (!isStatic) {
-        group.addEventListener("click", function () { selectModule(name, false); });
+      if (interactive) {
+        group.addEventListener("click", function () {
+          if (onActivate) onActivate();
+          else selectModule(name, false);
+        });
         group.addEventListener("keydown", function (event) {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            selectModule(name, false);
+            if (onActivate) onActivate();
+            else selectModule(name, false);
           }
         });
       }
@@ -1534,10 +1540,10 @@
     }
 
     if (allImports.length > imports.length) {
-      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, importLayout.bottom + laneGapY, sideWidth, 36, "#35c98f", "enable full-flow or increase neighbor budget", "", false, true, "");
+      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, importLayout.bottom + laneGapY, sideWidth, 36, "#35c98f", "switch to Expanded mode", "Activate expanded mode", false, true, "", setExpandedFlowMode);
     }
     if (allImporters.length > importers.length) {
-      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", "enable full-flow or increase neighbor budget", "", false, true, "");
+      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", "switch to Expanded mode", "Activate expanded mode", false, true, "", setExpandedFlowMode);
     }
 
     var importSpread = Math.min(52, Math.max(14, importNodes.length * 2));
@@ -2742,14 +2748,22 @@
       var preset = DETAIL_PRESETS[name];
       if (state.neighborLimit === preset.neighborLimit && state.impactRadius === preset.impactRadius) return name;
     }
-    return "balanced";
+    return "compact";
   }
 
   function applyDetailLevel(level) {
-    var key = Object.prototype.hasOwnProperty.call(DETAIL_PRESETS, level) ? level : "balanced";
+    var key = Object.prototype.hasOwnProperty.call(DETAIL_PRESETS, level) ? level : "compact";
     var preset = DETAIL_PRESETS[key];
     state.neighborLimit = preset.neighborLimit;
     state.impactRadius = preset.impactRadius;
+  }
+
+
+  function setExpandedFlowMode() {
+    applyDetailLevel("expanded");
+    state.flowShowAll = false;
+    syncUrlState();
+    scheduleRender();
   }
 
   function updateDetailPillState(level) {
@@ -2766,7 +2780,7 @@
   function setupFilters() {
     var toolbar = document.getElementById("map-toolbar");
     var search = document.getElementById("module-search");
-    var selectedDetail = detailLevelFromState();
+    var selectedDetail = "compact";
     var reset = document.getElementById("reset-view");
 
     if (toolbar) {
@@ -2878,41 +2892,12 @@
         event.preventDefault();
       });
     }
-    var detailPills = document.querySelectorAll(".detail-pill[data-detail]");
-    var detailOrder = ["compact", "balanced", "expanded"];
-    var detailNodes = Object.create(null);
-    for (var d = 0; d < detailPills.length; d++) {
-      var detailName = detailPills[d].getAttribute("data-detail") || "";
-      if (detailName) detailNodes[detailName] = detailPills[d];
-      detailPills[d].addEventListener("click", function () {
-        selectedDetail = this.getAttribute("data-detail") || "balanced";
-        apply();
-      });
-      detailPills[d].addEventListener("keydown", function (event) {
-        var key = event.key;
-        if (key !== "ArrowRight" && key !== "ArrowLeft" && key !== "ArrowDown" && key !== "ArrowUp" && key !== "Home" && key !== "End") return;
-        event.preventDefault();
-        var current = detailOrder.indexOf(selectedDetail);
-        if (current < 0) current = 1;
-        if (key === "Home") selectedDetail = detailOrder[0];
-        else if (key === "End") selectedDetail = detailOrder[detailOrder.length - 1];
-        else {
-          var next = current + ((key === "ArrowLeft" || key === "ArrowUp") ? -1 : 1);
-          if (next < 0) next = detailOrder.length - 1;
-          if (next >= detailOrder.length) next = 0;
-          selectedDetail = detailOrder[next];
-        }
-        apply();
-        var nextNode = detailNodes[selectedDetail];
-        if (nextNode) nextNode.focus();
-      });
-    }
     if (reset) {
       reset.addEventListener("click", function () {
         if (search && state.selectedModule) search.value = state.selectedModule;
         setSearchFeedback("", false);
         if (search && typeof search.setCustomValidity === "function") search.setCustomValidity("");
-        selectedDetail = "balanced";
+        selectedDetail = "compact";
         apply();
       });
     }
@@ -2939,10 +2924,10 @@
     if (/^(compact|balanced|expanded)$/.test(detail)) {
       applyDetailLevel(detail);
     } else {
-      var neighbors = Number(getParam("neighbors") || "12");
+      var neighbors = Number(getParam("neighbors") || "8");
       if (neighbors >= 4 && neighbors <= 20) state.neighborLimit = neighbors;
 
-      var radius = Number(getParam("radius") || "2");
+      var radius = Number(getParam("radius") || "1");
       if (radius >= 1 && radius <= 3) state.impactRadius = radius;
 
       var mode = getParam("mode") || "";
@@ -2959,7 +2944,7 @@
     if (state.selectedModule) params.set("module", state.selectedModule); else params.delete("module");
     if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
     var detailLevel = detailLevelFromState();
-    if (detailLevel !== "balanced") params.set("detail", detailLevel); else params.delete("detail");
+    if (detailLevel !== "compact") params.set("detail", detailLevel); else params.delete("detail");
     params.delete("neighbors");
     params.delete("radius");
 
