@@ -36,6 +36,8 @@
     var links = document.getElementById("nav-links");
     if (!nav || !links) return;
 
+    var supportsFocusPreventScroll = null;
+
     function shouldBypassClientNavigation(event, element) {
       if (!event || !element) return true;
       if (event.defaultPrevented) return true;
@@ -100,7 +102,47 @@
       var id = hash.slice(1);
       try { id = decodeURIComponent(id); } catch (e) {}
       if (!id) return null;
-      return document.getElementById(id);
+
+      var byId = document.getElementById(id);
+      if (byId) return byId;
+
+      if (typeof document.getElementsByName === "function") {
+        var named = document.getElementsByName(id);
+        if (named && named.length) {
+          for (var i = 0; i < named.length; i++) {
+            if (named[i] && named[i].nodeType === 1) return named[i];
+          }
+        }
+      }
+
+      return null;
+    }
+
+    function canFocusWithoutScroll() {
+      if (supportsFocusPreventScroll !== null) return supportsFocusPreventScroll;
+      supportsFocusPreventScroll = false;
+
+      var root = document.body || document.documentElement;
+      if (!root || typeof document.createElement !== "function") return supportsFocusPreventScroll;
+
+      var probe = document.createElement("button");
+      probe.type = "button";
+      probe.style.cssText = "position:fixed;left:-9999px;top:0;";
+
+      try {
+        root.appendChild(probe);
+        probe.focus({
+          get preventScroll() {
+            supportsFocusPreventScroll = true;
+            return true;
+          }
+        });
+      } catch (e) {
+      } finally {
+        if (probe.parentNode) probe.parentNode.removeChild(probe);
+      }
+
+      return supportsFocusPreventScroll;
     }
 
     function scrollToHash(hash, behavior) {
@@ -111,7 +153,7 @@
       return true;
     }
 
-    function focusHashTarget(hash) {
+    function focusHashTarget(hash, options) {
       var target = hashTarget(hash);
       if (!target || typeof target.focus !== "function") return;
       var shouldRestoreTabIndex = false;
@@ -119,7 +161,20 @@
         target.setAttribute("tabindex", "-1");
         shouldRestoreTabIndex = true;
       }
-      try { target.focus({ preventScroll: true }); } catch (e) { target.focus(); }
+      var maintainOffset = !(options && options.maintainOffset === false);
+      var supportsPreventScroll = canFocusWithoutScroll();
+      var fallbackTop = maintainOffset ? target.getBoundingClientRect().top + window.scrollY - navOffset() : null;
+      try {
+        if (supportsPreventScroll) target.focus({ preventScroll: true });
+        else target.focus();
+      } catch (e) {
+        target.focus();
+      }
+
+      if (maintainOffset && fallbackTop !== null && !supportsPreventScroll) {
+        safeScrollTo(fallbackTop, "instant");
+      }
+
       if (shouldRestoreTabIndex) {
         target.addEventListener("blur", function cleanup() {
           target.removeAttribute("tabindex");
