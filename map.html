@@ -92,8 +92,8 @@
             <form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">
               <div class="control-group control-group-wide">
                 <label for="module-search">Current module context</label>
-                <input id="module-search" type="search" list="context-options" placeholder="Type module/path and press Enter" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-describedby="module-search-feedback">
-                <datalist id="context-options"></datalist>
+                <input id="module-search" type="text" placeholder="Type module/path and press Enter" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="module-search-options" aria-describedby="module-search-feedback">
+                <ul id="module-search-options" class="module-search-options" role="listbox" hidden></ul>
                 <p id="module-search-feedback" class="search-feedback" aria-live="polite"></p>
               </div>
               <div class="toolbar-actions">
