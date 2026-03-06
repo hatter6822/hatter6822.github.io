@@ -66,8 +66,9 @@ if (typeof currentStateMetrics.buildJobs === 'number' && currentStateMetrics.bui
 else data.buildJobs = modules * 2;
 
 const codebaseMapTheorems = theoremCountFromCodebaseMap(codebaseMap);
-if (codebaseMapTheorems > 0) data.theorems = codebaseMapTheorems;
-else if (typeof currentStateMetrics.theorems === 'number' && currentStateMetrics.theorems > 0) data.theorems = currentStateMetrics.theorems;
+if (codebaseMapTheorems > 0) {
+  data.theorems = codebaseMapTheorems;
+}
 
 if (currentStateMetrics.lines) data.lines = currentStateMetrics.lines;
 else if (langs?.Lean) data.lines = formatNumber(Math.round(langs.Lean / 38));

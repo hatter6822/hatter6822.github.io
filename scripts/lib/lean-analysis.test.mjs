@@ -177,7 +177,7 @@ test('parseCurrentStateMetrics returns empty object for missing table', () => {
 
 
 test('theoremCountFromCodebaseMap prefers top-level aggregate theorem count', () => {
-  assert.equal(theoremCountFromCodebaseMap({ theorems: 734, moduleMeta: { A: { theorems: 1 } } }), 734);
+  assert.equal(theoremCountFromCodebaseMap({ theorems: 987, moduleMeta: { A: { theorems: 1 } } }), 987);
 });
 
 test('theoremCountFromCodebaseMap falls back to stats aggregate theorem count', () => {
