@@ -71,7 +71,9 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 ## Header navigation stability hardening
 
 - Strengthened same-page hash navigation with a selection lock that keeps the clicked nav-link active while smooth-scroll settles.
-- Updated scroll-settle detection from frame-count assumptions to time-based idle + positional tolerance checks for better cross-engine consistency.
+- Reworked section activation selection from "closest top before anchor" to midpoint boundaries between adjacent sections, which removes random boundary flapping when browser scroll position jitters during smooth-scroll.
+- Added boundary hysteresis around shared section midpoints so tiny position variance cannot rapidly flip `aria-current` between neighboring nav links.
+- Made settle locks distance-aware (longer lock windows for larger hash jumps) to better align with Chromium smooth-scroll timing and avoid premature release while inertial scrolling is still converging.
 - Preserved user override semantics (wheel/touch/keyboard cancels lock) so explicit user scroll input still takes priority.
 - Result: reduced `aria-current` oscillation between adjacent section links during hash navigation in Chromium, Firefox, and Safari/WebKit-class engines.
 

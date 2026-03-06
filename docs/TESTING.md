@@ -47,6 +47,7 @@ node --check assets/js/theme-init.js
 
 - Confirm `index.html` and `map.html` load from a static server.
 - Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="page"`) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
+- Stress-test long hash jumps (top-to-lower sections and back) in Chromium: active nav state should transition once per section boundary and stay stable near boundaries (no alternating flicker).
 - Test map page on mobile viewport (~390px width).
 - Confirm the compact toolbar is rendered directly below the "Interactive dependency/proof flow chart" header, before the interior declaration panel, and contains only current module context search, flow detail presets, and reset, and includes compact-density toolbar semantics.
 - Confirm map context-search, detail-preset keyboard navigation (Arrow/Home/End), and keyboard traversal still function.
@@ -61,7 +62,7 @@ node --check assets/js/theme-init.js
 
 ### Cross-browser nav stability probe (optional, Playwright)
 
-If Playwright browsers are available in your environment, run a smoke probe that clicks a hash nav link and samples active nav state over time.
+If Playwright browsers are available in your environment, run a smoke probe that clicks a hash nav link and samples active nav state over time (requires Python Playwright package and browser binaries).
 
 ```bash
 # serve the repository root
