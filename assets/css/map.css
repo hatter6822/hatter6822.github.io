@@ -283,7 +283,7 @@
 }
 
 .interior-kind-select {
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--interior-kind-color, var(--border)) 65%, var(--border));
   border-radius: 0.5rem;
   background: rgba(20, 28, 45, 0.92);
   background: color-mix(in oklab, var(--surface) 92%, transparent);
@@ -291,6 +291,11 @@
   font-size: 0.68rem;
   padding: 0.2rem 0.35rem;
   min-width: 11rem;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--interior-kind-color, transparent) 30%, transparent);
+}
+.interior-kind-select option {
+  color: var(--text);
+  background: color-mix(in oklab, var(--interior-kind-color, var(--surface)) 18%, var(--surface) 82%);
 }
 .interior-menu-items {
   margin: 0;
@@ -310,13 +315,21 @@
   list-style: none;
   font-family: var(--font-mono);
   font-size: 0.67rem;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in oklab, var(--interior-kind-color, var(--border)) 62%, var(--border));
   border-radius: 999px;
   padding: 0.12rem 0.42rem;
   background: rgba(25, 35, 56, 0.85);
-  background: color-mix(in oklab, var(--surface-2) 85%, transparent);
+  background: color-mix(in oklab, var(--interior-kind-color, var(--surface-2)) 17%, var(--surface-2) 83%);
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+.interior-menu-item::after {
+  content: attr(data-kind-label);
+  font-family: var(--font-ui);
+  font-size: 0.56rem;
+  color: color-mix(in oklab, var(--interior-kind-color, var(--text-muted)) 72%, var(--text-muted));
+  margin-left: 0.33rem;
+  letter-spacing: 0.01em;
 }
 
 .flowchart-wrap {
