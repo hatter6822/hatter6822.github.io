@@ -245,12 +245,6 @@
   padding: 0.55rem;
   margin-bottom: 0.5rem;
 }
-.interior-menu-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.24rem;
-}
 .interior-menu-controls { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
 .interior-menu-search {
   width: min(100%, 28rem);
@@ -263,8 +257,6 @@
   padding: 0.28rem 0.62rem;
 }
 .interior-menu-search:focus-visible { outline: 2px solid rgba(91, 160, 245, 0.35); outline: 2px solid color-mix(in oklab, var(--accent) 65%, transparent); outline-offset: 1px; }
-.interior-menu-title { margin: 0; font-size: 0.82rem; }
-.interior-menu-count { color: var(--text-muted); font-size: 0.72rem; }
 .interior-menu-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
@@ -503,7 +495,6 @@
   .control-group label,
   .detail-preset legend,
   .search-feedback,
-  .interior-menu-count,
   .interior-menu-column h4 {
     font-size: 0.8rem;
   }

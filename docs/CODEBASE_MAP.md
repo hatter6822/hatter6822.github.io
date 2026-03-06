@@ -44,8 +44,8 @@ The map page provides a single operational and proof-aware architecture view of 
 
 5. **Rendering lifecycle**
    - Updates stat cards and status text.
-   - Renders a compact in-panel control toolbar (context search with search-key hint, detail presets, reset in a density-compact form).
-   - Builds flow chart with an integrated upper-right legend, three-kind dropdown interior menu (Object, Extension, Context/Init), and traversal trail.
+   - Renders a compact in-panel control toolbar (context search with search-key hint and reset in a density-compact form).
+   - Builds flow chart with an integrated upper-right legend, three-kind dropdown interior menu (Object, Extension, Context/Init), compact filter controls, and traversal trail.
    - Interior declaration normalization now reuses a per-module cache keyed by symbol payload identity, avoiding repeated symbol-list normalization during dense flowchart rerenders while preserving deterministic output.
 
 ## Interaction model
@@ -53,7 +53,7 @@ The map page provides a single operational and proof-aware architecture view of 
 - **Context jump:** module/path search + Enter.
 - **Keyboard walk:** `j` and `k` outside input controls.
 - **Detail levels:** compact/balanced/expanded (Arrow keys cycle; Home/End jump to first/last preset).
-- **Toolbar layout:** the module-control toolbar is placed directly under the flow-chart header, before the interior declaration panel, and only includes module context search, flow detail presets, and reset in a compact density-tagged shell.
+- **Toolbar layout:** the module-control toolbar is placed before the interior declaration panel and only includes module context search and reset in a compact density-tagged shell.
 
 - **Integrated flow legend corner:** legend semantics are rendered directly in the flowchart’s upper-right corner so color keys travel with every chart interaction/screenshot while keeping the chart body focused on graph topology.
 
@@ -64,6 +64,7 @@ The map page provides a single operational and proof-aware architecture view of 
   - Each dropdown now defaults to `All (N)` so Object, Extension, and Context/Init scrollboxes are populated with the full declaration inventory on first render.
   - Users can still switch to individual kinds, and each dropdown remembers that selected kind while filtering so analysts can refine queries without losing active context.
   - The interior declaration search box now preserves focus and caret position during live filtering rerenders, preventing one-character input stalls while users type longer symbol queries.
+  - The interior declaration panel no longer renders a dedicated header row; declaration filtering controls now anchor the panel start directly.
   - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.
 
 ## Accessibility and mobile
