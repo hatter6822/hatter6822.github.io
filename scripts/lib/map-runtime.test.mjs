@@ -374,10 +374,29 @@ test('interior kind group helpers default to all kinds and aggregate extension/c
   assert.equal(hooks.interiorGroupItemCount(interior, contextKinds), 2);
 
   const allExtensionItems = hooks.interiorItemsForSelection(interior, extensionKinds, '__all__', '');
-  assert.deepEqual(Array.from(allExtensionItems, (item) => item.name), ['syntaxAlias', 'macroExpand']);
+  assert.deepEqual(Array.from(allExtensionItems, (item) => item.name), ['macroExpand', 'syntaxAlias']);
+  assert.equal(allExtensionItems[0].__kind, 'macro');
+  assert.equal(allExtensionItems[1].__kind, 'syntax');
 
   const allContextItems = hooks.interiorItemsForSelection(interior, contextKinds, '__all__', 'init');
   assert.deepEqual(Array.from(allContextItems, (item) => item.name), ['initCore']);
+});
+
+
+
+test('interiorItemsForSelection sorts aggregated results case-insensitively', async () => {
+  const hooks = await loadMapTestHooks();
+  const interior = hooks.makeEmptyInteriorSymbols();
+
+  interior.byKind.def = [
+    { name: 'zeta', line: 6 },
+    { name: 'Alpha', line: 5 },
+    { name: 'alpha', line: 8 }
+  ];
+
+  const ordered = hooks.interiorItemsForSelection(interior, ['def'], '__all__', '');
+  assert.deepEqual(Array.from(ordered, (item) => item.name), ['Alpha', 'alpha', 'zeta']);
+  assert.deepEqual(Array.from(ordered, (item) => item.__kind), ['def', 'def', 'def']);
 });
 
 test('flowLaneLabelVisibility hides context labels for empty lanes', async () => {

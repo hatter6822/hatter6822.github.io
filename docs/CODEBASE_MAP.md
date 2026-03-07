@@ -62,6 +62,8 @@ The map page provides a single operational and proof-aware architecture view of 
   - Extensions (`declare_syntax_cat`, `syntax_cat`, `syntax`, `macro`, `macro_rules`, `notation`, `infix`, `infixl`, `infixr`, `prefix`, `postfix`, `elab`, `elab_rules`, `term_elab`, `command_elab`, `tactic`)
   - Contexts/Inits (`universe`, `universes`, `variable`, `variables`, `parameter`, `parameters`, `section`, `namespace`, `end`, `initialize`)
   - Each dropdown now defaults to `All (N)` so Object, Extension, and Context/Init scrollboxes are populated with the full declaration inventory on first render.
+  - Interior selector options and declaration list chips are color-coded by declaration kind so the selector acts as a visual key for the panel.
+  - Declaration lists are sorted case-insensitively by name (with line-number tiebreakers), including aggregated `All` views.
   - Users can still switch to individual kinds, and each dropdown remembers that selected kind while filtering so analysts can refine queries without losing active context.
   - The interior declaration search box now preserves focus and caret position during live filtering rerenders, preventing one-character input stalls while users type longer symbol queries.
   - The interior declaration panel no longer renders a dedicated header row; declaration filtering controls now anchor the panel start directly.

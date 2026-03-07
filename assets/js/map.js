@@ -51,6 +51,47 @@
     contextInit: "Contexts/Inits"
   };
   var INTERIOR_KIND_ALL_VALUE = "__all__";
+  var INTERIOR_KIND_COLOR_MAP = {
+    inductive: "#8ecbff",
+    structure: "#72d5ff",
+    class: "#6ae3d8",
+    def: "#82f0b0",
+    theorem: "#ffd782",
+    lemma: "#ffcb6b",
+    example: "#ffc79e",
+    instance: "#d0b7ff",
+    opaque: "#9ec5ff",
+    abbrev: "#8be4cb",
+    axiom: "#ff9fb0",
+    constant: "#f7b0ff",
+    constants: "#f7b0ff",
+    declare_syntax_cat: "#83e3ff",
+    syntax_cat: "#6cd9ff",
+    syntax: "#63ccff",
+    macro: "#5ab8ff",
+    macro_rules: "#4eabff",
+    notation: "#8ba6ff",
+    infix: "#9c97ff",
+    infixl: "#a38dff",
+    infixr: "#ab84ff",
+    prefix: "#b57cff",
+    postfix: "#be73ff",
+    elab: "#67d5ff",
+    elab_rules: "#56cbff",
+    term_elab: "#47bdff",
+    command_elab: "#39afff",
+    tactic: "#2ba1ff",
+    universe: "#ffd4f0",
+    universes: "#ffcaea",
+    variable: "#ffbee2",
+    variables: "#ffb2d9",
+    parameter: "#ffa6d0",
+    parameters: "#ff9bc7",
+    section: "#ff90bf",
+    namespace: "#ff84b6",
+    end: "#ff79ae",
+    initialize: "#ff6ea6"
+  };
   var ALL_INTERIOR_KINDS = (function () {
     var out = [];
     for (var i = 0; i < INTERIOR_KIND_GROUP_ORDER.length; i++) {
@@ -434,14 +475,33 @@
     if (selectedKind === INTERIOR_KIND_ALL_VALUE) {
       var aggregated = [];
       for (var i = 0; i < groupKinds.length; i++) {
-        var kindItems = ((interior.byKind || {})[groupKinds[i]] || []).slice().sort(byNameThenLine);
-        for (var j = 0; j < kindItems.length; j++) aggregated.push(kindItems[j]);
+        var kindItems = ((interior.byKind || {})[groupKinds[i]] || []).slice();
+        for (var j = 0; j < kindItems.length; j++) {
+          aggregated.push(Object.assign({}, kindItems[j], { __kind: groupKinds[i] }));
+        }
       }
+      aggregated.sort(byNameThenLine);
       return filterByQuery(aggregated);
     }
 
-    var selectedItems = ((interior.byKind || {})[selectedKind] || []).slice().sort(byNameThenLine);
+    var selectedItems = ((interior.byKind || {})[selectedKind] || []).slice().sort(byNameThenLine).map(function (entry) {
+      return Object.assign({}, entry, { __kind: selectedKind });
+    });
     return filterByQuery(selectedItems);
+  }
+
+  function interiorKindColor(kind) {
+    return INTERIOR_KIND_COLOR_MAP[String(kind || "")] || "#8fa3bf";
+  }
+
+  function applyInteriorKindColor(node, kind, includeBackground) {
+    if (!node) return;
+    var color = interiorKindColor(kind);
+    node.dataset.kind = String(kind || "");
+    node.style.setProperty("--interior-kind-color", color);
+    if (includeBackground) {
+      node.style.backgroundColor = "color-mix(in oklab, " + color + " 18%, var(--surface) 82%)";
+    }
   }
 
   function makeEmptyInteriorSymbols() {
@@ -1016,9 +1076,18 @@
           var option = document.createElement("option");
           option.value = kind;
           option.textContent = symbolKindLabel(kind) + " (" + (interior.byKind[kind] || []).length + ")";
+          applyInteriorKindColor(option, kind, true);
           if (kind === group.selectedKind) option.selected = true;
           select.appendChild(option);
         }
+
+        function tintSelectToCurrentKind() {
+          var activeOption = select.options[select.selectedIndex];
+          var activeKind = activeOption && activeOption.value !== INTERIOR_KIND_ALL_VALUE ? activeOption.value : "";
+          applyInteriorKindColor(select, activeKind, false);
+        }
+
+        tintSelectToCurrentKind();
         top.appendChild(select);
         column.appendChild(top);
 
@@ -1051,6 +1120,8 @@
           for (var j = 0; j < items.length; j++) {
             var li = document.createElement("li");
             li.className = "interior-menu-item";
+            li.dataset.kindLabel = symbolKindLabel(items[j].__kind || activeKind);
+            applyInteriorKindColor(li, items[j].__kind || activeKind, false);
             var link = document.createElement("a");
             link.href = symbolSourceHref(selected, items[j]);
             link.target = "_blank";
@@ -1064,6 +1135,7 @@
 
         select.addEventListener("change", function () {
           state.interiorMenuSelections[group.key] = select.value;
+          tintSelectToCurrentKind();
           repaintList();
         });
         column.appendChild(list);
