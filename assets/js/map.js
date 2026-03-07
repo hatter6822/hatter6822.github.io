@@ -1844,17 +1844,6 @@
 
     var breadcrumb = document.createElement("div");
     breadcrumb.className = "declaration-context-breadcrumb";
-    var backBtn = document.createElement("button");
-    backBtn.className = "btn btn-secondary declaration-back-btn";
-    backBtn.type = "button";
-    backBtn.textContent = "Module Context";
-    backBtn.title = "Return to module context for " + moduleName;
-    backBtn.addEventListener("click", returnToModuleContext);
-    breadcrumb.appendChild(backBtn);
-    var separator = document.createElement("span");
-    separator.className = "breadcrumb-separator";
-    separator.textContent = " \u203A ";
-    breadcrumb.appendChild(separator);
     var moduleLabel = document.createElement("button");
     moduleLabel.className = "btn btn-secondary declaration-breadcrumb-module";
     moduleLabel.type = "button";
@@ -1862,10 +1851,10 @@
     moduleLabel.title = "Return to module context for " + moduleName;
     moduleLabel.addEventListener("click", returnToModuleContext);
     breadcrumb.appendChild(moduleLabel);
-    var separator2 = document.createElement("span");
-    separator2.className = "breadcrumb-separator";
-    separator2.textContent = " \u203A ";
-    breadcrumb.appendChild(separator2);
+    var separator = document.createElement("span");
+    separator.className = "breadcrumb-separator";
+    separator.textContent = " \u203A ";
+    breadcrumb.appendChild(separator);
     var declLabel = document.createElement("span");
     declLabel.className = "breadcrumb-current";
     declLabel.textContent = declName;
