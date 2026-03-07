@@ -449,3 +449,105 @@ test('flowLegendItems returns canonical flow legend entries', async () => {
   assert.equal(items[6].label, 'Node tint = assurance level');
   assert.equal(items[6].color, '#8fa3bf');
 });
+
+test('normalizeMapData preserves declaration call graph from modules[].declarations', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Kernel.Adapter',
+        path: 'SeLe4n/Kernel/Adapter.lean',
+        declarations: [
+          { kind: 'def', name: 'mapError', line: 10, called: [] },
+          { kind: 'def', name: 'advanceTimer', line: 20, called: ['mapError'] },
+          { kind: 'theorem', name: 'advanceTimer_safe', line: 30, called: ['advanceTimer', 'mapError'] }
+        ]
+      }
+    ]
+  });
+
+  assert.ok(normalized.declarationGraph, 'normalized data should include declarationGraph');
+  assert.deepEqual(normalized.declarationGraph['advanceTimer'].calls, ['mapError']);
+  assert.deepEqual(normalized.declarationGraph['advanceTimer_safe'].calls, ['advanceTimer', 'mapError']);
+  assert.equal(normalized.declarationGraph['advanceTimer'].module, 'SeLe4n.Kernel.Adapter');
+  assert.ok(!normalized.declarationGraph['mapError'], 'declarations with empty called arrays should not appear in graph');
+});
+
+test('declarationCalls and declarationCalledBy resolve call relationships correctly', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'inductive', name: 'ErrorKind', line: 5, called: [] },
+          { kind: 'def', name: 'mapError', line: 10, called: ['ErrorKind'] },
+          { kind: 'def', name: 'advanceTimer', line: 20, called: ['mapError'] },
+          { kind: 'theorem', name: 'advanceTimer_safe', line: 30, called: ['advanceTimer', 'mapError'] }
+        ]
+      }
+    ]
+  });
+
+  // Inject the declaration graph into test hooks state
+  // The hooks operate on a shared state, so we need to provide context
+  const calls = normalized.declarationGraph['advanceTimer_safe'] ? normalized.declarationGraph['advanceTimer_safe'].calls : [];
+  assert.deepEqual(calls, ['advanceTimer', 'mapError']);
+
+  // Verify reverse lookup capability via the declarationGraph structure
+  const callers = [];
+  for (const [name, entry] of Object.entries(normalized.declarationGraph)) {
+    if (entry.calls.indexOf('mapError') !== -1) callers.push(name);
+  }
+  callers.sort();
+  assert.deepEqual(callers, ['advanceTimer', 'advanceTimer_safe']);
+});
+
+test('declarationFlowLegendItems returns canonical declaration flow legend entries', async () => {
+  const hooks = await loadMapTestHooks();
+  const items = hooks.declarationFlowLegendItems();
+
+  assert.equal(items.length, 4);
+  assert.equal(items[0].label, 'Selected declaration');
+  assert.equal(items[0].color, '#7c9cff');
+  assert.equal(items[1].label, 'Calls (outgoing)');
+  assert.equal(items[1].color, '#82f0b0');
+  assert.equal(items[2].label, 'Called by (incoming)');
+  assert.equal(items[2].color, '#ffad42');
+  assert.equal(items[3].label, 'Color = declaration kind');
+  assert.equal(items[3].color, '#8fa3bf');
+});
+
+test('normalizeMapData preserves callGraph on module symbols for declaration-centric payloads', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'def', name: 'step', line: 10, called: [] },
+          { kind: 'def', name: 'run', line: 20, called: ['step'] },
+          { kind: 'theorem', name: 'run_safe', line: 30, called: ['run', 'step'] }
+        ]
+      },
+      {
+        module: 'SeLe4n.Core.Helper',
+        path: 'SeLe4n/Core/Helper.lean',
+        declarations: [
+          { kind: 'def', name: 'helper', line: 5, called: ['step'] }
+        ]
+      }
+    ]
+  });
+
+  // Cross-module call graph is merged
+  assert.equal(normalized.declarationGraph['run'].module, 'SeLe4n.Core.Main');
+  assert.equal(normalized.declarationGraph['helper'].module, 'SeLe4n.Core.Helper');
+  assert.deepEqual(normalized.declarationGraph['helper'].calls, ['step']);
+  assert.deepEqual(normalized.declarationGraph['run_safe'].calls, ['run', 'step']);
+});

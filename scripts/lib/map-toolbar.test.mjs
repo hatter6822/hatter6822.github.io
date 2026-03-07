@@ -25,4 +25,6 @@ for (const controlId of removedControls) {
   assert(!html.includes(`id="${controlId}"`), `toolbar should not include ${controlId}`);
 }
 
+assert(/id="flow-node-interior-menu"[^>]*aria-live="polite"/.test(html), "interior menu should support live region for declaration context updates");
+
 console.log("map-toolbar.test: ok");

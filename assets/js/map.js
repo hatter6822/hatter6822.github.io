@@ -120,7 +120,11 @@
     interiorMenuSelections: { object: "", extension: "", contextInit: "" },
     commitSha: "",
     generatedAt: "",
-    flowScrollTarget: ""
+    flowScrollTarget: "",
+    flowContext: "module",
+    selectedDeclaration: "",
+    selectedDeclarationModule: "",
+    declarationGraph: Object.create(null)
   };
 
   var renderScheduled = false;
@@ -791,6 +795,95 @@
     return result;
   }
 
+  function declarationCalls(declName) {
+    var entry = state.declarationGraph[declName];
+    return entry && Array.isArray(entry.calls) ? entry.calls.slice() : [];
+  }
+
+  function declarationCalledBy(declName) {
+    var callers = [];
+    for (var key in state.declarationGraph) {
+      if (!Object.prototype.hasOwnProperty.call(state.declarationGraph, key)) continue;
+      var entry = state.declarationGraph[key];
+      if (!entry || !Array.isArray(entry.calls)) continue;
+      if (entry.calls.indexOf(declName) !== -1) callers.push(key);
+    }
+    return callers;
+  }
+
+  function declarationModuleOf(declName) {
+    var entry = state.declarationGraph[declName];
+    return entry ? entry.module : "";
+  }
+
+  function declarationKindOf(declName, moduleName) {
+    var mod = moduleName || declarationModuleOf(declName);
+    if (!mod) return "";
+    var meta = state.moduleMeta[mod];
+    if (!meta || !meta.symbols || !meta.symbols.byKind) return "";
+    var byKind = meta.symbols.byKind;
+    for (var kind in byKind) {
+      if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
+      var items = byKind[kind];
+      if (!Array.isArray(items)) continue;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i] && items[i].name === declName) return kind;
+      }
+    }
+    return "";
+  }
+
+  function declarationLineOf(declName, moduleName) {
+    var mod = moduleName || declarationModuleOf(declName);
+    if (!mod) return 0;
+    var meta = state.moduleMeta[mod];
+    if (!meta || !meta.symbols || !meta.symbols.byKind) return 0;
+    var byKind = meta.symbols.byKind;
+    for (var kind in byKind) {
+      if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
+      var items = byKind[kind];
+      if (!Array.isArray(items)) continue;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i] && items[i].name === declName) return items[i].line || 0;
+      }
+    }
+    return 0;
+  }
+
+  function selectDeclaration(declName, moduleName) {
+    var mod = moduleName || declarationModuleOf(declName);
+    if (!mod || !state.moduleMap[mod]) return;
+    state.flowContext = "declaration";
+    state.selectedDeclaration = declName;
+    state.selectedDeclarationModule = mod;
+    if (state.selectedModule !== mod) {
+      state.selectedModule = mod;
+      state.interiorMenuModule = mod;
+      state.interiorMenuQuery = "";
+    }
+    state.flowScrollTarget = declName;
+    syncUrlState();
+    scheduleRender();
+  }
+
+  function returnToModuleContext() {
+    state.flowContext = "module";
+    state.selectedDeclaration = "";
+    state.selectedDeclarationModule = "";
+    state.flowScrollTarget = state.selectedModule || "";
+    syncUrlState();
+    scheduleRender();
+  }
+
+  function declarationFlowLegendItems() {
+    return [
+      { label: "Selected declaration", color: "#7c9cff" },
+      { label: "Calls (outgoing)", color: "#82f0b0" },
+      { label: "Called by (incoming)", color: "#ffad42" },
+      { label: "Color = declaration kind", color: "#8fa3bf" }
+    ];
+  }
+
   function collectNeighborhood(name, radius) {
     var maxRadius = Math.max(1, Math.min(3, radius || 1));
     var visited = Object.create(null);
@@ -909,11 +1002,14 @@
 
   function selectModule(name, preserveScroll) {
     if (!name || !state.moduleMap[name]) return;
-    if (state.selectedModule === name) {
+    if (state.selectedModule === name && state.flowContext === "module") {
       renderFlowNodeInteriorMenu(name);
       return;
     }
     state.selectedModule = name;
+    state.flowContext = "module";
+    state.selectedDeclaration = "";
+    state.selectedDeclarationModule = "";
     state.flowScrollTarget = preserveScroll ? "" : name;
     if (state.interiorMenuModule !== name) {
       state.interiorMenuModule = name;
@@ -1122,13 +1218,36 @@
             li.className = "interior-menu-item";
             li.dataset.kindLabel = symbolKindLabel(items[j].__kind || activeKind);
             applyInteriorKindColor(li, items[j].__kind || activeKind, false);
-            var link = document.createElement("a");
-            link.href = symbolSourceHref(selected, items[j]);
-            link.target = "_blank";
-            link.rel = "noopener noreferrer";
-            link.textContent = items[j].name;
-            link.title = items[j].line > 0 ? "Open declaration at line " + items[j].line : "Open declaration source";
-            li.appendChild(link);
+            var hasCallData = Boolean(state.declarationGraph[items[j].name]);
+            if (hasCallData) {
+              li.classList.add("interior-menu-item-navigable");
+              var btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "interior-menu-item-btn";
+              btn.textContent = items[j].name;
+              btn.title = "View declaration call graph for " + items[j].name;
+              btn.dataset.decl = items[j].name;
+              btn.addEventListener("click", (function (itemName) {
+                return function () { selectDeclaration(itemName, selected); };
+              })(items[j].name));
+              li.appendChild(btn);
+              var srcLink = document.createElement("a");
+              srcLink.href = symbolSourceHref(selected, items[j]);
+              srcLink.target = "_blank";
+              srcLink.rel = "noopener noreferrer";
+              srcLink.className = "interior-menu-item-src";
+              srcLink.textContent = "src";
+              srcLink.title = items[j].line > 0 ? "Open source at line " + items[j].line : "Open source";
+              li.appendChild(srcLink);
+            } else {
+              var link = document.createElement("a");
+              link.href = symbolSourceHref(selected, items[j]);
+              link.target = "_blank";
+              link.rel = "noopener noreferrer";
+              link.textContent = items[j].name;
+              link.title = items[j].line > 0 ? "Open declaration at line " + items[j].line : "Open declaration source";
+              li.appendChild(link);
+            }
             list.appendChild(li);
           }
         }
@@ -1681,6 +1800,264 @@
     wrap.scrollTop = previousScrollTop;
   }
 
+  function renderDeclarationFlowchart() {
+    var wrap = document.getElementById("flowchart-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+
+    var declName = state.selectedDeclaration;
+    var moduleName = state.selectedDeclarationModule;
+    if (!declName || !moduleName) {
+      returnToModuleContext();
+      return;
+    }
+
+    var calls = declarationCalls(declName);
+    var calledBy = declarationCalledBy(declName);
+    var declKind = declarationKindOf(declName, moduleName);
+    var declLine = declarationLineOf(declName, moduleName);
+
+    var breadcrumb = document.createElement("div");
+    breadcrumb.className = "declaration-context-breadcrumb";
+    var backBtn = document.createElement("button");
+    backBtn.className = "btn btn-secondary declaration-back-btn";
+    backBtn.type = "button";
+    backBtn.textContent = "Module Context";
+    backBtn.title = "Return to module context for " + moduleName;
+    backBtn.addEventListener("click", returnToModuleContext);
+    breadcrumb.appendChild(backBtn);
+    var separator = document.createElement("span");
+    separator.className = "breadcrumb-separator";
+    separator.textContent = " \u203A ";
+    breadcrumb.appendChild(separator);
+    var moduleLabel = document.createElement("button");
+    moduleLabel.className = "btn btn-secondary declaration-breadcrumb-module";
+    moduleLabel.type = "button";
+    moduleLabel.textContent = moduleName;
+    moduleLabel.title = "Return to module context for " + moduleName;
+    moduleLabel.addEventListener("click", returnToModuleContext);
+    breadcrumb.appendChild(moduleLabel);
+    var separator2 = document.createElement("span");
+    separator2.className = "breadcrumb-separator";
+    separator2.textContent = " \u203A ";
+    breadcrumb.appendChild(separator2);
+    var declLabel = document.createElement("span");
+    declLabel.className = "breadcrumb-current";
+    declLabel.textContent = declName;
+    breadcrumb.appendChild(declLabel);
+    wrap.appendChild(breadcrumb);
+
+    var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
+    var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
+    var framePad = 34;
+    var laneGap = 24;
+
+    var centerWidth = Math.min(360, Math.max(300, Math.floor(flowWidth * 0.27)));
+    var sideWidth = Math.min(360, Math.max(240, Math.floor((flowWidth - framePad * 2 - centerWidth - laneGap * 2) / 2)));
+
+    var leftX = framePad;
+    var centerX = leftX + sideWidth + laneGap;
+    var rightX = centerX + centerWidth + laneGap;
+
+    var laneYStart = 62;
+    var laneGapY = 10;
+
+    function declSummary(name) {
+      var kind = declarationKindOf(name);
+      var mod = declarationModuleOf(name);
+      var line = declarationLineOf(name);
+      var parts = [];
+      if (kind) parts.push(symbolKindLabel(kind));
+      if (mod) parts.push("in " + mod);
+      if (line > 0) parts.push("L" + line);
+      return parts.join(" · ") || "declaration";
+    }
+
+    function declTooltip(name, roleLabel) {
+      var kind = declarationKindOf(name);
+      var mod = declarationModuleOf(name);
+      var line = declarationLineOf(name);
+      var callsList = declarationCalls(name);
+      return roleLabel + "\n" + name + (kind ? "\nkind: " + kind : "") + (mod ? "\nmodule: " + mod : "") + (line > 0 ? "\nline: " + line : "") + "\ncalls: " + (callsList.length || "none");
+    }
+
+    function declNodeColor(name) {
+      var kind = declarationKindOf(name);
+      return kind ? (INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf") : "#8fa3bf";
+    }
+
+    var callLayout = [];
+    var cursorLeft = laneYStart;
+    for (var ci = 0; ci < calls.length; ci++) {
+      var ch = nodeContentHeight(calls[ci], declSummary(calls[ci]), sideWidth, true);
+      callLayout.push({ name: calls[ci], y: cursorLeft, h: ch });
+      cursorLeft += ch + laneGapY;
+    }
+    var callBottom = calls.length ? cursorLeft - laneGapY : laneYStart + 44;
+
+    var callerLayout = [];
+    var cursorRight = laneYStart;
+    for (var bi = 0; bi < calledBy.length; bi++) {
+      var bh = nodeContentHeight(calledBy[bi], declSummary(calledBy[bi]), sideWidth, true);
+      callerLayout.push({ name: calledBy[bi], y: cursorRight, h: bh });
+      cursorRight += bh + laneGapY;
+    }
+    var callerBottom = calledBy.length ? cursorRight - laneGapY : laneYStart + 44;
+
+    var centerHeight = nodeContentHeight(declName, declSummary(declName), centerWidth, false) + 14;
+    var centerY = Math.max(170, laneYStart + Math.floor((Math.max(callBottom, callerBottom) - laneYStart - centerHeight) / 2));
+    var flowHeight = Math.max(620, Math.max(callBottom, callerBottom, centerY + centerHeight) + 68);
+
+    var legend = document.createElement("div");
+    legend.className = "flowchart-legend flowchart-legend-corner";
+    legend.setAttribute("aria-label", "Declaration flow chart legend");
+    var legendItems = declarationFlowLegendItems();
+    for (var li = 0; li < legendItems.length; li++) {
+      var chip = document.createElement("span");
+      chip.className = "legend-item";
+      var swatch = document.createElement("span");
+      swatch.className = "legend-swatch";
+      swatch.style.backgroundColor = legendItems[li].color;
+      chip.appendChild(swatch);
+      chip.appendChild(document.createTextNode(legendItems[li].label));
+      legend.appendChild(chip);
+    }
+    wrap.appendChild(legend);
+
+    var svg = createSvgNode("svg", {
+      "class": "flowchart-svg",
+      "viewBox": "0 0 " + flowWidth + " " + flowHeight,
+      "role": "img",
+      "aria-label": "Declaration flow chart for " + declName + ", calls " + calls.length + " declarations, called by " + calledBy.length + " declarations"
+    });
+
+    var defs = createSvgNode("defs", {});
+    var marker = createSvgNode("marker", {
+      id: "flow-arrow",
+      viewBox: "0 0 10 10",
+      refX: "9",
+      refY: "5",
+      markerWidth: "6",
+      markerHeight: "6",
+      orient: "auto-start-reverse"
+    });
+    marker.appendChild(createSvgNode("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "currentColor" }));
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer" });
+    var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
+    var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });
+    svg.appendChild(edgeLayer);
+    svg.appendChild(nodeLayer);
+    svg.appendChild(labelLayer);
+
+    function laneLabel(text, x, y, color) {
+      var label = createSvgNode("text", { x: x, y: y, fill: color, "font-size": "12", "class": "flow-lane-label" });
+      label.textContent = text;
+      labelLayer.appendChild(label);
+    }
+
+    function createDeclNode(name, x, y, w, h, color, subtitle, tooltip, active, onActivate) {
+      var className = "flow-node" + (active ? " active" : "");
+      if (onActivate) className += " action";
+      var interactive = Boolean(onActivate);
+      var group = createSvgNode("g", { "class": className, tabindex: interactive ? "0" : "-1", role: interactive ? "button" : "note", "aria-label": interactive ? "Select declaration " + name : name });
+      if (interactive) group.setAttribute("focusable", "true");
+
+      var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
+      var full = createSvgNode("title", {});
+      full.textContent = tooltip || name;
+
+      var compactNode = h < 44;
+      var title = createSvgNode("text", { x: x + 10, y: y + (compactNode ? 20 : 19) });
+      var titleLines = wrapLabelLines(name, w - 18, compactNode ? 14 : 12);
+      for (var ll = 0; ll < titleLines.length; ll++) {
+        var tspan = createSvgNode("tspan", { x: x + 10, dy: ll === 0 ? "0" : "13" });
+        tspan.textContent = titleLines[ll];
+        title.appendChild(tspan);
+      }
+
+      group.appendChild(full);
+      group.appendChild(rect);
+      group.appendChild(title);
+
+      if (subtitle && h >= 40) {
+        var subtitleLines = wrapLabelLines(subtitle, w - 18, 14);
+        var subtitleStartY = y + (compactNode ? 22 : 22) + Math.max(1, titleLines.length) * 13 + 3;
+        var meta = createSvgNode("text", { x: x + 10, y: subtitleStartY, "class": "flow-meta" });
+        for (var mm = 0; mm < subtitleLines.length; mm++) {
+          var metaSpan = createSvgNode("tspan", { x: x + 10, dy: mm === 0 ? "0" : "12" });
+          metaSpan.textContent = subtitleLines[mm];
+          meta.appendChild(metaSpan);
+        }
+        group.appendChild(meta);
+      }
+
+      if (interactive) {
+        group.addEventListener("click", function () { onActivate(); });
+        group.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onActivate();
+          }
+        });
+      }
+
+      nodeLayer.appendChild(group);
+      return { name: name, x: x, y: y, w: w, h: h };
+    }
+
+    var hasCallees = calls.length > 0;
+    var hasCallers = calledBy.length > 0;
+    var hasAux = hasCallees || hasCallers;
+
+    if (hasCallees) laneLabel("Calls (outgoing)", leftX, 30, "#82f0b0");
+    if (hasAux) laneLabel("Selected declaration", centerX, centerY - 12, "#7c9cff");
+    if (hasCallers) laneLabel("Called by (incoming)", rightX, 30, "#ffad42");
+
+    var center = createDeclNode(declName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(declName), declTooltip(declName, "Selected declaration"), true, null);
+
+    var callNodes = [];
+    for (var i = 0; i < callLayout.length; i++) {
+      var callItem = callLayout[i];
+      var callColor = declNodeColor(callItem.name);
+      var hasGraph = Boolean(state.declarationGraph[callItem.name]);
+      callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.name), declTooltip(callItem.name, "Called declaration"), false, hasGraph ? (function (n) { return function () { selectDeclaration(n); }; })(callItem.name) : null));
+    }
+
+    var callerNodes = [];
+    for (var j = 0; j < callerLayout.length; j++) {
+      var callerItem = callerLayout[j];
+      var callerColor = declNodeColor(callerItem.name);
+      var callerHasGraph = Boolean(state.declarationGraph[callerItem.name]);
+      callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.name), declTooltip(callerItem.name, "Caller declaration"), false, callerHasGraph ? (function (n) { return function () { selectDeclaration(n); }; })(callerItem.name) : null));
+    }
+
+    var callSpread = Math.min(52, Math.max(14, callNodes.length * 2));
+    var callerSpread = Math.min(52, Math.max(14, callerNodes.length * 2));
+    for (var k = 0; k < callNodes.length; k++) {
+      drawFlowEdge(edgeLayer, center, callNodes[k], "#82f0b0", false, { rank: k, total: callNodes.length, spread: callSpread });
+    }
+    for (var m = 0; m < callerNodes.length; m++) {
+      drawFlowEdge(edgeLayer, callerNodes[m], center, "#ffad42", false, { rank: m, total: callerNodes.length, spread: callerSpread });
+    }
+
+    wrap.appendChild(svg);
+
+    renderFlowNodeInteriorMenu(moduleName);
+
+    if (state.flowScrollTarget === declName) {
+      var targetScrollLeft = Math.max(0, center.x + center.w / 2 - wrap.clientWidth / 2);
+      var targetScrollTop = Math.max(0, center.y + center.h / 2 - wrap.clientHeight / 2);
+      var maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
+      var maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+      wrap.scrollLeft = Math.min(maxScrollLeft, targetScrollLeft);
+      wrap.scrollTop = Math.min(maxScrollTop, targetScrollTop);
+      state.flowScrollTarget = "";
+    }
+  }
+
   function isTypingTarget(target) {
     if (!target || !target.tagName) return false;
     if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) return true;
@@ -1744,7 +2121,11 @@
 
   function renderAll() {
     renderContextChooser();
-    renderFlowchart();
+    if (state.flowContext === "declaration" && state.selectedDeclaration) {
+      renderDeclarationFlowchart();
+    } else {
+      renderFlowchart();
+    }
   }
 
 
@@ -2270,6 +2651,7 @@
 
     function normalizeModuleSymbols(rawSymbols) {
       var source = rawSymbols || {};
+      var callGraph = Object.create(null);
       if (Array.isArray(source.declarations) && !source.byKind && !source.by_kind) {
         var declarationKinds = Object.create(null);
         for (var decIdx = 0; decIdx < source.declarations.length; decIdx++) {
@@ -2280,6 +2662,9 @@
           if (!kind || !name) continue;
           if (!declarationKinds[kind]) declarationKinds[kind] = [];
           declarationKinds[kind].push({ name: name, line: line > 0 ? line : null });
+          if (Array.isArray(declaration.called) && declaration.called.length) {
+            callGraph[name] = declaration.called.map(function (c) { return String(c || "").trim(); }).filter(Boolean);
+          }
         }
         source = { byKind: declarationKinds };
       }
@@ -2298,7 +2683,8 @@
       return {
         byKind: byKind,
         theorems: theorems.length ? theorems : (byKind.theorem || []).concat(byKind.lemma || []),
-        functions: functions.length ? functions : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || [])
+        functions: functions.length ? functions : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || []),
+        callGraph: callGraph
       };
     }
 
@@ -2362,6 +2748,17 @@
       return out;
     })();
 
+    var mergedDeclarationGraph = Object.create(null);
+    for (var dgIdx = 0; dgIdx < moduleRecords.length; dgIdx++) {
+      var dgModule = moduleRecords[dgIdx].name;
+      var dgSymbols = normalizedModuleMeta[dgModule] && normalizedModuleMeta[dgModule].symbols;
+      var dgCallGraph = dgSymbols && dgSymbols.callGraph ? dgSymbols.callGraph : Object.create(null);
+      for (var dgKey in dgCallGraph) {
+        if (!Object.prototype.hasOwnProperty.call(dgCallGraph, dgKey)) continue;
+        mergedDeclarationGraph[dgKey] = { module: dgModule, calls: dgCallGraph[dgKey] };
+      }
+    }
+
     return {
       files: normalizeFiles(data.files, normalizedModuleMap),
       modules: normalizedModules,
@@ -2370,6 +2767,7 @@
       importsTo: Object.create(null),
       importsFrom: normalizedImportsFrom,
       externalImportsFrom: normalizedExternalImportsFrom,
+      declarationGraph: mergedDeclarationGraph,
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
     };
@@ -2525,6 +2923,7 @@
     state.importsTo = data.importsTo || Object.create(null);
     state.importsFrom = data.importsFrom || Object.create(null);
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
+    state.declarationGraph = data.declarationGraph || Object.create(null);
     invalidateDerivedCaches();
     state.contextList = [];
     state.commitSha = data.commitSha || "";
@@ -3172,6 +3571,13 @@
 
     state.proofLinkedOnly = getParam("linked") === "1";
     state.flowShowAll = getParam("fullflow") === "1";
+
+    var declParam = getParam("decl");
+    if (declParam) {
+      state.flowContext = "declaration";
+      state.selectedDeclaration = declParam;
+      state.selectedDeclarationModule = state.selectedModule || "";
+    }
   }
 
   function syncUrlState() {
@@ -3185,6 +3591,12 @@
 
     if (state.proofLinkedOnly) params.set("linked", "1"); else params.delete("linked");
     if (state.flowShowAll) params.set("fullflow", "1"); else params.delete("fullflow");
+
+    if (state.flowContext === "declaration" && state.selectedDeclaration) {
+      params.set("decl", state.selectedDeclaration);
+    } else {
+      params.delete("decl");
+    }
 
     params.delete("sort");
     params.delete("mode");
@@ -3285,7 +3697,12 @@
       interiorItemsForSelection: interiorItemsForSelection,
       flowLegendItems: flowLegendItems,
       flowLaneLabelVisibility: flowLaneLabelVisibility,
-      normalizeCaretRange: normalizeCaretRange
+      normalizeCaretRange: normalizeCaretRange,
+      declarationFlowLegendItems: declarationFlowLegendItems,
+      declarationCalls: declarationCalls,
+      declarationCalledBy: declarationCalledBy,
+      declarationModuleOf: declarationModuleOf,
+      declarationKindOf: declarationKindOf
     };
     return;
   }
