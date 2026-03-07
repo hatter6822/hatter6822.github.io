@@ -1029,3 +1029,69 @@ test('findNearestLinkedPath returns shortest path to linked proof module', async
   assert.equal(selfPath.length, 1, 'linked module should return path of length 1');
   assert.equal(selfPath[0], 'SeLe4n.IPC.Operations', 'linked module path should contain itself');
 });
+
+test('normalizeMapData builds declarationIndex for O(1) declaration metadata lookups', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'theorem', name: 'safe_main', line: 14 },
+          { kind: 'def', name: 'step', line: 20, called: ['safe_main'] }
+        ]
+      },
+      {
+        module: 'SeLe4n.Ext.Util',
+        path: 'SeLe4n/Ext/Util.lean',
+        declarations: [
+          { kind: 'def', name: 'helper', line: 5, called: [] }
+        ]
+      }
+    ]
+  });
+
+  assert.ok(normalized.declarationIndex, 'normalized data should include declarationIndex');
+
+  // All declarations should be indexed regardless of call graph presence
+  const safeMainIdx = normalized.declarationIndex['safe_main'];
+  assert.ok(safeMainIdx, 'safe_main should be in declarationIndex');
+  assert.equal(safeMainIdx.module, 'SeLe4n.Core.Main');
+  assert.equal(safeMainIdx.kind, 'theorem');
+  assert.equal(safeMainIdx.line, 14);
+
+  const stepIdx = normalized.declarationIndex['step'];
+  assert.ok(stepIdx, 'step should be in declarationIndex');
+  assert.equal(stepIdx.module, 'SeLe4n.Core.Main');
+  assert.equal(stepIdx.kind, 'def');
+  assert.equal(stepIdx.line, 20);
+
+  const helperIdx = normalized.declarationIndex['helper'];
+  assert.ok(helperIdx, 'helper should be in declarationIndex');
+  assert.equal(helperIdx.module, 'SeLe4n.Ext.Util');
+  assert.equal(helperIdx.kind, 'def');
+  assert.equal(helperIdx.line, 5);
+
+  // Unknown declarations should not be in the index
+  assert.ok(!normalized.declarationIndex['nonexistent'], 'nonexistent declarations should not be indexed');
+
+  // Verify lookups via declarationModuleOf/KindOf/LineOf use the index
+  hooks.applyTestState({
+    declarationGraph: normalized.declarationGraph,
+    declarationReverseGraph: normalized.declarationReverseGraph,
+    moduleMeta: normalized.moduleMeta,
+    moduleMap: normalized.moduleMap
+  });
+
+  assert.equal(hooks.declarationModuleOf('safe_main'), 'SeLe4n.Core.Main');
+  assert.equal(hooks.declarationKindOf('safe_main'), 'theorem');
+  assert.equal(hooks.declarationLineOf('safe_main'), 14);
+  assert.equal(hooks.declarationModuleOf('helper'), 'SeLe4n.Ext.Util');
+  assert.equal(hooks.declarationKindOf('helper'), 'def');
+  assert.equal(hooks.declarationLineOf('helper'), 5);
+  assert.equal(hooks.declarationModuleOf('nonexistent'), '');
+  assert.equal(hooks.declarationKindOf('nonexistent'), '');
+  assert.equal(hooks.declarationLineOf('nonexistent'), 0);
+});

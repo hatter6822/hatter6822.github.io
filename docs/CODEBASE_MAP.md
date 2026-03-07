@@ -91,11 +91,11 @@ Both the module-context and declaration-context flowchart renderers share six ex
 - `createFlowSvg()` — SVG element creation with marker defs and layer ordering.
 - `createFlowLegend()` — Legend chip rendering with swatch colors.
 - `flowLaneLabel()` — SVG lane label placement.
-- `applyFlowScrollTarget()` — Scroll-to-target centering after navigation.
+- `applyFlowScrollTarget()` — Scroll-to-target centering after navigation; temporarily disables smooth scrolling for instant programmatic positioning.
 - `computeFlowLayout()` — Three-lane layout geometry computation.
-- `buildFlowNodeGroup()` — SVG node construction (rect, title wrapping, subtitle, keyboard/click handlers).
+- `buildFlowNodeGroup()` — SVG node construction (rect, title wrapping, subtitle, keyboard/click handlers) using `role="img"` for non-interactive nodes and `role="button"` for interactive ones.
 
-Each renderer delegates to the shared helpers for setup, then applies its own context-specific class composition, aria-label construction, and event wiring via `buildFlowNodeGroup`. Node heights for proof-pair and external-dependency sections are pre-computed during layout passes to avoid redundant recalculation.
+Each renderer delegates to the shared helpers for setup, then applies its own context-specific class composition, aria-label construction, and event wiring via `buildFlowNodeGroup`. Node heights for proof-pair and external-dependency sections are pre-computed during layout passes to avoid redundant recalculation. The SVG element carries `aria-roledescription="flowchart"` for screen reader context. Declaration metadata lookups (`declarationModuleOf`, `declarationKindOf`, `declarationLineOf`) use a precomputed `declarationIndex` for O(1) performance instead of scanning all module symbol buckets.
 
 ## Troubleshooting checklist
 
