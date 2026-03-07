@@ -95,8 +95,9 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - A view-context switcher bar allows free navigation between module and declaration contexts. The declaration button disables itself for modules lacking call-graph data.
 - URL state extended with `context=declaration` and `declmodule=ModuleName` parameters for deep-linkable declaration views.
 - CSS added for context switcher, declaration-kind node tinting, and responsive mobile layout.
+- Declaration kind colors reuse the existing `INTERIOR_KIND_COLOR_MAP` (no separate color map) via `declKindColor()`, keeping a single source of truth for kind → color mapping.
 - New test hooks exposed: `buildDeclarationGraph`, `declFlowLegendItems`, `declKindColor`.
-- Seven new unit tests added covering declaration graph construction, edge filtering, sorting, legend entries, kind coloring, and normalization of `called` arrays.
+- Nine unit tests covering declaration graph construction, edge filtering (self-references, unknown targets, namespace/end-kind exclusion), duplicate-name last-wins behavior, node scoring and sorting, legend entries, kind coloring, and normalization of `called` arrays.
 
 ## Future growth recommendations
 

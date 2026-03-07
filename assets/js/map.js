@@ -103,15 +103,8 @@
   })();
   var BUSY_STATUS_RE = /loading|refreshing|checking|analyzing|syncing/i;
 
-  var DECL_KIND_COLOR = {
-    theorem: "#ffd782", lemma: "#ffcb6b", def: "#82f0b0", abbrev: "#8be4cb",
-    inductive: "#8ecbff", structure: "#72d5ff", class: "#6ae3d8",
-    instance: "#d0b7ff", opaque: "#9ec5ff", axiom: "#ff9fb0",
-    constant: "#f7b0ff", namespace: "#ff84b6"
-  };
-
   function declKindColor(kind) {
-    return DECL_KIND_COLOR[kind] || INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf";
+    return INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf";
   }
 
   var state = {
@@ -1509,7 +1502,7 @@
 
       if (p.subtitle && p.h >= 40) {
         var subtitleLines = wrapLabelLines(p.subtitle, nodeWidth - 18, 14);
-        var subtitleStartY = p.y + (compactNode ? 22 : 22) + Math.max(1, titleLines.length) * 13 + 3;
+        var subtitleStartY = p.y + 22 + Math.max(1, titleLines.length) * 13 + 3;
         var meta = createSvgNode("text", { x: p.x + 10, y: subtitleStartY, "class": "flow-meta" });
         for (var sl = 0; sl < subtitleLines.length; sl++) {
           var metaSpan = createSvgNode("tspan", { x: p.x + 10, dy: sl === 0 ? "0" : "12" });
@@ -1826,7 +1819,7 @@
 
       if (subtitle && h >= 40) {
         var subtitleLines = wrapLabelLines(subtitle, w - 18, 14);
-        var subtitleStartY = y + (compactNode ? 22 : 22) + Math.max(1, titleLines.length) * 13 + 3;
+        var subtitleStartY = y + 22 + Math.max(1, titleLines.length) * 13 + 3;
         var meta = createSvgNode("text", { x: x + 10, y: subtitleStartY, "class": "flow-meta" });
         for (var mm = 0; mm < subtitleLines.length; mm++) {
           var metaSpan = createSvgNode("tspan", { x: x + 10, dy: mm === 0 ? "0" : "12" });

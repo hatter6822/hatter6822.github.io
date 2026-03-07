@@ -570,3 +570,37 @@ test('buildDeclarationGraph sorts nodes by score then by line number', async () 
   assert.equal(graph.nodes[0].name, 'hub', 'hub should be first (highest in-degree)');
   assert.equal(graph.nodes[graph.nodes.length - 1].name, 'leaf', 'leaf should be last (no edges)');
 });
+
+test('buildDeclarationGraph filters edges targeting excluded namespace/end declarations', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const declarations = [
+    { kind: 'namespace', name: 'Kernel', line: 1, called: [] },
+    { kind: 'end', name: 'Kernel', line: 50, called: [] },
+    { kind: 'def', name: 'init', line: 5, called: ['Kernel', 'process'] },
+    { kind: 'def', name: 'process', line: 10, called: ['Kernel'] }
+  ];
+
+  const graph = hooks.buildDeclarationGraph(declarations);
+  assert.equal(graph.nodes.length, 2, 'only init and process should survive (namespace/end excluded)');
+  assert.equal(graph.edges.length, 1, 'only init->process edge; calls to namespace Kernel are excluded');
+  assert.equal(graph.edges[0].from, 'init');
+  assert.equal(graph.edges[0].to, 'process');
+});
+
+test('buildDeclarationGraph uses last-wins for duplicate declaration names', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const declarations = [
+    { kind: 'def', name: 'compute', line: 5, called: ['helper'] },
+    { kind: 'theorem', name: 'compute', line: 20, called: [] },
+    { kind: 'def', name: 'helper', line: 10, called: [] }
+  ];
+
+  const graph = hooks.buildDeclarationGraph(declarations);
+  assert.equal(graph.nodes.length, 2, 'duplicate name collapses to one node');
+  const computeNode = graph.nodes.find(n => n.name === 'compute');
+  assert.equal(computeNode.kind, 'theorem', 'last declaration with same name wins');
+  assert.equal(computeNode.line, 20, 'last declaration line wins');
+  assert.equal(graph.edges.length, 0, 'theorem overwrite has no called entries, so no edges');
+});
