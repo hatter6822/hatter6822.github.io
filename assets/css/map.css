@@ -570,6 +570,62 @@
   }
 }
 
+.declaration-context-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+.declaration-back-btn,
+.declaration-breadcrumb-module {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+.breadcrumb-separator {
+  color: var(--text-tertiary);
+  user-select: none;
+}
+.breadcrumb-current {
+  color: var(--text);
+  font-weight: 600;
+}
+.interior-menu-item-navigable {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.interior-menu-item-btn {
+  all: unset;
+  cursor: pointer;
+  flex: 1;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--interior-kind-color, var(--text-tertiary));
+  text-underline-offset: 2px;
+}
+.interior-menu-item-btn:hover,
+.interior-menu-item-btn:focus-visible {
+  color: var(--interior-kind-color, var(--link));
+  text-decoration-thickness: 2px;
+}
+.interior-menu-item-src {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--surface-alt) 60%, transparent);
+  color: var(--text-secondary);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.interior-menu-item-src:hover {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
 @media (max-width: 420px) {
   .section#module-graph {
     padding-block: 1.1rem 1.35rem;
