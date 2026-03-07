@@ -1427,6 +1427,98 @@
     layer.appendChild(path);
   }
 
+  function createFlowSvg(flowWidth, flowHeight, ariaLabel) {
+    var svg = createSvgNode("svg", {
+      "class": "flowchart-svg",
+      "viewBox": "0 0 " + flowWidth + " " + flowHeight,
+      "role": "img",
+      "aria-label": ariaLabel
+    });
+    var defs = createSvgNode("defs", {});
+    var marker = createSvgNode("marker", {
+      id: "flow-arrow",
+      viewBox: "0 0 10 10",
+      refX: "9",
+      refY: "5",
+      markerWidth: "6",
+      markerHeight: "6",
+      orient: "auto-start-reverse"
+    });
+    marker.appendChild(createSvgNode("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "currentColor" }));
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer" });
+    var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
+    var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });
+    svg.appendChild(edgeLayer);
+    svg.appendChild(nodeLayer);
+    svg.appendChild(labelLayer);
+
+    return { svg: svg, edgeLayer: edgeLayer, nodeLayer: nodeLayer, labelLayer: labelLayer };
+  }
+
+  function createFlowLegend(items, ariaLabel) {
+    var legend = document.createElement("div");
+    legend.className = "flowchart-legend flowchart-legend-corner";
+    legend.setAttribute("aria-label", ariaLabel);
+    for (var i = 0; i < items.length; i++) {
+      var chip = document.createElement("span");
+      chip.className = "legend-item";
+      var swatch = document.createElement("span");
+      swatch.className = "legend-swatch";
+      swatch.style.backgroundColor = items[i].color;
+      chip.appendChild(swatch);
+      chip.appendChild(document.createTextNode(items[i].label));
+      legend.appendChild(chip);
+    }
+    return legend;
+  }
+
+  function flowLaneLabel(labelLayer, text, x, y, color) {
+    var label = createSvgNode("text", { x: x, y: y, fill: color, "font-size": "12", "class": "flow-lane-label" });
+    label.textContent = text;
+    labelLayer.appendChild(label);
+  }
+
+  function applyFlowScrollTarget(wrap, targetName, centerX, centerY, centerW, centerH) {
+    if (state.flowScrollTarget !== targetName) return false;
+    var targetScrollLeft = Math.max(0, centerX + centerW / 2 - wrap.clientWidth / 2);
+    var targetScrollTop = Math.max(0, centerY + centerH / 2 - wrap.clientHeight / 2);
+    var maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
+    var maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+    wrap.scrollLeft = Math.min(maxScrollLeft, targetScrollLeft);
+    wrap.scrollTop = Math.min(maxScrollTop, targetScrollTop);
+    state.flowScrollTarget = "";
+    return true;
+  }
+
+  function computeFlowLayout() {
+    var wrap = document.getElementById("flowchart-wrap");
+    var wrapWidth = Math.max(0, ((wrap && wrap.clientWidth) || 0) - 8);
+    var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
+    var framePad = 34;
+    var laneGap = 24;
+    var centerWidth = Math.min(360, Math.max(300, Math.floor(flowWidth * 0.27)));
+    var sideWidth = Math.min(360, Math.max(240, Math.floor((flowWidth - framePad * 2 - centerWidth - laneGap * 2) / 2)));
+    var leftX = framePad;
+    var centerX = leftX + sideWidth + laneGap;
+    var rightX = centerX + centerWidth + laneGap;
+
+    return {
+      flowWidth: flowWidth,
+      framePad: framePad,
+      laneGap: laneGap,
+      centerWidth: centerWidth,
+      sideWidth: sideWidth,
+      leftX: leftX,
+      centerX: centerX,
+      rightX: rightX,
+      laneYStart: 62,
+      laneGapY: 10
+    };
+  }
+
   function renderFlowchart() {
     var wrap = document.getElementById("flowchart-wrap");
     if (!wrap) return;
@@ -1496,20 +1588,16 @@
       return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | declarations: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label;
     }
 
-    var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
-    var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
-    var framePad = 34;
-    var laneGap = 24;
-
-    var centerWidth = Math.min(360, Math.max(300, Math.floor(flowWidth * 0.27)));
-    var sideWidth = Math.min(360, Math.max(240, Math.floor((flowWidth - framePad * 2 - centerWidth - laneGap * 2) / 2)));
-
-    var leftX = framePad;
-    var centerX = leftX + sideWidth + laneGap;
-    var rightX = centerX + centerWidth + laneGap;
-
-    var laneYStart = 62;
-    var laneGapY = 10;
+    var layout = computeFlowLayout();
+    var flowWidth = layout.flowWidth;
+    var framePad = layout.framePad;
+    var centerWidth = layout.centerWidth;
+    var sideWidth = layout.sideWidth;
+    var leftX = layout.leftX;
+    var centerX = layout.centerX;
+    var rightX = layout.rightX;
+    var laneYStart = layout.laneYStart;
+    var laneGapY = layout.laneGapY;
 
     function stackedLayout(names, width, subtitleFn, compactHint) {
       var nodes = [];
@@ -1629,54 +1717,16 @@
     var effectiveBottom = hasExternalSection ? externalBottom : pathBlockBottom;
     var flowHeight = Math.max(620, effectiveBottom + (hasExternalSection ? 68 : 40));
 
-    var legend = document.createElement("div");
-    legend.className = "flowchart-legend flowchart-legend-corner";
-    legend.setAttribute("aria-label", "Flow chart legend");
-    var legendItems = flowLegendItems();
-    for (var li = 0; li < legendItems.length; li++) {
-      var chip = document.createElement("span");
-      chip.className = "legend-item";
-      var swatch = document.createElement("span");
-      swatch.className = "legend-swatch";
-      swatch.style.backgroundColor = legendItems[li].color;
-      chip.appendChild(swatch);
-      chip.appendChild(document.createTextNode(legendItems[li].label));
-      legend.appendChild(chip);
-    }
-    wrap.appendChild(legend);
+    wrap.appendChild(createFlowLegend(flowLegendItems(), "Flow chart legend"));
 
-    var svg = createSvgNode("svg", {
-      "class": "flowchart-svg",
-      "viewBox": "0 0 " + flowWidth + " " + flowHeight,
-      "role": "img",
-      "aria-label": "Flow chart for selected module interactions and proof links: " + selected + ", imports " + allImports.length + ", impacted modules " + allImporters.length + ", proof neighbors " + proofRelated.length
-    });
-
-    var defs = createSvgNode("defs", {});
-    var marker = createSvgNode("marker", {
-      id: "flow-arrow",
-      viewBox: "0 0 10 10",
-      refX: "9",
-      refY: "5",
-      markerWidth: "6",
-      markerHeight: "6",
-      orient: "auto-start-reverse"
-    });
-    marker.appendChild(createSvgNode("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "currentColor" }));
-    defs.appendChild(marker);
-    svg.appendChild(defs);
-
-    var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer" });
-    var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
-    var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });
-    svg.appendChild(edgeLayer);
-    svg.appendChild(nodeLayer);
-    svg.appendChild(labelLayer);
+    var flowSvg = createFlowSvg(flowWidth, flowHeight, "Flow chart for selected module interactions and proof links: " + selected + ", imports " + allImports.length + ", impacted modules " + allImporters.length + ", proof neighbors " + proofRelated.length);
+    var svg = flowSvg.svg;
+    var edgeLayer = flowSvg.edgeLayer;
+    var nodeLayer = flowSvg.nodeLayer;
+    var labelLayer = flowSvg.labelLayer;
 
     function laneLabel(text, x, y, color) {
-      var label = createSvgNode("text", { x: x, y: y, fill: color, "font-size": "12", "class": "flow-lane-label" });
-      label.textContent = text;
-      labelLayer.appendChild(label);
+      flowLaneLabel(labelLayer, text, x, y, color);
     }
 
     function createNode(name, x, y, w, h, color, subtitle, tooltip, active, isStatic, assuranceLevel, onActivate) {
@@ -1812,19 +1862,10 @@
 
     renderFlowNodeInteriorMenu(selected);
 
-    if (state.flowScrollTarget === selected) {
-      var targetScrollLeft = Math.max(0, center.x + center.w / 2 - wrap.clientWidth / 2);
-      var targetScrollTop = Math.max(0, center.y + center.h / 2 - wrap.clientHeight / 2);
-      var maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
-      var maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-      wrap.scrollLeft = Math.min(maxScrollLeft, targetScrollLeft);
-      wrap.scrollTop = Math.min(maxScrollTop, targetScrollTop);
-      state.flowScrollTarget = "";
-      return;
+    if (!applyFlowScrollTarget(wrap, selected, center.x, center.y, center.w, center.h)) {
+      wrap.scrollLeft = previousScrollLeft;
+      wrap.scrollTop = previousScrollTop;
     }
-
-    wrap.scrollLeft = previousScrollLeft;
-    wrap.scrollTop = previousScrollTop;
   }
 
   function renderDeclarationFlowchart() {
@@ -1861,20 +1902,16 @@
     breadcrumb.appendChild(declLabel);
     wrap.appendChild(breadcrumb);
 
-    var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
-    var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
-    var framePad = 34;
-    var laneGap = 24;
-
-    var centerWidth = Math.min(360, Math.max(300, Math.floor(flowWidth * 0.27)));
-    var sideWidth = Math.min(360, Math.max(240, Math.floor((flowWidth - framePad * 2 - centerWidth - laneGap * 2) / 2)));
-
-    var leftX = framePad;
-    var centerX = leftX + sideWidth + laneGap;
-    var rightX = centerX + centerWidth + laneGap;
-
-    var laneYStart = 62;
-    var laneGapY = 10;
+    var layout = computeFlowLayout();
+    var flowWidth = layout.flowWidth;
+    var framePad = layout.framePad;
+    var centerWidth = layout.centerWidth;
+    var sideWidth = layout.sideWidth;
+    var leftX = layout.leftX;
+    var centerX = layout.centerX;
+    var rightX = layout.rightX;
+    var laneYStart = layout.laneYStart;
+    var laneGapY = layout.laneGapY;
 
     function declSummary(name) {
       var kind = declarationKindOf(name);
@@ -1982,54 +2019,16 @@
     var centerY = Math.max(170, laneYStart + Math.floor((Math.max(callBottom, callerBottom) - laneYStart - centerHeight) / 2));
     var flowHeight = Math.max(620, Math.max(callBottom, callerBottom, centerY + centerHeight) + 68);
 
-    var legend = document.createElement("div");
-    legend.className = "flowchart-legend flowchart-legend-corner";
-    legend.setAttribute("aria-label", "Declaration flow chart legend");
-    var legendItems = declarationFlowLegendItems();
-    for (var li = 0; li < legendItems.length; li++) {
-      var chip = document.createElement("span");
-      chip.className = "legend-item";
-      var swatch = document.createElement("span");
-      swatch.className = "legend-swatch";
-      swatch.style.backgroundColor = legendItems[li].color;
-      chip.appendChild(swatch);
-      chip.appendChild(document.createTextNode(legendItems[li].label));
-      legend.appendChild(chip);
-    }
-    wrap.appendChild(legend);
+    wrap.appendChild(createFlowLegend(declarationFlowLegendItems(), "Declaration flow chart legend"));
 
-    var svg = createSvgNode("svg", {
-      "class": "flowchart-svg",
-      "viewBox": "0 0 " + flowWidth + " " + flowHeight,
-      "role": "img",
-      "aria-label": "Declaration flow chart for " + declName + ", calls " + calls.length + " declarations, called by " + calledBy.length + " declarations"
-    });
-
-    var defs = createSvgNode("defs", {});
-    var marker = createSvgNode("marker", {
-      id: "flow-arrow",
-      viewBox: "0 0 10 10",
-      refX: "9",
-      refY: "5",
-      markerWidth: "6",
-      markerHeight: "6",
-      orient: "auto-start-reverse"
-    });
-    marker.appendChild(createSvgNode("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "currentColor" }));
-    defs.appendChild(marker);
-    svg.appendChild(defs);
-
-    var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer" });
-    var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
-    var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });
-    svg.appendChild(edgeLayer);
-    svg.appendChild(nodeLayer);
-    svg.appendChild(labelLayer);
+    var flowSvg = createFlowSvg(flowWidth, flowHeight, "Declaration flow chart for " + declName + ", calls " + calls.length + " declarations, called by " + calledBy.length + " declarations");
+    var svg = flowSvg.svg;
+    var edgeLayer = flowSvg.edgeLayer;
+    var nodeLayer = flowSvg.nodeLayer;
+    var labelLayer = flowSvg.labelLayer;
 
     function laneLabel(text, x, y, color) {
-      var label = createSvgNode("text", { x: x, y: y, fill: color, "font-size": "12", "class": "flow-lane-label" });
-      label.textContent = text;
-      labelLayer.appendChild(label);
+      flowLaneLabel(labelLayer, text, x, y, color);
     }
 
     function createDeclNode(name, x, y, w, h, color, subtitle, tooltip, active, onActivate) {
@@ -2160,15 +2159,7 @@
 
     renderFlowNodeInteriorMenu(moduleName);
 
-    if (state.flowScrollTarget === declName) {
-      var targetScrollLeft = Math.max(0, center.x + center.w / 2 - wrap.clientWidth / 2);
-      var targetScrollTop = Math.max(0, center.y + center.h / 2 - wrap.clientHeight / 2);
-      var maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
-      var maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-      wrap.scrollLeft = Math.min(maxScrollLeft, targetScrollLeft);
-      wrap.scrollTop = Math.min(maxScrollTop, targetScrollTop);
-      state.flowScrollTarget = "";
-    }
+    applyFlowScrollTarget(wrap, declName, center.x, center.y, center.w, center.h);
   }
 
   function isTypingTarget(target) {

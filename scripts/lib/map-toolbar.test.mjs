@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { strict as assert } from "node:assert";
 
 const html = readFileSync(new URL("../../map.html", import.meta.url), "utf8");
+const css = readFileSync(new URL("../../assets/css/map.css", import.meta.url), "utf8");
 
 const toolbarIndex = html.indexOf('id="map-toolbar"');
 const interiorMenuIndex = html.indexOf('id="flow-node-interior-menu"');
@@ -26,5 +27,16 @@ for (const controlId of removedControls) {
 }
 
 assert(/id="flow-node-interior-menu"[^>]*aria-live="polite"/.test(html), "interior menu should support live region for declaration context updates");
+
+// CSS: .sr-only class must be defined for interior menu filter label accessibility
+assert(/\.sr-only\b/.test(css), "map.css should define .sr-only class for screen-reader-only elements");
+assert(/\.sr-only[^{]*\{[^}]*position:\s*absolute/s.test(css), ".sr-only should use absolute positioning");
+
+// CSS: interior menu should hide when empty (no module selected yet)
+assert(/\.flow-node-interior-menu:empty\s*\{[^}]*display:\s*none/.test(css), "interior menu should be hidden when empty via :empty pseudo-class");
+
+// HTML: interior menu should start empty (no pre-rendered children)
+const interiorMenuMatch = html.match(/<div\s+id="flow-node-interior-menu"[^>]*><\/div>/);
+assert(interiorMenuMatch, "interior menu should be an empty container in initial HTML (no children)");
 
 console.log("map-toolbar.test: ok");

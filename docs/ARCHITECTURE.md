@@ -102,6 +102,19 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - CSS for the declaration context (breadcrumb, navigable items, source links, active declaration highlight) is contained in `assets/css/map.css`.
 - New test hooks (`declarationFlowLegendItems`, `declarationCalls`, `declarationCalledBy`, `declarationModuleOf`, `declarationKindOf`, `declarationLineOf`, `declarationLaneCollapseThreshold`, `declarationLaneVisibleLimit`, `applyTestState`) are exported for Node-based validation of declaration context logic.
 
+## Flowchart rendering optimization
+
+- Extracted five shared helpers (`createFlowSvg`, `createFlowLegend`, `flowLaneLabel`, `applyFlowScrollTarget`, `computeFlowLayout`) from the duplicated SVG setup, legend rendering, lane labeling, scroll-target, and layout computation code that was repeated across `renderFlowchart()` and `renderDeclarationFlowchart()`. This eliminates ~100 lines of duplication and centralizes marker/defs creation, layer ordering, and layout math into single-source functions.
+- Both flowchart renderers now delegate to the shared helpers while preserving their context-specific node creation and edge wiring logic unchanged.
+
+## Accessibility and UX refinements
+
+- Fixed `.sr-only` class mismatch: the interior menu filter label was created with `className = "sr-only"` but `map.css` only defined `.visually-hidden`. Added `.sr-only` as a selector alias alongside `.visually-hidden` so the filter label is correctly hidden visually while remaining accessible to screen readers.
+- Added `.flow-node-interior-menu:empty { display: none }` so the interior menu panel hides completely before any module is selected, preventing a visible empty bordered box in the initial page state.
+- Consolidated duplicate `.map-status` margin rules in the 640px media query (removed dead `margin-top: 0.55rem` immediately overridden by `margin-top: 0`).
+- Cleaned up stray whitespace in `map.html` flowchart shell.
+- Added `map-toolbar.test.mjs` assertions for `.sr-only` CSS definition, `:empty` interior menu behavior, and empty initial container state.
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:

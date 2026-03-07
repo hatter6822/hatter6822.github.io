@@ -121,6 +121,7 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - computes filtered graph neighborhood based on selected module and detail mode.
 - renders module-context node/edge flowchart and legend semantics.
 - renders declaration-context call-graph flowchart with breadcrumb navigation for bidirectional module/declaration context switching, including informative empty-state hints for declarations with zero relationships.
+- both flowchart renderers share five extracted helpers (`createFlowSvg`, `createFlowLegend`, `flowLaneLabel`, `applyFlowScrollTarget`, `computeFlowLayout`) to eliminate SVG setup, legend, layout, and scroll-target duplication.
 - sorts large declaration lanes by module relevance (same-module first) before collapsing to keep contextually relevant declarations visible; collapsed "+N more" nodes are interactive expand buttons that fully reveal all declarations, with "Return to Compact" buttons to collapse back.
 - builds interior declaration panels (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration in declaration context with a visual accent indicator.
 - handles keyboard navigation, search, reset, and URL-state synchronization (including `decl` parameter for declaration context persistence).
@@ -143,6 +144,8 @@ Map-page-only styles:
 - flowchart workspace and toolbar layout.
 - graph node/edge visual semantics.
 - interior declaration panel styling.
+- `.sr-only` / `.visually-hidden` screen-reader utility class.
+- `:empty` state hiding for interior menu pre-selection.
 - map-specific responsive/mobile tuning.
 
 Rule of thumb: shared primitive in `style.css`; map-only styling in `map.css`.
@@ -218,7 +221,7 @@ Node tests for parser and validation correctness:
 - `lean-analysis.test.mjs`: parser behavior and edge cases.
 - `data-validation.test.mjs`: schema and invariant validation checks.
 - `map-runtime.test.mjs`: map runtime compatibility and behavior checks.
-- `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, and removed controls.
+- `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, and empty initial container state.
 
 ## 9) Documentation folder (`docs/`)
 
