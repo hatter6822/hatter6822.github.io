@@ -86,6 +86,12 @@ The map page provides a single operational and proof-aware architecture view of 
 
 ## Flowchart rendering architecture
 
+### Interior menu item layout
+
+Interior menu items use flex layout with the kind label (`::after` pseudo-element) right-aligned via `margin-left: auto`. Items have hover states with kind-color tinting, CSS transitions for smooth feedback, and `focus-visible` outlines on buttons and source links for keyboard accessibility. The grid column minimum uses `min(16rem, 100%)` to prevent overflow on narrow viewports. Mobile breakpoints increase touch target sizes (`min-height: 2.2rem`) and breadcrumb button targets. Landscape phone breakpoints compact item padding and reduce list max-height to maximize chart visibility. The `repaintList()` function uses stable DOM management via `showEmptyNote()`/`ensureListAttached()` helpers rather than `replaceWith()` to prevent orphaned DOM references. Source links are only rendered when `symbolSourceHref()` returns a valid href; items without a resolvable path render a plain `<span>` instead of an empty anchor.
+
+## Flowchart rendering architecture
+
 Both the module-context and declaration-context flowchart renderers share six extracted helpers to eliminate duplication:
 
 - `createFlowSvg()` — SVG element creation with marker defs and layer ordering.

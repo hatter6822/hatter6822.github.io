@@ -120,4 +120,40 @@ assert(/function declarationLineOf\(declName\)\s*\{/.test(mapJs), "declarationLi
 // JS: interior menu should use DocumentFragment for batch DOM insertion
 assert(/createDocumentFragment\(\)/.test(mapJs), "interior menu should use DocumentFragment for batch DOM insertion");
 
+// CSS: interior menu items should use flex layout for proper kind-label alignment
+assert(/\.interior-menu-item\s*\{[^}]*display:\s*flex/s.test(css), "interior menu items should use flex layout for content alignment");
+
+// CSS: interior menu items should have hover state for visual feedback
+assert(/\.interior-menu-item:hover\s*\{/.test(css), "interior menu items should have hover state for visual feedback");
+
+// CSS: interior menu items should have transition for smooth visual feedback
+assert(/\.interior-menu-item\s*\{[^}]*transition:/s.test(css), "interior menu items should have CSS transition for smooth hover effects");
+
+// CSS: interior menu item kind label should not wrap
+assert(/\.interior-menu-item::after\s*\{[^}]*white-space:\s*nowrap/s.test(css), "interior menu item kind label should not wrap to preserve layout");
+
+// CSS: interior menu item kind label should use margin-left auto for right-alignment
+assert(/\.interior-menu-item::after\s*\{[^}]*margin-left:\s*auto/s.test(css), "interior menu item kind label should right-align via margin-left auto");
+
+// CSS: interior menu button should have focus-visible outline for keyboard navigation
+assert(/\.interior-menu-item-btn:focus-visible\s*\{[^}]*outline:/s.test(css), "interior menu button should have focus-visible outline for keyboard accessibility");
+
+// CSS: interior menu src link should have focus-visible outline
+assert(/\.interior-menu-item-src:focus-visible\s*\{[^}]*outline:/s.test(css), "interior menu src link should have focus-visible outline for keyboard accessibility");
+
+// CSS: interior menu items list should use thin scrollbar for space efficiency
+assert(/\.interior-menu-items\s*\{[^}]*scrollbar-width:\s*thin/s.test(css), "interior menu items list should use thin scrollbar");
+
+// CSS: interior menu grid should use min() to prevent overflow on narrow screens
+assert(/\.interior-menu-grid\s*\{[^}]*minmax\(min\(16rem,\s*100%\)/s.test(css), "interior menu grid should use min() in minmax to prevent overflow on narrow viewports");
+
+// CSS: interior menu item navigable should prevent flex wrapping of button and src link
+assert(/\.interior-menu-item-navigable\s*\{[^}]*flex-wrap:\s*nowrap/s.test(css), "interior menu item navigable should prevent flex wrapping");
+
+// JS: repaintList should guard against empty href for non-navigable items
+assert(/nameSpan/.test(mapJs), "repaintList should use span fallback when symbolSourceHref returns empty");
+
+// JS: repaintList should guard against empty href for src links
+assert(/if\s*\(srcHref\)/.test(mapJs), "repaintList should guard against empty href before creating src link");
+
 console.log("map-toolbar.test: ok");
