@@ -93,4 +93,31 @@ assert(/scrollBehavior\s*=\s*"auto"/.test(mapJs), "applyFlowScrollTarget should 
 // JS: declarationIndex should be built during normalizeMapData for O(1) lookups
 assert(/declarationIndex/.test(mapJs), "normalizeMapData should build a declarationIndex for fast declaration metadata lookups");
 
+// CSS: .control-group should have position: relative for search options dropdown
+assert(/\.control-group\s*\{[^}]*position:\s*relative/s.test(css), ".control-group should include position: relative for dropdown positioning");
+
+// CSS: .flowchart-wrap should use contain for rendering performance
+assert(/\.flowchart-wrap\s*\{[^}]*contain:\s*layout\s+style/s.test(css), ".flowchart-wrap should use CSS containment for rendering performance");
+
+// CSS: .interior-menu-item-navigable should indicate interactivity
+assert(/\.interior-menu-item-navigable\s*\{[^}]*cursor:\s*pointer/s.test(css), ".interior-menu-item-navigable should use cursor pointer for interactive items");
+
+// JS: createFlowLegend should use role="list" for accessibility
+assert(/role.*list/.test(mapJs) && /role.*listitem/.test(mapJs), "createFlowLegend should use role=list and role=listitem for screen readers");
+
+// JS: legend swatches should be aria-hidden for screen readers
+assert(/aria-hidden.*true/.test(mapJs), "legend swatches should be aria-hidden");
+
+// JS: drawFlowEdge should guard against same-node edges
+assert(/from\.x === to\.x/.test(mapJs), "drawFlowEdge should guard against same-node self-edges");
+
+// JS: declarationKindOf should not accept unused moduleName parameter
+assert(/function declarationKindOf\(declName\)\s*\{/.test(mapJs), "declarationKindOf should have single parameter (no unused moduleName)");
+
+// JS: declarationLineOf should not accept unused moduleName parameter
+assert(/function declarationLineOf\(declName\)\s*\{/.test(mapJs), "declarationLineOf should have single parameter (no unused moduleName)");
+
+// JS: interior menu should use DocumentFragment for batch DOM insertion
+assert(/createDocumentFragment\(\)/.test(mapJs), "interior menu should use DocumentFragment for batch DOM insertion");
+
 console.log("map-toolbar.test: ok");

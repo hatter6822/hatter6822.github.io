@@ -127,6 +127,21 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - The declaration flowchart now preserves scroll position on re-renders (lane expand/compact) using the same scroll save/restore logic as the module flowchart.
 - The center (selected) declaration node is now keyboard-focusable (`tabindex="0"`) even though it is not interactive, allowing keyboard users to tab to the currently inspected declaration.
 
+## Flowchart audit and optimization pass
+
+- Merged duplicate `.control-group` CSS rules (`display: grid` at line 68 and `position: relative` at line 89) into a single declaration block.
+- Removed redundant `.flowchart-svg { min-width: 0 }` rule in the 900px media query that was already set globally.
+- Cleaned up stray double blank lines in `map.css`.
+- Removed unused `moduleName` parameter from `declarationKindOf()` and `declarationLineOf()` — these functions only use `declarationIndex` for lookups and never referenced the parameter.
+- Added self-edge guard in `drawFlowEdge()` — if source and target nodes have identical geometry, the edge is skipped to prevent degenerate bezier curves.
+- Reordered `drawFlowEdge()` to parse variant options before creating the SVG path element, preventing leaked DOM nodes if option parsing fails.
+- Added 200ms cache for `minimumFlowWidth()` to avoid repeated `window.innerWidth` reads during the same render cycle.
+- Added CSS `contain: layout style` on `.flowchart-wrap` for browser rendering performance optimization.
+- Added `cursor: pointer` on `.interior-menu-item-navigable` to indicate interactive declaration items.
+- Added `role="list"` and `role="listitem"` on flow legend for screen reader accessibility, and `aria-hidden="true"` on legend color swatches.
+- Added `DocumentFragment` batch insertion for interior menu item lists to reduce DOM thrashing during panel renders.
+- Expanded `map-toolbar.test.mjs` with structural assertions for CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, cleaned function signatures, and DocumentFragment usage.
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:

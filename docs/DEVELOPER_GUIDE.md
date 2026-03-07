@@ -146,6 +146,7 @@ Map-page-only styles:
 - interior declaration panel styling.
 - `.sr-only` / `.visually-hidden` screen-reader utility class.
 - `:empty` state hiding for interior menu pre-selection.
+- CSS `contain: layout style` on flowchart container for rendering performance.
 - map-specific responsive/mobile tuning.
 
 Rule of thumb: shared primitive in `style.css`; map-only styling in `map.css`.
@@ -221,7 +222,7 @@ Node tests for parser and validation correctness:
 - `lean-analysis.test.mjs`: parser behavior and edge cases.
 - `data-validation.test.mjs`: schema and invariant validation checks.
 - `map-runtime.test.mjs`: map runtime compatibility and behavior checks.
-- `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, and empty initial container state.
+- `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, and DocumentFragment usage.
 
 ## 9) Documentation folder (`docs/`)
 

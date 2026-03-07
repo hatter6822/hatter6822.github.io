@@ -65,7 +65,7 @@
   background: color-mix(in oklab, var(--surface) 76%, transparent);
   margin-bottom: 0.35rem;
 }
-.control-group { display: grid; gap: 0.24rem; }
+.control-group { display: grid; gap: 0.24rem; position: relative; }
 .control-group label { color: var(--text-muted); font-size: 0.78rem; line-height: 1.2; letter-spacing: 0.01em; }
 .search-feedback {
   margin: 0;
@@ -86,7 +86,6 @@
   padding: 0.38rem 0.56rem;
 }
 
-.control-group { position: relative; }
 .module-search-options {
   position: absolute;
   z-index: 25;
@@ -202,8 +201,6 @@
 }
 .panel-header { margin-bottom: 0.65rem; }
 .flowchart-shell { display: grid; gap: 0.35rem; min-width: 0; }
-
-
 
 .flowchart-legend {
   display: flex;
@@ -356,6 +353,7 @@
   touch-action: pan-x pan-y pinch-zoom;
   scrollbar-gutter: stable both-edges;
   scroll-behavior: smooth;
+  contain: layout style;
 }
 
 @supports not (scrollbar-gutter: stable) {
@@ -448,7 +446,6 @@
   .map-workspace-header { flex-direction: column; align-items: flex-start; }
   .detail-preset-options { width: 100%; }
   .detail-pill { flex: 1 1 0; text-align: center; }
-  .flowchart-svg { min-width: 0; }
 }
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
@@ -607,6 +604,7 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  cursor: pointer;
 }
 .interior-menu-item-btn {
   all: unset;

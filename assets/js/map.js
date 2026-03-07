@@ -816,13 +816,13 @@
     return "";
   }
 
-  function declarationKindOf(declName, moduleName) {
+  function declarationKindOf(declName) {
     var indexed = state.declarationIndex[declName];
     if (indexed) return indexed.kind;
     return "";
   }
 
-  function declarationLineOf(declName, moduleName) {
+  function declarationLineOf(declName) {
     var indexed = state.declarationIndex[declName];
     if (indexed) return indexed.line || 0;
     return 0;
@@ -983,11 +983,19 @@
     return window.matchMedia && window.matchMedia("(max-width: 900px)").matches;
   }
 
+  var cachedMinFlowWidth = 0;
+  var cachedMinFlowWidthTs = 0;
   function minimumFlowWidth() {
+    var now = Date.now();
+    if (cachedMinFlowWidth > 0 && now - cachedMinFlowWidthTs < 200) return cachedMinFlowWidth;
     var width = window.innerWidth || 1200;
-    if (width <= 640) return 900;
-    if (width <= 900) return 980;
-    return 1180;
+    var result;
+    if (width <= 640) result = 900;
+    else if (width <= 900) result = 980;
+    else result = 1180;
+    cachedMinFlowWidth = result;
+    cachedMinFlowWidthTs = now;
+    return result;
   }
 
   function selectModule(name, preserveScroll) {
@@ -1216,6 +1224,7 @@
             column.appendChild(list);
           }
 
+          var listFragment = document.createDocumentFragment();
           for (var j = 0; j < items.length; j++) {
             var li = document.createElement("li");
             li.className = "interior-menu-item";
@@ -1254,8 +1263,9 @@
               link.title = items[j].line > 0 ? "Open declaration at line " + items[j].line : "Open declaration source";
               li.appendChild(link);
             }
-            list.appendChild(li);
+            listFragment.appendChild(li);
           }
+          list.appendChild(listFragment);
         }
 
         select.addEventListener("change", function () {
@@ -1353,8 +1363,9 @@
   }
 
   function drawFlowEdge(layer, from, to, color, dashed, variant) {
-    var path = createSvgNode("path", {});
     var opts = variant || {};
+    if (from.x === to.x && from.y === to.y && from.w === to.w && from.h === to.h) return;
+    var path = createSvgNode("path", {});
     var fromCenterX = from.x + from.w / 2;
     var fromCenterY = from.y + from.h / 2;
     var toCenterX = to.x + to.w / 2;
@@ -1441,12 +1452,15 @@
   function createFlowLegend(items, ariaLabel) {
     var legend = document.createElement("div");
     legend.className = "flowchart-legend flowchart-legend-corner";
+    legend.setAttribute("role", "list");
     legend.setAttribute("aria-label", ariaLabel);
     for (var i = 0; i < items.length; i++) {
       var chip = document.createElement("span");
       chip.className = "legend-item";
+      chip.setAttribute("role", "listitem");
       var swatch = document.createElement("span");
       swatch.className = "legend-swatch";
+      swatch.setAttribute("aria-hidden", "true");
       swatch.style.backgroundColor = items[i].color;
       chip.appendChild(swatch);
       chip.appendChild(document.createTextNode(items[i].label));
