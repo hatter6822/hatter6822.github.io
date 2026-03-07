@@ -167,7 +167,8 @@
   margin-top: var(--toolbar-label-offset);
 }
 .toolbar-actions .btn { min-height: 2rem; padding: 0.24rem 0.7rem; font-size: 0.74rem; white-space: nowrap; }
-.visually-hidden {
+.visually-hidden,
+.sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -244,6 +245,9 @@
   background: color-mix(in oklab, var(--surface-2) 82%, transparent);
   padding: 0.55rem;
   margin-bottom: 0.5rem;
+}
+.flow-node-interior-menu:empty {
+  display: none;
 }
 .interior-menu-controls { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
 .interior-menu-search {
@@ -480,11 +484,8 @@
     line-height: 1.55;
     max-width: 62ch;
   }
-  .map-status { font-size: 0.85rem; margin-top: 0.55rem; }
+  .map-status { font-size: 0.85rem; margin-top: 0; }
   .code-map-header-meta {
-    margin-top: 0;
-  }
-  .map-status {
     margin-top: 0;
   }
   .results-note {

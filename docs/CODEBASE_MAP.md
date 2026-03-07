@@ -76,8 +76,22 @@ The map page provides a single operational and proof-aware architecture view of 
 
 - Skip link and landmark regions are present.
 - Flow chart container is keyboard focusable and labeled.
+- Interior menu filter label uses `.sr-only` (aliased with `.visually-hidden`) for screen-reader accessibility.
+- Interior menu panel hides via `:empty` pseudo-class before a module is selected, preventing a visible empty box.
 - On small screens, touch targets are enlarged and a usage hint is shown.
 - Chart scrolling uses touch-optimized overflow behavior.
+
+## Flowchart rendering architecture
+
+Both the module-context and declaration-context flowchart renderers share five extracted helpers to eliminate duplication:
+
+- `createFlowSvg()` — SVG element creation with marker defs and layer ordering.
+- `createFlowLegend()` — Legend chip rendering with swatch colors.
+- `flowLaneLabel()` — SVG lane label placement.
+- `applyFlowScrollTarget()` — Scroll-to-target centering after navigation.
+- `computeFlowLayout()` — Three-lane layout geometry computation.
+
+Each renderer delegates to the shared helpers for setup, then applies its own context-specific node creation and edge wiring logic.
 
 ## Troubleshooting checklist
 
