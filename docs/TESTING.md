@@ -85,6 +85,7 @@ node --check assets/js/theme-init.js
 - Confirm the "Selected declaration" lane label is always visible in declaration context (even when no calls/callers exist).
 - Confirm interior menu items show a visible hover state (kind-color-tinted border and background) on mouse hover.
 - Confirm interior menu item kind labels (e.g., "theorem", "def") are right-aligned and do not wrap to the next line.
+- Confirm interior menu declaration chips have symmetric left/right padding so kind labels remain visually aligned to the right edge.
 - Confirm interior menu buttons and src links show a visible focus outline when navigated via keyboard (Tab key).
 - Confirm interior menu items have adequate touch target size on mobile (~390px width) — items should be at least 2.2rem tall.
 - Confirm the interior menu grid does not cause horizontal overflow on narrow viewports (< 420px).
