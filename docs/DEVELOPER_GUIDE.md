@@ -31,6 +31,9 @@ Project entrypoint and operational quickstart. Keep this concise and link deeper
 ### `CONTRIBUTING.md`
 Contributor policy and required validation commands before commit.
 
+### `CLAUDE.md`
+AI-assisted development guidance file. Contains project overview, build commands, validation tiers, large file handling rules, architectural conventions, file ownership reference, and documentation sync requirements.
+
 ### `LICENSE`, `THIRD_PARTY_NOTICES.md`, `LICENSE-AUDIT.md`
 Licensing and attribution compliance documents. Do not remove third-party notices when refactoring imported/vendor code.
 

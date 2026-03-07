@@ -76,6 +76,7 @@ The code map interior panel links declarations directly to source in `hatter6822
 - [Testing and validation matrix](docs/TESTING.md)
 - [Developer guide (file-by-file orientation)](docs/DEVELOPER_GUIDE.md)
 - [Contributing guide](CONTRIBUTING.md)
+- [AI development guidance](CLAUDE.md)
 
 ## Third-party notices
 

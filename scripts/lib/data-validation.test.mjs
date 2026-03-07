@@ -102,3 +102,40 @@ test('validateMapDataObject validates symbols.byKind entries when present', () =
 
   assert.ok(errors.some((msg) => msg.includes('symbols.byKind.macro')));
 });
+
+test('validateSiteDataObject accepts payload with undefined updatedAt', () => {
+  const errors = validateSiteDataObject({
+    version: '0.1.0',
+    leanVersion: '4.28.0',
+    modules: 23,
+    lines: '25,648',
+    theorems: 734,
+    scripts: 17,
+    docs: 97,
+    buildJobs: 84,
+    admitted: 0,
+    commitSha: 'abc1234',
+    generatedAt: '2026-03-03T00:00:00Z'
+  });
+
+  assert.ok(!errors.some((msg) => msg.includes('updatedAt')));
+});
+
+test('validateSiteDataObject accepts payload with valid ISO updatedAt', () => {
+  const errors = validateSiteDataObject({
+    version: '0.1.0',
+    leanVersion: '4.28.0',
+    modules: 23,
+    lines: '25,648',
+    theorems: 734,
+    scripts: 17,
+    docs: 97,
+    buildJobs: 84,
+    admitted: 0,
+    commitSha: 'abc1234',
+    updatedAt: '2026-03-05T12:00:00Z',
+    generatedAt: '2026-03-03T00:00:00Z'
+  });
+
+  assert.deepEqual(errors, []);
+});

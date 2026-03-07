@@ -27,8 +27,11 @@ Run all checks below from repository root:
 ```bash
 node scripts/lib/lean-analysis.test.mjs
 node scripts/lib/data-validation.test.mjs
+node scripts/lib/map-runtime.test.mjs
+node scripts/lib/map-toolbar.test.mjs
 node scripts/validate-data.mjs
 node --check assets/js/map.js
+node --check assets/js/header-nav.js
 node --check assets/js/site.js
 node --check assets/js/background-pattern.js
 node --check assets/js/theme-init.js
