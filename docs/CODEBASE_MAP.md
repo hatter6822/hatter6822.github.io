@@ -45,7 +45,7 @@ The map page provides a single operational and proof-aware architecture view of 
 5. **Rendering lifecycle**
    - Updates stat cards and status text.
    - Renders a compact in-panel control toolbar (context search with search-key hint and reset in a density-compact form).
-   - Builds flow chart with an integrated upper-right legend, three-kind dropdown interior menu (Object, Extension, Context/Init), compact filter controls, and traversal trail.
+   - Builds flow chart with an integrated upper-right legend, three-kind dropdown interior menu (Object, Context/Init, Extension), compact filter controls, and traversal trail.
    - Interior declaration normalization now reuses a per-module cache keyed by symbol payload identity, avoiding repeated symbol-list normalization during dense flowchart rerenders while preserving deterministic output.
 
 ## Interaction model
@@ -59,9 +59,9 @@ The map page provides a single operational and proof-aware architecture view of 
 
 - **Interior declaration explorer:** the flow chart context now exposes all interior Lean declaration kinds via three dropdowns:
   - Objects (`inductive`, `structure`, `class`, `def`, `theorem`, `lemma`, `example`, `instance`, `opaque`, `abbrev`, `axiom`, `constant`, `constants`)
-  - Extensions (`declare_syntax_cat`, `syntax_cat`, `syntax`, `macro`, `macro_rules`, `notation`, `infix`, `infixl`, `infixr`, `prefix`, `postfix`, `elab`, `elab_rules`, `term_elab`, `command_elab`, `tactic`)
   - Contexts/Inits (`universe`, `universes`, `variable`, `variables`, `parameter`, `parameters`, `section`, `namespace`, `end`, `initialize`)
-  - Each dropdown now defaults to `All (N)` so Object, Extension, and Context/Init scrollboxes are populated with the full declaration inventory on first render.
+  - Extensions (`declare_syntax_cat`, `syntax_cat`, `syntax`, `macro`, `macro_rules`, `notation`, `infix`, `infixl`, `infixr`, `prefix`, `postfix`, `elab`, `elab_rules`, `term_elab`, `command_elab`, `tactic`)
+  - Each dropdown now defaults to `All (N)` so Object, Context/Init, and Extension scrollboxes are populated with the full declaration inventory on first render.
   - Interior selector options and declaration list chips are color-coded by declaration kind so the selector acts as a visual key for the panel.
   - Declaration lists are sorted case-insensitively by name (with line-number tiebreakers), including aggregated `All` views.
   - Users can still switch to individual kinds, and each dropdown remembers that selected kind while filtering so analysts can refine queries without losing active context.

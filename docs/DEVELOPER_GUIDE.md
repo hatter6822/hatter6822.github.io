@@ -115,7 +115,7 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - normalizes legacy/new payload shapes for compatibility.
 - computes filtered graph neighborhood based on selected module and detail mode.
 - renders node/edge flowchart and legend semantics.
-- builds interior declaration panels (Objects, Extensions, Context/Init).
+- builds interior declaration panels (Objects, Contexts/Inits, Extensions).
 - handles keyboard navigation, search, reset, and URL-state synchronization.
 - manages map status messaging and sync lifecycle feedback.
 
