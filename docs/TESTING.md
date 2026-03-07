@@ -22,7 +22,8 @@ Validates:
 - README metric table parsing
 - data schema and graph consistency validation behavior, including `updatedAt` undefined/empty/valid ISO handling
 - map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, declaration-centric canonical payload support, declaration projection into symbol buckets, theorem/function fallback derivation from `byKind` when explicit arrays are empty, path-based dependency normalization, deterministic module/file ordering, stable per-module defaults, `symbolsLoaded` correctness, interior-kind group aggregation/default-selection behavior, interior search caret-range normalization used by live filter rerenders, declaration call-graph preservation and cross-module merging from `modules[].declarations[].called`, precomputed reverse graph index for O(1) caller lookups, declaration-context legend entries, reverse call-graph resolution for caller lookup, `declarationModuleOf` fallback resolution via `moduleMeta` for declarations not in `declarationGraph`, zero-relationship declaration context validation with kind/line resolution, reverse-graph-only declaration module resolution and metadata access, large declaration lane sorting verification for module-relevance prioritization, declaration lane collapse threshold/visible limit exposure via test hooks, `applyTestState` acceptance of `declarationLanesExpanded`/`flowContext`/`selectedDeclaration`, interior menu active-declaration tracking in declaration context, and declaration lane expansion logic for fully expanding collapsed lanes)
-- map toolbar structural integrity (toolbar placement before interior menu, compact-density semantics, flowchart aria-controls ownership, removed legacy controls, `.sr-only` CSS definition for screen-reader elements, `:empty` interior menu hiding, and empty initial container state)
+- map toolbar structural integrity (toolbar placement before interior menu, compact-density semantics, flowchart aria-controls ownership, removed legacy controls, `.sr-only` CSS definition for screen-reader elements, `:empty` interior menu hiding, empty initial container state, declaration breadcrumb `<nav>` element and `aria-label`, context-aware search label updates, and dynamic `flowchart-wrap` `aria-label` switching)
+- search bar context correctness (declaration name appended with › separator in declaration context, scroll preservation in declaration flowchart re-renders)
 
 ### Bundled data integrity
 
@@ -69,7 +70,11 @@ node --check assets/js/theme-init.js
 - Confirm map live status messaging remains coherent during load/refresh.
 - Confirm that clicking any declaration in the interior panel switches the flowchart to declaration context, showing the declaration as a center node with calls (left) and callers (right).
 - Confirm that declarations with zero relationships display a centered node with an informative "No internal call relationships detected" hint text below the node.
-- Confirm the declaration context breadcrumb displays "ModuleName > DeclarationName" and clicking the module name returns to module context.
+- Confirm the declaration context breadcrumb displays "ModuleName › DeclarationName" using a semantic `<nav>` element with `aria-label="Declaration breadcrumb"`, and clicking the module name returns to module context.
+- Confirm the module-search bar shows `ModuleName › DeclarationName` in declaration context and the label reads "Current declaration context"; in module context, it shows only the module name with label "Current module context".
+- Confirm the `flowchart-wrap` container `aria-label` updates to "Declaration call graph for [name]" in declaration context and "Dependency and proof flow chart" in module context.
+- Confirm the center (selected) declaration node is keyboard-focusable (tabindex="0") so keyboard users can navigate to it.
+- Confirm declaration flowchart scroll position is preserved when expanding/compacting lanes.
 - Confirm that navigable declaration nodes in the declaration flowchart (those with forward or reverse call-graph entries) can be clicked to chain into further declaration contexts.
 - Confirm the `decl` URL parameter is set when entering declaration context and cleared when returning to module context.
 - Confirm that all declarations in the interior panel display both a clickable name button and a "src" link for uniform navigation.
