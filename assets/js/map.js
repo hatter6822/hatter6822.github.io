@@ -44,7 +44,7 @@
     extension: ["declare_syntax_cat", "syntax_cat", "syntax", "macro", "macro_rules", "notation", "infix", "infixl", "infixr", "prefix", "postfix", "elab", "elab_rules", "term_elab", "command_elab", "tactic"],
     contextInit: ["universe", "universes", "variable", "variables", "parameter", "parameters", "section", "namespace", "end", "initialize"]
   };
-  var INTERIOR_KIND_GROUP_ORDER = ["object", "extension", "contextInit"];
+  var INTERIOR_KIND_GROUP_ORDER = ["object", "contextInit", "extension"];
   var INTERIOR_KIND_GROUP_LABELS = {
     object: "Objects",
     extension: "Extensions",
@@ -3279,6 +3279,7 @@
       hasCompleteSymbolLines: hasCompleteSymbolLines,
       symbolListsFromRaw: symbolListsFromRaw,
       makeEmptyInteriorSymbols: makeEmptyInteriorSymbols,
+      interiorKindGroupOrder: function () { return INTERIOR_KIND_GROUP_ORDER.slice(); },
       interiorGroupItemCount: interiorGroupItemCount,
       pickInteriorDefaultKind: pickInteriorDefaultKind,
       interiorItemsForSelection: interiorItemsForSelection,

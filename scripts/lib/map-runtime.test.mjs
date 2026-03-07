@@ -354,6 +354,12 @@ test('normalizeMapData projects modules[].declarations into symbol buckets', asy
   assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].symbolsLoaded, true);
 });
 
+
+test('interior kind group order renders Objects, Contexts/Inits, Extensions', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.deepEqual(Array.from(hooks.interiorKindGroupOrder()), ['object', 'contextInit', 'extension']);
+});
+
 test('interior kind group helpers default to all kinds and aggregate extension/context items', async () => {
   const hooks = await loadMapTestHooks();
   const interior = hooks.makeEmptyInteriorSymbols();

@@ -58,11 +58,11 @@ node --check assets/js/theme-init.js
 - Confirm map context-search keyboard navigation (Arrow/Home/End) and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
 - Confirm reset clears any search validity errors and preserves a minimal toolbar footprint across desktop/mobile breakpoints.
-- Confirm each interior dropdown (Object, Extension, Context/Init) defaults to `All (N)`, can switch kinds, and deep-link declarations to source lines.
+- Confirm each interior dropdown (Object, Context/Init, Extension) defaults to `All (N)`, can switch kinds, and deep-link declarations to source lines.
 - Confirm interior declaration chips and kind-select options are color-coded consistently by declaration kind (selector serves as key for chip colors).
 - Confirm interior declaration ordering is case-insensitive alphabetical within each dropdown selection, including `All` aggregation.
 - Confirm the `Filter declarations across all kinds…` search box accepts multi-character typing without dropping focus/caret after each keystroke.
-- Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Extension/Context-Init) to the newly selected module.
+- Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Context-Init/Extension) to the newly selected module.
 - Confirm modules-array payload compatibility by testing both string and object module entries, including branch-wrapper payloads where top-level `main` metadata must not become a module node.
 - Confirm legacy symbol compatibility with snapshots that use `symbols.by_kind` and/or `constant` declaration keys.
 - Confirm map live status messaging remains coherent during load/refresh.
