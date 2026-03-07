@@ -1201,28 +1201,36 @@
         var list = document.createElement("ul");
         list.className = "interior-menu-items";
 
+        var emptyNote = null;
+
+        function showEmptyNote(message) {
+          list.innerHTML = "";
+          if (list.parentNode) list.parentNode.removeChild(list);
+          if (!emptyNote) {
+            emptyNote = document.createElement("p");
+            emptyNote.className = "panel-note";
+            emptyNote.style.margin = "0";
+          }
+          emptyNote.textContent = message;
+          if (emptyNote.parentNode !== column) column.appendChild(emptyNote);
+        }
+
+        function ensureListAttached() {
+          if (emptyNote && emptyNote.parentNode) emptyNote.parentNode.removeChild(emptyNote);
+          if (list.parentNode !== column) column.appendChild(list);
+        }
+
         function repaintList() {
           list.innerHTML = "";
           var activeKind = select.value;
           var items = interiorItemsForSelection(interior, group.kinds, activeKind, query);
           if (!items.length) {
-            var empty = document.createElement("p");
-            empty.className = "panel-note";
-            empty.style.margin = "0";
-            empty.textContent = query ? "No declarations match this filter." : (activeKind === INTERIOR_KIND_ALL_VALUE ? "No declarations detected for this kind group." : "No declarations detected for this kind.");
-            list.replaceWith(empty);
+            var msg = query ? "No declarations match this filter." : (activeKind === INTERIOR_KIND_ALL_VALUE ? "No declarations detected for this kind group." : "No declarations detected for this kind.");
+            showEmptyNote(msg);
             return;
           }
 
-          if (list.parentNode !== column) {
-            for (var c = 0; c < column.children.length; c++) {
-              if (column.children[c].className === "panel-note") {
-                column.removeChild(column.children[c]);
-                break;
-              }
-            }
-            column.appendChild(list);
-          }
+          ensureListAttached();
 
           var listFragment = document.createDocumentFragment();
           for (var j = 0; j < items.length; j++) {
@@ -1246,22 +1254,32 @@
                 return function () { selectDeclaration(itemName, selected); };
               })(items[j].name));
               li.appendChild(btn);
-              var srcLink = document.createElement("a");
-              srcLink.href = symbolSourceHref(selected, items[j]);
-              srcLink.target = "_blank";
-              srcLink.rel = "noopener noreferrer";
-              srcLink.className = "interior-menu-item-src";
-              srcLink.textContent = "src";
-              srcLink.title = items[j].line > 0 ? "Open source at line " + items[j].line : "Open source";
-              li.appendChild(srcLink);
+              var srcHref = symbolSourceHref(selected, items[j]);
+              if (srcHref) {
+                var srcLink = document.createElement("a");
+                srcLink.href = srcHref;
+                srcLink.target = "_blank";
+                srcLink.rel = "noopener noreferrer";
+                srcLink.className = "interior-menu-item-src";
+                srcLink.textContent = "src";
+                srcLink.title = items[j].line > 0 ? "Open source at line " + items[j].line : "Open source";
+                li.appendChild(srcLink);
+              }
             } else {
-              var link = document.createElement("a");
-              link.href = symbolSourceHref(selected, items[j]);
-              link.target = "_blank";
-              link.rel = "noopener noreferrer";
-              link.textContent = items[j].name;
-              link.title = items[j].line > 0 ? "Open declaration at line " + items[j].line : "Open declaration source";
-              li.appendChild(link);
+              var linkHref = symbolSourceHref(selected, items[j]);
+              if (linkHref) {
+                var link = document.createElement("a");
+                link.href = linkHref;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.textContent = items[j].name;
+                link.title = items[j].line > 0 ? "Open declaration at line " + items[j].line : "Open declaration source";
+                li.appendChild(link);
+              } else {
+                var nameSpan = document.createElement("span");
+                nameSpan.textContent = items[j].name;
+                li.appendChild(nameSpan);
+              }
             }
             listFragment.appendChild(li);
           }

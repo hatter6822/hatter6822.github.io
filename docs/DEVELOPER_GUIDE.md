@@ -143,10 +143,12 @@ Map-page-only styles:
 
 - flowchart workspace and toolbar layout.
 - graph node/edge visual semantics.
-- interior declaration panel styling.
+- interior declaration panel styling with flex layout, hover states, CSS transitions, and kind label right-alignment.
 - `.sr-only` / `.visually-hidden` screen-reader utility class.
 - `:empty` state hiding for interior menu pre-selection.
 - CSS `contain: layout style` on flowchart container for rendering performance.
+- `focus-visible` outlines on interior menu buttons and source links for keyboard accessibility.
+- responsive breakpoints for interior menu items (mobile touch targets, landscape compaction, narrow viewport overflow prevention).
 - map-specific responsive/mobile tuning.
 
 Rule of thumb: shared primitive in `style.css`; map-only styling in `map.css`.
@@ -222,7 +224,7 @@ Node tests for parser and validation correctness:
 - `lean-analysis.test.mjs`: parser behavior and edge cases.
 - `data-validation.test.mjs`: schema and invariant validation checks.
 - `map-runtime.test.mjs`: map runtime compatibility and behavior checks.
-- `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, and DocumentFragment usage.
+- `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, and href guards.
 
 ## 9) Documentation folder (`docs/`)
 

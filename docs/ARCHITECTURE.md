@@ -142,6 +142,32 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Added `DocumentFragment` batch insertion for interior menu item lists to reduce DOM thrashing during panel renders.
 - Expanded `map-toolbar.test.mjs` with structural assertions for CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, cleaned function signatures, and DocumentFragment usage.
 
+## Interior menu item layout and responsiveness refinements
+
+- Changed `.interior-menu-item` from pill-shaped (`border-radius: 999px`) to a practical rounded rectangle (`border-radius: 0.5rem`) to prevent text wrapping issues with long declaration names on narrow viewports.
+- Added `display: flex` and `align-items: center` to `.interior-menu-item` base rule so the `::after` kind label consistently right-aligns via `margin-left: auto` across all viewport sizes.
+- Added hover state (`.interior-menu-item:hover`) with kind-color-tinted border and background for visual feedback.
+- Added CSS transition (`border-color`, `background`) on `.interior-menu-item` for smooth hover/focus effects.
+- Added `min-height: 1.6rem` on desktop items and `min-height: 2.2rem` at the 640px mobile breakpoint for accessible touch targets.
+- Added `focus-visible` outlines on `.interior-menu-item-btn` and `.interior-menu-item-src` for keyboard navigation accessibility.
+- Added `min-width: 0` and `overflow-wrap: anywhere` on `.interior-menu-item-btn` to prevent flex child overflow with long declaration names.
+- Added `flex-wrap: nowrap` on `.interior-menu-item-navigable` to keep the button and src link on the same line.
+- Changed `.interior-menu-item::after` kind label to use `margin-left: auto` with `flex-shrink: 0` and `white-space: nowrap` for right-alignment within the flex container.
+- Increased `.interior-menu-items` max-height from 12rem to 14rem on desktop for larger declaration lists, and added `scrollbar-width: thin` and `overscroll-behavior: contain` for scroll behavior improvement.
+- Made `.interior-menu-item-src` an inline-flex element with `min-height: 1.2rem` (desktop) / `min-height: 1.6rem` (mobile) for consistent touch target sizing.
+- Fixed `.interior-menu-grid` column minimum from `minmax(16rem, 1fr)` to `minmax(min(16rem, 100%), 1fr)` to prevent horizontal overflow on viewports narrower than 16rem.
+- Added mobile breakpoint (640px) styles for breadcrumb navigation: larger font, increased min-height touch target on the module return button.
+- Added landscape phone breakpoint (900px × 560px) styles for interior menu items with reduced padding and lower max-height to maximize chart visibility in constrained viewports.
+
+## Interior menu DOM management refactoring
+
+- Refactored `repaintList()` in `renderFlowNodeInteriorMenu()` to eliminate the fragile `list.replaceWith(empty)` pattern that could leave the `<ul>` reference orphaned. The empty note and list attachment are now managed by dedicated `showEmptyNote()` and `ensureListAttached()` helpers that cleanly swap between the empty placeholder `<p>` and the declaration list `<ul>` within the column.
+- Added href guard for `symbolSourceHref()` return values: navigable items only render the "src" link when a valid href is available, and non-navigable items render a plain `<span>` instead of an anchor with an empty `href`, preventing broken link clicks.
+
+## Test coverage expansion
+
+- Added structural assertions in `map-toolbar.test.mjs` for: interior menu item flex layout, hover state, CSS transition, kind label `white-space: nowrap` and `margin-left: auto`, button/src focus-visible outlines, items list `scrollbar-width: thin`, grid `min()` overflow prevention, navigable item `flex-wrap: nowrap`, span fallback for empty hrefs, and href guard for src links.
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:
