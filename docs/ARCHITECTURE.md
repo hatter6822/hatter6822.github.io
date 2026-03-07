@@ -78,6 +78,15 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Kept debounced `MutationObserver` and per-section `ResizeObserver` geometry refresh to survive asynchronous layout shifts without stale section boundaries.
 - Result: active-link assignment converges deterministically through long jumps, rapid repeated selections, and async layout movement, while avoiding prolonged stale lock ownership when viewport focus clearly shifts.
 
+## Audit refinements (post-0.1.0)
+
+- Fixed `data-validation.mjs` `updatedAt` check from `typeof` comparison to direct value comparison for correct undefined handling.
+- Fixed `map.js` `enrichSparseMapData` calling undefined `emptySymbols()` instead of `makeEmptyInteriorSymbols()`, which would have caused a runtime error during sparse import reconstruction.
+- Removed deprecated `block-all-mixed-content` CSP directive from both HTML pages (redundant with `upgrade-insecure-requests`).
+- Added `CLAUDE.md` project guidance file for AI-assisted development.
+- Expanded test coverage with `updatedAt` undefined/valid ISO timestamp tests.
+- Updated `CONTRIBUTING.md` required checks to include all four test suites and `header-nav.js` syntax check.
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:

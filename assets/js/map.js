@@ -2422,7 +2422,7 @@
           kind: moduleKind(moduleName),
           base: moduleBase(moduleName),
           theorems: 0,
-          symbols: emptySymbols()
+          symbols: makeEmptyInteriorSymbols()
         });
         if (!(meta.theorems > 0)) meta.theorems = theoremCount(sourceText);
       }).catch(function () {});

@@ -35,7 +35,7 @@ export function validateSiteDataObject(data) {
     errors.push('site-data.json: generatedAt must be an ISO-8601 UTC timestamp');
   }
 
-  if (data.updatedAt !== '' && typeof data.updatedAt !== 'undefined' && !isIsoDateString(data.updatedAt)) {
+  if (data.updatedAt !== undefined && data.updatedAt !== '' && !isIsoDateString(data.updatedAt)) {
     errors.push('site-data.json: updatedAt must be empty or an ISO-8601 UTC timestamp');
   }
 
