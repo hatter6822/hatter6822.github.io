@@ -100,12 +100,16 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - The interior menu highlights the currently selected declaration in declaration context with an accent-colored border and background, providing clear visual feedback about which declaration is being inspected.
 - Interior menu items now all display a clickable name button (entering declaration context) alongside a compact "src" link (opening GitHub source), providing uniform navigation access for every declaration.
 - CSS for the declaration context (breadcrumb, navigable items, source links, active declaration highlight) is contained in `assets/css/map.css`.
-- New test hooks (`declarationFlowLegendItems`, `declarationCalls`, `declarationCalledBy`, `declarationModuleOf`, `declarationKindOf`, `declarationLineOf`, `declarationLaneCollapseThreshold`, `declarationLaneVisibleLimit`, `applyTestState`) are exported for Node-based validation of declaration context logic.
+- New test hooks (`declarationFlowLegendItems`, `declarationCalls`, `declarationCalledBy`, `declarationModuleOf`, `declarationKindOf`, `declarationLineOf`, `declarationLaneCollapseThreshold`, `declarationLaneVisibleLimit`, `assuranceForModule`, `relatedProofModules`, `findNearestLinkedPath`, `buildPairs`, `applyTestState`) are exported for Node-based validation of declaration context and proof-assurance logic.
 
 ## Flowchart rendering optimization
 
-- Extracted five shared helpers (`createFlowSvg`, `createFlowLegend`, `flowLaneLabel`, `applyFlowScrollTarget`, `computeFlowLayout`) from the duplicated SVG setup, legend rendering, lane labeling, scroll-target, and layout computation code that was repeated across `renderFlowchart()` and `renderDeclarationFlowchart()`. This eliminates ~100 lines of duplication and centralizes marker/defs creation, layer ordering, and layout math into single-source functions.
-- Both flowchart renderers now delegate to the shared helpers while preserving their context-specific node creation and edge wiring logic unchanged.
+- Extracted six shared helpers (`createFlowSvg`, `createFlowLegend`, `flowLaneLabel`, `applyFlowScrollTarget`, `computeFlowLayout`, `buildFlowNodeGroup`) from the duplicated SVG setup, legend rendering, lane labeling, scroll-target, layout computation, and node construction code that was repeated across `renderFlowchart()` and `renderDeclarationFlowchart()`. This eliminates significant duplication and centralizes marker/defs creation, layer ordering, layout math, and SVG node construction into single-source functions.
+- Both flowchart renderers now delegate to the shared helpers while preserving their context-specific class composition, aria-label construction, and event wiring logic.
+- Eliminated redundant `nodeContentHeight()` calls for proof-pair and external-dependency nodes by pre-computing heights during layout passes and reusing cached values during rendering, avoiding double computation for each node.
+- Removed dead ternary expressions `(compactNode ? 22 : 22)` in subtitle positioning where both branches produced identical values.
+- Added smooth CSS transitions (`stroke`, `stroke-width`, `filter`) on `.flow-node rect` for visual feedback on hover and focus states.
+- Added light-theme-aware assurance fallback colors inside the `@supports not (color-mix)` block to ensure accessible contrast on light backgrounds.
 
 ## Accessibility and UX refinements
 

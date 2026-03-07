@@ -378,6 +378,7 @@
   stroke-width: 1.2;
   rx: 10;
   ry: 10;
+  transition: stroke 0.15s ease-out, stroke-width 0.15s ease-out, filter 0.15s ease-out;
 }
 .flow-node text {
   font-family: var(--font-mono);
@@ -401,6 +402,10 @@
   .flow-node.assurance-partial rect { fill: #5a4769; }
   .flow-node.assurance-local rect { fill: #31566a; }
   .flow-node.assurance-none rect { fill: #68553c; }
+  [data-theme="light"] .flow-node.assurance-linked rect { fill: #d0ece5; }
+  [data-theme="light"] .flow-node.assurance-partial rect { fill: #e8d8f2; }
+  [data-theme="light"] .flow-node.assurance-local rect { fill: #d4eaf4; }
+  [data-theme="light"] .flow-node.assurance-none rect { fill: #f2e4d0; }
 }
 .pill-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 

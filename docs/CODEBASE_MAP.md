@@ -86,15 +86,16 @@ The map page provides a single operational and proof-aware architecture view of 
 
 ## Flowchart rendering architecture
 
-Both the module-context and declaration-context flowchart renderers share five extracted helpers to eliminate duplication:
+Both the module-context and declaration-context flowchart renderers share six extracted helpers to eliminate duplication:
 
 - `createFlowSvg()` — SVG element creation with marker defs and layer ordering.
 - `createFlowLegend()` — Legend chip rendering with swatch colors.
 - `flowLaneLabel()` — SVG lane label placement.
 - `applyFlowScrollTarget()` — Scroll-to-target centering after navigation.
 - `computeFlowLayout()` — Three-lane layout geometry computation.
+- `buildFlowNodeGroup()` — SVG node construction (rect, title wrapping, subtitle, keyboard/click handlers).
 
-Each renderer delegates to the shared helpers for setup, then applies its own context-specific node creation and edge wiring logic.
+Each renderer delegates to the shared helpers for setup, then applies its own context-specific class composition, aria-label construction, and event wiring via `buildFlowNodeGroup`. Node heights for proof-pair and external-dependency sections are pre-computed during layout passes to avoid redundant recalculation.
 
 ## Troubleshooting checklist
 

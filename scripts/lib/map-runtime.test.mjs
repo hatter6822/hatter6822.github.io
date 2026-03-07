@@ -856,3 +856,176 @@ test('declaration lane expansion shows all items when expanded state is set', as
   const expandedVisible = calls.slice();
   assert.equal(expandedVisible.length, 15, 'expanded view shows all 15 items');
 });
+
+test('assuranceForModule returns correct levels based on proof pair state', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.IPC.Operations', path: 'SeLe4n/IPC/Operations.lean' },
+      { name: 'SeLe4n.IPC.Invariant', path: 'SeLe4n/IPC/Invariant.lean' },
+      { name: 'SeLe4n.Sched.Worker', path: 'SeLe4n/Sched/Worker.lean' },
+      { name: 'SeLe4n.Sched.Bare', path: 'SeLe4n/Sched/Bare.lean' }
+    ],
+    moduleMeta: {
+      'SeLe4n.IPC.Operations': { kind: 'operations', base: 'SeLe4n.IPC', theorems: 3 },
+      'SeLe4n.IPC.Invariant': { kind: 'invariant', base: 'SeLe4n.IPC', theorems: 2 },
+      'SeLe4n.Sched.Worker': { theorems: 4 },
+      'SeLe4n.Sched.Bare': { theorems: 0 }
+    },
+    importsFrom: {
+      'SeLe4n.IPC.Invariant': ['SeLe4n.IPC.Operations'],
+      'SeLe4n.IPC.Operations': [],
+      'SeLe4n.Sched.Worker': [],
+      'SeLe4n.Sched.Bare': []
+    }
+  });
+
+  // Manually build proofPairMap as buildPairs would (buildPairs needs DOM)
+  const proofPairMap = {
+    'SeLe4n.IPC': {
+      base: 'SeLe4n.IPC',
+      operationsModule: 'SeLe4n.IPC.Operations',
+      invariantModule: 'SeLe4n.IPC.Invariant',
+      operationsTheorems: 3,
+      invariantTheorems: 2,
+      invariantImportsOperations: true
+    }
+  };
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    proofPairMap: proofPairMap,
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  // Linked: both Operations+Invariant exist and Invariant imports Operations
+  const linkedResult = hooks.assuranceForModule('SeLe4n.IPC.Operations');
+  assert.equal(linkedResult.level, 'linked', 'module with linked proof pair should have linked assurance');
+
+  // Local: module has theorems but no proof pair
+  const localResult = hooks.assuranceForModule('SeLe4n.Sched.Worker');
+  assert.equal(localResult.level, 'local', 'module with theorems but no pair should have local assurance');
+
+  // None: module has no theorems and no proof pair
+  const noneResult = hooks.assuranceForModule('SeLe4n.Sched.Bare');
+  assert.equal(noneResult.level, 'none', 'module with no theorems or pair should have none assurance');
+});
+
+test('relatedProofModules returns Operations/Invariant neighbors', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // moduleBase strips .Operations/.Invariant suffix, then relatedProofModules
+  // looks for base+".Operations" and base+".Invariant" in moduleMap
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.IPC.Operations', path: 'SeLe4n/IPC/Operations.lean' },
+      { name: 'SeLe4n.IPC.Invariant', path: 'SeLe4n/IPC/Invariant.lean' }
+    ]
+  });
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo
+  });
+
+  // From Operations, moduleBase strips ".Operations" → base "SeLe4n.IPC"
+  // Then looks for SeLe4n.IPC.Operations (self, excluded) and SeLe4n.IPC.Invariant (found)
+  const opsRelated = hooks.relatedProofModules('SeLe4n.IPC.Operations');
+  assert.ok(!opsRelated.includes('SeLe4n.IPC.Operations'), 'should not include self');
+  assert.ok(opsRelated.includes('SeLe4n.IPC.Invariant'), 'should include Invariant from Operations');
+
+  // From Invariant, moduleBase strips ".Invariant" → base "SeLe4n.IPC"
+  // Then looks for SeLe4n.IPC.Operations (found) and SeLe4n.IPC.Invariant (self, excluded)
+  const invRelated = hooks.relatedProofModules('SeLe4n.IPC.Invariant');
+  assert.ok(invRelated.includes('SeLe4n.IPC.Operations'), 'should include Operations from Invariant');
+  assert.ok(!invRelated.includes('SeLe4n.IPC.Invariant'), 'should not include self from Invariant');
+});
+
+test('normalizeMapData deduplicates external imports and excludes known internal modules', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Core.Main', path: 'SeLe4n/Core/Main.lean',
+        imports: ['SeLe4n.Core.Helper'],
+        externalImports: ['Std.Data.List', 'Std.Data.List', 'Init.Prelude', 'SeLe4n.Core.Helper'] },
+      { name: 'SeLe4n.Core.Helper', path: 'SeLe4n/Core/Helper.lean' }
+    ]
+  });
+
+  const externalImports = normalized.externalImportsFrom['SeLe4n.Core.Main'];
+  assert.ok(Array.isArray(externalImports), 'externalImportsFrom should be an array');
+  assert.ok(externalImports.includes('Std.Data.List'), 'should include Std.Data.List');
+  assert.ok(externalImports.includes('Init.Prelude'), 'should include Init.Prelude');
+  // SeLe4n.Core.Helper is a known internal module and should be excluded from external
+  assert.ok(!externalImports.includes('SeLe4n.Core.Helper'), 'should not include known internal module in external imports');
+  // Std.Data.List should appear only once (deduplicated)
+  assert.equal(externalImports.filter(e => e === 'Std.Data.List').length, 1, 'external imports should be deduplicated');
+});
+
+test('findNearestLinkedPath returns shortest path to linked proof module', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Core.Start', path: 'SeLe4n/Core/Start.lean' },
+      { name: 'SeLe4n.Core.Middle', path: 'SeLe4n/Core/Middle.lean' },
+      { name: 'SeLe4n.IPC.Operations', path: 'SeLe4n/IPC/Operations.lean' },
+      { name: 'SeLe4n.IPC.Invariant', path: 'SeLe4n/IPC/Invariant.lean' }
+    ],
+    moduleMeta: {
+      'SeLe4n.Core.Start': { theorems: 0 },
+      'SeLe4n.Core.Middle': { theorems: 0 },
+      'SeLe4n.IPC.Operations': { kind: 'operations', base: 'SeLe4n.IPC', theorems: 2 },
+      'SeLe4n.IPC.Invariant': { kind: 'invariant', base: 'SeLe4n.IPC', theorems: 1 }
+    },
+    importsFrom: {
+      'SeLe4n.Core.Start': ['SeLe4n.Core.Middle'],
+      'SeLe4n.Core.Middle': ['SeLe4n.IPC.Operations'],
+      'SeLe4n.IPC.Invariant': ['SeLe4n.IPC.Operations'],
+      'SeLe4n.IPC.Operations': []
+    }
+  });
+
+  // Manually set proofPairMap so assuranceForModule can detect "linked" level
+  const proofPairMap = {
+    'SeLe4n.IPC': {
+      base: 'SeLe4n.IPC',
+      operationsModule: 'SeLe4n.IPC.Operations',
+      invariantModule: 'SeLe4n.IPC.Invariant',
+      operationsTheorems: 2,
+      invariantTheorems: 1,
+      invariantImportsOperations: true
+    }
+  };
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    proofPairMap: proofPairMap,
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  // From Start, path should traverse through Middle to reach a linked proof module
+  const path = hooks.findNearestLinkedPath('SeLe4n.Core.Start', 3);
+  assert.ok(path.length > 0, 'should find a path to linked proof module');
+  assert.equal(path[0], 'SeLe4n.Core.Start', 'path should start from the origin module');
+
+  // From a module that is already linked, path should be just itself
+  const selfPath = hooks.findNearestLinkedPath('SeLe4n.IPC.Operations', 3);
+  assert.equal(selfPath.length, 1, 'linked module should return path of length 1');
+  assert.equal(selfPath[0], 'SeLe4n.IPC.Operations', 'linked module path should contain itself');
+});
