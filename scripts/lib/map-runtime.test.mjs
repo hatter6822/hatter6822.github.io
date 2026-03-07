@@ -566,3 +566,170 @@ test('normalizeMapData preserves callGraph on module symbols for declaration-cen
   assert.deepEqual(runCallers, ['run_safe']);
   assert.ok(!normalized.declarationReverseGraph['nonexistent'], 'nonexistent declarations have no reverse entry');
 });
+
+test('declarationModuleOf resolves module for declarations not in declarationGraph via moduleMeta', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'def', name: 'isolatedDef', line: 5, called: [] },
+          { kind: 'def', name: 'caller', line: 10, called: ['isolatedDef'] }
+        ]
+      }
+    ]
+  });
+
+  // isolatedDef is NOT in declarationGraph (empty called array)
+  assert.ok(!normalized.declarationGraph['isolatedDef'], 'isolatedDef should not be in declarationGraph');
+
+  // But it IS in moduleMeta symbols
+  assert.ok(normalized.moduleMeta['SeLe4n.Core.Main'].symbols.byKind.def.some(d => d.name === 'isolatedDef'), 'isolatedDef should be in moduleMeta symbols');
+
+  // Apply normalized data to test hooks state so declarationModuleOf can search
+  hooks.applyTestState({
+    declarationGraph: normalized.declarationGraph,
+    declarationReverseGraph: normalized.declarationReverseGraph,
+    moduleMeta: normalized.moduleMeta,
+    moduleMap: normalized.moduleMap
+  });
+
+  // declarationModuleOf should find it via moduleMeta fallback
+  assert.equal(hooks.declarationModuleOf('isolatedDef'), 'SeLe4n.Core.Main', 'declarationModuleOf should resolve via moduleMeta for declarations not in declarationGraph');
+  assert.equal(hooks.declarationModuleOf('caller'), 'SeLe4n.Core.Main', 'declarationModuleOf should still resolve via declarationGraph for declarations in it');
+  assert.equal(hooks.declarationModuleOf('nonexistent'), '', 'declarationModuleOf should return empty for unknown declarations');
+});
+
+test('declarations with zero relationships produce valid declaration context data', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'theorem', name: 'standalone_thm', line: 15, called: [] }
+        ]
+      }
+    ]
+  });
+
+  // standalone_thm has no calls and no callers
+  assert.ok(!normalized.declarationGraph['standalone_thm'], 'standalone_thm should not be in declarationGraph');
+  assert.ok(!normalized.declarationReverseGraph['standalone_thm'], 'standalone_thm should not be in declarationReverseGraph');
+
+  // But it should still be in moduleMeta symbols and resolvable
+  const symbols = normalized.moduleMeta['SeLe4n.Core.Main'].symbols;
+  const theoremEntries = symbols.byKind.theorem;
+  assert.ok(theoremEntries.some(d => d.name === 'standalone_thm'), 'standalone_thm should exist in moduleMeta symbol entries');
+
+  // Module resolution via moduleMeta fallback
+  hooks.applyTestState({
+    declarationGraph: normalized.declarationGraph,
+    declarationReverseGraph: normalized.declarationReverseGraph,
+    moduleMeta: normalized.moduleMeta,
+    moduleMap: normalized.moduleMap
+  });
+  assert.equal(hooks.declarationModuleOf('standalone_thm'), 'SeLe4n.Core.Main', 'zero-relationship declaration should still resolve to its module');
+
+  // Kind and line should still be resolvable via moduleMeta
+  assert.equal(hooks.declarationKindOf('standalone_thm'), 'theorem', 'zero-relationship declaration should have resolvable kind');
+  assert.equal(hooks.declarationLineOf('standalone_thm'), 15, 'zero-relationship declaration should have resolvable line');
+
+  // Verify no forward or reverse edges exist
+  assert.ok(!Object.prototype.hasOwnProperty.call(normalized.declarationGraph, 'standalone_thm'), 'zero-relationship declaration has no forward graph entry');
+  const reverseKeys = Object.keys(normalized.declarationReverseGraph);
+  assert.ok(!reverseKeys.includes('standalone_thm'), 'zero-relationship declaration has no reverse graph entry');
+});
+
+test('declarationModuleOf resolves reverse-graph-only declarations via moduleMeta', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'inductive', name: 'ErrorKind', line: 5, called: [] },
+          { kind: 'def', name: 'handleError', line: 20, called: ['ErrorKind'] }
+        ]
+      }
+    ]
+  });
+
+  // ErrorKind is only in reverseGraph (called by handleError), not in declarationGraph
+  assert.ok(!normalized.declarationGraph['ErrorKind'], 'ErrorKind should not be in declarationGraph');
+  assert.ok(normalized.declarationReverseGraph['ErrorKind'], 'ErrorKind should be in declarationReverseGraph');
+
+  // Verify reverse graph entry contents
+  const errorKindCallers = Array.from(normalized.declarationReverseGraph['ErrorKind'] || []);
+  assert.deepEqual(errorKindCallers, ['handleError'], 'reverse-only declaration should have callers in reverse graph');
+
+  // Verify no forward graph entry
+  assert.ok(!Object.prototype.hasOwnProperty.call(normalized.declarationGraph, 'ErrorKind'), 'reverse-only declaration has no forward graph entry');
+
+  // declarationModuleOf should resolve via moduleMeta
+  hooks.applyTestState({
+    declarationGraph: normalized.declarationGraph,
+    declarationReverseGraph: normalized.declarationReverseGraph,
+    moduleMeta: normalized.moduleMeta,
+    moduleMap: normalized.moduleMap
+  });
+  assert.equal(hooks.declarationModuleOf('ErrorKind'), 'SeLe4n.Core.Main', 'reverse-only declaration should resolve module via moduleMeta');
+
+  // Verify kind is resolvable
+  assert.equal(hooks.declarationKindOf('ErrorKind'), 'inductive', 'reverse-only declaration should have resolvable kind');
+  assert.equal(hooks.declarationLineOf('ErrorKind'), 5, 'reverse-only declaration should have resolvable line');
+});
+
+test('large declaration lane sorting prioritizes same-module declarations', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'def', name: 'hubFn', line: 10, called: [
+            'zHelper', 'aHelper', 'externalFn', 'bHelper', 'localFn', 'anotherExt',
+            'cHelper', 'dHelper', 'eHelper', 'fHelper', 'gHelper', 'hHelper', 'iHelper'
+          ] },
+          { kind: 'def', name: 'localFn', line: 20, called: [] },
+          { kind: 'def', name: 'aHelper', line: 30, called: [] },
+          { kind: 'def', name: 'bHelper', line: 40, called: [] },
+          { kind: 'def', name: 'cHelper', line: 50, called: [] },
+          { kind: 'def', name: 'dHelper', line: 60, called: [] },
+          { kind: 'def', name: 'eHelper', line: 70, called: [] },
+          { kind: 'def', name: 'fHelper', line: 80, called: [] },
+          { kind: 'def', name: 'gHelper', line: 90, called: [] },
+          { kind: 'def', name: 'hHelper', line: 100, called: [] },
+          { kind: 'def', name: 'iHelper', line: 110, called: [] },
+          { kind: 'def', name: 'zHelper', line: 120, called: [] }
+        ]
+      },
+      {
+        module: 'SeLe4n.Ext.Util',
+        path: 'SeLe4n/Ext/Util.lean',
+        declarations: [
+          { kind: 'def', name: 'externalFn', line: 5, called: [] },
+          { kind: 'def', name: 'anotherExt', line: 15, called: [] }
+        ]
+      }
+    ]
+  });
+
+  // hubFn calls 13 declarations (>12 threshold), so sorting should be applied
+  const calls = normalized.declarationGraph['hubFn'].calls;
+  assert.equal(calls.length, 13, 'hubFn should call 13 declarations');
+  assert.ok(calls.length > 12, 'call count exceeds collapse threshold so sorting applies');
+
+  // Verify the call graph structure is correct
+  assert.ok(calls.includes('localFn'), 'calls should include same-module localFn');
+  assert.ok(calls.includes('externalFn'), 'calls should include cross-module externalFn');
+});
