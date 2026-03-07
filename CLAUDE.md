@@ -88,7 +88,16 @@ Several files exceed 500 lines:
 - Legacy top-level maps (`moduleMap`, `importsFrom`, `moduleMeta`) are fallbacks only
 - Branch-ref metadata keys (e.g. `main`) are excluded from module inventories
 - Declaration-centric payloads (`modules[].declarations`) are projected into symbol buckets
+- `called` arrays from declarations are preserved for declaration-context call graphs
 - Reverse import edges (`importsTo`) are always rebuilt from `importsFrom`
+
+### Dual-context flowchart
+
+- `state.viewContext` is `"module"` (default) or `"declaration"`
+- Module context: inter-module dependency graph (imports, proof pairs, linked paths)
+- Declaration context: intra-module call graph built from `declarations[].called` arrays
+- Context switcher bar renders above interior declaration panel
+- URL state: `?context=declaration&declmodule=ModuleName` for deep-linking
 
 ### Security posture
 

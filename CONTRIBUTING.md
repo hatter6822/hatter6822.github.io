@@ -44,7 +44,8 @@ If you changed UI behavior or layout:
 1. Verify desktop rendering in `index.html` and `map.html`.
 2. Verify mobile rendering at ~390px width.
 3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills).
-4. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
+4. Confirm the view-context switcher toggles between module and declaration graph views correctly.
+5. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
 
 ## Data/sync change checklist
 
