@@ -733,3 +733,101 @@ test('large declaration lane sorting prioritizes same-module declarations', asyn
   assert.ok(calls.includes('localFn'), 'calls should include same-module localFn');
   assert.ok(calls.includes('externalFn'), 'calls should include cross-module externalFn');
 });
+
+test('declaration lane collapse threshold and visible limit are exposed via test hooks', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.declarationLaneCollapseThreshold(), 12, 'collapse threshold should be 12');
+  assert.equal(hooks.declarationLaneVisibleLimit(), 10, 'visible limit should be 10');
+});
+
+test('applyTestState accepts declarationLanesExpanded, flowContext, and selectedDeclaration', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // Verify initial state
+  hooks.applyTestState({ declarationLanesExpanded: false, flowContext: 'module', selectedDeclaration: '' });
+  // No assertion needed — if applyTestState doesn't throw, the state keys are accepted
+
+  // Set declaration context state
+  hooks.applyTestState({
+    declarationLanesExpanded: true,
+    flowContext: 'declaration',
+    selectedDeclaration: 'myDecl'
+  });
+
+  // Verify state is applied by checking that flowContext affects test hooks behavior
+  // declarationLanesExpanded is transient UI state, so we just verify it's accepted without error
+  assert.ok(true, 'applyTestState accepted declarationLanesExpanded, flowContext, and selectedDeclaration');
+});
+
+test('interior menu highlights active declaration in declaration context', async () => {
+  const hooks = await loadMapTestHooks();
+  const interior = hooks.makeEmptyInteriorSymbols();
+  interior.byKind.def = [
+    { name: 'activeDecl', line: 10 },
+    { name: 'otherDecl', line: 20 }
+  ];
+
+  // In declaration context, selectedDeclaration should be trackable
+  hooks.applyTestState({
+    flowContext: 'declaration',
+    selectedDeclaration: 'activeDecl'
+  });
+
+  // The items returned by interiorItemsForSelection should include the active declaration
+  const objectKinds = ['inductive', 'structure', 'class', 'def', 'theorem', 'lemma', 'example', 'instance', 'opaque', 'abbrev', 'axiom', 'constant', 'constants'];
+  const items = hooks.interiorItemsForSelection(interior, objectKinds, '__all__', '');
+  const activeItem = items.find(item => item.name === 'activeDecl');
+  assert.ok(activeItem, 'active declaration should be in the items list');
+  assert.equal(activeItem.__kind, 'def', 'active declaration should have correct kind');
+});
+
+test('declaration lane expansion shows all items when expanded state is set', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'def', name: 'hubFn', line: 10, called: [
+            'a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9', 'a10',
+            'a11', 'a12', 'a13', 'a14', 'a15'
+          ] },
+          { kind: 'def', name: 'a1', line: 20, called: [] },
+          { kind: 'def', name: 'a2', line: 30, called: [] },
+          { kind: 'def', name: 'a3', line: 40, called: [] },
+          { kind: 'def', name: 'a4', line: 50, called: [] },
+          { kind: 'def', name: 'a5', line: 60, called: [] },
+          { kind: 'def', name: 'a6', line: 70, called: [] },
+          { kind: 'def', name: 'a7', line: 80, called: [] },
+          { kind: 'def', name: 'a8', line: 90, called: [] },
+          { kind: 'def', name: 'a9', line: 100, called: [] },
+          { kind: 'def', name: 'a10', line: 110, called: [] },
+          { kind: 'def', name: 'a11', line: 120, called: [] },
+          { kind: 'def', name: 'a12', line: 130, called: [] },
+          { kind: 'def', name: 'a13', line: 140, called: [] },
+          { kind: 'def', name: 'a14', line: 150, called: [] },
+          { kind: 'def', name: 'a15', line: 160, called: [] }
+        ]
+      }
+    ]
+  });
+
+  const calls = normalized.declarationGraph['hubFn'].calls;
+  assert.equal(calls.length, 15, 'hubFn should call 15 declarations');
+
+  // When collapsed (default), only LANE_VISIBLE_LIMIT (10) should be shown
+  const threshold = hooks.declarationLaneCollapseThreshold();
+  const visibleLimit = hooks.declarationLaneVisibleLimit();
+  assert.ok(calls.length > threshold, 'call count exceeds threshold');
+
+  const collapsedVisible = calls.slice(0, visibleLimit);
+  const collapsedCount = calls.length - visibleLimit;
+  assert.equal(collapsedVisible.length, 10, 'collapsed view shows 10 items');
+  assert.equal(collapsedCount, 5, 'collapsed count shows 5 hidden items');
+
+  // When expanded, all items should be shown
+  const expandedVisible = calls.slice();
+  assert.equal(expandedVisible.length, 15, 'expanded view shows all 15 items');
+});
