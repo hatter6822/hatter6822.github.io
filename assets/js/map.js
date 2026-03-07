@@ -1505,6 +1505,53 @@
     return true;
   }
 
+  function buildFlowNodeGroup(nodeLayer, className, focusable, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, onActivate) {
+    var group = createSvgNode("g", { "class": className, tabindex: focusable ? "0" : "-1", role: onActivate ? "button" : "note", "aria-label": ariaLabel });
+    if (focusable) group.setAttribute("focusable", "true");
+
+    var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
+    var full = createSvgNode("title", {});
+    full.textContent = tooltip || name;
+
+    var compactNode = h < 44;
+    var title = createSvgNode("text", { x: x + 10, y: y + (compactNode ? 20 : 19) });
+    var titleLines = wrapLabelLines(name, w - 18, compactNode ? 14 : 12);
+    for (var ll = 0; ll < titleLines.length; ll++) {
+      var tspan = createSvgNode("tspan", { x: x + 10, dy: ll === 0 ? "0" : "13" });
+      tspan.textContent = titleLines[ll];
+      title.appendChild(tspan);
+    }
+
+    group.appendChild(full);
+    group.appendChild(rect);
+    group.appendChild(title);
+
+    if (subtitle && h >= 40) {
+      var subtitleLines = wrapLabelLines(subtitle, w - 18, 14);
+      var subtitleStartY = y + 22 + Math.max(1, titleLines.length) * 13 + 3;
+      var meta = createSvgNode("text", { x: x + 10, y: subtitleStartY, "class": "flow-meta" });
+      for (var mm = 0; mm < subtitleLines.length; mm++) {
+        var metaSpan = createSvgNode("tspan", { x: x + 10, dy: mm === 0 ? "0" : "12" });
+        metaSpan.textContent = subtitleLines[mm];
+        meta.appendChild(metaSpan);
+      }
+      group.appendChild(meta);
+    }
+
+    if (onActivate) {
+      group.addEventListener("click", function () { onActivate(); });
+      group.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onActivate();
+        }
+      });
+    }
+
+    nodeLayer.appendChild(group);
+    return { name: name, x: x, y: y, w: w, h: h };
+  }
+
   function computeFlowLayout() {
     var wrap = document.getElementById("flowchart-wrap");
     var wrapWidth = Math.max(0, ((wrap && wrap.clientWidth) || 0) - 8);
@@ -1634,8 +1681,11 @@
     var lowerSectionTop = Math.max(laneBottom + 54, centerBottom + 54);
     var proofStartY = lowerSectionTop;
     var proofBottom = proofStartY;
+    var proofHeights = [];
     for (var pr = 0; pr < proofRelated.length; pr++) {
-      proofBottom += nodeContentHeight(proofRelated[pr], moduleSummary(proofRelated[pr]), centerWidth, true) + 8;
+      var prH = nodeContentHeight(proofRelated[pr], moduleSummary(proofRelated[pr]), centerWidth, true);
+      proofHeights.push(prH);
+      proofBottom += prH + 8;
     }
     proofBottom = Math.max(proofBottom, proofStartY + 42);
     var pathStartY = proofBottom + 54;
@@ -1687,9 +1737,12 @@
     var externalBottom = externalStartY;
     if (external.length) {
       var externalRowHeights = [];
+      var externalNodeHeights = [];
       for (var ex = 0; ex < external.length; ex++) {
         var exRow = Math.floor(ex / externalPerRow);
-        externalRowHeights[exRow] = Math.max(externalRowHeights[exRow] || 0, nodeContentHeight(external[ex], "", externalWidth, true));
+        var exH = nodeContentHeight(external[ex], "", externalWidth, true);
+        externalNodeHeights.push(exH);
+        externalRowHeights[exRow] = Math.max(externalRowHeights[exRow] || 0, exH);
       }
       var externalRowY = [];
       var externalCursorY = externalStartY;
@@ -1705,7 +1758,7 @@
           name: external[ez],
           x: leftX + colIndex * (externalWidth + externalGapX),
           y: externalRowY[rowIndex],
-          h: nodeContentHeight(external[ez], "", externalWidth, true)
+          h: externalNodeHeights[ez]
         });
       }
 
@@ -1746,54 +1799,9 @@
       if (onActivate) className += " action";
       if (assuranceLevel && !isStatic) className += " assurance-" + assuranceLevel;
       var interactive = !isStatic || Boolean(onActivate);
-      var group = createSvgNode("g", { "class": className, tabindex: interactive ? "0" : "-1", role: interactive ? "button" : "note", "aria-label": interactive ? (onActivate ? name : ("Select module " + name)) : name });
-      if (interactive) group.setAttribute("focusable", "true");
-
-      var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
-      var full = createSvgNode("title", {});
-      full.textContent = tooltip || name;
-
-      var compactNode = h < 44;
-      var title = createSvgNode("text", { x: x + 10, y: y + (compactNode ? 20 : 19) });
-      var titleLines = wrapLabelLines(name, w - 18, compactNode ? 14 : 12);
-      for (var ll = 0; ll < titleLines.length; ll++) {
-        var tspan = createSvgNode("tspan", { x: x + 10, dy: ll === 0 ? "0" : "13" });
-        tspan.textContent = titleLines[ll];
-        title.appendChild(tspan);
-      }
-
-      group.appendChild(full);
-      group.appendChild(rect);
-      group.appendChild(title);
-
-      if (subtitle && h >= 40) {
-        var subtitleLines = wrapLabelLines(subtitle, w - 18, 14);
-        var subtitleStartY = y + (compactNode ? 22 : 22) + Math.max(1, titleLines.length) * 13 + 3;
-        var meta = createSvgNode("text", { x: x + 10, y: subtitleStartY, "class": "flow-meta" });
-        for (var mm = 0; mm < subtitleLines.length; mm++) {
-          var metaSpan = createSvgNode("tspan", { x: x + 10, dy: mm === 0 ? "0" : "12" });
-          metaSpan.textContent = subtitleLines[mm];
-          meta.appendChild(metaSpan);
-        }
-        group.appendChild(meta);
-      }
-
-      if (interactive) {
-        group.addEventListener("click", function () {
-          if (onActivate) onActivate();
-          else selectModule(name, false);
-        });
-        group.addEventListener("keydown", function (event) {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            if (onActivate) onActivate();
-            else selectModule(name, false);
-          }
-        });
-      }
-
-      nodeLayer.appendChild(group);
-      return { name: name, x: x, y: y, w: w, h: h };
+      var ariaLabel = interactive ? (onActivate ? name : ("Select module " + name)) : name;
+      var activator = interactive ? (onActivate || function () { selectModule(name, false); }) : null;
+      return buildFlowNodeGroup(nodeLayer, className, interactive, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, activator);
     }
 
     if (laneLabels.imports) laneLabel("Imports used by selected", leftX, 30, "#35c98f");
@@ -1844,10 +1852,9 @@
       if (laneLabels.proof) laneLabel("Proof pair context", centerX, proofStartY - 16, "#d37cff");
       var proofY = proofStartY;
       for (var n = 0; n < proofRelated.length; n++) {
-        var proofHeight = nodeContentHeight(proofRelated[n], moduleSummary(proofRelated[n]), centerWidth, true);
-        var proofNode = createNode(proofRelated[n], centerX, proofY, centerWidth, proofHeight, "#d37cff", moduleSummary(proofRelated[n]), nodeTooltip(proofRelated[n], "Proof-pair neighbor"), false, false, contextFor(proofRelated[n]).assurance.level);
+        var proofNode = createNode(proofRelated[n], centerX, proofY, centerWidth, proofHeights[n], "#d37cff", moduleSummary(proofRelated[n]), nodeTooltip(proofRelated[n], "Proof-pair neighbor"), false, false, contextFor(proofRelated[n]).assurance.level);
         drawFlowEdge(edgeLayer, center, proofNode, "#d37cff", true, { rank: n, total: proofRelated.length, spread: 18 });
-        proofY += proofHeight + 8;
+        proofY += proofHeights[n] + 8;
       }
     }
 
@@ -2052,50 +2059,8 @@
       if (onActivate) className += " action";
       var interactive = Boolean(onActivate);
       var focusable = interactive || active;
-      var group = createSvgNode("g", { "class": className, tabindex: focusable ? "0" : "-1", role: interactive ? "button" : "note", "aria-label": interactive ? "Select declaration " + name : name });
-      if (focusable) group.setAttribute("focusable", "true");
-
-      var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
-      var full = createSvgNode("title", {});
-      full.textContent = tooltip || name;
-
-      var compactNode = h < 44;
-      var title = createSvgNode("text", { x: x + 10, y: y + (compactNode ? 20 : 19) });
-      var titleLines = wrapLabelLines(name, w - 18, compactNode ? 14 : 12);
-      for (var ll = 0; ll < titleLines.length; ll++) {
-        var tspan = createSvgNode("tspan", { x: x + 10, dy: ll === 0 ? "0" : "13" });
-        tspan.textContent = titleLines[ll];
-        title.appendChild(tspan);
-      }
-
-      group.appendChild(full);
-      group.appendChild(rect);
-      group.appendChild(title);
-
-      if (subtitle && h >= 40) {
-        var subtitleLines = wrapLabelLines(subtitle, w - 18, 14);
-        var subtitleStartY = y + (compactNode ? 22 : 22) + Math.max(1, titleLines.length) * 13 + 3;
-        var meta = createSvgNode("text", { x: x + 10, y: subtitleStartY, "class": "flow-meta" });
-        for (var mm = 0; mm < subtitleLines.length; mm++) {
-          var metaSpan = createSvgNode("tspan", { x: x + 10, dy: mm === 0 ? "0" : "12" });
-          metaSpan.textContent = subtitleLines[mm];
-          meta.appendChild(metaSpan);
-        }
-        group.appendChild(meta);
-      }
-
-      if (interactive) {
-        group.addEventListener("click", function () { onActivate(); });
-        group.addEventListener("keydown", function (event) {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onActivate();
-          }
-        });
-      }
-
-      nodeLayer.appendChild(group);
-      return { name: name, x: x, y: y, w: w, h: h };
+      var ariaLabel = interactive ? "Select declaration " + name : name;
+      return buildFlowNodeGroup(nodeLayer, className, focusable, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, onActivate || null);
     }
 
     var hasCallees = calls.length > 0;
@@ -3855,11 +3820,22 @@
       declarationLineOf: declarationLineOf,
       declarationLaneCollapseThreshold: function () { return 12; },
       declarationLaneVisibleLimit: function () { return 10; },
+      assuranceForModule: assuranceForModule,
+      relatedProofModules: relatedProofModules,
+      findNearestLinkedPath: findNearestLinkedPath,
+      buildPairs: buildPairs,
       applyTestState: function (patch) {
         if (patch.declarationGraph) state.declarationGraph = patch.declarationGraph;
         if (patch.declarationReverseGraph) state.declarationReverseGraph = patch.declarationReverseGraph;
         if (patch.moduleMeta) state.moduleMeta = patch.moduleMeta;
         if (patch.moduleMap) state.moduleMap = patch.moduleMap;
+        if (patch.modules) state.modules = patch.modules;
+        if (patch.importsFrom) state.importsFrom = patch.importsFrom;
+        if (patch.importsTo) state.importsTo = patch.importsTo;
+        if (patch.externalImportsFrom) state.externalImportsFrom = patch.externalImportsFrom;
+        if (patch.proofPairMap) state.proofPairMap = patch.proofPairMap;
+        if (patch.clearAssuranceCache) ASSURANCE_CACHE = Object.create(null);
+        if (patch.clearDegreeMap) state.degreeMap = Object.create(null);
         if (typeof patch.declarationLanesExpanded === "boolean") state.declarationLanesExpanded = patch.declarationLanesExpanded;
         if (typeof patch.flowContext === "string") state.flowContext = patch.flowContext;
         if (typeof patch.selectedDeclaration === "string") state.selectedDeclaration = patch.selectedDeclaration;

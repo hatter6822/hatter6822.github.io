@@ -57,4 +57,28 @@ assert(/label\.textContent\s*=\s*"Current module context"/.test(mapJs), "renderC
 assert(/setAttribute\("aria-label",\s*"Declaration call graph for "/.test(mapJs), "renderAll should set declaration-context aria-label on flowchart-wrap");
 assert(/setAttribute\("aria-label",\s*"Dependency and proof flow chart"\)/.test(mapJs), "renderAll should restore module-context aria-label on flowchart-wrap");
 
+// HTML: flowchart-shell container should exist and wrap the flowchart
+assert(/class="flowchart-shell"/.test(html), "flowchart-shell container should exist in map markup");
+const shellIndex = html.indexOf('class="flowchart-shell"');
+const wrapIndex = html.indexOf('id="flowchart-wrap"');
+assert(shellIndex < wrapIndex, "flowchart-shell should wrap the flowchart-wrap container");
+
+// HTML: mobile hint should exist within flowchart-shell
+assert(/class="flowchart-mobile-hint"/.test(html), "flowchart-mobile-hint should exist for mobile users");
+const hintIndex = html.indexOf('class="flowchart-mobile-hint"');
+assert(hintIndex > shellIndex && hintIndex < wrapIndex, "mobile hint should render between flowchart-shell and flowchart-wrap");
+
+// CSS: mobile hint should be hidden by default
+assert(/\.flowchart-mobile-hint\s*\{[^}]*display:\s*none/s.test(css), "flowchart-mobile-hint should be hidden by default on desktop");
+
+// CSS: flow node rect should have transition for smooth hover/focus effects
+assert(/\.flow-node\s+rect\s*\{[^}]*transition:/s.test(css), "flow node rect should have CSS transition for smooth visual feedback");
+
+// CSS: light-theme assurance fallback colors should be defined
+assert(/\[data-theme="light"\]\s*\.flow-node\.assurance-linked/.test(css), "light-theme assurance fallback colors should be defined for linked level");
+assert(/\[data-theme="light"\]\s*\.flow-node\.assurance-none/.test(css), "light-theme assurance fallback colors should be defined for none level");
+
+// JS: shared buildFlowNodeGroup helper should exist for node construction
+assert(/function buildFlowNodeGroup\(/.test(mapJs), "buildFlowNodeGroup shared helper should exist to reduce node creation duplication");
+
 console.log("map-toolbar.test: ok");

@@ -52,9 +52,9 @@ The site is intentionally local-first:
 
 This keeps rendering deterministic while still allowing low-latency live updates.
 
-## Code map interior symbol links
+## Code map declaration context and interior explorer
 
-The map flowchart now renders its legend in the chart’s upper-right corner so semantic meaning stays attached to the graph during interaction and screenshots while preserving workspace for core flow nodes.
+The map flowchart renders its legend in the chart’s upper-right corner so semantic meaning stays attached to the graph during interaction and screenshots while preserving workspace for core flow nodes. Both module-context and declaration-context flowcharts share six extracted helpers (`createFlowSvg`, `createFlowLegend`, `flowLaneLabel`, `applyFlowScrollTarget`, `computeFlowLayout`, `buildFlowNodeGroup`) to eliminate duplication. Node heights are pre-computed during layout passes to avoid redundant recalculation. Flow nodes have smooth CSS transitions on hover and focus for polished visual feedback.
 
 The code map interior panel links declarations directly to source in `hatter6822/seLe4n`:
 
