@@ -541,36 +541,67 @@
     var map = codebaseMap && typeof codebaseMap === "object" ? codebaseMap : null;
     if (!map) return 0;
 
+    function countTheoremDeclarations(declarations) {
+      if (!Array.isArray(declarations)) return 0;
+
+      var total = 0;
+      for (var i = 0; i < declarations.length; i++) {
+        var declaration = declarations[i] || {};
+        var kind = String(declaration.kind || "").toLowerCase();
+        if (kind === "theorem" || kind === "lemma") total += 1;
+      }
+
+      return total;
+    }
+
+    function countTheoremSymbols(symbols) {
+      if (!symbols || typeof symbols !== "object") return 0;
+
+      var theoremEntries = Array.isArray(symbols.theorems) ? symbols.theorems.length : 0;
+      if (theoremEntries > 0) return theoremEntries;
+
+      var byKind = symbols.byKind && typeof symbols.byKind === "object" ? symbols.byKind : {};
+      var byKindTheorems = Array.isArray(byKind.theorem) ? byKind.theorem.length : 0;
+      var byKindLemmas = Array.isArray(byKind.lemma) ? byKind.lemma.length : 0;
+      return byKindTheorems + byKindLemmas;
+    }
+
+    function countModuleTheorems(moduleLike) {
+      if (!moduleLike || typeof moduleLike !== "object") return 0;
+
+      var fromDeclarations = countTheoremDeclarations(moduleLike.declarations);
+      if (fromDeclarations > 0) return fromDeclarations;
+
+      var fromSymbols = countTheoremSymbols(moduleLike.symbols);
+      if (fromSymbols > 0) return fromSymbols;
+
+      var explicit = Number(moduleLike.theorems || moduleLike.theoremCount || (moduleLike.stats && moduleLike.stats.theorems));
+      return Number.isFinite(explicit) && explicit > 0 ? explicit : 0;
+    }
+
+    var total = 0;
+
+    if (Array.isArray(map.modules)) {
+      for (var i = 0; i < map.modules.length; i++) {
+        total += countModuleTheorems(map.modules[i]);
+      }
+    }
+
+    var moduleMeta = map.moduleMeta;
+    if (moduleMeta && typeof moduleMeta === "object") {
+      var moduleNames = Object.keys(moduleMeta);
+      for (var j = 0; j < moduleNames.length; j++) {
+        total += countModuleTheorems(moduleMeta[moduleNames[j]]);
+      }
+    }
+
+    if (total > 0) return total;
+
     var topLevel = Number(map.theorems);
     if (Number.isFinite(topLevel) && topLevel > 0) return topLevel;
 
     var statsTheorems = Number(map.stats && map.stats.theorems);
-    if (Number.isFinite(statsTheorems) && statsTheorems > 0) return statsTheorems;
-
-    var moduleMeta = map.moduleMeta;
-    if (!moduleMeta || typeof moduleMeta !== "object") return 0;
-
-    var total = 0;
-    var moduleNames = Object.keys(moduleMeta);
-    for (var i = 0; i < moduleNames.length; i++) {
-      var meta = moduleMeta[moduleNames[i]] || {};
-      var explicit = Number(meta.theorems || meta.theoremCount || (meta.stats && meta.stats.theorems));
-      if (Number.isFinite(explicit) && explicit > 0) {
-        total += explicit;
-        continue;
-      }
-
-      var symbols = meta.symbols;
-      if (!symbols || typeof symbols !== "object") continue;
-
-      var theoremEntries = Array.isArray(symbols.theorems) ? symbols.theorems.length : 0;
-      var byKind = symbols.byKind && typeof symbols.byKind === "object" ? symbols.byKind : {};
-      var byKindTheorems = Array.isArray(byKind.theorem) ? byKind.theorem.length : 0;
-      var byKindLemmas = Array.isArray(byKind.lemma) ? byKind.lemma.length : 0;
-      total += theoremEntries > 0 ? theoremEntries : byKindTheorems + byKindLemmas;
-    }
-
-    return total;
+    return Number.isFinite(statsTheorems) && statsTheorems > 0 ? statsTheorems : 0;
   }
 
   function fetchText(url) {

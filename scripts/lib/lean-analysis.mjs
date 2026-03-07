@@ -176,31 +176,61 @@ export function theoremCountFromCodebaseMap(codebaseMap) {
   const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
   if (!map) return 0;
 
+  const countTheoremDeclarations = (declarations) => {
+    if (!Array.isArray(declarations)) return 0;
+
+    let total = 0;
+    for (const declaration of declarations) {
+      const kind = String(declaration?.kind ?? '').toLowerCase();
+      if (kind === 'theorem' || kind === 'lemma') total += 1;
+    }
+
+    return total;
+  };
+
+  const countTheoremSymbols = (symbols) => {
+    if (!symbols || typeof symbols !== 'object') return 0;
+
+    const theoremEntries = Array.isArray(symbols.theorems) ? symbols.theorems.length : 0;
+    if (theoremEntries > 0) return theoremEntries;
+
+    const byKindTheorems = Array.isArray(symbols.byKind?.theorem) ? symbols.byKind.theorem.length : 0;
+    const byKindLemmas = Array.isArray(symbols.byKind?.lemma) ? symbols.byKind.lemma.length : 0;
+    return byKindTheorems + byKindLemmas;
+  };
+
+  const countModuleTheorems = (moduleLike) => {
+    if (!moduleLike || typeof moduleLike !== 'object') return 0;
+
+    const fromDeclarations = countTheoremDeclarations(moduleLike.declarations);
+    if (fromDeclarations > 0) return fromDeclarations;
+
+    const fromSymbols = countTheoremSymbols(moduleLike.symbols);
+    if (fromSymbols > 0) return fromSymbols;
+
+    const explicit = Number(moduleLike.theorems ?? moduleLike.theoremCount ?? moduleLike.stats?.theorems);
+    return Number.isFinite(explicit) && explicit > 0 ? explicit : 0;
+  };
+
+  let total = 0;
+
+  if (Array.isArray(map.modules)) {
+    for (const moduleInfo of map.modules) {
+      total += countModuleTheorems(moduleInfo);
+    }
+  }
+
+  if (map.moduleMeta && typeof map.moduleMeta === 'object') {
+    for (const moduleInfo of Object.values(map.moduleMeta)) {
+      total += countModuleTheorems(moduleInfo);
+    }
+  }
+
+  if (total > 0) return total;
+
   const topLevel = Number(map.theorems);
   if (Number.isFinite(topLevel) && topLevel > 0) return topLevel;
 
   const statsTheorems = Number(map.stats?.theorems);
-  if (Number.isFinite(statsTheorems) && statsTheorems > 0) return statsTheorems;
-
-  const moduleMeta = map.moduleMeta;
-  if (!moduleMeta || typeof moduleMeta !== 'object') return 0;
-
-  let total = 0;
-  for (const meta of Object.values(moduleMeta)) {
-    const explicit = Number(meta?.theorems ?? meta?.theoremCount ?? meta?.stats?.theorems);
-    if (Number.isFinite(explicit) && explicit > 0) {
-      total += explicit;
-      continue;
-    }
-
-    const symbols = meta?.symbols;
-    if (!symbols || typeof symbols !== 'object') continue;
-
-    const theoremEntries = Array.isArray(symbols.theorems) ? symbols.theorems.length : 0;
-    const byKindTheorems = Array.isArray(symbols.byKind?.theorem) ? symbols.byKind.theorem.length : 0;
-    const byKindLemmas = Array.isArray(symbols.byKind?.lemma) ? symbols.byKind.lemma.length : 0;
-    total += theoremEntries > 0 ? theoremEntries : byKindTheorems + byKindLemmas;
-  }
-
-  return total;
+  return Number.isFinite(statsTheorems) && statsTheorems > 0 ? statsTheorems : 0;
 }

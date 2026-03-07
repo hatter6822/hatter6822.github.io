@@ -18,7 +18,7 @@ node scripts/lib/map-toolbar.test.mjs
 Validates:
 - Lean import token extraction
 - interior symbol extraction across all supported declaration kinds and line tracking
-- theorem counting behavior
+- theorem counting behavior, including declaration-first theorem derivation from `docs/codebase_map.json` payloads
 - README metric table parsing
 - data schema and graph consistency validation behavior
 - map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, declaration-centric canonical payload support, declaration projection into symbol buckets, theorem/function fallback derivation from `byKind` when explicit arrays are empty, path-based dependency normalization, deterministic module/file ordering, stable per-module defaults, `symbolsLoaded` correctness, interior-kind group aggregation/default-selection behavior, and interior search caret-range normalization used by live filter rerenders)
