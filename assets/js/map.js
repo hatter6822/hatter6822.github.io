@@ -125,7 +125,8 @@
     selectedDeclaration: "",
     selectedDeclarationModule: "",
     declarationGraph: Object.create(null),
-    declarationReverseGraph: Object.create(null)
+    declarationReverseGraph: Object.create(null),
+    declarationLanesExpanded: false
   };
 
   var renderScheduled = false;
@@ -866,6 +867,7 @@
     state.flowContext = "declaration";
     state.selectedDeclaration = declName;
     state.selectedDeclarationModule = mod;
+    state.declarationLanesExpanded = false;
     if (state.selectedModule !== mod) {
       state.selectedModule = mod;
       state.interiorMenuModule = mod;
@@ -880,8 +882,19 @@
     state.flowContext = "module";
     state.selectedDeclaration = "";
     state.selectedDeclarationModule = "";
+    state.declarationLanesExpanded = false;
     state.flowScrollTarget = state.selectedModule || "";
     syncUrlState();
+    scheduleRender();
+  }
+
+  function expandDeclarationLanes() {
+    state.declarationLanesExpanded = true;
+    scheduleRender();
+  }
+
+  function compactDeclarationLanes() {
+    state.declarationLanesExpanded = false;
     scheduleRender();
   }
 
@@ -1020,6 +1033,7 @@
     state.flowContext = "module";
     state.selectedDeclaration = "";
     state.selectedDeclarationModule = "";
+    state.declarationLanesExpanded = false;
     state.flowScrollTarget = preserveScroll ? "" : name;
     if (state.interiorMenuModule !== name) {
       state.interiorMenuModule = name;
@@ -1226,6 +1240,8 @@
           for (var j = 0; j < items.length; j++) {
             var li = document.createElement("li");
             li.className = "interior-menu-item";
+            var isSelectedDecl = state.flowContext === "declaration" && items[j].name === state.selectedDeclaration;
+            if (isSelectedDecl) li.classList.add("interior-menu-item-active");
             li.dataset.kindLabel = symbolKindLabel(items[j].__kind || activeKind);
             applyInteriorKindColor(li, items[j].__kind || activeKind, false);
             var hasCallData = Boolean(state.declarationGraph[items[j].name]) || Boolean(state.declarationReverseGraph[items[j].name]);
@@ -1914,16 +1930,22 @@
 
     var visibleCalls = sortedCalls;
     var collapsedCallCount = 0;
-    if (sortedCalls.length > LANE_COLLAPSE_THRESHOLD) {
-      visibleCalls = sortedCalls.slice(0, LANE_VISIBLE_LIMIT);
-      collapsedCallCount = sortedCalls.length - LANE_VISIBLE_LIMIT;
-    }
     var visibleCallers = sortedCallers;
     var collapsedCallerCount = 0;
-    if (sortedCallers.length > LANE_COLLAPSE_THRESHOLD) {
-      visibleCallers = sortedCallers.slice(0, LANE_VISIBLE_LIMIT);
-      collapsedCallerCount = sortedCallers.length - LANE_VISIBLE_LIMIT;
+
+    if (!state.declarationLanesExpanded) {
+      if (sortedCalls.length > LANE_COLLAPSE_THRESHOLD) {
+        visibleCalls = sortedCalls.slice(0, LANE_VISIBLE_LIMIT);
+        collapsedCallCount = sortedCalls.length - LANE_VISIBLE_LIMIT;
+      }
+      if (sortedCallers.length > LANE_COLLAPSE_THRESHOLD) {
+        visibleCallers = sortedCallers.slice(0, LANE_VISIBLE_LIMIT);
+        collapsedCallerCount = sortedCallers.length - LANE_VISIBLE_LIMIT;
+      }
     }
+
+    var canCompactCalls = state.declarationLanesExpanded && sortedCalls.length > LANE_COLLAPSE_THRESHOLD;
+    var canCompactCallers = state.declarationLanesExpanded && sortedCallers.length > LANE_COLLAPSE_THRESHOLD;
 
     var callLayout = [];
     var cursorLeft = laneYStart;
@@ -1934,9 +1956,15 @@
     }
     if (collapsedCallCount > 0) {
       var collapsedCallLabel = "+" + collapsedCallCount + " more";
-      var cch = nodeContentHeight(collapsedCallLabel, "", sideWidth, true);
-      callLayout.push({ name: collapsedCallLabel, y: cursorLeft, h: cch, collapsed: true });
+      var cch = nodeContentHeight(collapsedCallLabel, "expand to show all", sideWidth, true);
+      callLayout.push({ name: collapsedCallLabel, y: cursorLeft, h: cch, collapsed: true, expandable: true });
       cursorLeft += cch + laneGapY;
+    }
+    if (canCompactCalls) {
+      var compactCallLabel = "Return to Compact";
+      var compactCallH = nodeContentHeight(compactCallLabel, "hide extra calls", sideWidth, true);
+      callLayout.push({ name: compactCallLabel, y: cursorLeft, h: compactCallH, compactControl: true });
+      cursorLeft += compactCallH + laneGapY;
     }
     var callBottom = callLayout.length ? cursorLeft - laneGapY : laneYStart + 44;
 
@@ -1949,9 +1977,15 @@
     }
     if (collapsedCallerCount > 0) {
       var collapsedCallerLabel = "+" + collapsedCallerCount + " more";
-      var ccbh = nodeContentHeight(collapsedCallerLabel, "", sideWidth, true);
-      callerLayout.push({ name: collapsedCallerLabel, y: cursorRight, h: ccbh, collapsed: true });
+      var ccbh = nodeContentHeight(collapsedCallerLabel, "expand to show all", sideWidth, true);
+      callerLayout.push({ name: collapsedCallerLabel, y: cursorRight, h: ccbh, collapsed: true, expandable: true });
       cursorRight += ccbh + laneGapY;
+    }
+    if (canCompactCallers) {
+      var compactCallerLabel = "Return to Compact";
+      var compactCallerH = nodeContentHeight(compactCallerLabel, "hide extra callers", sideWidth, true);
+      callerLayout.push({ name: compactCallerLabel, y: cursorRight, h: compactCallerH, compactControl: true });
+      cursorRight += compactCallerH + laneGapY;
     }
     var callerBottom = callerLayout.length ? cursorRight - laneGapY : laneYStart + 44;
 
@@ -2081,9 +2115,11 @@
     var callNodes = [];
     for (var i = 0; i < callLayout.length; i++) {
       var callItem = callLayout[i];
-      if (callItem.collapsed) {
-        var collapsedTooltip = collapsedCallCount + " additional calls not shown";
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#8fa3bf", "", collapsedTooltip, false, null));
+      if (callItem.expandable) {
+        var expandCallTooltip = "Expand to show all " + (collapsedCallCount + visibleCalls.length) + " called declarations";
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", "expand to show all", expandCallTooltip, false, expandDeclarationLanes));
+      } else if (callItem.compactControl) {
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", "hide extra calls", "Return to compact view", false, compactDeclarationLanes));
       } else {
         var callColor = declNodeColor(callItem.name);
         var callNavigable = isDeclNavigable(callItem.name);
@@ -2094,9 +2130,11 @@
     var callerNodes = [];
     for (var j = 0; j < callerLayout.length; j++) {
       var callerItem = callerLayout[j];
-      if (callerItem.collapsed) {
-        var collapsedCallerTooltip = collapsedCallerCount + " additional callers not shown";
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#8fa3bf", "", collapsedCallerTooltip, false, null));
+      if (callerItem.expandable) {
+        var expandCallerTooltip = "Expand to show all " + (collapsedCallerCount + visibleCallers.length) + " caller declarations";
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", "expand to show all", expandCallerTooltip, false, expandDeclarationLanes));
+      } else if (callerItem.compactControl) {
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", "hide extra callers", "Return to compact view", false, compactDeclarationLanes));
       } else {
         var callerColor = declNodeColor(callerItem.name);
         var callerNavigable = isDeclNavigable(callerItem.name);
@@ -2104,13 +2142,29 @@
       }
     }
 
-    var callSpread = Math.min(52, Math.max(14, callNodes.length * 2));
-    var callerSpread = Math.min(52, Math.max(14, callerNodes.length * 2));
-    for (var k = 0; k < callNodes.length; k++) {
-      drawFlowEdge(edgeLayer, center, callNodes[k], "#82f0b0", callLayout[k].collapsed, { rank: k, total: callNodes.length, spread: callSpread });
+    var callEdgeCount = 0;
+    for (var ce = 0; ce < callLayout.length; ce++) {
+      if (!callLayout[ce].compactControl) callEdgeCount++;
     }
+    var callerEdgeCount = 0;
+    for (var cre = 0; cre < callerLayout.length; cre++) {
+      if (!callerLayout[cre].compactControl) callerEdgeCount++;
+    }
+    var callSpread = Math.min(52, Math.max(14, callEdgeCount * 2));
+    var callerSpread = Math.min(52, Math.max(14, callerEdgeCount * 2));
+    var callEdgeIndex = 0;
+    for (var k = 0; k < callNodes.length; k++) {
+      if (callLayout[k].compactControl) continue;
+      var callDashed = Boolean(callLayout[k].collapsed || callLayout[k].expandable);
+      drawFlowEdge(edgeLayer, center, callNodes[k], "#82f0b0", callDashed, { rank: callEdgeIndex, total: callEdgeCount, spread: callSpread });
+      callEdgeIndex++;
+    }
+    var callerEdgeIndex = 0;
     for (var m = 0; m < callerNodes.length; m++) {
-      drawFlowEdge(edgeLayer, callerNodes[m], center, "#ffad42", callerLayout[m].collapsed, { rank: m, total: callerNodes.length, spread: callerSpread });
+      if (callerLayout[m].compactControl) continue;
+      var callerDashed = Boolean(callerLayout[m].collapsed || callerLayout[m].expandable);
+      drawFlowEdge(edgeLayer, callerNodes[m], center, "#ffad42", callerDashed, { rank: callerEdgeIndex, total: callerEdgeCount, spread: callerSpread });
+      callerEdgeIndex++;
     }
 
     wrap.appendChild(svg);
@@ -3796,11 +3850,16 @@
       declarationModuleOf: declarationModuleOf,
       declarationKindOf: declarationKindOf,
       declarationLineOf: declarationLineOf,
+      declarationLaneCollapseThreshold: function () { return 12; },
+      declarationLaneVisibleLimit: function () { return 10; },
       applyTestState: function (patch) {
         if (patch.declarationGraph) state.declarationGraph = patch.declarationGraph;
         if (patch.declarationReverseGraph) state.declarationReverseGraph = patch.declarationReverseGraph;
         if (patch.moduleMeta) state.moduleMeta = patch.moduleMeta;
         if (patch.moduleMap) state.moduleMap = patch.moduleMap;
+        if (typeof patch.declarationLanesExpanded === "boolean") state.declarationLanesExpanded = patch.declarationLanesExpanded;
+        if (typeof patch.flowContext === "string") state.flowContext = patch.flowContext;
+        if (typeof patch.selectedDeclaration === "string") state.selectedDeclaration = patch.selectedDeclaration;
       }
     };
     return;

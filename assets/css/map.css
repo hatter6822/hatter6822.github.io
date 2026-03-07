@@ -323,6 +323,11 @@
   max-width: 100%;
   overflow-wrap: anywhere;
 }
+.interior-menu-item-active {
+  border-color: var(--accent, #7c9cff);
+  box-shadow: 0 0 0 1px var(--accent, #7c9cff);
+  background: color-mix(in oklab, var(--accent, #7c9cff) 22%, var(--surface-2) 78%);
+}
 .interior-menu-item::after {
   content: attr(data-kind-label);
   font-family: var(--font-ui);

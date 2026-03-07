@@ -121,8 +121,8 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - computes filtered graph neighborhood based on selected module and detail mode.
 - renders module-context node/edge flowchart and legend semantics.
 - renders declaration-context call-graph flowchart with breadcrumb navigation for bidirectional module/declaration context switching, including informative empty-state hints for declarations with zero relationships.
-- sorts large declaration lanes by module relevance (same-module first) before collapsing to keep contextually relevant declarations visible.
-- builds interior declaration panels (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context.
+- sorts large declaration lanes by module relevance (same-module first) before collapsing to keep contextually relevant declarations visible; collapsed "+N more" nodes are interactive expand buttons that fully reveal all declarations, with "Return to Compact" buttons to collapse back.
+- builds interior declaration panels (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration in declaration context with a visual accent indicator.
 - handles keyboard navigation, search, reset, and URL-state synchronization (including `decl` parameter for declaration context persistence).
 - manages map status messaging and sync lifecycle feedback.
 
