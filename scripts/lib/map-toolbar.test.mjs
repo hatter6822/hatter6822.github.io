@@ -81,4 +81,16 @@ assert(/\[data-theme="light"\]\s*\.flow-node\.assurance-none/.test(css), "light-
 // JS: shared buildFlowNodeGroup helper should exist for node construction
 assert(/function buildFlowNodeGroup\(/.test(mapJs), "buildFlowNodeGroup shared helper should exist to reduce node creation duplication");
 
+// JS: buildFlowNodeGroup should use role="img" (not role="note") for non-interactive nodes
+assert(/role:\s*onActivate\s*\?\s*"button"\s*:\s*"img"/.test(mapJs), "buildFlowNodeGroup should use role='img' for non-interactive SVG nodes (not role='note')");
+
+// JS: createFlowSvg should include aria-roledescription for screen reader context
+assert(/aria-roledescription.*flowchart/.test(mapJs), "createFlowSvg should set aria-roledescription='flowchart' on the SVG element");
+
+// JS: applyFlowScrollTarget should disable smooth scroll during programmatic positioning
+assert(/scrollBehavior\s*=\s*"auto"/.test(mapJs), "applyFlowScrollTarget should temporarily disable smooth scroll for instant programmatic positioning");
+
+// JS: declarationIndex should be built during normalizeMapData for O(1) lookups
+assert(/declarationIndex/.test(mapJs), "normalizeMapData should build a declarationIndex for fast declaration metadata lookups");
+
 console.log("map-toolbar.test: ok");

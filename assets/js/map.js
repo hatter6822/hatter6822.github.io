@@ -126,6 +126,7 @@
     selectedDeclarationModule: "",
     declarationGraph: Object.create(null),
     declarationReverseGraph: Object.create(null),
+    declarationIndex: Object.create(null),
     declarationLanesExpanded: false
   };
 
@@ -810,54 +811,20 @@
   function declarationModuleOf(declName) {
     var entry = state.declarationGraph[declName];
     if (entry) return entry.module;
-    for (var mod in state.moduleMeta) {
-      if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, mod)) continue;
-      var meta = state.moduleMeta[mod];
-      if (!meta || !meta.symbols || !meta.symbols.byKind) continue;
-      var byKind = meta.symbols.byKind;
-      for (var kind in byKind) {
-        if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
-        var items = byKind[kind];
-        if (!Array.isArray(items)) continue;
-        for (var i = 0; i < items.length; i++) {
-          if (items[i] && items[i].name === declName) return mod;
-        }
-      }
-    }
+    var indexed = state.declarationIndex[declName];
+    if (indexed) return indexed.module;
     return "";
   }
 
   function declarationKindOf(declName, moduleName) {
-    var mod = moduleName || declarationModuleOf(declName);
-    if (!mod) return "";
-    var meta = state.moduleMeta[mod];
-    if (!meta || !meta.symbols || !meta.symbols.byKind) return "";
-    var byKind = meta.symbols.byKind;
-    for (var kind in byKind) {
-      if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
-      var items = byKind[kind];
-      if (!Array.isArray(items)) continue;
-      for (var i = 0; i < items.length; i++) {
-        if (items[i] && items[i].name === declName) return kind;
-      }
-    }
+    var indexed = state.declarationIndex[declName];
+    if (indexed) return indexed.kind;
     return "";
   }
 
   function declarationLineOf(declName, moduleName) {
-    var mod = moduleName || declarationModuleOf(declName);
-    if (!mod) return 0;
-    var meta = state.moduleMeta[mod];
-    if (!meta || !meta.symbols || !meta.symbols.byKind) return 0;
-    var byKind = meta.symbols.byKind;
-    for (var kind in byKind) {
-      if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
-      var items = byKind[kind];
-      if (!Array.isArray(items)) continue;
-      for (var i = 0; i < items.length; i++) {
-        if (items[i] && items[i].name === declName) return items[i].line || 0;
-      }
-    }
+    var indexed = state.declarationIndex[declName];
+    if (indexed) return indexed.line || 0;
     return 0;
   }
 
@@ -1444,6 +1411,7 @@
       "class": "flowchart-svg",
       "viewBox": "0 0 " + flowWidth + " " + flowHeight,
       "role": "img",
+      "aria-roledescription": "flowchart",
       "aria-label": ariaLabel
     });
     var defs = createSvgNode("defs", {});
@@ -1499,14 +1467,18 @@
     var targetScrollTop = Math.max(0, centerY + centerH / 2 - wrap.clientHeight / 2);
     var maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
     var maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+    // Temporarily disable smooth scrolling for instant programmatic positioning
+    var previousBehavior = wrap.style.scrollBehavior;
+    wrap.style.scrollBehavior = "auto";
     wrap.scrollLeft = Math.min(maxScrollLeft, targetScrollLeft);
     wrap.scrollTop = Math.min(maxScrollTop, targetScrollTop);
+    wrap.style.scrollBehavior = previousBehavior;
     state.flowScrollTarget = "";
     return true;
   }
 
   function buildFlowNodeGroup(nodeLayer, className, focusable, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, onActivate) {
-    var group = createSvgNode("g", { "class": className, tabindex: focusable ? "0" : "-1", role: onActivate ? "button" : "note", "aria-label": ariaLabel });
+    var group = createSvgNode("g", { "class": className, tabindex: focusable ? "0" : "-1", role: onActivate ? "button" : "img", "aria-label": ariaLabel });
     if (focusable) group.setAttribute("focusable", "true");
 
     var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
@@ -1882,8 +1854,11 @@
     renderFlowNodeInteriorMenu(selected);
 
     if (!applyFlowScrollTarget(wrap, selected, center.x, center.y, center.w, center.h)) {
+      var prevBehavior = wrap.style.scrollBehavior;
+      wrap.style.scrollBehavior = "auto";
       wrap.scrollLeft = previousScrollLeft;
       wrap.scrollTop = previousScrollTop;
+      wrap.style.scrollBehavior = prevBehavior;
     }
   }
 
@@ -2142,8 +2117,11 @@
     renderFlowNodeInteriorMenu(moduleName);
 
     if (!applyFlowScrollTarget(wrap, declName, center.x, center.y, center.w, center.h)) {
+      var prevBehavior = wrap.style.scrollBehavior;
+      wrap.style.scrollBehavior = "auto";
       wrap.scrollLeft = previousScrollLeft;
       wrap.scrollTop = previousScrollTop;
+      wrap.style.scrollBehavior = prevBehavior;
     }
   }
 
@@ -2842,6 +2820,7 @@
 
     var mergedDeclarationGraph = Object.create(null);
     var mergedReverseGraph = Object.create(null);
+    var declarationIndex = Object.create(null);
     for (var dgIdx = 0; dgIdx < moduleRecords.length; dgIdx++) {
       var dgModule = moduleRecords[dgIdx].name;
       var dgSymbols = normalizedModuleMeta[dgModule] && normalizedModuleMeta[dgModule].symbols;
@@ -2853,6 +2832,22 @@
           var calledTarget = dgCallGraph[dgKey][dgCalledIdx];
           if (!mergedReverseGraph[calledTarget]) mergedReverseGraph[calledTarget] = [];
           mergedReverseGraph[calledTarget].push(dgKey);
+        }
+      }
+      // Build fast declaration→{module,kind,line} index from moduleMeta symbols
+      var dgMeta = normalizedModuleMeta[dgModule];
+      if (dgMeta && dgMeta.symbols && dgMeta.symbols.byKind) {
+        var dgByKind = dgMeta.symbols.byKind;
+        for (var dgKind in dgByKind) {
+          if (!Object.prototype.hasOwnProperty.call(dgByKind, dgKind)) continue;
+          var dgItems = dgByKind[dgKind];
+          if (!Array.isArray(dgItems)) continue;
+          for (var diIdx = 0; diIdx < dgItems.length; diIdx++) {
+            var diEntry = dgItems[diIdx];
+            if (diEntry && diEntry.name && !declarationIndex[diEntry.name]) {
+              declarationIndex[diEntry.name] = { module: dgModule, kind: dgKind, line: diEntry.line || 0 };
+            }
+          }
         }
       }
     }
@@ -2867,6 +2862,7 @@
       externalImportsFrom: normalizedExternalImportsFrom,
       declarationGraph: mergedDeclarationGraph,
       declarationReverseGraph: mergedReverseGraph,
+      declarationIndex: declarationIndex,
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
     };
@@ -3024,6 +3020,7 @@
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
     state.declarationGraph = data.declarationGraph || Object.create(null);
     state.declarationReverseGraph = data.declarationReverseGraph || Object.create(null);
+    state.declarationIndex = data.declarationIndex || Object.create(null);
     invalidateDerivedCaches();
     state.contextList = [];
     state.commitSha = data.commitSha || "";
@@ -3827,6 +3824,7 @@
       applyTestState: function (patch) {
         if (patch.declarationGraph) state.declarationGraph = patch.declarationGraph;
         if (patch.declarationReverseGraph) state.declarationReverseGraph = patch.declarationReverseGraph;
+        if (patch.declarationIndex) state.declarationIndex = patch.declarationIndex;
         if (patch.moduleMeta) state.moduleMeta = patch.moduleMeta;
         if (patch.moduleMap) state.moduleMap = patch.moduleMap;
         if (patch.modules) state.modules = patch.modules;
@@ -3839,6 +3837,27 @@
         if (typeof patch.declarationLanesExpanded === "boolean") state.declarationLanesExpanded = patch.declarationLanesExpanded;
         if (typeof patch.flowContext === "string") state.flowContext = patch.flowContext;
         if (typeof patch.selectedDeclaration === "string") state.selectedDeclaration = patch.selectedDeclaration;
+        // Rebuild declarationIndex from moduleMeta when moduleMeta is patched
+        if (patch.moduleMeta && !patch.declarationIndex) {
+          var idx = Object.create(null);
+          for (var mod in state.moduleMeta) {
+            if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, mod)) continue;
+            var meta = state.moduleMeta[mod];
+            if (!meta || !meta.symbols || !meta.symbols.byKind) continue;
+            var byKind = meta.symbols.byKind;
+            for (var kind in byKind) {
+              if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
+              var items = byKind[kind];
+              if (!Array.isArray(items)) continue;
+              for (var ii = 0; ii < items.length; ii++) {
+                if (items[ii] && items[ii].name && !idx[items[ii].name]) {
+                  idx[items[ii].name] = { module: mod, kind: kind, line: items[ii].line || 0 };
+                }
+              }
+            }
+          }
+          state.declarationIndex = idx;
+        }
       }
     };
     return;
