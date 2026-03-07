@@ -176,12 +176,54 @@ test('parseCurrentStateMetrics returns empty object for missing table', () => {
 });
 
 
-test('theoremCountFromCodebaseMap prefers top-level aggregate theorem count', () => {
-  assert.equal(theoremCountFromCodebaseMap({ theorems: 987, moduleMeta: { A: { theorems: 1 } } }), 987);
+test('theoremCountFromCodebaseMap derives from module-level data before top-level aggregates', () => {
+  assert.equal(theoremCountFromCodebaseMap({ theorems: 987, moduleMeta: { A: { theorems: 1 } } }), 1);
 });
 
 test('theoremCountFromCodebaseMap falls back to stats aggregate theorem count', () => {
   assert.equal(theoremCountFromCodebaseMap({ stats: { theorems: 222 } }), 222);
+});
+
+test('theoremCountFromCodebaseMap counts declaration-centric modules payloads', () => {
+  const codebaseMap = {
+    modules: [
+      {
+        name: 'Core',
+        declarations: [
+          { kind: 'theorem', name: 'core_ok' },
+          { kind: 'lemma', name: 'core_safe' },
+          { kind: 'def', name: 'helper' }
+        ]
+      },
+      {
+        name: 'Sched',
+        symbols: {
+          byKind: {
+            theorem: [{ name: 'sched_ok' }]
+          }
+        }
+      }
+    ],
+    theorems: 999
+  };
+
+  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 3);
+});
+
+test('theoremCountFromCodebaseMap prefers declaration counts over explicit stale per-module values', () => {
+  const codebaseMap = {
+    moduleMeta: {
+      Core: {
+        theorems: 12,
+        declarations: [
+          { kind: 'theorem', name: 'core_ok' },
+          { kind: 'lemma', name: 'core_safe' }
+        ]
+      }
+    }
+  };
+
+  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 2);
 });
 
 test('theoremCountFromCodebaseMap derives theorem totals from module meta and symbols', () => {

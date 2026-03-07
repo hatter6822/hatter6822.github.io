@@ -67,6 +67,7 @@ The code map interior panel links declarations directly to source in `hatter6822
 - Includes declaration line metadata for line-accurate blob anchors
 - Normalizes legacy symbol payload variants (`byKind`/`by_kind`, `constant`/`constants`) so flow-chart selection updates the interior declaration panels reliably
 - Supports declaration-centric canonical payloads (`modules[].declarations`) and derives theorem totals/import graphs when explicit aggregates are omitted
+- Derives homepage theorem totals from declaration/symbol payloads in `docs/codebase_map.json` first, using top-level theorem aggregates only as a last-resort fallback
 
 ## Documentation index
 
