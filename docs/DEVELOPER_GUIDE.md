@@ -117,10 +117,12 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - hydrates graph state from `data/map-data.json` and optional live sync.
 - normalizes legacy/new payload shapes for compatibility.
 - preserves declaration call-graph relationships (`called` field) into a merged `declarationGraph` and precomputed `declarationReverseGraph` for O(1) caller lookups during declaration context navigation.
+- resolves declaration module ownership via `declarationGraph` first, then falls back to `moduleMeta` symbol search for declarations not in the forward graph.
 - computes filtered graph neighborhood based on selected module and detail mode.
 - renders module-context node/edge flowchart and legend semantics.
-- renders declaration-context call-graph flowchart with breadcrumb navigation for bidirectional module/declaration context switching.
-- builds interior declaration panels (Objects, Contexts/Inits, Extensions) with navigable items for declarations having call-graph data.
+- renders declaration-context call-graph flowchart with breadcrumb navigation for bidirectional module/declaration context switching, including informative empty-state hints for declarations with zero relationships.
+- sorts large declaration lanes by module relevance (same-module first) before collapsing to keep contextually relevant declarations visible.
+- builds interior declaration panels (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context.
 - handles keyboard navigation, search, reset, and URL-state synchronization (including `decl` parameter for declaration context persistence).
 - manages map status messaging and sync lifecycle feedback.
 

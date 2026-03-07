@@ -808,7 +808,22 @@
 
   function declarationModuleOf(declName) {
     var entry = state.declarationGraph[declName];
-    return entry ? entry.module : "";
+    if (entry) return entry.module;
+    for (var mod in state.moduleMeta) {
+      if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, mod)) continue;
+      var meta = state.moduleMeta[mod];
+      if (!meta || !meta.symbols || !meta.symbols.byKind) continue;
+      var byKind = meta.symbols.byKind;
+      for (var kind in byKind) {
+        if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
+        var items = byKind[kind];
+        if (!Array.isArray(items)) continue;
+        for (var i = 0; i < items.length; i++) {
+          if (items[i] && items[i].name === declName) return mod;
+        }
+      }
+    }
+    return "";
   }
 
   function declarationKindOf(declName, moduleName) {
@@ -1213,8 +1228,9 @@
             li.className = "interior-menu-item";
             li.dataset.kindLabel = symbolKindLabel(items[j].__kind || activeKind);
             applyInteriorKindColor(li, items[j].__kind || activeKind, false);
-            var hasCallData = Boolean(state.declarationGraph[items[j].name]);
-            if (hasCallData) {
+            var hasCallData = Boolean(state.declarationGraph[items[j].name]) || Boolean(state.declarationReverseGraph[items[j].name]);
+            var isNavigable = hasCallData || Boolean(state.moduleMap[selected]);
+            if (isNavigable) {
               li.classList.add("interior-menu-item-navigable");
               var btn = document.createElement("button");
               btn.type = "button";
@@ -1879,20 +1895,34 @@
       return kind ? (INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf") : "#8fa3bf";
     }
 
+    function sortByModuleRelevance(arr, referenceModule) {
+      return arr.slice().sort(function (a, b) {
+        var modA = declarationModuleOf(a);
+        var modB = declarationModuleOf(b);
+        var sameA = modA === referenceModule ? 0 : 1;
+        var sameB = modB === referenceModule ? 0 : 1;
+        if (sameA !== sameB) return sameA - sameB;
+        return a.toLowerCase().localeCompare(b.toLowerCase());
+      });
+    }
+
     var LANE_COLLAPSE_THRESHOLD = 12;
     var LANE_VISIBLE_LIMIT = 10;
 
-    var visibleCalls = calls;
+    var sortedCalls = calls.length > LANE_COLLAPSE_THRESHOLD ? sortByModuleRelevance(calls, moduleName) : calls;
+    var sortedCallers = calledBy.length > LANE_COLLAPSE_THRESHOLD ? sortByModuleRelevance(calledBy, moduleName) : calledBy;
+
+    var visibleCalls = sortedCalls;
     var collapsedCallCount = 0;
-    if (calls.length > LANE_COLLAPSE_THRESHOLD) {
-      visibleCalls = calls.slice(0, LANE_VISIBLE_LIMIT);
-      collapsedCallCount = calls.length - LANE_VISIBLE_LIMIT;
+    if (sortedCalls.length > LANE_COLLAPSE_THRESHOLD) {
+      visibleCalls = sortedCalls.slice(0, LANE_VISIBLE_LIMIT);
+      collapsedCallCount = sortedCalls.length - LANE_VISIBLE_LIMIT;
     }
-    var visibleCallers = calledBy;
+    var visibleCallers = sortedCallers;
     var collapsedCallerCount = 0;
-    if (calledBy.length > LANE_COLLAPSE_THRESHOLD) {
-      visibleCallers = calledBy.slice(0, LANE_VISIBLE_LIMIT);
-      collapsedCallerCount = calledBy.length - LANE_VISIBLE_LIMIT;
+    if (sortedCallers.length > LANE_COLLAPSE_THRESHOLD) {
+      visibleCallers = sortedCallers.slice(0, LANE_VISIBLE_LIMIT);
+      collapsedCallerCount = sortedCallers.length - LANE_VISIBLE_LIMIT;
     }
 
     var callLayout = [];
@@ -2036,7 +2066,17 @@
     laneLabel("Selected declaration", centerX, centerY - 12, "#7c9cff");
     if (hasCallers) laneLabel("Called by (incoming)", rightX, 30, "#ffad42");
 
+    if (!hasCallees && !hasCallers) {
+      var emptyHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 28, fill: "#8fa3bf", "font-size": "12", "class": "flow-lane-label" });
+      emptyHint.textContent = "No internal call relationships detected for this declaration.";
+      labelLayer.appendChild(emptyHint);
+    }
+
     var center = createDeclNode(declName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(declName), declTooltip(declName, "Selected declaration"), true, null);
+
+    function isDeclNavigable(name) {
+      return Boolean(state.declarationGraph[name]) || Boolean(state.declarationReverseGraph[name]);
+    }
 
     var callNodes = [];
     for (var i = 0; i < callLayout.length; i++) {
@@ -2046,8 +2086,8 @@
         callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#8fa3bf", "", collapsedTooltip, false, null));
       } else {
         var callColor = declNodeColor(callItem.name);
-        var hasGraph = Boolean(state.declarationGraph[callItem.name]);
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.name), declTooltip(callItem.name, "Called declaration"), false, hasGraph ? (function (n) { return function () { selectDeclaration(n); }; })(callItem.name) : null));
+        var callNavigable = isDeclNavigable(callItem.name);
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.name), declTooltip(callItem.name, "Called declaration"), false, callNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callItem.name) : null));
       }
     }
 
@@ -2059,8 +2099,8 @@
         callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#8fa3bf", "", collapsedCallerTooltip, false, null));
       } else {
         var callerColor = declNodeColor(callerItem.name);
-        var callerHasGraph = Boolean(state.declarationGraph[callerItem.name]);
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.name), declTooltip(callerItem.name, "Caller declaration"), false, callerHasGraph ? (function (n) { return function () { selectDeclaration(n); }; })(callerItem.name) : null));
+        var callerNavigable = isDeclNavigable(callerItem.name);
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.name), declTooltip(callerItem.name, "Caller declaration"), false, callerNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callerItem.name) : null));
       }
     }
 
@@ -3755,7 +3795,13 @@
       declarationCalledBy: declarationCalledBy,
       declarationModuleOf: declarationModuleOf,
       declarationKindOf: declarationKindOf,
-      declarationLineOf: declarationLineOf
+      declarationLineOf: declarationLineOf,
+      applyTestState: function (patch) {
+        if (patch.declarationGraph) state.declarationGraph = patch.declarationGraph;
+        if (patch.declarationReverseGraph) state.declarationReverseGraph = patch.declarationReverseGraph;
+        if (patch.moduleMeta) state.moduleMeta = patch.moduleMeta;
+        if (patch.moduleMap) state.moduleMap = patch.moduleMap;
+      }
     };
     return;
   }
