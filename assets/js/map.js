@@ -124,7 +124,8 @@
     flowContext: "module",
     selectedDeclaration: "",
     selectedDeclarationModule: "",
-    declarationGraph: Object.create(null)
+    declarationGraph: Object.create(null),
+    declarationReverseGraph: Object.create(null)
   };
 
   var renderScheduled = false;
@@ -801,14 +802,8 @@
   }
 
   function declarationCalledBy(declName) {
-    var callers = [];
-    for (var key in state.declarationGraph) {
-      if (!Object.prototype.hasOwnProperty.call(state.declarationGraph, key)) continue;
-      var entry = state.declarationGraph[key];
-      if (!entry || !Array.isArray(entry.calls)) continue;
-      if (entry.calls.indexOf(declName) !== -1) callers.push(key);
-    }
-    return callers;
+    var reverse = state.declarationReverseGraph[declName];
+    return Array.isArray(reverse) ? reverse.slice() : [];
   }
 
   function declarationModuleOf(declName) {
@@ -1814,8 +1809,6 @@
 
     var calls = declarationCalls(declName);
     var calledBy = declarationCalledBy(declName);
-    var declKind = declarationKindOf(declName, moduleName);
-    var declLine = declarationLineOf(declName, moduleName);
 
     var breadcrumb = document.createElement("div");
     breadcrumb.className = "declaration-context-breadcrumb";
@@ -1886,23 +1879,51 @@
       return kind ? (INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf") : "#8fa3bf";
     }
 
+    var LANE_COLLAPSE_THRESHOLD = 12;
+    var LANE_VISIBLE_LIMIT = 10;
+
+    var visibleCalls = calls;
+    var collapsedCallCount = 0;
+    if (calls.length > LANE_COLLAPSE_THRESHOLD) {
+      visibleCalls = calls.slice(0, LANE_VISIBLE_LIMIT);
+      collapsedCallCount = calls.length - LANE_VISIBLE_LIMIT;
+    }
+    var visibleCallers = calledBy;
+    var collapsedCallerCount = 0;
+    if (calledBy.length > LANE_COLLAPSE_THRESHOLD) {
+      visibleCallers = calledBy.slice(0, LANE_VISIBLE_LIMIT);
+      collapsedCallerCount = calledBy.length - LANE_VISIBLE_LIMIT;
+    }
+
     var callLayout = [];
     var cursorLeft = laneYStart;
-    for (var ci = 0; ci < calls.length; ci++) {
-      var ch = nodeContentHeight(calls[ci], declSummary(calls[ci]), sideWidth, true);
-      callLayout.push({ name: calls[ci], y: cursorLeft, h: ch });
+    for (var ci = 0; ci < visibleCalls.length; ci++) {
+      var ch = nodeContentHeight(visibleCalls[ci], declSummary(visibleCalls[ci]), sideWidth, true);
+      callLayout.push({ name: visibleCalls[ci], y: cursorLeft, h: ch });
       cursorLeft += ch + laneGapY;
     }
-    var callBottom = calls.length ? cursorLeft - laneGapY : laneYStart + 44;
+    if (collapsedCallCount > 0) {
+      var collapsedCallLabel = "+" + collapsedCallCount + " more";
+      var cch = nodeContentHeight(collapsedCallLabel, "", sideWidth, true);
+      callLayout.push({ name: collapsedCallLabel, y: cursorLeft, h: cch, collapsed: true });
+      cursorLeft += cch + laneGapY;
+    }
+    var callBottom = callLayout.length ? cursorLeft - laneGapY : laneYStart + 44;
 
     var callerLayout = [];
     var cursorRight = laneYStart;
-    for (var bi = 0; bi < calledBy.length; bi++) {
-      var bh = nodeContentHeight(calledBy[bi], declSummary(calledBy[bi]), sideWidth, true);
-      callerLayout.push({ name: calledBy[bi], y: cursorRight, h: bh });
+    for (var bi = 0; bi < visibleCallers.length; bi++) {
+      var bh = nodeContentHeight(visibleCallers[bi], declSummary(visibleCallers[bi]), sideWidth, true);
+      callerLayout.push({ name: visibleCallers[bi], y: cursorRight, h: bh });
       cursorRight += bh + laneGapY;
     }
-    var callerBottom = calledBy.length ? cursorRight - laneGapY : laneYStart + 44;
+    if (collapsedCallerCount > 0) {
+      var collapsedCallerLabel = "+" + collapsedCallerCount + " more";
+      var ccbh = nodeContentHeight(collapsedCallerLabel, "", sideWidth, true);
+      callerLayout.push({ name: collapsedCallerLabel, y: cursorRight, h: ccbh, collapsed: true });
+      cursorRight += ccbh + laneGapY;
+    }
+    var callerBottom = callerLayout.length ? cursorRight - laneGapY : laneYStart + 44;
 
     var centerHeight = nodeContentHeight(declName, declSummary(declName), centerWidth, false) + 14;
     var centerY = Math.max(170, laneYStart + Math.floor((Math.max(callBottom, callerBottom) - laneYStart - centerHeight) / 2));
@@ -2010,10 +2031,9 @@
 
     var hasCallees = calls.length > 0;
     var hasCallers = calledBy.length > 0;
-    var hasAux = hasCallees || hasCallers;
 
     if (hasCallees) laneLabel("Calls (outgoing)", leftX, 30, "#82f0b0");
-    if (hasAux) laneLabel("Selected declaration", centerX, centerY - 12, "#7c9cff");
+    laneLabel("Selected declaration", centerX, centerY - 12, "#7c9cff");
     if (hasCallers) laneLabel("Called by (incoming)", rightX, 30, "#ffad42");
 
     var center = createDeclNode(declName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(declName), declTooltip(declName, "Selected declaration"), true, null);
@@ -2021,26 +2041,36 @@
     var callNodes = [];
     for (var i = 0; i < callLayout.length; i++) {
       var callItem = callLayout[i];
-      var callColor = declNodeColor(callItem.name);
-      var hasGraph = Boolean(state.declarationGraph[callItem.name]);
-      callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.name), declTooltip(callItem.name, "Called declaration"), false, hasGraph ? (function (n) { return function () { selectDeclaration(n); }; })(callItem.name) : null));
+      if (callItem.collapsed) {
+        var collapsedTooltip = collapsedCallCount + " additional calls not shown";
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#8fa3bf", "", collapsedTooltip, false, null));
+      } else {
+        var callColor = declNodeColor(callItem.name);
+        var hasGraph = Boolean(state.declarationGraph[callItem.name]);
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.name), declTooltip(callItem.name, "Called declaration"), false, hasGraph ? (function (n) { return function () { selectDeclaration(n); }; })(callItem.name) : null));
+      }
     }
 
     var callerNodes = [];
     for (var j = 0; j < callerLayout.length; j++) {
       var callerItem = callerLayout[j];
-      var callerColor = declNodeColor(callerItem.name);
-      var callerHasGraph = Boolean(state.declarationGraph[callerItem.name]);
-      callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.name), declTooltip(callerItem.name, "Caller declaration"), false, callerHasGraph ? (function (n) { return function () { selectDeclaration(n); }; })(callerItem.name) : null));
+      if (callerItem.collapsed) {
+        var collapsedCallerTooltip = collapsedCallerCount + " additional callers not shown";
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#8fa3bf", "", collapsedCallerTooltip, false, null));
+      } else {
+        var callerColor = declNodeColor(callerItem.name);
+        var callerHasGraph = Boolean(state.declarationGraph[callerItem.name]);
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.name), declTooltip(callerItem.name, "Caller declaration"), false, callerHasGraph ? (function (n) { return function () { selectDeclaration(n); }; })(callerItem.name) : null));
+      }
     }
 
     var callSpread = Math.min(52, Math.max(14, callNodes.length * 2));
     var callerSpread = Math.min(52, Math.max(14, callerNodes.length * 2));
     for (var k = 0; k < callNodes.length; k++) {
-      drawFlowEdge(edgeLayer, center, callNodes[k], "#82f0b0", false, { rank: k, total: callNodes.length, spread: callSpread });
+      drawFlowEdge(edgeLayer, center, callNodes[k], "#82f0b0", callLayout[k].collapsed, { rank: k, total: callNodes.length, spread: callSpread });
     }
     for (var m = 0; m < callerNodes.length; m++) {
-      drawFlowEdge(edgeLayer, callerNodes[m], center, "#ffad42", false, { rank: m, total: callerNodes.length, spread: callerSpread });
+      drawFlowEdge(edgeLayer, callerNodes[m], center, "#ffad42", callerLayout[m].collapsed, { rank: m, total: callerNodes.length, spread: callerSpread });
     }
 
     wrap.appendChild(svg);
@@ -2749,6 +2779,7 @@
     })();
 
     var mergedDeclarationGraph = Object.create(null);
+    var mergedReverseGraph = Object.create(null);
     for (var dgIdx = 0; dgIdx < moduleRecords.length; dgIdx++) {
       var dgModule = moduleRecords[dgIdx].name;
       var dgSymbols = normalizedModuleMeta[dgModule] && normalizedModuleMeta[dgModule].symbols;
@@ -2756,6 +2787,11 @@
       for (var dgKey in dgCallGraph) {
         if (!Object.prototype.hasOwnProperty.call(dgCallGraph, dgKey)) continue;
         mergedDeclarationGraph[dgKey] = { module: dgModule, calls: dgCallGraph[dgKey] };
+        for (var dgCalledIdx = 0; dgCalledIdx < dgCallGraph[dgKey].length; dgCalledIdx++) {
+          var calledTarget = dgCallGraph[dgKey][dgCalledIdx];
+          if (!mergedReverseGraph[calledTarget]) mergedReverseGraph[calledTarget] = [];
+          mergedReverseGraph[calledTarget].push(dgKey);
+        }
       }
     }
 
@@ -2768,6 +2804,7 @@
       importsFrom: normalizedImportsFrom,
       externalImportsFrom: normalizedExternalImportsFrom,
       declarationGraph: mergedDeclarationGraph,
+      declarationReverseGraph: mergedReverseGraph,
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
     };
@@ -2924,6 +2961,7 @@
     state.importsFrom = data.importsFrom || Object.create(null);
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
     state.declarationGraph = data.declarationGraph || Object.create(null);
+    state.declarationReverseGraph = data.declarationReverseGraph || Object.create(null);
     invalidateDerivedCaches();
     state.contextList = [];
     state.commitSha = data.commitSha || "";
@@ -2934,6 +2972,20 @@
 
     buildPairs();
     if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
+    if (state.flowContext === "declaration" && state.selectedDeclaration) {
+      var resolvedModule = declarationModuleOf(state.selectedDeclaration);
+      if (resolvedModule && state.moduleMap[resolvedModule]) {
+        state.selectedDeclarationModule = resolvedModule;
+        if (state.selectedModule !== resolvedModule) {
+          state.selectedModule = resolvedModule;
+          state.interiorMenuModule = resolvedModule;
+        }
+      } else if (!state.selectedDeclarationModule || !state.moduleMap[state.selectedDeclarationModule]) {
+        state.flowContext = "module";
+        state.selectedDeclaration = "";
+        state.selectedDeclarationModule = "";
+      }
+    }
     renderAll();
   }
 
@@ -3702,7 +3754,8 @@
       declarationCalls: declarationCalls,
       declarationCalledBy: declarationCalledBy,
       declarationModuleOf: declarationModuleOf,
-      declarationKindOf: declarationKindOf
+      declarationKindOf: declarationKindOf,
+      declarationLineOf: declarationLineOf
     };
     return;
   }

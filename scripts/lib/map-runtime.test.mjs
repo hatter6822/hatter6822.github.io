@@ -472,6 +472,13 @@ test('normalizeMapData preserves declaration call graph from modules[].declarati
   assert.deepEqual(normalized.declarationGraph['advanceTimer_safe'].calls, ['advanceTimer', 'mapError']);
   assert.equal(normalized.declarationGraph['advanceTimer'].module, 'SeLe4n.Kernel.Adapter');
   assert.ok(!normalized.declarationGraph['mapError'], 'declarations with empty called arrays should not appear in graph');
+
+  // Reverse graph is precomputed for calledBy lookups
+  assert.ok(normalized.declarationReverseGraph, 'normalized data should include declarationReverseGraph');
+  const mapErrorCallers = Array.from(normalized.declarationReverseGraph['mapError'] || []).sort();
+  assert.deepEqual(mapErrorCallers, ['advanceTimer', 'advanceTimer_safe']);
+  const advanceTimerCallers = Array.from(normalized.declarationReverseGraph['advanceTimer'] || []);
+  assert.deepEqual(advanceTimerCallers, ['advanceTimer_safe']);
 });
 
 test('declarationCalls and declarationCalledBy resolve call relationships correctly', async () => {
@@ -550,4 +557,12 @@ test('normalizeMapData preserves callGraph on module symbols for declaration-cen
   assert.equal(normalized.declarationGraph['helper'].module, 'SeLe4n.Core.Helper');
   assert.deepEqual(normalized.declarationGraph['helper'].calls, ['step']);
   assert.deepEqual(normalized.declarationGraph['run_safe'].calls, ['run', 'step']);
+
+  // Reverse graph is precomputed
+  assert.ok(normalized.declarationReverseGraph, 'normalized data should include declarationReverseGraph');
+  const stepCallers = Array.from(normalized.declarationReverseGraph['step'] || []).sort();
+  assert.deepEqual(stepCallers, ['helper', 'run', 'run_safe']);
+  const runCallers = Array.from(normalized.declarationReverseGraph['run'] || []).sort();
+  assert.deepEqual(runCallers, ['run_safe']);
+  assert.ok(!normalized.declarationReverseGraph['nonexistent'], 'nonexistent declarations have no reverse entry');
 });

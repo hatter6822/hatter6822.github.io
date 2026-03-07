@@ -21,7 +21,7 @@ Validates:
 - theorem counting behavior, including declaration-first theorem derivation from `docs/codebase_map.json` payloads
 - README metric table parsing
 - data schema and graph consistency validation behavior, including `updatedAt` undefined/empty/valid ISO handling
-- map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, declaration-centric canonical payload support, declaration projection into symbol buckets, theorem/function fallback derivation from `byKind` when explicit arrays are empty, path-based dependency normalization, deterministic module/file ordering, stable per-module defaults, `symbolsLoaded` correctness, interior-kind group aggregation/default-selection behavior, interior search caret-range normalization used by live filter rerenders, declaration call-graph preservation and cross-module merging from `modules[].declarations[].called`, declaration-context legend entries, and reverse call-graph resolution for caller lookup)
+- map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, declaration-centric canonical payload support, declaration projection into symbol buckets, theorem/function fallback derivation from `byKind` when explicit arrays are empty, path-based dependency normalization, deterministic module/file ordering, stable per-module defaults, `symbolsLoaded` correctness, interior-kind group aggregation/default-selection behavior, interior search caret-range normalization used by live filter rerenders, declaration call-graph preservation and cross-module merging from `modules[].declarations[].called`, precomputed reverse graph index for O(1) caller lookups, declaration-context legend entries, and reverse call-graph resolution for caller lookup)
 
 ### Bundled data integrity
 
@@ -71,6 +71,8 @@ node --check assets/js/theme-init.js
 - Confirm that navigable declaration nodes in the declaration flowchart can be clicked to chain into further declaration contexts.
 - Confirm the `decl` URL parameter is set when entering declaration context and cleared when returning to module context.
 - Confirm that declarations without call-graph data still link directly to source (no declaration context button).
+- Confirm that when a declaration has more than 12 calls or callers, only the first 10 are displayed with a "+N more" summary node.
+- Confirm the "Selected declaration" lane label is always visible in declaration context (even when no calls/callers exist).
 
 ### Cross-browser nav stability probe (optional, Playwright)
 

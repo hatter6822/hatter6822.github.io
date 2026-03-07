@@ -90,13 +90,14 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 ## Declaration context flowchart
 
 - Added a second flowchart context mode ("declaration") alongside the existing module context. When a user clicks a declaration with call-graph data in the interior panel, the flowchart switches to show the selected declaration as a center node, its outgoing calls in the left lane, and incoming callers in the right lane.
-- Declaration call-graph data is sourced from the `called` field on each declaration entry in `modules[].declarations` from the upstream `docs/codebase_map.json` schema. During normalization, call relationships are merged into a `declarationGraph` lookup keyed by declaration name with module provenance.
+- Declaration call-graph data is sourced from the `called` field on each declaration entry in `modules[].declarations` from the upstream `docs/codebase_map.json` schema. During normalization, call relationships are merged into a `declarationGraph` lookup keyed by declaration name with module provenance. A precomputed `declarationReverseGraph` index maps each callee to its callers for O(1) reverse lookups.
 - Navigable declaration nodes in the flowchart are interactive—clicking them chains into a new declaration context for that declaration's call graph.
 - A breadcrumb navigation bar at the top of the declaration flowchart provides module-name and "Module Context" return buttons for free bidirectional traversal between module and declaration contexts.
-- Declaration context is persisted in the URL via a `decl` query parameter. Selecting a module via context search automatically returns to module context.
+- Declaration context is persisted in the URL via a `decl` query parameter. Selecting a module via context search automatically returns to module context. On data load, the `decl` parameter is resolved against the declaration graph to determine the correct module, falling back gracefully if the declaration is no longer present.
+- When a lane (calls or callers) exceeds 12 entries, only the first 10 are rendered with a "+N more" summary node, preventing excessively tall SVGs.
 - Interior menu items with call-graph data now display both a clickable name button (entering declaration context) and a compact "src" link (opening GitHub source), while items without call data continue to link directly to source.
 - CSS for the declaration context (breadcrumb, navigable items, source links) is contained in `assets/css/map.css`.
-- New test hooks (`declarationFlowLegendItems`, `declarationCalls`, `declarationCalledBy`, `declarationModuleOf`, `declarationKindOf`) are exported for Node-based validation of declaration context logic.
+- New test hooks (`declarationFlowLegendItems`, `declarationCalls`, `declarationCalledBy`, `declarationModuleOf`, `declarationKindOf`, `declarationLineOf`) are exported for Node-based validation of declaration context logic.
 
 ## Future growth recommendations
 
