@@ -314,13 +314,16 @@
   content: none;
   display: none;
 }
+.card .interior-menu-items .interior-menu-item {
+  /* Override shared `.card ul li` list padding so declaration chips keep balanced insets. */
+  padding: 0.22rem 0.52rem;
+}
 .interior-menu-item {
   list-style: none;
   font-family: var(--font-mono);
   font-size: 0.67rem;
   border: 1px solid color-mix(in oklab, var(--interior-kind-color, var(--border)) 62%, var(--border));
   border-radius: 0.5rem;
-  padding: 0.22rem 0.52rem;
   min-height: 1.6rem;
   background: rgba(25, 35, 56, 0.85);
   background: color-mix(in oklab, var(--interior-kind-color, var(--surface-2)) 17%, var(--surface-2) 83%);

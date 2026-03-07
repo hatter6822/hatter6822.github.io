@@ -153,6 +153,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Added `min-width: 0` and `overflow-wrap: anywhere` on `.interior-menu-item-btn` to prevent flex child overflow with long declaration names.
 - Added `flex-wrap: nowrap` on `.interior-menu-item-navigable` to keep the button and src link on the same line.
 - Changed `.interior-menu-item::after` kind label to use `margin-left: auto` with `flex-shrink: 0` and `white-space: nowrap` for right-alignment within the flex container.
+- Added a scoped `.card .interior-menu-items .interior-menu-item` padding override to neutralize the shared `.card ul li` left-biased padding, restoring symmetric chip insets and stable `::after` right-label positioning.
 - Increased `.interior-menu-items` max-height from 12rem to 14rem on desktop for larger declaration lists, and added `scrollbar-width: thin` and `overscroll-behavior: contain` for scroll behavior improvement.
 - Made `.interior-menu-item-src` an inline-flex element with `min-height: 1.2rem` (desktop) / `min-height: 1.6rem` (mobile) for consistent touch target sizing.
 - Fixed `.interior-menu-grid` column minimum from `minmax(16rem, 1fr)` to `minmax(min(16rem, 100%), 1fr)` to prevent horizontal overflow on viewports narrower than 16rem.
