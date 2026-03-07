@@ -68,7 +68,7 @@ node --check assets/js/theme-init.js
 - Confirm map live status messaging remains coherent during load/refresh.
 - Confirm that clicking any declaration in the interior panel switches the flowchart to declaration context, showing the declaration as a center node with calls (left) and callers (right).
 - Confirm that declarations with zero relationships display a centered node with an informative "No internal call relationships detected" hint text below the node.
-- Confirm the declaration context breadcrumb displays "Module Context > ModuleName > DeclarationName" and clicking "Module Context" or the module name returns to module context.
+- Confirm the declaration context breadcrumb displays "ModuleName > DeclarationName" and clicking the module name returns to module context.
 - Confirm that navigable declaration nodes in the declaration flowchart (those with forward or reverse call-graph entries) can be clicked to chain into further declaration contexts.
 - Confirm the `decl` URL parameter is set when entering declaration context and cleared when returning to module context.
 - Confirm that all declarations in the interior panel display both a clickable name button and a "src" link for uniform navigation.

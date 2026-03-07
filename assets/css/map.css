@@ -584,7 +584,6 @@
   color: var(--text-secondary);
   flex-wrap: wrap;
 }
-.declaration-back-btn,
 .declaration-breadcrumb-module {
   font-size: 0.78rem;
   padding: 0.2rem 0.55rem;
