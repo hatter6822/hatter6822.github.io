@@ -87,6 +87,17 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Expanded test coverage with `updatedAt` undefined/valid ISO timestamp tests.
 - Updated `CONTRIBUTING.md` required checks to include all four test suites and `header-nav.js` syntax check.
 
+## Declaration context graph (post-0.1.0)
+
+- Added dual-context flowchart views: **module context** (inter-module dependency graph) and **declaration context** (intra-module call graph).
+- Declaration context builds a directed graph from `modules[].declarations[].called` arrays in the upstream `docs/codebase_map.json` schema, showing which declarations reference which others within a single module.
+- Nodes are color-coded by declaration kind (theorem/lemma → gold, def/abbrev → green, inductive/structure → blue, class/instance → teal) and sorted by reference-score (in-degree × 2 + out-degree).
+- A view-context switcher bar allows free navigation between module and declaration contexts. The declaration button disables itself for modules lacking call-graph data.
+- URL state extended with `context=declaration` and `declmodule=ModuleName` parameters for deep-linkable declaration views.
+- CSS added for context switcher, declaration-kind node tinting, and responsive mobile layout.
+- New test hooks exposed: `buildDeclarationGraph`, `declFlowLegendItems`, `declKindColor`.
+- Seven new unit tests added covering declaration graph construction, edge filtering, sorting, legend entries, kind coloring, and normalization of `called` arrays.
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:

@@ -449,3 +449,124 @@ test('flowLegendItems returns canonical flow legend entries', async () => {
   assert.equal(items[6].label, 'Node tint = assurance level');
   assert.equal(items[6].color, '#8fa3bf');
 });
+
+
+test('normalizeMapData preserves declaration called arrays for declaration context', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Kernel.Adapter',
+        path: 'SeLe4n/Kernel/Adapter.lean',
+        declarations: [
+          { kind: 'inductive', name: 'AdapterErrorKind', line: 8, called: [] },
+          { kind: 'def', name: 'mapAdapterError', line: 14, called: ['AdapterErrorKind'] },
+          { kind: 'def', name: 'adapterAdvanceTimer', line: 27, called: ['advanceTimerState', 'mapAdapterError'] },
+          { kind: 'theorem', name: 'adapterAdvanceTimer_deterministic', line: 110, called: ['adapterAdvanceTimer'] }
+        ]
+      }
+    ]
+  });
+
+  const symbols = normalized.moduleMeta['SeLe4n.Kernel.Adapter'].symbols;
+  assert.ok(Array.isArray(symbols.declarations), 'symbols should include declarations array');
+  assert.equal(symbols.declarations.length, 4);
+
+  const mapError = symbols.declarations.find(d => d.name === 'mapAdapterError');
+  assert.ok(mapError, 'mapAdapterError declaration should exist');
+  assert.deepEqual(Array.from(mapError.called), ['AdapterErrorKind']);
+
+  const timer = symbols.declarations.find(d => d.name === 'adapterAdvanceTimer');
+  assert.deepEqual(Array.from(timer.called), ['advanceTimerState', 'mapAdapterError']);
+
+  const thm = symbols.declarations.find(d => d.name === 'adapterAdvanceTimer_deterministic');
+  assert.deepEqual(Array.from(thm.called), ['adapterAdvanceTimer']);
+});
+
+test('buildDeclarationGraph constructs nodes and edges from declaration data', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const declarations = [
+    { kind: 'inductive', name: 'ErrorKind', line: 8, called: [] },
+    { kind: 'def', name: 'mapError', line: 14, called: ['ErrorKind'] },
+    { kind: 'def', name: 'advanceTimer', line: 27, called: ['mapError'] },
+    { kind: 'theorem', name: 'timer_safe', line: 65, called: ['advanceTimer', 'mapError'] },
+    { kind: 'namespace', name: 'Kernel', line: 3, called: [] }
+  ];
+
+  const graph = hooks.buildDeclarationGraph(declarations);
+
+  assert.equal(graph.nodes.length, 4, 'should exclude namespace node');
+  assert.ok(!graph.nodes.find(n => n.name === 'Kernel'), 'namespace should be excluded');
+  assert.equal(graph.edges.length, 4, 'should have 4 call edges');
+
+  const mapErrorNode = graph.nodes.find(n => n.name === 'mapError');
+  assert.equal(mapErrorNode.inDegree, 2, 'mapError referenced by advanceTimer and timer_safe');
+  assert.equal(mapErrorNode.outDegree, 1, 'mapError calls ErrorKind');
+
+  const errorKindNode = graph.nodes.find(n => n.name === 'ErrorKind');
+  assert.equal(errorKindNode.inDegree, 1, 'ErrorKind referenced by mapError');
+  assert.equal(errorKindNode.outDegree, 0, 'ErrorKind calls nothing');
+});
+
+test('buildDeclarationGraph excludes self-referencing and unknown targets', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const declarations = [
+    { kind: 'def', name: 'alpha', line: 5, called: ['alpha', 'beta', 'unknownExternal'] },
+    { kind: 'def', name: 'beta', line: 10, called: ['alpha'] }
+  ];
+
+  const graph = hooks.buildDeclarationGraph(declarations);
+
+  assert.equal(graph.nodes.length, 2);
+  assert.equal(graph.edges.length, 2, 'alpha->beta and beta->alpha, no self-ref or unknown');
+
+  const alphaNode = graph.nodes.find(n => n.name === 'alpha');
+  assert.equal(alphaNode.outDegree, 1, 'alpha only calls beta (self-ref and unknown excluded)');
+  assert.equal(alphaNode.inDegree, 1, 'alpha referenced by beta');
+});
+
+test('buildDeclarationGraph returns empty graph for empty declarations', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const graph = hooks.buildDeclarationGraph([]);
+  assert.equal(graph.nodes.length, 0);
+  assert.equal(graph.edges.length, 0);
+});
+
+test('declFlowLegendItems returns declaration-specific legend entries', async () => {
+  const hooks = await loadMapTestHooks();
+  const items = hooks.declFlowLegendItems();
+
+  assert.ok(items.length >= 5, 'should have at least 5 legend items');
+  assert.equal(items[0].label, 'Theorem / Lemma');
+  assert.equal(items[0].color, '#ffd782');
+  assert.ok(items.find(i => i.label === 'Call reference'), 'should include call reference legend');
+});
+
+test('declKindColor returns correct colors for known declaration kinds', async () => {
+  const hooks = await loadMapTestHooks();
+
+  assert.equal(hooks.declKindColor('theorem'), '#ffd782');
+  assert.equal(hooks.declKindColor('def'), '#82f0b0');
+  assert.equal(hooks.declKindColor('inductive'), '#8ecbff');
+  assert.equal(hooks.declKindColor('unknownKind'), '#8fa3bf', 'unknown kind should fallback');
+});
+
+test('buildDeclarationGraph sorts nodes by score then by line number', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const declarations = [
+    { kind: 'def', name: 'leaf', line: 50, called: [] },
+    { kind: 'def', name: 'hub', line: 10, called: [] },
+    { kind: 'theorem', name: 'user1', line: 20, called: ['hub'] },
+    { kind: 'theorem', name: 'user2', line: 30, called: ['hub'] },
+    { kind: 'theorem', name: 'user3', line: 40, called: ['hub'] }
+  ];
+
+  const graph = hooks.buildDeclarationGraph(declarations);
+  assert.equal(graph.nodes[0].name, 'hub', 'hub should be first (highest in-degree)');
+  assert.equal(graph.nodes[graph.nodes.length - 1].name, 'leaf', 'leaf should be last (no edges)');
+});

@@ -115,11 +115,12 @@ Contains third-party simplex-noise GLSL implementation (licensed and attributed 
 Largest runtime module; owns map page data and rendering behavior. Responsibilities:
 
 - hydrates graph state from `data/map-data.json` and optional live sync.
-- normalizes legacy/new payload shapes for compatibility.
+- normalizes legacy/new payload shapes for compatibility, preserving `called` arrays for declaration context.
 - computes filtered graph neighborhood based on selected module and detail mode.
-- renders node/edge flowchart and legend semantics.
+- renders dual-context flowchart: module context (inter-module dependency graph) and declaration context (intra-module call graph from `called` arrays).
 - builds interior declaration panels (Objects, Contexts/Inits, Extensions).
-- handles keyboard navigation, search, reset, and URL-state synchronization.
+- renders view-context switcher for toggling between module and declaration graph views.
+- handles keyboard navigation, search, reset, and URL-state synchronization (including `context` and `declmodule` parameters).
 - manages map status messaging and sync lifecycle feedback.
 
 If the map visualization, interactions, or data compatibility changes, this is the primary file.
@@ -138,6 +139,8 @@ Map-page-only styles:
 
 - flowchart workspace and toolbar layout.
 - graph node/edge visual semantics.
+- view-context switcher bar styling.
+- declaration-kind node tinting for declaration context graph.
 - interior declaration panel styling.
 - map-specific responsive/mobile tuning.
 
