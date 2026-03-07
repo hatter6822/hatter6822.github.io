@@ -51,16 +51,9 @@ The site is intentionally local-first:
 
 This keeps rendering deterministic while still allowing low-latency live updates.
 
-## Code map features
+## Code map interior symbol links
 
-### Dual-context flowchart
-
-The map page supports two graph view contexts, switchable via the context-switcher bar:
-
-- **Module context** (default): inter-module dependency flow showing imports, impacted modules, proof-pair relations, linked-proof paths, and external dependencies. Legend and node tinting reflect assurance levels.
-- **Declaration context**: intra-module call graph showing how declarations within a single module reference each other. Built from `modules[].declarations[].called` arrays in the upstream `docs/codebase_map.json` schema. Nodes are color-coded by kind (theorem/lemma → gold, def/abbrev → green, inductive/structure → blue, class/instance → teal). Deep-linkable via `?context=declaration&declmodule=ModuleName`.
-
-### Interior symbol links
+The map flowchart now renders its legend in the chart’s upper-right corner so semantic meaning stays attached to the graph during interaction and screenshots while preserving workspace for core flow nodes.
 
 The code map interior panel links declarations directly to source in `hatter6822/seLe4n`:
 
@@ -74,7 +67,6 @@ The code map interior panel links declarations directly to source in `hatter6822
 - Includes declaration line metadata for line-accurate blob anchors
 - Normalizes legacy symbol payload variants (`byKind`/`by_kind`, `constant`/`constants`) so flow-chart selection updates the interior declaration panels reliably
 - Supports declaration-centric canonical payloads (`modules[].declarations`) and derives theorem totals/import graphs when explicit aggregates are omitted
-- Preserves `called` arrays from declaration-centric payloads for the declaration context call graph
 - Derives homepage theorem totals from declaration/symbol payloads in `docs/codebase_map.json` first, using top-level theorem aggregates only as a last-resort fallback
 
 ## Documentation index

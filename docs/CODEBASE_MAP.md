@@ -38,7 +38,7 @@ The map page provides a single operational and proof-aware architecture view of 
    - Branch-ref metadata keys (for example `main` URL strings) are therefore excluded from module inventories, flow-chart nodes, and map stats. Runtime filtering now rejects pseudo-module names like `main` and URL/non-`.lean` module paths.
    - Canonical payload extraction now selects the object (top-level or one nested level) with the strongest `modules[]` payload, then normalizes from that branch payload only.
    - Symbol normalization still accepts legacy buckets (`symbols.by_kind`) and declaration aliases (`constant`/`constants`), and `symbolsLoaded` is computed from normalized symbol entries.
-  - Runtime normalization now supports declaration-centric canonical payloads (`modules[].declarations`) by projecting declaration entries into interior symbol buckets, preserving `called` arrays for declaration-context call graphs, and deriving theorem totals when explicit counts are missing.
+  - Runtime normalization now supports declaration-centric canonical payloads (`modules[].declarations`) by projecting declaration entries into interior symbol buckets and deriving theorem totals when explicit counts are missing.
   - When canonical payloads omit import edges, runtime performs a bounded raw-source import reconstruction pass so map stats and the flow chart remain operational instead of collapsing to zero-edge graphs.
   - Sparse import reconstruction is only triggered when a new canonical commit is detected, preventing repeated per-module source fetches during no-op polling cycles.
 
@@ -55,12 +55,7 @@ The map page provides a single operational and proof-aware architecture view of 
 - **Detail levels:** compact/balanced/expanded (Arrow keys cycle; Home/End jump to first/last preset).
 - **Toolbar layout:** the module-control toolbar is placed before the interior declaration panel and only includes module context search and reset in a compact density-tagged shell.
 
-- **Dual-context graph views:** the flowchart supports two view contexts, switchable via the context switcher bar rendered above the interior declaration panel:
-  - **Module context** (default): shows inter-module dependency flow, proof-pair relations, and linked-proof paths.
-  - **Declaration context**: when a module has declaration data with `called` arrays (from the upstream `docs/codebase_map.json` schema), shows an intra-module call graph where nodes are individual declarations (theorems, defs, inductives, etc.) and edges represent call/reference relationships between them. Nodes are color-coded by declaration kind and sorted by reference score. The declaration context button is disabled for modules that lack call-graph data.
-  - URL state includes `?context=declaration&declmodule=ModuleName` for direct linking to declaration views.
-
-- **Integrated flow legend corner:** legend semantics are rendered directly in the flowchart’s upper-right corner so color keys travel with every chart interaction/screenshot while keeping the chart body focused on graph topology. The legend adapts to the active view context (module legend vs. declaration legend).
+- **Integrated flow legend corner:** legend semantics are rendered directly in the flowchart’s upper-right corner so color keys travel with every chart interaction/screenshot while keeping the chart body focused on graph topology.
 
 - **Interior declaration explorer:** the flow chart context now exposes all interior Lean declaration kinds via three dropdowns:
   - Objects (`inductive`, `structure`, `class`, `def`, `theorem`, `lemma`, `example`, `instance`, `opaque`, `abbrev`, `axiom`, `constant`, `constants`)
