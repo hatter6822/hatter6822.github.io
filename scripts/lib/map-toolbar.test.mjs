@@ -39,4 +39,22 @@ assert(/\.flow-node-interior-menu:empty\s*\{[^}]*display:\s*none/.test(css), "in
 const interiorMenuMatch = html.match(/<div\s+id="flow-node-interior-menu"[^>]*><\/div>/);
 assert(interiorMenuMatch, "interior menu should be an empty container in initial HTML (no children)");
 
+// CSS: declaration breadcrumb styles must exist for declaration context navigation
+assert(/\.declaration-context-breadcrumb\b/.test(css), "map.css should define declaration-context-breadcrumb class");
+assert(/\.breadcrumb-separator\b/.test(css), "map.css should define breadcrumb-separator class");
+assert(/\.breadcrumb-current\b/.test(css), "map.css should define breadcrumb-current class for active declaration label");
+
+// JS: declaration breadcrumb should use <nav> element for accessibility
+const mapJs = readFileSync(new URL("../../assets/js/map.js", import.meta.url), "utf8");
+assert(/createElement\("nav"\)/.test(mapJs), "declaration breadcrumb should use a <nav> element");
+assert(/aria-label.*Declaration breadcrumb/.test(mapJs), "declaration breadcrumb should have an aria-label");
+
+// JS: renderContextChooser should update label text for declaration context
+assert(/label\.textContent\s*=\s*"Current declaration context"/.test(mapJs), "renderContextChooser should set label to declaration context when in declaration flow");
+assert(/label\.textContent\s*=\s*"Current module context"/.test(mapJs), "renderContextChooser should set label to module context when in module flow");
+
+// JS: renderAll should update flowchart-wrap aria-label dynamically
+assert(/setAttribute\("aria-label",\s*"Declaration call graph for "/.test(mapJs), "renderAll should set declaration-context aria-label on flowchart-wrap");
+assert(/setAttribute\("aria-label",\s*"Dependency and proof flow chart"\)/.test(mapJs), "renderAll should restore module-context aria-label on flowchart-wrap");
+
 console.log("map-toolbar.test: ok");

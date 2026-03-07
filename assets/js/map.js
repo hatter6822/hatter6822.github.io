@@ -1065,16 +1065,28 @@
       syncUrlState();
     }
 
+    var label = document.querySelector('label[for="module-search"]');
+    var inDeclContext = state.flowContext === "declaration" && state.selectedDeclaration;
+
     if (!list.length) {
       picker.value = "";
       picker.placeholder = "No modules matched current filters";
+      if (label) label.textContent = "Current module context";
       closeModuleSearchOptions();
       return;
     }
 
-    picker.placeholder = "Type module/path to switch context";
-
-    if (state.selectedModule && document.activeElement !== picker) picker.value = state.selectedModule;
+    if (inDeclContext) {
+      picker.placeholder = "Type module/path to switch context";
+      if (label) label.textContent = "Current declaration context";
+      if (document.activeElement !== picker) {
+        picker.value = state.selectedModule + " \u203A " + state.selectedDeclaration;
+      }
+    } else {
+      picker.placeholder = "Type module/path to switch context";
+      if (label) label.textContent = "Current module context";
+      if (state.selectedModule && document.activeElement !== picker) picker.value = state.selectedModule;
+    }
   }
 
 
@@ -1871,6 +1883,9 @@
   function renderDeclarationFlowchart() {
     var wrap = document.getElementById("flowchart-wrap");
     if (!wrap) return;
+    var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
+    var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
+    var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
     wrap.innerHTML = "";
 
     var declName = state.selectedDeclaration;
@@ -1883,8 +1898,9 @@
     var calls = declarationCalls(declName);
     var calledBy = declarationCalledBy(declName);
 
-    var breadcrumb = document.createElement("div");
+    var breadcrumb = document.createElement("nav");
     breadcrumb.className = "declaration-context-breadcrumb";
+    breadcrumb.setAttribute("aria-label", "Declaration breadcrumb");
     var moduleLabel = document.createElement("button");
     moduleLabel.className = "btn btn-secondary declaration-breadcrumb-module";
     moduleLabel.type = "button";
@@ -2035,8 +2051,9 @@
       var className = "flow-node" + (active ? " active" : "");
       if (onActivate) className += " action";
       var interactive = Boolean(onActivate);
-      var group = createSvgNode("g", { "class": className, tabindex: interactive ? "0" : "-1", role: interactive ? "button" : "note", "aria-label": interactive ? "Select declaration " + name : name });
-      if (interactive) group.setAttribute("focusable", "true");
+      var focusable = interactive || active;
+      var group = createSvgNode("g", { "class": className, tabindex: focusable ? "0" : "-1", role: interactive ? "button" : "note", "aria-label": interactive ? "Select declaration " + name : name });
+      if (focusable) group.setAttribute("focusable", "true");
 
       var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
       var full = createSvgNode("title", {});
@@ -2159,7 +2176,10 @@
 
     renderFlowNodeInteriorMenu(moduleName);
 
-    applyFlowScrollTarget(wrap, declName, center.x, center.y, center.w, center.h);
+    if (!applyFlowScrollTarget(wrap, declName, center.x, center.y, center.w, center.h)) {
+      wrap.scrollLeft = previousScrollLeft;
+      wrap.scrollTop = previousScrollTop;
+    }
   }
 
   function isTypingTarget(target) {
@@ -2225,9 +2245,12 @@
 
   function renderAll() {
     renderContextChooser();
+    var wrap = document.getElementById("flowchart-wrap");
     if (state.flowContext === "declaration" && state.selectedDeclaration) {
+      if (wrap) wrap.setAttribute("aria-label", "Declaration call graph for " + state.selectedDeclaration);
       renderDeclarationFlowchart();
     } else {
+      if (wrap) wrap.setAttribute("aria-label", "Dependency and proof flow chart");
       renderFlowchart();
     }
   }

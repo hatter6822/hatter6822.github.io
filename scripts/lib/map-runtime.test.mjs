@@ -781,6 +781,31 @@ test('interior menu highlights active declaration in declaration context', async
   assert.equal(activeItem.__kind, 'def', 'active declaration should have correct kind');
 });
 
+test('renderContextChooser appends declaration name in declaration context', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // Verify the search bar context display logic uses separator character
+  // The renderContextChooser should format: "ModuleName › DeclName" when in declaration context
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  assert.ok(
+    mapSource.includes('state.selectedModule + " \\u203A " + state.selectedDeclaration'),
+    'renderContextChooser should append declaration name with › separator when in declaration context'
+  );
+});
+
+test('declaration flowchart preserves scroll position on re-render', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // Verify the declaration flowchart has scroll preservation logic
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  const declFnMatch = mapSource.match(/function renderDeclarationFlowchart\(\)[\s\S]*?^  \}/m);
+  assert.ok(declFnMatch, 'renderDeclarationFlowchart should exist');
+  const declFnBody = declFnMatch[0];
+  assert.ok(declFnBody.includes('shouldPreserveScroll'), 'renderDeclarationFlowchart should include scroll preservation logic');
+  assert.ok(declFnBody.includes('previousScrollLeft'), 'renderDeclarationFlowchart should save previous scroll left');
+  assert.ok(declFnBody.includes('previousScrollTop'), 'renderDeclarationFlowchart should save previous scroll top');
+});
+
 test('declaration lane expansion shows all items when expanded state is set', async () => {
   const hooks = await loadMapTestHooks();
 
