@@ -235,56 +235,6 @@
   height: 0.68rem;
   border-radius: 50%;
 }
-.view-context-switcher {
-  display: inline-flex;
-  gap: 0.2rem;
-  margin-bottom: 0.45rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.16rem;
-  background: rgba(20, 28, 45, 0.76);
-  background: color-mix(in oklab, var(--surface) 76%, transparent);
-}
-.context-switch-btn {
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 0.28rem 0.72rem;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.context-switch-btn:hover:not(:disabled),
-.context-switch-btn:focus-visible:not(:disabled) {
-  color: var(--heading);
-  border-color: color-mix(in oklab, var(--accent) 38%, transparent);
-}
-.context-switch-btn.is-active {
-  background: color-mix(in oklab, var(--accent) 18%, transparent);
-  border-color: var(--accent);
-  color: var(--heading);
-}
-.context-switch-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.flow-node.decl-node rect {
-  rx: 8;
-  ry: 8;
-}
-.flow-node.decl-kind-theorem rect,
-.flow-node.decl-kind-lemma rect { fill: color-mix(in oklab, var(--flow-node-bg) 82%, #ffd782 18%); }
-.flow-node.decl-kind-def rect,
-.flow-node.decl-kind-abbrev rect { fill: color-mix(in oklab, var(--flow-node-bg) 82%, #82f0b0 18%); }
-.flow-node.decl-kind-inductive rect,
-.flow-node.decl-kind-structure rect { fill: color-mix(in oklab, var(--flow-node-bg) 82%, #8ecbff 18%); }
-.flow-node.decl-kind-class rect,
-.flow-node.decl-kind-instance rect { fill: color-mix(in oklab, var(--flow-node-bg) 82%, #6ae3d8 18%); }
-.flow-node.decl-kind-opaque rect { fill: color-mix(in oklab, var(--flow-node-bg) 82%, #9ec5ff 18%); }
-.flow-node.decl-kind-axiom rect { fill: color-mix(in oklab, var(--flow-node-bg) 82%, #ff9fb0 18%); }
-
 .flow-node-interior-menu {
   display: grid;
   gap: 0.24rem;
@@ -581,14 +531,6 @@
     max-height: min(18rem, 44svh);
     overflow: auto;
     overscroll-behavior: contain;
-  }
-  .view-context-switcher {
-    width: 100%;
-  }
-  .context-switch-btn {
-    flex: 1;
-    font-size: 0.82rem;
-    min-height: 2.4rem;
   }
   .flowchart-mobile-hint { display: block; }
   .flowchart-wrap {

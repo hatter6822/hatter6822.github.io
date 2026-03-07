@@ -21,7 +21,7 @@ Validates:
 - theorem counting behavior, including declaration-first theorem derivation from `docs/codebase_map.json` payloads
 - README metric table parsing
 - data schema and graph consistency validation behavior, including `updatedAt` undefined/empty/valid ISO handling
-- map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, declaration-centric canonical payload support, declaration projection into symbol buckets, preservation of `called` arrays for declaration context, theorem/function fallback derivation from `byKind` when explicit arrays are empty, path-based dependency normalization, deterministic module/file ordering, stable per-module defaults, `symbolsLoaded` correctness, interior-kind group aggregation/default-selection behavior, interior search caret-range normalization used by live filter rerenders, declaration graph construction from `called` arrays, declaration graph edge filtering excluding self-references and unknown targets, declaration graph edge exclusion for namespace/end-kind targets, declaration graph last-wins behavior for duplicate declaration names, declaration graph node scoring and sorting, declaration-context legend entries, and declaration kind color mapping)
+- map runtime normalization (modules-array-first hydration, branch-wrapper payload extraction, rejection of payloads that omit `modules[]`, filtering of branch-ref pseudo-modules and URL module paths, declaration-centric canonical payload support, declaration projection into symbol buckets, theorem/function fallback derivation from `byKind` when explicit arrays are empty, path-based dependency normalization, deterministic module/file ordering, stable per-module defaults, `symbolsLoaded` correctness, interior-kind group aggregation/default-selection behavior, and interior search caret-range normalization used by live filter rerenders)
 
 ### Bundled data integrity
 
@@ -66,12 +66,6 @@ node --check assets/js/theme-init.js
 - Confirm modules-array payload compatibility by testing both string and object module entries, including branch-wrapper payloads where top-level `main` metadata must not become a module node.
 - Confirm legacy symbol compatibility with snapshots that use `symbols.by_kind` and/or `constant` declaration keys.
 - Confirm map live status messaging remains coherent during load/refresh.
-- Confirm the view-context switcher bar renders above the interior declaration panel with Module Context and Declaration Context buttons.
-- Confirm clicking Declaration Context on a module with declaration data switches to the intra-module call graph view.
-- Confirm the declaration graph nodes are color-coded by kind (theorem=gold, def=green, inductive=blue, class=teal).
-- Confirm clicking Module Context returns to the inter-module dependency view.
-- Confirm the Declaration Context button is disabled for modules without `called` data.
-- Confirm URL state includes `?context=declaration&declmodule=ModuleName` when in declaration view, and these parameters are removed when switching back to module context.
 
 ### Cross-browser nav stability probe (optional, Playwright)
 

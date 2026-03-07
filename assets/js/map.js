@@ -103,10 +103,6 @@
   })();
   var BUSY_STATUS_RE = /loading|refreshing|checking|analyzing|syncing/i;
 
-  function declKindColor(kind) {
-    return INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf";
-  }
-
   var state = {
     files: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
@@ -124,9 +120,7 @@
     interiorMenuSelections: { object: "", extension: "", contextInit: "" },
     commitSha: "",
     generatedAt: "",
-    flowScrollTarget: "",
-    viewContext: "module",
-    declarationModule: ""
+    flowScrollTarget: ""
   };
 
   var renderScheduled = false;
@@ -1287,259 +1281,6 @@
     layer.appendChild(path);
   }
 
-  function declarationsForModule(moduleName) {
-    var meta = state.moduleMeta[moduleName];
-    if (!meta) return [];
-    var symbols = meta.symbols || {};
-    if (Array.isArray(symbols.declarations) && symbols.declarations.length) return symbols.declarations;
-    return [];
-  }
-
-  function buildDeclarationGraph(declarations) {
-    var nameToDecl = Object.create(null);
-    for (var i = 0; i < declarations.length; i++) {
-      var d = declarations[i];
-      if (d.kind === "namespace" || d.kind === "end") continue;
-      nameToDecl[d.name] = d;
-    }
-
-    var edges = [];
-    var inDegree = Object.create(null);
-    var outDegree = Object.create(null);
-    for (var name in nameToDecl) {
-      inDegree[name] = 0;
-      outDegree[name] = 0;
-    }
-
-    for (var name in nameToDecl) {
-      if (!Object.prototype.hasOwnProperty.call(nameToDecl, name)) continue;
-      var decl = nameToDecl[name];
-      var called = decl.called || [];
-      for (var j = 0; j < called.length; j++) {
-        var target = called[j];
-        if (nameToDecl[target] && target !== name) {
-          edges.push({ from: name, to: target });
-          outDegree[name] = (outDegree[name] || 0) + 1;
-          inDegree[target] = (inDegree[target] || 0) + 1;
-        }
-      }
-    }
-
-    var nodes = [];
-    for (var name in nameToDecl) {
-      if (!Object.prototype.hasOwnProperty.call(nameToDecl, name)) continue;
-      nodes.push({
-        name: name,
-        kind: nameToDecl[name].kind,
-        line: nameToDecl[name].line,
-        inDegree: inDegree[name] || 0,
-        outDegree: outDegree[name] || 0
-      });
-    }
-
-    nodes.sort(function (a, b) {
-      var scoreA = a.inDegree * 2 + a.outDegree;
-      var scoreB = b.inDegree * 2 + b.outDegree;
-      if (scoreB !== scoreA) return scoreB - scoreA;
-      return a.line - b.line;
-    });
-
-    return { nodes: nodes, edges: edges };
-  }
-
-  function declFlowLegendItems() {
-    return [
-      { label: "Theorem / Lemma", color: "#ffd782" },
-      { label: "Definition / Abbrev", color: "#82f0b0" },
-      { label: "Inductive / Structure", color: "#8ecbff" },
-      { label: "Class / Instance", color: "#6ae3d8" },
-      { label: "Call reference", color: "#b9c0d0" },
-      { label: "Node tint = declaration kind", color: "#8fa3bf" }
-    ];
-  }
-
-  function renderDeclarationFlowchart() {
-    var wrap = document.getElementById("flowchart-wrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-
-    var moduleName = state.declarationModule;
-    if (!moduleName) {
-      wrap.textContent = "Select a module to view declaration relationships.";
-      return;
-    }
-
-    var declarations = declarationsForModule(moduleName);
-    if (!declarations.length) {
-      wrap.textContent = "No declaration call graph available for " + moduleName + ". The upstream codebase map may not include declaration data for this module.";
-      renderFlowNodeInteriorMenu(moduleName);
-      return;
-    }
-
-    var graph = buildDeclarationGraph(declarations);
-    if (!graph.nodes.length) {
-      wrap.textContent = "No graphable declarations found in " + moduleName + " (namespace/end-only modules are excluded).";
-      renderFlowNodeInteriorMenu(moduleName);
-      return;
-    }
-
-    var wrapWidth = Math.max(0, (wrap.clientWidth || 0) - 8);
-    var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
-    var framePad = 34;
-    var nodeWidth = Math.min(280, Math.max(200, Math.floor((flowWidth - framePad * 2 - 40) / 3)));
-    var nodeGapX = 24;
-    var nodeGapY = 14;
-    var laneYStart = 52;
-
-    var nodesPerRow = Math.max(2, Math.floor((flowWidth - framePad * 2 + nodeGapX) / (nodeWidth + nodeGapX)));
-    var nodePositions = Object.create(null);
-    var rowHeights = [];
-    var allNodes = graph.nodes;
-
-    for (var i = 0; i < allNodes.length; i++) {
-      var row = Math.floor(i / nodesPerRow);
-      var col = i % nodesPerRow;
-      var subtitle = allNodes[i].kind + " · L" + (allNodes[i].line || "?") + " · in:" + allNodes[i].inDegree + " out:" + allNodes[i].outDegree;
-      var h = nodeContentHeight(allNodes[i].name, subtitle, nodeWidth, true);
-      rowHeights[row] = Math.max(rowHeights[row] || 0, h);
-      nodePositions[allNodes[i].name] = { row: row, col: col, h: h, subtitle: subtitle, node: allNodes[i] };
-    }
-
-    var rowY = [];
-    var cursorY = laneYStart;
-    for (var r = 0; r < rowHeights.length; r++) {
-      rowY[r] = cursorY;
-      cursorY += (rowHeights[r] || 0) + nodeGapY;
-    }
-
-    for (var name in nodePositions) {
-      if (!Object.prototype.hasOwnProperty.call(nodePositions, name)) continue;
-      var pos = nodePositions[name];
-      pos.x = framePad + pos.col * (nodeWidth + nodeGapX);
-      pos.y = rowY[pos.row];
-    }
-
-    var flowHeight = Math.max(620, cursorY + 80);
-
-    var legend = document.createElement("div");
-    legend.className = "flowchart-legend flowchart-legend-corner";
-    legend.setAttribute("aria-label", "Declaration flow chart legend");
-    var legendItems = declFlowLegendItems();
-    for (var li = 0; li < legendItems.length; li++) {
-      var chip = document.createElement("span");
-      chip.className = "legend-item";
-      var swatch = document.createElement("span");
-      swatch.className = "legend-swatch";
-      swatch.style.backgroundColor = legendItems[li].color;
-      chip.appendChild(swatch);
-      chip.appendChild(document.createTextNode(legendItems[li].label));
-      legend.appendChild(chip);
-    }
-    wrap.appendChild(legend);
-
-    var svg = createSvgNode("svg", {
-      "class": "flowchart-svg",
-      "viewBox": "0 0 " + flowWidth + " " + flowHeight,
-      "role": "img",
-      "aria-label": "Declaration call graph for " + moduleName + ": " + allNodes.length + " declarations, " + graph.edges.length + " call edges"
-    });
-
-    var defs = createSvgNode("defs", {});
-    var marker = createSvgNode("marker", {
-      id: "flow-arrow",
-      viewBox: "0 0 10 10",
-      refX: "9",
-      refY: "5",
-      markerWidth: "6",
-      markerHeight: "6",
-      orient: "auto-start-reverse"
-    });
-    marker.appendChild(createSvgNode("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "currentColor" }));
-    defs.appendChild(marker);
-    svg.appendChild(defs);
-
-    var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer" });
-    var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
-    var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });
-    svg.appendChild(edgeLayer);
-    svg.appendChild(nodeLayer);
-    svg.appendChild(labelLayer);
-
-    var headerLabel = createSvgNode("text", { x: framePad, y: 28, fill: "#7c9cff", "font-size": "12", "class": "flow-lane-label" });
-    headerLabel.textContent = "Declaration call graph: " + moduleName + " (" + allNodes.length + " declarations)";
-    labelLayer.appendChild(headerLabel);
-
-    var nodeRects = Object.create(null);
-
-    for (var ni = 0; ni < allNodes.length; ni++) {
-      var nd = allNodes[ni];
-      var p = nodePositions[nd.name];
-      var color = declKindColor(nd.kind);
-      var tooltip = nd.name + " (" + nd.kind + ")\nline: " + (nd.line || "unknown") + "\nreferenced by: " + nd.inDegree + " declarations\ncalls: " + nd.outDegree + " declarations";
-
-      var className = "flow-node decl-node";
-      var group = createSvgNode("g", { "class": className, tabindex: "0", role: "button", "aria-label": nd.name + " (" + nd.kind + ")", focusable: "true" });
-
-      var kindClass = "decl-kind-" + nd.kind.replace(/_/g, "-");
-      group.classList.add(kindClass);
-
-      var rect = createSvgNode("rect", { x: p.x, y: p.y, width: nodeWidth, height: p.h, fill: "var(--flow-node-bg)", stroke: color });
-      var full = createSvgNode("title", {});
-      full.textContent = tooltip;
-
-      var compactNode = p.h < 44;
-      var title = createSvgNode("text", { x: p.x + 10, y: p.y + (compactNode ? 20 : 19) });
-      var titleLines = wrapLabelLines(nd.name, nodeWidth - 18, compactNode ? 14 : 12);
-      for (var tl = 0; tl < titleLines.length; tl++) {
-        var tspan = createSvgNode("tspan", { x: p.x + 10, dy: tl === 0 ? "0" : "13" });
-        tspan.textContent = titleLines[tl];
-        title.appendChild(tspan);
-      }
-
-      group.appendChild(full);
-      group.appendChild(rect);
-      group.appendChild(title);
-
-      if (p.subtitle && p.h >= 40) {
-        var subtitleLines = wrapLabelLines(p.subtitle, nodeWidth - 18, 14);
-        var subtitleStartY = p.y + 22 + Math.max(1, titleLines.length) * 13 + 3;
-        var meta = createSvgNode("text", { x: p.x + 10, y: subtitleStartY, "class": "flow-meta" });
-        for (var sl = 0; sl < subtitleLines.length; sl++) {
-          var metaSpan = createSvgNode("tspan", { x: p.x + 10, dy: sl === 0 ? "0" : "12" });
-          metaSpan.textContent = subtitleLines[sl];
-          meta.appendChild(metaSpan);
-        }
-        group.appendChild(meta);
-      }
-
-      nodeLayer.appendChild(group);
-      nodeRects[nd.name] = { name: nd.name, x: p.x, y: p.y, w: nodeWidth, h: p.h };
-    }
-
-    var edgeCounts = Object.create(null);
-    for (var ei = 0; ei < graph.edges.length; ei++) {
-      var edge = graph.edges[ei];
-      var pairKey = edge.from < edge.to ? edge.from + "\0" + edge.to : edge.to + "\0" + edge.from;
-      edgeCounts[pairKey] = (edgeCounts[pairKey] || 0) + 1;
-    }
-    var edgeRanks = Object.create(null);
-
-    for (var ej = 0; ej < graph.edges.length; ej++) {
-      var e = graph.edges[ej];
-      var fromRect = nodeRects[e.from];
-      var toRect = nodeRects[e.to];
-      if (!fromRect || !toRect) continue;
-      var pk = e.from < e.to ? e.from + "\0" + e.to : e.to + "\0" + e.from;
-      var total = edgeCounts[pk] || 1;
-      var rank = edgeRanks[pk] || 0;
-      edgeRanks[pk] = rank + 1;
-      drawFlowEdge(edgeLayer, fromRect, toRect, "#b9c0d0", false, { rank: rank, total: total, spread: Math.min(30, total * 6) });
-    }
-
-    wrap.appendChild(svg);
-    renderFlowNodeInteriorMenu(moduleName);
-  }
-
   function renderFlowchart() {
     var wrap = document.getElementById("flowchart-wrap");
     if (!wrap) return;
@@ -1819,7 +1560,7 @@
 
       if (subtitle && h >= 40) {
         var subtitleLines = wrapLabelLines(subtitle, w - 18, 14);
-        var subtitleStartY = y + 22 + Math.max(1, titleLines.length) * 13 + 3;
+        var subtitleStartY = y + (compactNode ? 22 : 22) + Math.max(1, titleLines.length) * 13 + 3;
         var meta = createSvgNode("text", { x: x + 10, y: subtitleStartY, "class": "flow-meta" });
         for (var mm = 0; mm < subtitleLines.length; mm++) {
           var metaSpan = createSvgNode("tspan", { x: x + 10, dy: mm === 0 ? "0" : "12" });
@@ -2003,85 +1744,7 @@
 
   function renderAll() {
     renderContextChooser();
-    renderViewContextSwitcher();
-    if (state.viewContext === "declaration" && state.declarationModule) {
-      renderDeclarationFlowchart();
-    } else {
-      renderFlowchart();
-    }
-  }
-
-  function renderViewContextSwitcher() {
-    var existing = document.getElementById("view-context-switcher");
-    if (existing) existing.remove();
-
-    var menu = document.getElementById("flow-node-interior-menu");
-    if (!menu) return;
-
-    var switcher = document.createElement("div");
-    switcher.id = "view-context-switcher";
-    switcher.className = "view-context-switcher";
-    switcher.setAttribute("role", "group");
-    switcher.setAttribute("aria-label", "Graph context");
-
-    var moduleBtn = document.createElement("button");
-    moduleBtn.className = "context-switch-btn" + (state.viewContext === "module" ? " is-active" : "");
-    moduleBtn.type = "button";
-    moduleBtn.textContent = "Module Context";
-    moduleBtn.setAttribute("aria-pressed", state.viewContext === "module" ? "true" : "false");
-    moduleBtn.addEventListener("click", function () {
-      switchToModuleContext();
-    });
-
-    var declBtn = document.createElement("button");
-    declBtn.className = "context-switch-btn" + (state.viewContext === "declaration" ? " is-active" : "");
-    declBtn.type = "button";
-    var declLabel = "Declaration Context";
-    if (state.viewContext === "declaration" && state.declarationModule) {
-      declLabel = "Declarations: " + state.declarationModule.split(".").pop();
-    }
-    declBtn.textContent = declLabel;
-    declBtn.setAttribute("aria-pressed", state.viewContext === "declaration" ? "true" : "false");
-
-    var activeModule = state.selectedModule || "";
-    if (state.viewContext !== "declaration" && activeModule) {
-      var decls = declarationsForModule(activeModule);
-      var hasDecls = decls.length > 0;
-      declBtn.disabled = !hasDecls;
-      if (hasDecls) {
-        declBtn.title = "View call graph for declarations in " + activeModule;
-      } else {
-        declBtn.title = "No declaration data available for " + activeModule;
-      }
-    }
-
-    declBtn.addEventListener("click", function () {
-      var mod = state.selectedModule || state.declarationModule;
-      if (mod) switchToDeclarationContext(mod);
-    });
-
-    switcher.appendChild(moduleBtn);
-    switcher.appendChild(declBtn);
-    menu.parentNode.insertBefore(switcher, menu);
-  }
-
-  function switchToModuleContext() {
-    if (state.viewContext === "module") return;
-    state.viewContext = "module";
-    syncUrlState();
-    scheduleRender();
-  }
-
-  function switchToDeclarationContext(moduleName) {
-    if (!moduleName || !state.moduleMap[moduleName]) return;
-    state.viewContext = "declaration";
-    state.declarationModule = moduleName;
-    if (state.interiorMenuModule !== moduleName) {
-      state.interiorMenuModule = moduleName;
-      state.interiorMenuQuery = "";
-    }
-    syncUrlState();
-    scheduleRender();
+    renderFlowchart();
   }
 
 
@@ -2607,10 +2270,8 @@
 
     function normalizeModuleSymbols(rawSymbols) {
       var source = rawSymbols || {};
-      var rawDeclarations = null;
       if (Array.isArray(source.declarations) && !source.byKind && !source.by_kind) {
         var declarationKinds = Object.create(null);
-        rawDeclarations = [];
         for (var decIdx = 0; decIdx < source.declarations.length; decIdx++) {
           var declaration = source.declarations[decIdx] || {};
           var kind = normalizeDeclarationKind(declaration.kind || "");
@@ -2619,13 +2280,6 @@
           if (!kind || !name) continue;
           if (!declarationKinds[kind]) declarationKinds[kind] = [];
           declarationKinds[kind].push({ name: name, line: line > 0 ? line : null });
-          var calledRaw = Array.isArray(declaration.called) ? declaration.called : [];
-          var called = [];
-          for (var ci = 0; ci < calledRaw.length; ci++) {
-            var calledName = normalizeSymbolName(calledRaw[ci]);
-            if (calledName) called.push(calledName);
-          }
-          rawDeclarations.push({ kind: kind, name: name, line: line > 0 ? line : 0, called: called });
         }
         source = { byKind: declarationKinds };
       }
@@ -2641,13 +2295,11 @@
       var theorems = normalizeSymbolList(symbols.theorems);
       var functions = normalizeSymbolList(symbols.functions);
 
-      var result = {
+      return {
         byKind: byKind,
         theorems: theorems.length ? theorems : (byKind.theorem || []).concat(byKind.lemma || []),
         functions: functions.length ? functions : (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || [])
       };
-      if (rawDeclarations) result.declarations = rawDeclarations;
-      return result;
     }
 
     var moduleRecords = moduleRecordsFromArray();
@@ -3520,15 +3172,6 @@
 
     state.proofLinkedOnly = getParam("linked") === "1";
     state.flowShowAll = getParam("fullflow") === "1";
-
-    var context = getParam("context") || "";
-    if (context === "declaration") {
-      var declModule = sanitizeModuleName(getParam("declmodule") || getParam("module") || "");
-      if (declModule) {
-        state.viewContext = "declaration";
-        state.declarationModule = declModule;
-      }
-    }
   }
 
   function syncUrlState() {
@@ -3542,14 +3185,6 @@
 
     if (state.proofLinkedOnly) params.set("linked", "1"); else params.delete("linked");
     if (state.flowShowAll) params.set("fullflow", "1"); else params.delete("fullflow");
-
-    if (state.viewContext === "declaration" && state.declarationModule) {
-      params.set("context", "declaration");
-      params.set("declmodule", state.declarationModule);
-    } else {
-      params.delete("context");
-      params.delete("declmodule");
-    }
 
     params.delete("sort");
     params.delete("mode");
@@ -3650,10 +3285,7 @@
       interiorItemsForSelection: interiorItemsForSelection,
       flowLegendItems: flowLegendItems,
       flowLaneLabelVisibility: flowLaneLabelVisibility,
-      normalizeCaretRange: normalizeCaretRange,
-      buildDeclarationGraph: buildDeclarationGraph,
-      declFlowLegendItems: declFlowLegendItems,
-      declKindColor: declKindColor
+      normalizeCaretRange: normalizeCaretRange
     };
     return;
   }
