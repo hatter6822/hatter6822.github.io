@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.1.0**.
+> Documentation baseline: website release **0.2.0**.
 
 ## Audit summary
 
@@ -207,6 +207,40 @@ The `LABEL_WRAP_CACHE` previously evicted a single entry when at capacity. This 
 
 - Added `map-runtime.test.mjs` tests: context search dot-append format verification, `selectDeclaration` search bar sync, DOM caching initialization check, batch eviction pattern verification, and reset-to-module-context behavior.
 - Added `map-toolbar.test.mjs` assertions: "Context search" label in HTML, "Module or Module.declaration" placeholder, `cacheDomElements` function existence, `DOM.flowchartWrap` and `DOM.moduleSearch` caching, `selectDeclaration` picker sync pattern, `LABEL_WRAP_CACHE_EVICT_BATCH` constant, and `searchDeclSuggestions` cleanup on dropdown close.
+
+## Interior menu color coding and assurance level refinements
+
+### Interior kind color coding standardization
+
+- Standardized `color-mix` saturation percentages across interior-kind-select (62%) and interior-menu-item (62% border, 17% background) for visual consistency; the select option background now uses `var(--surface-2)` instead of `var(--surface)` to match item chip backgrounds.
+- Increased interior-kind-select inset box-shadow opacity from 30% to 38% for a more visible kind-color tint on the dropdown border.
+- Added smooth CSS transition (`border-color`, `box-shadow`) on `.interior-kind-select` for polished dropdown state changes.
+- Replaced the redundant double `box-shadow` on `.interior-menu-item-active` (which used a solid 1px ring) with a single 2px color-mixed ring at 28% opacity, matching the `.detail-pill.is-active` pattern for consistent active-state treatment across the UI.
+- Added explicit CSS transition on `.interior-menu-item-active` for smooth activation/deactivation visual feedback.
+- Removed the redundant `constants` entry from `INTERIOR_KIND_COLOR_MAP` since `normalizeDeclarationKind()` already normalizes "constants" to "constant" before color lookup.
+- Updated `interiorKindColor()` to fall back through `normalizeDeclarationKind()` when a kind is not directly in the color map, ensuring plural forms like "constants" resolve correctly without requiring duplicate map entries.
+
+### Module assurance level upgrade
+
+- Upgraded assurance level computation to include `theoremDensity` on every assurance result, providing quantitative theorem coverage information alongside the qualitative level label.
+- Enhanced detail text to be dynamically descriptive: linked pairs now report the exact theorem count ("5 theorems") or note "structural only" when the link has zero theorems; partial pairs report their combined theorem count; local modules report their individual theorem count.
+- Linked pair scoring now uses a `densityBonus` formula (`pairTheorems * 2`) instead of adding raw theorem counts, making high-theorem-density pairs score proportionally higher than vacuously-linked zero-theorem pairs.
+- Partial pair scoring now includes combined theorem count for meaningful ranking.
+- Introduced `ASSURANCE_COLORS` constant as a single source of truth for all four assurance level colors (`linked: #35c98f`, `partial: #d37cff`, `local: #6de2ff`, `none: #ffad42`), referenced by the flow legend.
+- Replaced the single "Node tint = assurance level" legend entry with four individual assurance level entries ("Linked proof", "Partial proof", "Local theorems", "No proof evidence") with their respective colors for immediate visual reference.
+- Updated assurance CSS to use `--assurance-tint` CSS custom properties on each `.flow-node.assurance-*` rule, providing a named reference point for the tint color.
+- Graduated assurance tint intensity by level: linked (18%), partial (18%), local (15%), none (12%), reflecting the confidence hierarchy where stronger assurance levels have more prominent visual tinting.
+- Added `fill` to the `.flow-node rect` CSS transition list for smooth assurance tint changes when navigating between modules.
+
+### Test coverage expansion (assurance and color coding)
+
+- Added `interiorKindColor` and `normalizeDeclarationKind` to map test hooks for direct validation.
+- Added `assuranceColors` test hook exposing `ASSURANCE_COLORS` for legend and color consistency verification.
+- New test: `interiorKindColor returns correct colors for known kinds and fallback for unknown` — verifies color resolution for known kinds, plural normalization fallback ("constants" → "constant"), and gray fallback for unknown kinds.
+- New test: `normalizeDeclarationKind normalizes plurals and trims whitespace` — verifies plural-to-singular, case normalization, whitespace trimming, and empty/null handling.
+- New test: `assuranceForModule includes theoremDensity and descriptive detail text` — verifies linked pairs with theorems report density and descriptive detail, linked pairs with zero theorems report "structural only", and local modules report their theorem count.
+- New test: `ASSURANCE_COLORS constant maps all four assurance levels` — verifies all four levels have valid hex color values.
+- Updated `flowLegendItems` test to verify the expanded 10-entry legend with individual assurance level colors.
 
 ## Future growth recommendations
 

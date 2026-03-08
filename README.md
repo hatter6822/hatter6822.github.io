@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.1.0`
+- Website version: `0.2.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -62,7 +62,7 @@ The code map interior panel supports declaration-first navigation:
 - Parses function-style declarations (`def`, `abbrev`, `opaque`, `instance`)
 - Populates all interior declaration groupings used by the UI (`Objects`, `Contexts/Inits`, `Extensions`)
 - Defaults each interior kind selector to `All (N)` so Object/Context-Init/Extension scrollboxes open with complete group coverage
-- Color-codes interior kind selector options and declaration chips by declaration kind so the selector doubles as a visual key for list entries
+- Color-codes interior kind selector options and declaration chips by declaration kind with standardized `color-mix` saturation, smooth CSS transitions, and robust plural-kind fallback resolution so the selector doubles as a visual key for list entries
 - Sorts interior declaration results case-insensitively (including `All`) for stable alphabetical scanning
 - Keeps the interior declaration filter input focused while typing, preserving caret position across panel rerenders so multi-character filters can be entered reliably
 - Includes declaration line metadata for line-accurate blob anchors

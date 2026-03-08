@@ -289,7 +289,7 @@
 }
 
 .interior-kind-select {
-  border: 1px solid color-mix(in oklab, var(--interior-kind-color, var(--border)) 65%, var(--border));
+  border: 1px solid color-mix(in oklab, var(--interior-kind-color, var(--border)) 62%, var(--border));
   border-radius: 0.5rem;
   background: rgba(20, 28, 45, 0.92);
   background: color-mix(in oklab, var(--surface) 92%, transparent);
@@ -297,11 +297,12 @@
   font-size: 0.68rem;
   padding: 0.2rem 0.35rem;
   min-width: 11rem;
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--interior-kind-color, transparent) 30%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--interior-kind-color, transparent) 38%, transparent);
+  transition: border-color 0.12s ease-out, box-shadow 0.12s ease-out;
 }
 .interior-kind-select option {
   color: var(--text);
-  background: color-mix(in oklab, var(--interior-kind-color, var(--surface)) 18%, var(--surface) 82%);
+  background: color-mix(in oklab, var(--interior-kind-color, var(--surface-2)) 17%, var(--surface-2) 83%);
 }
 .interior-menu-items {
   margin: 0;
@@ -345,8 +346,9 @@
 }
 .interior-menu-item-active {
   border-color: var(--accent, #7c9cff);
-  box-shadow: 0 0 0 1px var(--accent, #7c9cff);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent, #7c9cff) 28%, transparent);
   background: color-mix(in oklab, var(--accent, #7c9cff) 22%, var(--surface-2) 78%);
+  transition: border-color 0.12s ease-out, background 0.12s ease-out, box-shadow 0.12s ease-out;
 }
 .interior-menu-item::after {
   content: attr(data-kind-label);
@@ -398,7 +400,7 @@
   stroke-width: 1.2;
   rx: 10;
   ry: 10;
-  transition: stroke 0.15s ease-out, stroke-width 0.15s ease-out, filter 0.15s ease-out;
+  transition: stroke 0.15s ease-out, stroke-width 0.15s ease-out, filter 0.15s ease-out, fill 0.15s ease-out;
 }
 .flow-node text {
   font-family: var(--font-mono);
@@ -413,10 +415,22 @@
 .flow-node:not(.static):hover rect,
 .flow-node:not(.static):focus-visible rect { stroke: var(--accent); filter: brightness(1.03); }
 .flow-node.active rect { stroke-width: 2; }
-.flow-node.assurance-linked rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #35c98f 16%); }
-.flow-node.assurance-partial rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #d37cff 16%); }
-.flow-node.assurance-local rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #6de2ff 16%); }
-.flow-node.assurance-none rect { fill: color-mix(in oklab, var(--flow-node-bg) 84%, #ffad42 16%); }
+.flow-node.assurance-linked rect {
+  --assurance-tint: #35c98f;
+  fill: color-mix(in oklab, var(--flow-node-bg) 82%, var(--assurance-tint) 18%);
+}
+.flow-node.assurance-partial rect {
+  --assurance-tint: #d37cff;
+  fill: color-mix(in oklab, var(--flow-node-bg) 82%, var(--assurance-tint) 18%);
+}
+.flow-node.assurance-local rect {
+  --assurance-tint: #6de2ff;
+  fill: color-mix(in oklab, var(--flow-node-bg) 85%, var(--assurance-tint) 15%);
+}
+.flow-node.assurance-none rect {
+  --assurance-tint: #ffad42;
+  fill: color-mix(in oklab, var(--flow-node-bg) 88%, var(--assurance-tint) 12%);
+}
 
 @supports not (color: color-mix(in oklab, white 50%, black)) {
   .flow-node.assurance-linked rect { fill: #2e5f56; }
