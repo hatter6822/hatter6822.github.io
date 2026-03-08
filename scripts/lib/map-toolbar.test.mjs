@@ -138,22 +138,19 @@ assert(/\.interior-menu-item::after\s*\{[^}]*margin-left:\s*auto/s.test(css), "i
 // CSS: interior menu button should have focus-visible outline for keyboard navigation
 assert(/\.interior-menu-item-btn:focus-visible\s*\{[^}]*outline:/s.test(css), "interior menu button should have focus-visible outline for keyboard accessibility");
 
-// CSS: interior menu src link should have focus-visible outline
-assert(/\.interior-menu-item-src:focus-visible\s*\{[^}]*outline:/s.test(css), "interior menu src link should have focus-visible outline for keyboard accessibility");
-
 // CSS: interior menu items list should use thin scrollbar for space efficiency
 assert(/\.interior-menu-items\s*\{[^}]*scrollbar-width:\s*thin/s.test(css), "interior menu items list should use thin scrollbar");
 
 // CSS: interior menu grid should use min() to prevent overflow on narrow screens
 assert(/\.interior-menu-grid\s*\{[^}]*minmax\(min\(16rem,\s*100%\)/s.test(css), "interior menu grid should use min() in minmax to prevent overflow on narrow viewports");
 
-// CSS: interior menu item navigable should prevent flex wrapping of button and src link
+// CSS: interior menu item navigable should prevent flex wrapping
 assert(/\.interior-menu-item-navigable\s*\{[^}]*flex-wrap:\s*nowrap/s.test(css), "interior menu item navigable should prevent flex wrapping");
 
 // JS: repaintList should guard against empty href for non-navigable items
 assert(/nameSpan/.test(mapJs), "repaintList should use span fallback when symbolSourceHref returns empty");
 
-// JS: repaintList should guard against empty href for src links
-assert(/if\s*\(srcHref\)/.test(mapJs), "repaintList should guard against empty href before creating src link");
+// JS: interior menu should not render legacy "src" links beside declaration buttons
+assert(!/interior-menu-item-src/.test(mapJs), "interior menu should not create legacy src-link elements in declaration rows");
 
 console.log("map-toolbar.test: ok");

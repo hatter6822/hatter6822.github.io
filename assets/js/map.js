@@ -1265,17 +1265,6 @@
                 return function () { selectDeclaration(itemName, selected); };
               })(items[j].name));
               li.appendChild(btn);
-              var srcHref = symbolSourceHref(selected, items[j]);
-              if (srcHref) {
-                var srcLink = document.createElement("a");
-                srcLink.href = srcHref;
-                srcLink.target = "_blank";
-                srcLink.rel = "noopener noreferrer";
-                srcLink.className = "interior-menu-item-src";
-                srcLink.textContent = "src";
-                srcLink.title = items[j].line > 0 ? "Open source at line " + items[j].line : "Open source";
-                li.appendChild(srcLink);
-              }
             } else {
               var linkHref = symbolSourceHref(selected, items[j]);
               if (linkHref) {
