@@ -784,12 +784,12 @@ test('interior menu highlights active declaration in declaration context', async
 test('renderContextChooser appends declaration name in declaration context', async () => {
   const hooks = await loadMapTestHooks();
 
-  // Verify the search bar context display logic uses separator character
-  // The renderContextChooser should format: "ModuleName › DeclName" when in declaration context
+  // Verify the search bar context display logic uses dot-append format (Module.Declaration)
+  // The renderContextChooser should format: "ModuleName.DeclName" when in declaration context
   const mapSource = await fs.readFile(mapScriptPath, 'utf8');
   assert.ok(
-    mapSource.includes('state.selectedModule + " \\u203A " + state.selectedDeclaration'),
-    'renderContextChooser should append declaration name with › separator when in declaration context'
+    mapSource.includes('state.selectedDeclarationModule + "." + state.selectedDeclaration'),
+    'renderContextChooser should append declaration name with dot separator when in declaration context'
   );
 });
 
@@ -1450,5 +1450,88 @@ test('edge layer in flowchart SVG is aria-hidden for accessibility', async () =>
   assert.ok(
     mapSource.includes('"aria-hidden": "true"') && mapSource.includes('flow-edge-layer'),
     'edge layer should be marked aria-hidden for screen readers'
+  );
+});
+
+test('context search uses dot-append format for declaration display', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+
+  // The renderContextChooser should use Module.Declaration format (not › separator)
+  assert.ok(
+    mapSource.includes('state.selectedDeclarationModule + "." + state.selectedDeclaration'),
+    'context search should use dot-append format for declaration display in the search bar'
+  );
+
+  // The context search label should reflect the current context mode
+  assert.ok(
+    /Context search.*declaration/.test(mapSource),
+    'context search label should indicate declaration context'
+  );
+  assert.ok(
+    /Context search.*module/.test(mapSource),
+    'context search label should indicate module context'
+  );
+});
+
+test('selectDeclaration syncs context search bar value', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+
+  // selectDeclaration should sync the context search bar to the dot-appended value
+  const selectDeclMatch = mapSource.match(/function selectDeclaration\([\s\S]*?^  \}/m);
+  assert.ok(selectDeclMatch, 'selectDeclaration function should exist');
+  const selectDeclBody = selectDeclMatch[0];
+  assert.ok(
+    selectDeclBody.includes('picker.value = mod + "." + declName'),
+    'selectDeclaration should sync the context search bar to Module.Declaration format'
+  );
+});
+
+test('DOM element caching is initialized on boot', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+
+  // The boot function should call cacheDomElements
+  assert.ok(
+    mapSource.includes('cacheDomElements()'),
+    'boot function should call cacheDomElements to initialize cached DOM references'
+  );
+
+  // cacheDomElements should cache key elements
+  assert.ok(
+    /function cacheDomElements\(\)/.test(mapSource),
+    'cacheDomElements function should exist'
+  );
+  assert.ok(
+    mapSource.includes('DOM.flowchartWrap'),
+    'DOM cache should include flowchartWrap element'
+  );
+  assert.ok(
+    mapSource.includes('DOM.moduleSearch'),
+    'DOM cache should include moduleSearch element'
+  );
+});
+
+test('label wrap cache uses batch eviction for performance', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+
+  // The cache should evict in batches, not one at a time
+  assert.ok(
+    mapSource.includes('LABEL_WRAP_CACHE_EVICT_BATCH'),
+    'label wrap cache should define a batch eviction constant'
+  );
+
+  // Batch eviction loop should exist
+  assert.ok(
+    /for.*evicted.*LABEL_WRAP_CACHE_EVICT_BATCH/.test(mapSource),
+    'label wrap cache should use a loop for batch eviction'
+  );
+});
+
+test('reset button returns to module context from declaration view', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+
+  // The reset button handler should call returnToModuleContext when in declaration context
+  assert.ok(
+    /reset.*addEventListener.*click[\s\S]*?returnToModuleContext/m.test(mapSource),
+    'reset button should return to module context when in declaration flow'
   );
 });
