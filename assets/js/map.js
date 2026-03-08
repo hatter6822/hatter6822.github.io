@@ -90,7 +90,6 @@
     abbrev: "#8be4cb",
     axiom: "#ff9fb0",
     constant: "#f7b0ff",
-    constants: "#f7b0ff",
     declare_syntax_cat: "#83e3ff",
     syntax_cat: "#6cd9ff",
     syntax: "#63ccff",
@@ -545,7 +544,8 @@
   }
 
   function interiorKindColor(kind) {
-    return INTERIOR_KIND_COLOR_MAP[String(kind || "")] || "#8fa3bf";
+    var k = String(kind || "");
+    return INTERIOR_KIND_COLOR_MAP[k] || INTERIOR_KIND_COLOR_MAP[normalizeDeclarationKind(k)] || "#8fa3bf";
   }
 
   function applyInteriorKindColor(node, kind, includeBackground) {
@@ -812,32 +812,41 @@
     var result;
 
     if (pair && pair.invariantImportsOperations) {
+      var pairTheorems = pair.operationsTheorems + pair.invariantTheorems;
+      var densityBonus = pairTheorems > 0 ? pairTheorems * 2 : 0;
       result = {
         level: "linked",
         label: "Linked proof chain",
-        detail: "Operations and Invariant modules are connected; obligations can be traced from transitions to safety claims.",
-        score: degree.score + pair.operationsTheorems + pair.invariantTheorems
+        detail: pairTheorems > 0
+          ? "Operations and Invariant modules are connected with " + pairTheorems + " theorem" + (pairTheorems === 1 ? "" : "s") + "; obligations can be traced from transitions to safety claims."
+          : "Operations and Invariant modules are connected but declare no theorems; the link is structural only.",
+        score: degree.score + densityBonus,
+        theoremDensity: pairTheorems
       };
     } else if (pair) {
+      var partialTheorems = (pair.operationsTheorems || 0) + (pair.invariantTheorems || 0);
       result = {
         level: "partial",
         label: "Partial proof context",
-        detail: "A proof pair exists but is not explicitly linked by imports; review assumptions before reusing results.",
-        score: degree.score
+        detail: "A proof pair exists but is not explicitly linked by imports" + (partialTheorems > 0 ? " (" + partialTheorems + " theorem" + (partialTheorems === 1 ? "" : "s") + " across the pair)" : "") + "; review assumptions before reusing results.",
+        score: degree.score + partialTheorems,
+        theoremDensity: partialTheorems
       };
     } else if (degree.theorems > 0) {
       result = {
         level: "local",
         label: "Local theorem coverage",
-        detail: "This module declares theorems but has no Operations/Invariant pair mapping.",
-        score: degree.score
+        detail: "This module declares " + degree.theorems + " theorem" + (degree.theorems === 1 ? "" : "s") + " but has no Operations/Invariant pair mapping.",
+        score: degree.score,
+        theoremDensity: degree.theorems
       };
     } else {
       result = {
         level: "none",
         label: "No explicit proof evidence",
         detail: "No theorem declarations or proof-pair mapping detected for this module.",
-        score: degree.score
+        score: degree.score,
+        theoremDensity: 0
       };
     }
 
@@ -1128,6 +1137,13 @@
   }
 
 
+  var ASSURANCE_COLORS = {
+    linked: "#35c98f",
+    partial: "#d37cff",
+    local: "#6de2ff",
+    none: "#ffad42"
+  };
+
   function flowLegendItems() {
     return [
       { label: "Selected module", color: "#7c9cff" },
@@ -1136,7 +1152,10 @@
       { label: "Proof pair relation", color: "#d37cff" },
       { label: "Nearest linked-proof path", color: "#6de2ff" },
       { label: "External dependency", color: "#b9c0d0" },
-      { label: "Node tint = assurance level", color: "#8fa3bf" }
+      { label: "Linked proof", color: ASSURANCE_COLORS.linked },
+      { label: "Partial proof", color: ASSURANCE_COLORS.partial },
+      { label: "Local theorems", color: ASSURANCE_COLORS.local },
+      { label: "No proof evidence", color: ASSURANCE_COLORS.none }
     ];
   }
 
@@ -4198,6 +4217,9 @@
       interiorGroupItemCount: interiorGroupItemCount,
       pickInteriorDefaultKind: pickInteriorDefaultKind,
       interiorItemsForSelection: interiorItemsForSelection,
+      interiorKindColor: interiorKindColor,
+      normalizeDeclarationKind: normalizeDeclarationKind,
+      assuranceColors: function () { return Object.assign({}, ASSURANCE_COLORS); },
       flowLegendItems: flowLegendItems,
       flowLaneLabelVisibility: flowLaneLabelVisibility,
       normalizeCaretRange: normalizeCaretRange,

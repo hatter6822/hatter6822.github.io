@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.1.0**.
+> Documentation baseline: website release **0.2.0**.
 
 ## Automated checks
 
@@ -29,6 +29,9 @@ Validates:
 - declaration search via dot-append notation (`declarationSearchMatch` exact/prefix/substring matching, module-qualified declaration resolution, cross-module search via pre-built `declarationSearchList` global index, edge cases for missing dots and module-only queries, `declarationSearchMatches` multi-result ranked search for dropdown suggestions, `buildDeclarationSearchIndex` pre-indexing pipeline verification, `searchDeclarationsInModule` module-scoped declaration matching)
 - module search scoring algorithm (`moduleSearchMatches` exact match ranking, prefix-before-substring ordering, empty query behavior returning first 10 modules)
 - accessibility: edge layer `aria-hidden` attribute on flowchart SVG group for screen reader exclusion of decorative edges
+- interior kind color coding (`interiorKindColor` known kind resolution, plural normalization fallback via `normalizeDeclarationKind`, gray fallback for unknown kinds, `normalizeDeclarationKind` plural-to-singular/case/whitespace normalization)
+- assurance level computation (`assuranceForModule` theorem density tracking, descriptive detail text with theorem counts, structural-only detail for zero-theorem linked pairs, `ASSURANCE_COLORS` constant validation for all four levels with hex color format verification)
+- flow legend expansion (10-entry legend with individual assurance level colors verified against `assuranceColors` hook)
 
 ### Bundled data integrity
 

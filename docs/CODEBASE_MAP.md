@@ -1,6 +1,6 @@
 # Codebase Map: End-to-End Guide
 
-> Documentation baseline: website release **0.1.0**.
+> Documentation baseline: website release **0.2.0**.
 
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
@@ -29,7 +29,7 @@ The map page provides a single operational and proof-aware architecture view of 
    - Derives module paths from `SeLe4n/**/*.lean`.
    - Parses imports and interior declarations across all Lean code kinds (object, extension, and context/init groups) with line anchors, while preserving theorem/function rollups for backward compatibility.
    - Normalizes imports against the current module inventory and rebuilds reverse import edges for consistency.
-   - Computes module degree, pair linkage, and assurance labels.
+   - Computes module degree, pair linkage, and assurance labels with theorem-density tracking. Each assurance result includes `theoremDensity` for quantitative coverage information alongside the qualitative level. Linked pairs with zero theorems are distinguished as "structural only" links. The flow legend displays all four assurance levels individually (linked, partial, local, none) with their respective colors from the `ASSURANCE_COLORS` constant.
 
 4.1 **Modules-array normalization (runtime)**
    - Map hydration now uses `modules[]` as the canonical source of graph nodes. If `modules[]` is missing or empty, hydration fails fast instead of inferring modules from top-level maps.

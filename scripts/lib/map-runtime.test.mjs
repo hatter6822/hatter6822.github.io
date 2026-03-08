@@ -439,15 +439,25 @@ test('flowLaneLabelVisibility hides context labels for empty lanes', async () =>
   assert.equal(populatedLanes.selected, true);
 });
 
-test('flowLegendItems returns canonical flow legend entries', async () => {
+test('flowLegendItems returns canonical flow legend entries with individual assurance levels', async () => {
   const hooks = await loadMapTestHooks();
   const items = hooks.flowLegendItems();
+  const colors = hooks.assuranceColors();
 
-  assert.equal(items.length, 7);
+  assert.equal(items.length, 10);
   assert.equal(items[0].label, 'Selected module');
   assert.equal(items[0].color, '#7c9cff');
-  assert.equal(items[6].label, 'Node tint = assurance level');
-  assert.equal(items[6].color, '#8fa3bf');
+  assert.equal(items[5].label, 'External dependency');
+  assert.equal(items[5].color, '#b9c0d0');
+  // Individual assurance level entries
+  assert.equal(items[6].label, 'Linked proof');
+  assert.equal(items[6].color, colors.linked);
+  assert.equal(items[7].label, 'Partial proof');
+  assert.equal(items[7].color, colors.partial);
+  assert.equal(items[8].label, 'Local theorems');
+  assert.equal(items[8].color, colors.local);
+  assert.equal(items[9].label, 'No proof evidence');
+  assert.equal(items[9].color, colors.none);
 });
 
 test('normalizeMapData preserves declaration call graph from modules[].declarations', async () => {
@@ -1534,4 +1544,124 @@ test('reset button returns to module context from declaration view', async () =>
     /reset.*addEventListener.*click[\s\S]*?returnToModuleContext/m.test(mapSource),
     'reset button should return to module context when in declaration flow'
   );
+});
+
+test('interiorKindColor returns correct colors for known kinds and fallback for unknown', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // Known kinds should return their mapped color
+  assert.equal(hooks.interiorKindColor('theorem'), '#ffd782');
+  assert.equal(hooks.interiorKindColor('def'), '#82f0b0');
+  assert.equal(hooks.interiorKindColor('inductive'), '#8ecbff');
+  assert.equal(hooks.interiorKindColor('namespace'), '#ff84b6');
+
+  // Plural "constants" should resolve via normalizeDeclarationKind fallback to "constant"
+  assert.equal(hooks.interiorKindColor('constants'), '#f7b0ff');
+
+  // Unknown kinds should return the gray fallback
+  assert.equal(hooks.interiorKindColor('unknownKind'), '#8fa3bf');
+  assert.equal(hooks.interiorKindColor(''), '#8fa3bf');
+  assert.equal(hooks.interiorKindColor(null), '#8fa3bf');
+});
+
+test('normalizeDeclarationKind normalizes plurals and trims whitespace', async () => {
+  const hooks = await loadMapTestHooks();
+
+  assert.equal(hooks.normalizeDeclarationKind('constants'), 'constant');
+  assert.equal(hooks.normalizeDeclarationKind('  Theorem  '), 'theorem');
+  assert.equal(hooks.normalizeDeclarationKind('DEF'), 'def');
+  assert.equal(hooks.normalizeDeclarationKind(''), '');
+  assert.equal(hooks.normalizeDeclarationKind(null), '');
+});
+
+test('assuranceForModule includes theoremDensity and descriptive detail text', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // Manually build proofPairMap (buildPairs needs DOM for updateMetric)
+  const proofPairMap = {
+    'X': {
+      base: 'X',
+      operationsModule: 'X.Operations',
+      invariantModule: 'X.Invariant',
+      operationsTheorems: 3,
+      invariantTheorems: 2,
+      invariantImportsOperations: true
+    },
+    'Y': {
+      base: 'Y',
+      operationsModule: 'Y.Operations',
+      invariantModule: 'Y.Invariant',
+      operationsTheorems: 0,
+      invariantTheorems: 0,
+      invariantImportsOperations: true
+    }
+  };
+
+  hooks.applyTestState({
+    modules: ['X.Operations', 'X.Invariant', 'Y.Operations', 'Y.Invariant', 'Z.Standalone'],
+    moduleMap: {
+      'X.Operations': 'X/Operations.lean',
+      'X.Invariant': 'X/Invariant.lean',
+      'Y.Operations': 'Y/Operations.lean',
+      'Y.Invariant': 'Y/Invariant.lean',
+      'Z.Standalone': 'Z/Standalone.lean'
+    },
+    moduleMeta: {
+      'X.Operations': { kind: 'operations', base: 'X', theorems: 3 },
+      'X.Invariant': { kind: 'invariant', base: 'X', theorems: 2 },
+      'Y.Operations': { kind: 'operations', base: 'Y', theorems: 0 },
+      'Y.Invariant': { kind: 'invariant', base: 'Y', theorems: 0 },
+      'Z.Standalone': { theorems: 4 }
+    },
+    importsFrom: {
+      'X.Operations': [],
+      'X.Invariant': ['X.Operations'],
+      'Y.Operations': [],
+      'Y.Invariant': ['Y.Operations'],
+      'Z.Standalone': []
+    },
+    importsTo: {
+      'X.Operations': ['X.Invariant'],
+      'X.Invariant': [],
+      'Y.Operations': ['Y.Invariant'],
+      'Y.Invariant': [],
+      'Z.Standalone': []
+    },
+    proofPairMap: proofPairMap,
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  // Linked pair with theorems — high density, descriptive detail
+  const linkedWithTheorems = hooks.assuranceForModule('X.Operations');
+  assert.equal(linkedWithTheorems.level, 'linked');
+  assert.equal(linkedWithTheorems.theoremDensity, 5);
+  assert.ok(linkedWithTheorems.detail.includes('5 theorems'), 'detail should mention theorem count');
+  assert.ok(linkedWithTheorems.score > 0, 'score should reflect theorem density bonus');
+
+  // Linked pair with zero theorems — structural only
+  const linkedNoTheorems = hooks.assuranceForModule('Y.Operations');
+  assert.equal(linkedNoTheorems.level, 'linked');
+  assert.equal(linkedNoTheorems.theoremDensity, 0);
+  assert.ok(linkedNoTheorems.detail.includes('structural only'), 'detail should note structural-only link');
+
+  // Local theorem coverage
+  const localResult = hooks.assuranceForModule('Z.Standalone');
+  assert.equal(localResult.level, 'local');
+  assert.equal(localResult.theoremDensity, 4);
+  assert.ok(localResult.detail.includes('4 theorems'), 'detail should mention local theorem count');
+});
+
+test('ASSURANCE_COLORS constant maps all four assurance levels', async () => {
+  const hooks = await loadMapTestHooks();
+  const colors = hooks.assuranceColors();
+
+  assert.ok(colors.linked, 'linked color should be defined');
+  assert.ok(colors.partial, 'partial color should be defined');
+  assert.ok(colors.local, 'local color should be defined');
+  assert.ok(colors.none, 'none color should be defined');
+  // Colors should be valid hex strings
+  for (const level of ['linked', 'partial', 'local', 'none']) {
+    assert.match(colors[level], /^#[0-9a-fA-F]{6}$/, `${level} color should be a valid hex color`);
+  }
 });
