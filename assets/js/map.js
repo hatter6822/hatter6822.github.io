@@ -828,6 +828,17 @@
     return 0;
   }
 
+  function declarationSourceHref(declName) {
+    var moduleName = declarationModuleOf(declName);
+    if (!moduleName || !state.moduleMap[moduleName]) return "";
+    var ref = state.commitSha || REF;
+    var path = state.moduleMap[moduleName];
+    var encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    var line = declarationLineOf(declName);
+    var lineAnchor = line > 0 ? "#L" + line : "";
+    return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath + lineAnchor;
+  }
+
   function selectDeclaration(declName, moduleName) {
     var mod = moduleName || declarationModuleOf(declName);
     if (!mod || !state.moduleMap[mod]) return;
@@ -1358,15 +1369,16 @@
     return lines;
   }
 
-  function nodeContentHeight(name, subtitle, width, compactHint) {
+  function nodeContentHeight(name, subtitle, width, compactHint, metaLinkLabel) {
     var titleLines = wrapLabelLines(name, width - 18, compactHint ? 14 : 12);
     var subtitleLines = subtitle ? wrapLabelLines(subtitle, width - 18, 14) : [];
+    var linkLines = metaLinkLabel ? wrapLabelLines(metaLinkLabel, width - 18, 14) : [];
     var titleLineHeight = 13;
     var subtitleLineHeight = 12;
     var topPad = compactHint ? 8 : 10;
     var bottomPad = 8;
-    var gap = subtitleLines.length ? 5 : 0;
-    var textHeight = titleLines.length * titleLineHeight + subtitleLines.length * subtitleLineHeight + gap;
+    var gap = (subtitleLines.length || linkLines.length) ? 5 : 0;
+    var textHeight = titleLines.length * titleLineHeight + (subtitleLines.length + linkLines.length) * subtitleLineHeight + gap;
     var minHeight = compactHint ? 34 : 44;
     return Math.max(minHeight, topPad + textHeight + bottomPad);
   }
@@ -1509,7 +1521,7 @@
     return true;
   }
 
-  function buildFlowNodeGroup(nodeLayer, className, focusable, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, onActivate) {
+  function buildFlowNodeGroup(nodeLayer, className, focusable, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, onActivate, metaLink) {
     var group = createSvgNode("g", { "class": className, tabindex: focusable ? "0" : "-1", role: onActivate ? "button" : "img", "aria-label": ariaLabel });
     if (focusable) group.setAttribute("focusable", "true");
 
@@ -1538,6 +1550,13 @@
         var metaSpan = createSvgNode("tspan", { x: x + 10, dy: mm === 0 ? "0" : "12" });
         metaSpan.textContent = subtitleLines[mm];
         meta.appendChild(metaSpan);
+      }
+      if (metaLink && metaLink.href && metaLink.label) {
+        var link = createSvgNode("a", { href: metaLink.href, target: "_blank", rel: "noopener noreferrer", "aria-label": metaLink.title || ("Open source for " + name) });
+        var linkSpan = createSvgNode("tspan", { x: x + 10, dy: subtitleLines.length ? "12" : "0", "class": "flow-meta-link" });
+        linkSpan.textContent = metaLink.label;
+        link.appendChild(linkSpan);
+        meta.appendChild(link);
       }
       group.appendChild(meta);
     }
@@ -1678,7 +1697,7 @@
     var importerLayout = stackedLayout(importers, sideWidth, moduleSummary, false);
     var laneBottom = Math.max(importLayout.bottom, importerLayout.bottom);
 
-    var centerHeight = nodeContentHeight(selected, moduleSummary(selected), centerWidth, false) + 14;
+    var centerHeight = nodeContentHeight(selected, moduleSummary(selected), centerWidth, false, "") + 14;
     var centerY = Math.max(170, laneYStart + Math.floor((Math.max(importLayout.bottom, importerLayout.bottom) - laneYStart - centerHeight) / 2));
     var centerBottom = centerY + centerHeight;
 
@@ -1687,7 +1706,7 @@
     var proofBottom = proofStartY;
     var proofHeights = [];
     for (var pr = 0; pr < proofRelated.length; pr++) {
-      var prH = nodeContentHeight(proofRelated[pr], moduleSummary(proofRelated[pr]), centerWidth, true);
+      var prH = nodeContentHeight(proofRelated[pr], moduleSummary(proofRelated[pr]), centerWidth, true, "");
       proofHeights.push(prH);
       proofBottom += prH + 8;
     }
@@ -1707,7 +1726,7 @@
       var pathRowHeights = [];
       for (var lp = 1; lp < linkedPath.length; lp++) {
         var pathName = linkedPath[lp];
-        var pathHeight = nodeContentHeight(pathName, moduleSummary(pathName), pathNodeWidth, true);
+        var pathHeight = nodeContentHeight(pathName, moduleSummary(pathName), pathNodeWidth, true, "");
         var pathIndex = lp - 1;
         var pathRow = Math.floor(pathIndex / pathPerRow);
         var pathCol = pathIndex % pathPerRow;
@@ -1744,7 +1763,7 @@
       var externalNodeHeights = [];
       for (var ex = 0; ex < external.length; ex++) {
         var exRow = Math.floor(ex / externalPerRow);
-        var exH = nodeContentHeight(external[ex], "", externalWidth, true);
+        var exH = nodeContentHeight(external[ex], "", externalWidth, true, "");
         externalNodeHeights.push(exH);
         externalRowHeights[exRow] = Math.max(externalRowHeights[exRow] || 0, exH);
       }
@@ -1805,7 +1824,7 @@
       var interactive = !isStatic || Boolean(onActivate);
       var ariaLabel = interactive ? (onActivate ? name : ("Select module " + name)) : name;
       var activator = interactive ? (onActivate || function () { selectModule(name, false); }) : null;
-      return buildFlowNodeGroup(nodeLayer, className, interactive, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, activator);
+      return buildFlowNodeGroup(nodeLayer, className, interactive, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, activator, null);
     }
 
     if (laneLabels.imports) laneLabel("Imports used by selected", leftX, 30, "#35c98f");
@@ -1946,12 +1965,22 @@
     function declSummary(name) {
       var kind = declarationKindOf(name);
       var mod = declarationModuleOf(name);
-      var line = declarationLineOf(name);
       var parts = [];
       if (kind) parts.push(symbolKindLabel(kind));
       if (mod) parts.push("in " + mod);
-      if (line > 0) parts.push("L" + line);
       return parts.join(" · ") || "declaration";
+    }
+
+    function declMetaLink(name) {
+      var line = declarationLineOf(name);
+      if (!(line > 0)) return null;
+      var href = declarationSourceHref(name);
+      if (!href) return null;
+      return {
+        href: href,
+        label: "L" + line,
+        title: "Open declaration source at line " + line
+      };
     }
 
     function declTooltip(name, roleLabel) {
@@ -2006,8 +2035,9 @@
     var callLayout = [];
     var cursorLeft = laneYStart;
     for (var ci = 0; ci < visibleCalls.length; ci++) {
-      var ch = nodeContentHeight(visibleCalls[ci], declSummary(visibleCalls[ci]), sideWidth, true);
-      callLayout.push({ name: visibleCalls[ci], y: cursorLeft, h: ch });
+      var callMetaLink = declMetaLink(visibleCalls[ci]);
+      var ch = nodeContentHeight(visibleCalls[ci], declSummary(visibleCalls[ci]), sideWidth, true, callMetaLink ? callMetaLink.label : "");
+      callLayout.push({ name: visibleCalls[ci], y: cursorLeft, h: ch, collapsed: false, expandable: false, compactControl: false, metaLink: callMetaLink });
       cursorLeft += ch + laneGapY;
     }
     if (collapsedCallCount > 0) {
@@ -2027,8 +2057,9 @@
     var callerLayout = [];
     var cursorRight = laneYStart;
     for (var bi = 0; bi < visibleCallers.length; bi++) {
-      var bh = nodeContentHeight(visibleCallers[bi], declSummary(visibleCallers[bi]), sideWidth, true);
-      callerLayout.push({ name: visibleCallers[bi], y: cursorRight, h: bh });
+      var callerMetaLink = declMetaLink(visibleCallers[bi]);
+      var bh = nodeContentHeight(visibleCallers[bi], declSummary(visibleCallers[bi]), sideWidth, true, callerMetaLink ? callerMetaLink.label : "");
+      callerLayout.push({ name: visibleCallers[bi], y: cursorRight, h: bh, collapsed: false, expandable: false, compactControl: false, metaLink: callerMetaLink });
       cursorRight += bh + laneGapY;
     }
     if (collapsedCallerCount > 0) {
@@ -2045,7 +2076,8 @@
     }
     var callerBottom = callerLayout.length ? cursorRight - laneGapY : laneYStart + 44;
 
-    var centerHeight = nodeContentHeight(declName, declSummary(declName), centerWidth, false) + 14;
+    var centerMetaLink = declMetaLink(declName);
+    var centerHeight = nodeContentHeight(declName, declSummary(declName), centerWidth, false, centerMetaLink ? centerMetaLink.label : "") + 14;
     var centerY = Math.max(170, laneYStart + Math.floor((Math.max(callBottom, callerBottom) - laneYStart - centerHeight) / 2));
     var flowHeight = Math.max(620, Math.max(callBottom, callerBottom, centerY + centerHeight) + 68);
 
@@ -2061,13 +2093,13 @@
       flowLaneLabel(labelLayer, text, x, y, color);
     }
 
-    function createDeclNode(name, x, y, w, h, color, subtitle, tooltip, active, onActivate) {
+    function createDeclNode(name, x, y, w, h, color, subtitle, tooltip, active, onActivate, metaLink) {
       var className = "flow-node" + (active ? " active" : "");
       if (onActivate) className += " action";
       var interactive = Boolean(onActivate);
       var focusable = interactive || active;
       var ariaLabel = interactive ? "Select declaration " + name : name;
-      return buildFlowNodeGroup(nodeLayer, className, focusable, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, onActivate || null);
+      return buildFlowNodeGroup(nodeLayer, className, focusable, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, onActivate || null, metaLink || null);
     }
 
     var hasCallees = calls.length > 0;
@@ -2083,7 +2115,7 @@
       labelLayer.appendChild(emptyHint);
     }
 
-    var center = createDeclNode(declName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(declName), declTooltip(declName, "Selected declaration"), true, null);
+    var center = createDeclNode(declName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(declName), declTooltip(declName, "Selected declaration"), true, null, centerMetaLink);
 
     function isDeclNavigable(name) {
       return Boolean(state.declarationGraph[name]) || Boolean(state.declarationReverseGraph[name]);
@@ -2094,13 +2126,13 @@
       var callItem = callLayout[i];
       if (callItem.expandable) {
         var expandCallTooltip = "Expand to show all " + (collapsedCallCount + visibleCalls.length) + " called declarations";
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", "expand to show all", expandCallTooltip, false, expandDeclarationLanes));
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", "expand to show all", expandCallTooltip, false, expandDeclarationLanes, null));
       } else if (callItem.compactControl) {
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", "hide extra calls", "Return to compact view", false, compactDeclarationLanes));
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", "hide extra calls", "Return to compact view", false, compactDeclarationLanes, null));
       } else {
         var callColor = declNodeColor(callItem.name);
         var callNavigable = isDeclNavigable(callItem.name);
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.name), declTooltip(callItem.name, "Called declaration"), false, callNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callItem.name) : null));
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.name), declTooltip(callItem.name, "Called declaration"), false, callNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callItem.name) : null, callItem.metaLink || null));
       }
     }
 
@@ -2109,13 +2141,13 @@
       var callerItem = callerLayout[j];
       if (callerItem.expandable) {
         var expandCallerTooltip = "Expand to show all " + (collapsedCallerCount + visibleCallers.length) + " caller declarations";
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", "expand to show all", expandCallerTooltip, false, expandDeclarationLanes));
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", "expand to show all", expandCallerTooltip, false, expandDeclarationLanes, null));
       } else if (callerItem.compactControl) {
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", "hide extra callers", "Return to compact view", false, compactDeclarationLanes));
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", "hide extra callers", "Return to compact view", false, compactDeclarationLanes, null));
       } else {
         var callerColor = declNodeColor(callerItem.name);
         var callerNavigable = isDeclNavigable(callerItem.name);
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.name), declTooltip(callerItem.name, "Caller declaration"), false, callerNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callerItem.name) : null));
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.name), declTooltip(callerItem.name, "Caller declaration"), false, callerNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callerItem.name) : null, callerItem.metaLink || null));
       }
     }
 
@@ -3847,6 +3879,7 @@
       declarationModuleOf: declarationModuleOf,
       declarationKindOf: declarationKindOf,
       declarationLineOf: declarationLineOf,
+      declarationSourceHref: declarationSourceHref,
       declarationLaneCollapseThreshold: function () { return 12; },
       declarationLaneVisibleLimit: function () { return 10; },
       assuranceForModule: assuranceForModule,
