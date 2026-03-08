@@ -1030,6 +1030,44 @@ test('findNearestLinkedPath returns shortest path to linked proof module', async
   assert.equal(selfPath[0], 'SeLe4n.IPC.Operations', 'linked module path should contain itself');
 });
 
+
+test('declarationSourceHref builds GitHub line links for declaration nodes', async () => {
+  const hooks = await loadMapTestHooks();
+
+  hooks.applyTestState({
+    moduleMap: { 'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean' },
+    declarationIndex: {
+      safe_main: { module: 'SeLe4n.Core.Main', kind: 'theorem', line: 42 },
+      no_line: { module: 'SeLe4n.Core.Main', kind: 'def', line: 0 }
+    }
+  });
+
+  const lineHref = hooks.declarationSourceHref('safe_main');
+  assert.ok(
+    lineHref.includes('/SeLe4n/Core/Main.lean#L42'),
+    'declarationSourceHref should include file path and line anchor'
+  );
+
+  const noLineHref = hooks.declarationSourceHref('no_line');
+  assert.ok(
+    noLineHref.endsWith('/SeLe4n/Core/Main.lean'),
+    'declarationSourceHref should omit line anchor when line is unavailable'
+  );
+
+  assert.equal(hooks.declarationSourceHref('missing_decl'), '', 'unknown declarations should have no source link');
+});
+
+test('declaration flowchart renders clickable flow-meta line links', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  assert.ok(
+    mapSource.includes('"class": "flow-meta-link"'),
+    'declaration flowchart should render flow-meta-link spans for source line links'
+  );
+  assert.ok(
+    mapSource.includes('declMetaLink(name)'),
+    'declaration flowchart should compute declaration meta links for flow nodes'
+  );
+});
 test('normalizeMapData builds declarationIndex for O(1) declaration metadata lookups', async () => {
   const hooks = await loadMapTestHooks();
 

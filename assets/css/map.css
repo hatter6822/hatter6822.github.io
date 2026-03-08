@@ -401,6 +401,7 @@
   fill: var(--text);
 }
 .flow-node .flow-meta { fill: var(--text-muted); font-size: 10px; }
+.flow-node .flow-meta-link { fill: var(--accent); text-decoration: underline; cursor: pointer; }
 .flow-lane-label { font-family: var(--font-mono); letter-spacing: 0.02em; }
 .flow-node.static { cursor: default; }
 .flow-node.static.action { cursor: pointer; }
