@@ -79,6 +79,9 @@ if (currentStateMetrics.lines) data.lines = currentStateMetrics.lines;
 else if (langs?.Lean) data.lines = formatNumber(Math.round(langs.Lean / 38));
 if (commit?.sha) data.commitSha = commit.sha.slice(0, 7);
 if (commit?.commit?.author?.date) data.updatedAt = commit.commit.author.date;
+if (data.admitted === undefined) data.admitted = 0;
+data.sourceRepo = REPO;
+data.sourceRef = REF;
 data.generatedAt = new Date().toISOString();
 
 await writeFile(OUT_FILE, JSON.stringify(data, null, 2) + '\n');
