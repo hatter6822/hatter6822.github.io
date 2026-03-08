@@ -169,6 +169,14 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 
 - Added structural assertions in `map-toolbar.test.mjs` for: interior menu item flex layout, hover state, CSS transition, kind label `white-space: nowrap` and `margin-left: auto`, button focus-visible outlines, items list `scrollbar-width: thin`, grid `min()` overflow prevention, navigable item `flex-wrap: nowrap`, span fallback for empty hrefs, and a guard that legacy src-link elements are no longer rendered.
 
+## Dot-append declaration search
+
+The module search bar now supports dot-appended declaration queries (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`). The `declarationSearchMatch()` function progressively tries shorter dot-separated prefixes as module candidates, then searches the matched module's interior symbol buckets and declaration index for the remaining suffix. This enables direct navigation to any declaration from the search bar without first selecting its parent module. Declaration suggestions appear with distinct italic styling and a left border accent in the dropdown, and carry `data-declaration` attributes for proper selection handling.
+
+## Search scoring optimizations
+
+The `moduleSearchMatches()` scoring cascade was optimized with short-circuit evaluation: once a high-confidence match category is found (exact > prefix > substring), lower categories are skipped entirely. Token-based matching is now only attempted when no direct string match is found, reducing unnecessary work during interactive typing. The label-wrap cache eviction was hardened with explicit `done` checks for robustness across JavaScript engine implementations. The interior menu items list now uses `scrollbar-gutter: stable` for consistent layout regardless of scrollbar visibility.
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:

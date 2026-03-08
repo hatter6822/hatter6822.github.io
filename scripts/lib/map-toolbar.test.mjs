@@ -153,4 +153,28 @@ assert(/nameSpan/.test(mapJs), "repaintList should use span fallback when symbol
 // JS: interior menu should not render legacy "src" links beside declaration buttons
 assert(!/interior-menu-item-src/.test(mapJs), "interior menu should not create legacy src-link elements in declaration rows");
 
+// JS: declarationSearchMatch function should exist for dot-append declaration search
+assert(/function declarationSearchMatch\(/.test(mapJs), "declarationSearchMatch function should exist for dot-append search");
+
+// JS: declarationSearchMatch should be exposed via test hooks
+assert(/declarationSearchMatch:\s*declarationSearchMatch/.test(mapJs), "declarationSearchMatch should be exported via test hooks");
+
+// JS: moduleSearchMatches should be exposed via test hooks
+assert(/moduleSearchMatches:\s*moduleSearchMatches/.test(mapJs), "moduleSearchMatches should be exported via test hooks");
+
+// JS: search should attempt declaration match when module match fails
+assert(/tryDeclarationSearch/.test(mapJs), "search should try declaration search as fallback");
+
+// CSS: declaration suggestion option should have distinct styling
+assert(/\.module-search-option-decl\s*\{/.test(css), "declaration search suggestion should have distinct styling");
+
+// CSS: interior-menu-items should use scrollbar-gutter for stable layout
+assert(/\.interior-menu-items\s*\{[^}]*scrollbar-gutter:\s*stable/s.test(css), "interior-menu-items should use scrollbar-gutter for stable layout");
+
+// JS: search state should include searchDeclSuggestions
+assert(/searchDeclSuggestions/.test(mapJs), "search state should track declaration suggestions");
+
+// JS: option list mousedown should handle data-declaration attribute
+assert(/data-declaration/.test(mapJs), "option list should support data-declaration attribute for declaration suggestions");
+
 console.log("map-toolbar.test: ok");
