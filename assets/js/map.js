@@ -31,7 +31,33 @@
   var NODE_CACHE = Object.create(null);
   var LABEL_WRAP_CACHE = new Map();
   var LABEL_WRAP_CACHE_LIMIT = 1200;
+  var LABEL_WRAP_CACHE_EVICT_BATCH = 120;
   var ASSURANCE_CACHE = Object.create(null);
+
+  /* Cached DOM element references — populated once on boot to avoid repeated getElementById calls */
+  var DOM = {
+    flowchartWrap: null,
+    moduleSearch: null,
+    moduleSearchOptions: null,
+    moduleSearchFeedback: null,
+    moduleSearchLabel: null,
+    flowNodeInteriorMenu: null,
+    mapStatus: null,
+    mainContent: null,
+    moduleResults: null
+  };
+
+  function cacheDomElements() {
+    DOM.flowchartWrap = document.getElementById("flowchart-wrap");
+    DOM.moduleSearch = document.getElementById("module-search");
+    DOM.moduleSearchOptions = document.getElementById("module-search-options");
+    DOM.moduleSearchFeedback = document.getElementById("module-search-feedback");
+    DOM.moduleSearchLabel = document.querySelector('label[for="module-search"]');
+    DOM.flowNodeInteriorMenu = document.getElementById("flow-node-interior-menu");
+    DOM.mapStatus = document.getElementById("map-status");
+    DOM.mainContent = document.getElementById("main-content");
+    DOM.moduleResults = document.getElementById("module-results");
+  }
 
   var DETAIL_PRESETS = {
     compact: { neighborLimit: 8, impactRadius: 1 },
@@ -220,19 +246,19 @@
   }
 
   function updateModuleResults(count) {
-    var node = document.getElementById("module-results");
+    var node = DOM.moduleResults || document.getElementById("module-results");
     if (!node) return;
     var total = state.modules.length;
     node.textContent = String(count) + " modules shown" + (total ? " (" + total + " total)" : "");
   }
 
   function setStatus(text, isError) {
-    var el = document.getElementById("map-status");
+    var el = DOM.mapStatus || document.getElementById("map-status");
     if (!el) return;
     el.textContent = text;
     el.classList.toggle("error", Boolean(isError));
 
-    var main = document.getElementById("main-content");
+    var main = DOM.mainContent || document.getElementById("main-content");
     if (main) main.setAttribute("aria-busy", BUSY_STATUS_RE.test(text) ? "true" : "false");
   }
 
@@ -343,7 +369,7 @@
   }
 
   function setSearchFeedback(message, isError) {
-    var node = document.getElementById("module-search-feedback");
+    var node = DOM.moduleSearchFeedback || document.getElementById("module-search-feedback");
     if (!node) return;
     node.textContent = message || "";
     node.classList.toggle("error", Boolean(isError));
@@ -873,6 +899,11 @@
       state.interiorMenuQuery = "";
     }
     state.flowScrollTarget = declName;
+    /* Sync the context search bar to reflect the selected declaration */
+    var picker = DOM.moduleSearch || document.getElementById("module-search");
+    if (picker && document.activeElement !== picker) {
+      picker.value = mod + "." + declName;
+    }
     syncUrlState();
     scheduleRender();
   }
@@ -1061,7 +1092,7 @@
   }
 
   function renderContextChooser() {
-    var picker = document.getElementById("module-search");
+    var picker = DOM.moduleSearch || document.getElementById("module-search");
     if (!picker) return;
 
     var list = contextList();
@@ -1072,26 +1103,26 @@
       syncUrlState();
     }
 
-    var label = document.querySelector('label[for="module-search"]');
+    var label = DOM.moduleSearchLabel || document.querySelector('label[for="module-search"]');
     var inDeclContext = state.flowContext === "declaration" && state.selectedDeclaration;
 
     if (!list.length) {
       picker.value = "";
       picker.placeholder = "No modules matched current filters";
-      if (label) label.textContent = "Current module context";
+      if (label) label.textContent = "Context search";
       closeModuleSearchOptions();
       return;
     }
 
     if (inDeclContext) {
-      picker.placeholder = "Type module/path to switch context";
-      if (label) label.textContent = "Current declaration context";
+      picker.placeholder = "Module or Module.declaration";
+      if (label) label.textContent = "Context search \u2014 declaration";
       if (document.activeElement !== picker) {
-        picker.value = state.selectedModule + " \u203A " + state.selectedDeclaration;
+        picker.value = state.selectedDeclarationModule + "." + state.selectedDeclaration;
       }
     } else {
-      picker.placeholder = "Type module/path to switch context";
-      if (label) label.textContent = "Current module context";
+      picker.placeholder = "Module or Module.declaration";
+      if (label) label.textContent = "Context search \u2014 module";
       if (state.selectedModule && document.activeElement !== picker) picker.value = state.selectedModule;
     }
   }
@@ -1129,7 +1160,7 @@
   }
 
   function renderFlowNodeInteriorMenu(selected) {
-    var menu = document.getElementById("flow-node-interior-menu");
+    var menu = DOM.flowNodeInteriorMenu || document.getElementById("flow-node-interior-menu");
     if (!menu) return;
     menu.innerHTML = "";
     if (!selected) {
@@ -1372,8 +1403,11 @@
 
     if (LABEL_WRAP_CACHE.size >= LABEL_WRAP_CACHE_LIMIT) {
       var iter = LABEL_WRAP_CACHE.keys();
-      var oldest = iter.next();
-      if (!oldest.done && oldest.value !== undefined) LABEL_WRAP_CACHE.delete(oldest.value);
+      for (var evicted = 0; evicted < LABEL_WRAP_CACHE_EVICT_BATCH; evicted++) {
+        var oldest = iter.next();
+        if (oldest.done || oldest.value === undefined) break;
+        LABEL_WRAP_CACHE.delete(oldest.value);
+      }
     }
     LABEL_WRAP_CACHE.set(cacheKey, lines.slice());
 
@@ -1587,7 +1621,7 @@
   }
 
   function computeFlowLayout() {
-    var wrap = document.getElementById("flowchart-wrap");
+    var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     var wrapWidth = Math.max(0, ((wrap && wrap.clientWidth) || 0) - 8);
     var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
     var framePad = 34;
@@ -1613,7 +1647,7 @@
   }
 
   function renderFlowchart() {
-    var wrap = document.getElementById("flowchart-wrap");
+    var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (!wrap) return;
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
     var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
@@ -1925,7 +1959,7 @@
   }
 
   function renderDeclarationFlowchart() {
-    var wrap = document.getElementById("flowchart-wrap");
+    var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (!wrap) return;
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
     var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
@@ -2263,7 +2297,7 @@
 
   function renderAll() {
     renderContextChooser();
-    var wrap = document.getElementById("flowchart-wrap");
+    var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (state.flowContext === "declaration" && state.selectedDeclaration) {
       if (wrap) wrap.setAttribute("aria-label", "Declaration call graph for " + state.selectedDeclaration);
       renderDeclarationFlowchart();
@@ -3693,13 +3727,14 @@
   }
 
   function closeModuleSearchOptions() {
-    var search = document.getElementById("module-search");
-    var options = document.getElementById("module-search-options");
+    var search = DOM.moduleSearch || document.getElementById("module-search");
+    var options = DOM.moduleSearchOptions || document.getElementById("module-search-options");
     if (!options) return;
     options.hidden = true;
     options.innerHTML = "";
     state.searchVisibleOptions = [];
     state.searchActiveOption = -1;
+    state.searchDeclSuggestions = [];
     if (search) {
       search.setAttribute("aria-expanded", "false");
       search.removeAttribute("aria-activedescendant");
@@ -3707,8 +3742,8 @@
   }
 
   function openModuleSearchOptions(matches) {
-    var search = document.getElementById("module-search");
-    var options = document.getElementById("module-search-options");
+    var search = DOM.moduleSearch || document.getElementById("module-search");
+    var options = DOM.moduleSearchOptions || document.getElementById("module-search-options");
     if (!search || !options || !matches || !matches.length) {
       closeModuleSearchOptions();
       return;
@@ -3749,8 +3784,8 @@
   }
 
   function setActiveModuleSearchOption(index) {
-    var search = document.getElementById("module-search");
-    var options = document.getElementById("module-search-options");
+    var search = DOM.moduleSearch || document.getElementById("module-search");
+    var options = DOM.moduleSearchOptions || document.getElementById("module-search-options");
     if (!search || !options) return;
     var len = state.searchVisibleOptions.length;
     if (!len) return;
@@ -3772,8 +3807,8 @@
 
   function setupFilters() {
     var toolbar = document.getElementById("map-toolbar");
-    var search = document.getElementById("module-search");
-    var options = document.getElementById("module-search-options");
+    var search = DOM.moduleSearch || document.getElementById("module-search");
+    var options = DOM.moduleSearchOptions || document.getElementById("module-search-options");
     var selectedDetail = "compact";
     var reset = document.getElementById("reset-view");
 
@@ -3989,6 +4024,10 @@
     }
     if (reset) {
       reset.addEventListener("click", function () {
+        /* Return to module context if currently viewing a declaration */
+        if (state.flowContext === "declaration") {
+          returnToModuleContext();
+        }
         if (search && state.selectedModule) search.value = state.selectedModule;
         setSearchFeedback("", false);
         if (search && typeof search.setCustomValidity === "function") search.setCustomValidity("");
@@ -4071,7 +4110,7 @@
   }
 
   function hydrateFilterControls() {
-    var search = document.getElementById("module-search");
+    var search = DOM.moduleSearch || document.getElementById("module-search");
     if (search && state.selectedModule) search.value = state.selectedModule;
     updateDetailPillState(detailLevelFromState());
     setSearchFeedback("", false);
@@ -4110,6 +4149,7 @@
 
 
   function boot() {
+    cacheDomElements();
     setupTheme();
     if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();
     hardenExternalLinks();

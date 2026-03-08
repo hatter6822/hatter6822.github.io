@@ -122,7 +122,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Consolidated duplicate `.map-status` margin rules in the 640px media query (removed dead `margin-top: 0.55rem` immediately overridden by `margin-top: 0`).
 - Cleaned up stray whitespace in `map.html` flowchart shell.
 - Added `map-toolbar.test.mjs` assertions for `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, declaration breadcrumb `<nav>` element with `aria-label`, context-aware search label updates, and dynamic `flowchart-wrap` `aria-label` switching between module and declaration contexts.
-- The module-search bar is now context-aware: in declaration context, the input displays `ModuleName › DeclarationName` and the label updates to "Current declaration context"; in module context, it shows the module name with the label "Current module context".
+- The context search bar displays `Module.Declaration` in dot-append format when in declaration context, with dynamic label "Context search — declaration"; in module context, it shows the module name with the label "Context search — module".
 - The `flowchart-wrap` container `aria-label` updates dynamically to "Declaration call graph for [name]" in declaration context and restores to "Dependency and proof flow chart" in module context.
 - The declaration flowchart now preserves scroll position on re-renders (lane expand/compact) using the same scroll save/restore logic as the module flowchart.
 - The center (selected) declaration node is now keyboard-focusable (`tabindex="0"`) even though it is not interactive, allowing keyboard users to tab to the currently inspected declaration.
@@ -184,6 +184,29 @@ Declaration suggestions appear with distinct italic styling and a left border ac
 ## Search scoring optimizations
 
 The `moduleSearchMatches()` scoring cascade was optimized with short-circuit evaluation: once a high-confidence match category is found (exact > prefix > substring), lower categories are skipped entirely. Token-based matching is now only attempted when no direct string match is found, reducing unnecessary work during interactive typing. The label-wrap cache eviction was hardened with explicit `done` checks for robustness across JavaScript engine implementations. The interior menu items list now uses `scrollbar-gutter: stable` for consistent layout regardless of scrollbar visibility.
+
+## Generalized context search and DOM caching optimization
+
+The module search bar was generalized into a unified **context search** bar that searches both modules and internal declarations using a dot-append approach:
+
+- **HTML label** changed from "Current module context" to "Context search" with a placeholder reading "Module or Module.declaration".
+- **Dynamic labeling**: the label updates to "Context search — module" or "Context search — declaration" depending on the active flowchart context.
+- **Dot-append format**: when a declaration is active, the search bar displays `Module.Declaration` instead of the previous `Module › Declaration` separator, aligning with the dot-append search format users type to find declarations.
+- **Flowchart sync**: selecting a declaration from the context search bar, interior menu, or flowchart node click all sync the search bar value and switch the flowchart to declaration context.
+- **Reset behavior**: the Reset button now returns from declaration context to module context before applying filter resets.
+
+### DOM element caching
+
+Frequently queried DOM elements were previously re-fetched via `document.getElementById()` on every render cycle. A `DOM` namespace object now caches nine key elements (`flowchartWrap`, `moduleSearch`, `moduleSearchOptions`, `moduleSearchFeedback`, `moduleSearchLabel`, `flowNodeInteriorMenu`, `mapStatus`, `mainContent`, `moduleResults`) once during boot via `cacheDomElements()`. All render functions, status updates, and search handlers use the cached references with fallback to live queries for resilience.
+
+### Label wrap cache batch eviction
+
+The `LABEL_WRAP_CACHE` previously evicted a single entry when at capacity. This was changed to batch eviction of 120 entries (10% of the 1200 limit) per cycle, amortizing the cost of cache maintenance across render frames.
+
+### Test coverage expansion (context search)
+
+- Added `map-runtime.test.mjs` tests: context search dot-append format verification, `selectDeclaration` search bar sync, DOM caching initialization check, batch eviction pattern verification, and reset-to-module-context behavior.
+- Added `map-toolbar.test.mjs` assertions: "Context search" label in HTML, "Module or Module.declaration" placeholder, `cacheDomElements` function existence, `DOM.flowchartWrap` and `DOM.moduleSearch` caching, `selectDeclaration` picker sync pattern, `LABEL_WRAP_CACHE_EVICT_BATCH` constant, and `searchDeclSuggestions` cleanup on dropdown close.
 
 ## Future growth recommendations
 

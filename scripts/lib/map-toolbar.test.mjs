@@ -15,7 +15,7 @@ assert(/aria-label="Dependency and proof flow chart"/.test(html), "flow chart re
 
 assert(/<form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">/.test(html), "toolbar should use compact styling and explicitly control the flowchart");
 assert(!/class="map-toolbar\s+card"/.test(html), "toolbar should not use the generic card shell");
-assert(/<label for="module-search">Current module context<\/label>/.test(html), "toolbar should include module context search");
+assert(/<label for="module-search">Context search<\/label>/.test(html), "toolbar should include context search label");
 assert(/id="module-search"[^>]*enterkeyhint="search"/.test(html), "module search should provide search enter key hint");
 assert(/id="module-search"[^>]*role="combobox"[^>]*aria-controls="module-search-options"/.test(html), "module search should expose combobox semantics for cross-browser suggestion support");
 assert(/id="module-search-options"[^>]*role="listbox"/.test(html), "module search should include an explicit listbox suggestion container");
@@ -49,9 +49,9 @@ const mapJs = readFileSync(new URL("../../assets/js/map.js", import.meta.url), "
 assert(/createElement\("nav"\)/.test(mapJs), "declaration breadcrumb should use a <nav> element");
 assert(/aria-label.*Declaration breadcrumb/.test(mapJs), "declaration breadcrumb should have an aria-label");
 
-// JS: renderContextChooser should update label text for declaration context
-assert(/label\.textContent\s*=\s*"Current declaration context"/.test(mapJs), "renderContextChooser should set label to declaration context when in declaration flow");
-assert(/label\.textContent\s*=\s*"Current module context"/.test(mapJs), "renderContextChooser should set label to module context when in module flow");
+// JS: renderContextChooser should update label text for declaration and module context
+assert(/label\.textContent\s*=\s*"Context search/.test(mapJs), "renderContextChooser should set context search label");
+assert(/declaration/.test(mapJs) && /module/.test(mapJs), "renderContextChooser should distinguish declaration and module context");
 
 // JS: renderAll should update flowchart-wrap aria-label dynamically
 assert(/setAttribute\("aria-label",\s*"Declaration call graph for "/.test(mapJs), "renderAll should set declaration-context aria-label on flowchart-wrap");
@@ -194,5 +194,25 @@ assert(/searchDeclSuggestions/.test(mapJs), "search state should track declarati
 
 // JS: option list mousedown should handle data-declaration attribute
 assert(/data-declaration/.test(mapJs), "option list should support data-declaration attribute for declaration suggestions");
+
+// HTML: context search label should use "Context search" (generalized from module-only)
+assert(/<label for="module-search">Context search<\/label>/.test(html), "context search label should say 'Context search'");
+
+// HTML: context search placeholder should mention dot-append declaration format
+assert(/Module or Module\.declaration/.test(html), "context search placeholder should indicate Module.declaration format");
+
+// JS: DOM caching should be implemented for performance
+assert(/function cacheDomElements\(\)/.test(mapJs), "cacheDomElements function should exist for DOM caching");
+assert(/DOM\.flowchartWrap/.test(mapJs), "DOM cache should include flowchartWrap");
+assert(/DOM\.moduleSearch/.test(mapJs), "DOM cache should include moduleSearch");
+
+// JS: selectDeclaration should sync context search bar to dot-append format
+assert(/picker\.value\s*=\s*mod\s*\+\s*"\."\s*\+\s*declName/.test(mapJs), "selectDeclaration should sync context search bar");
+
+// JS: label wrap cache should use batch eviction
+assert(/LABEL_WRAP_CACHE_EVICT_BATCH/.test(mapJs), "label wrap cache should use batch eviction constant");
+
+// JS: closeModuleSearchOptions should also clear searchDeclSuggestions
+assert(/searchDeclSuggestions\s*=\s*\[\]/.test(mapJs), "closeModuleSearchOptions should clear declaration suggestions");
 
 console.log("map-toolbar.test: ok");
