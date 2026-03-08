@@ -156,14 +156,32 @@ assert(!/interior-menu-item-src/.test(mapJs), "interior menu should not create l
 // JS: declarationSearchMatch function should exist for dot-append declaration search
 assert(/function declarationSearchMatch\(/.test(mapJs), "declarationSearchMatch function should exist for dot-append search");
 
+// JS: declarationSearchMatches (plural) should exist for multi-result declaration search
+assert(/function declarationSearchMatches\(/.test(mapJs), "declarationSearchMatches function should exist for multi-result declaration search");
+
 // JS: declarationSearchMatch should be exposed via test hooks
 assert(/declarationSearchMatch:\s*declarationSearchMatch/.test(mapJs), "declarationSearchMatch should be exported via test hooks");
+
+// JS: declarationSearchMatches should be exposed via test hooks
+assert(/declarationSearchMatches:\s*declarationSearchMatches/.test(mapJs), "declarationSearchMatches should be exported via test hooks");
 
 // JS: moduleSearchMatches should be exposed via test hooks
 assert(/moduleSearchMatches:\s*moduleSearchMatches/.test(mapJs), "moduleSearchMatches should be exported via test hooks");
 
 // JS: search should attempt declaration match when module match fails
 assert(/tryDeclarationSearch/.test(mapJs), "search should try declaration search as fallback");
+
+// JS: buildDeclarationSearchIndex should pre-index declarations for efficient search
+assert(/function buildDeclarationSearchIndex\(/.test(mapJs), "buildDeclarationSearchIndex should exist for pre-indexing declarations");
+
+// JS: declarationSearchList should track the pre-built declaration search index
+assert(/declarationSearchList/.test(mapJs), "state should include declarationSearchList for pre-indexed declaration search");
+
+// JS: searchDeclarationsInModule helper should exist for module-scoped declaration search
+assert(/function searchDeclarationsInModule\(/.test(mapJs), "searchDeclarationsInModule helper should exist for module-scoped declaration search");
+
+// JS: edge layer should be marked aria-hidden for accessibility
+assert(/flow-edge-layer.*aria-hidden/.test(mapJs) || /aria-hidden.*flow-edge-layer/.test(mapJs), "edge layer SVG group should be aria-hidden for screen readers");
 
 // CSS: declaration suggestion option should have distinct styling
 assert(/\.module-search-option-decl\s*\{/.test(css), "declaration search suggestion should have distinct styling");

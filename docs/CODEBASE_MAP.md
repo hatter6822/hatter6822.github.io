@@ -110,7 +110,15 @@ Module search scoring uses a short-circuit cascade: once a high-confidence match
 
 ### Declaration search (dot-append)
 
-The `declarationSearchMatch()` function enables searching for declarations using module-qualified dot notation (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`). It progressively tries shorter dot-separated prefixes as module candidates, then matches the remaining suffix against declarations in the matched module's interior symbols and declaration index. Exact name matches are prioritized, then prefix matches, then substring matches. Declaration search suggestions are rendered with distinct styling (italic text, left accent border) and carry `data-declaration` attributes for proper selection handling via keyboard and mouse.
+The declaration search system enables searching for declarations using module-qualified dot notation (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`). It operates through two complementary strategies:
+
+1. **Module-prefix strategy** (`declarationSearchMatch` / `searchDeclarationsInModule`): Progressively tries shorter dot-separated prefixes as exact module candidates, then matches the remaining suffix against declarations in the matched module's interior symbols and declaration index.
+
+2. **Global declaration index strategy** (`buildDeclarationSearchIndex` / `declarationSearchMatches`): When no exact module prefix matches, searches across all declarations using a pre-built `declarationSearchList` indexed from `state.declarationIndex`. This enables cross-module declaration discovery when the user's query doesn't perfectly align with module boundaries.
+
+Both strategies rank results by: exact match (2000) > qualified prefix (1800) > name prefix (1600) > name exact on suffix (1600) > qualified substring (1200) > suffix prefix (1400) > suffix substring (1000). The `declarationSearchMatches()` (plural) function returns multiple ranked results for dropdown suggestions, while `declarationSearchMatch()` (singular) returns the single best match for immediate selection.
+
+Declaration search suggestions are rendered with distinct styling (italic text, left accent border) and carry `data-declaration` attributes for proper selection handling via keyboard and mouse. Multiple declaration suggestions can appear simultaneously in the dropdown when the query contains dots.
 
 ## Troubleshooting checklist
 
