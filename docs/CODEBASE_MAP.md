@@ -70,7 +70,7 @@ The map page provides a single operational and proof-aware architecture view of 
   - The interior declaration search box now preserves focus and caret position during live filtering rerenders, preventing one-character input stalls while users type longer symbol queries.
   - The interior declaration panel no longer renders a dedicated header row; declaration filtering controls now anchor the panel start directly.
   - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.
-  - All declarations display a clickable name (entering declaration context) alongside a compact "src" link for direct GitHub source access, providing uniform navigation to declaration context regardless of call-graph presence.
+  - All declarations display a clickable name that enters declaration context, providing uniform navigation regardless of call-graph presence.
 
 ## Accessibility and mobile
 

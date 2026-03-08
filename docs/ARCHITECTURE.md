@@ -98,8 +98,8 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Declaration context is persisted in the URL via a `decl` query parameter. Selecting a module via context search automatically returns to module context. On data load, the `decl` parameter is resolved against both the declaration graph and module metadata to determine the correct module, falling back gracefully if the declaration is no longer present.
 - When a lane (calls or callers) exceeds 12 entries, declarations are sorted by module relevance (same-module declarations first, then alphabetically) before the first 10 are rendered with a "+N more" expand button, ensuring the most contextually relevant declarations are always visible. The "+N more" node is an interactive button that fully expands the lane to show all declarations. A "Return to Compact" button appears after expansion to collapse back to the truncated view. Expansion state (`declarationLanesExpanded`) is transient and resets on navigation to a new declaration or return to module context.
 - The interior menu highlights the currently selected declaration in declaration context with an accent-colored border and background, providing clear visual feedback about which declaration is being inspected.
-- Interior menu items now all display a clickable name button (entering declaration context) alongside a compact "src" link (opening GitHub source), providing uniform navigation access for every declaration.
-- CSS for the declaration context (breadcrumb, navigable items, source links, active declaration highlight) is contained in `assets/css/map.css`.
+- Interior menu items display a clickable name button that enters declaration context for every declaration, keeping panel interactions focused on flow exploration.
+- CSS for the declaration context (breadcrumb, navigable items, active declaration highlight) is contained in `assets/css/map.css`.
 - New test hooks (`declarationFlowLegendItems`, `declarationCalls`, `declarationCalledBy`, `declarationModuleOf`, `declarationKindOf`, `declarationLineOf`, `declarationLaneCollapseThreshold`, `declarationLaneVisibleLimit`, `assuranceForModule`, `relatedProofModules`, `findNearestLinkedPath`, `buildPairs`, `applyTestState`) are exported for Node-based validation of declaration context and proof-assurance logic.
 
 ## Flowchart rendering optimization
@@ -149,13 +149,13 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Added hover state (`.interior-menu-item:hover`) with kind-color-tinted border and background for visual feedback.
 - Added CSS transition (`border-color`, `background`) on `.interior-menu-item` for smooth hover/focus effects.
 - Added `min-height: 1.6rem` on desktop items and `min-height: 2.2rem` at the 640px mobile breakpoint for accessible touch targets.
-- Added `focus-visible` outlines on `.interior-menu-item-btn` and `.interior-menu-item-src` for keyboard navigation accessibility.
+- Added `focus-visible` outlines on `.interior-menu-item-btn` for keyboard navigation accessibility.
 - Added `min-width: 0` and `overflow-wrap: anywhere` on `.interior-menu-item-btn` to prevent flex child overflow with long declaration names.
-- Added `flex-wrap: nowrap` on `.interior-menu-item-navigable` to keep the button and src link on the same line.
+- Added `flex-wrap: nowrap` on `.interior-menu-item-navigable` to keep declaration chips stable on one line.
 - Changed `.interior-menu-item::after` kind label to use `margin-left: auto` with `flex-shrink: 0` and `white-space: nowrap` for right-alignment within the flex container.
 - Added a scoped `.card .interior-menu-items .interior-menu-item` padding override to neutralize the shared `.card ul li` left-biased padding, restoring symmetric chip insets and stable `::after` right-label positioning.
 - Increased `.interior-menu-items` max-height from 12rem to 14rem on desktop for larger declaration lists, and added `scrollbar-width: thin` and `overscroll-behavior: contain` for scroll behavior improvement.
-- Made `.interior-menu-item-src` an inline-flex element with `min-height: 1.2rem` (desktop) / `min-height: 1.6rem` (mobile) for consistent touch target sizing.
+- Removed legacy `.interior-menu-item-src` UI so declaration chips now expose only declaration-context navigation in the interior panel.
 - Fixed `.interior-menu-grid` column minimum from `minmax(16rem, 1fr)` to `minmax(min(16rem, 100%), 1fr)` to prevent horizontal overflow on viewports narrower than 16rem.
 - Added mobile breakpoint (640px) styles for breadcrumb navigation: larger font, increased min-height touch target on the module return button.
 - Added landscape phone breakpoint (900px × 560px) styles for interior menu items with reduced padding and lower max-height to maximize chart visibility in constrained viewports.
@@ -163,11 +163,11 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 ## Interior menu DOM management refactoring
 
 - Refactored `repaintList()` in `renderFlowNodeInteriorMenu()` to eliminate the fragile `list.replaceWith(empty)` pattern that could leave the `<ul>` reference orphaned. The empty note and list attachment are now managed by dedicated `showEmptyNote()` and `ensureListAttached()` helpers that cleanly swap between the empty placeholder `<p>` and the declaration list `<ul>` within the column.
-- Added href guard for `symbolSourceHref()` return values: navigable items only render the "src" link when a valid href is available, and non-navigable items render a plain `<span>` instead of an anchor with an empty `href`, preventing broken link clicks.
+- Retained href guards for fallback source anchors in non-navigable rows so empty href values still degrade safely to plain text spans.
 
 ## Test coverage expansion
 
-- Added structural assertions in `map-toolbar.test.mjs` for: interior menu item flex layout, hover state, CSS transition, kind label `white-space: nowrap` and `margin-left: auto`, button/src focus-visible outlines, items list `scrollbar-width: thin`, grid `min()` overflow prevention, navigable item `flex-wrap: nowrap`, span fallback for empty hrefs, and href guard for src links.
+- Added structural assertions in `map-toolbar.test.mjs` for: interior menu item flex layout, hover state, CSS transition, kind label `white-space: nowrap` and `margin-left: auto`, button focus-visible outlines, items list `scrollbar-width: thin`, grid `min()` overflow prevention, navigable item `flex-wrap: nowrap`, span fallback for empty hrefs, and a guard that legacy src-link elements are no longer rendered.
 
 ## Future growth recommendations
 
