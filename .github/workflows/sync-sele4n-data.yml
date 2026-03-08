@@ -89,7 +89,7 @@ jobs:
           )
           THEOREMS=0
           for f in "${PROOF_FILES[@]}"; do
-            COUNT=$(curl -sf "${RAW}/${f}" | grep -c '^theorem ' || true)
+            COUNT=$(curl -sf "${RAW}/${f}" | grep -cP '^\s*(?:@\[.*?\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s' || true)
             THEOREMS=$((THEOREMS + COUNT))
           done
           echo "theorems=${THEOREMS}" >> "$GITHUB_OUTPUT"

@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.2.0**.
+> Documentation baseline: website release **0.3.0**.
 
 ## Audit summary
 
@@ -275,6 +275,34 @@ The `LABEL_WRAP_CACHE` previously evicted a single entry when at capacity. This 
 - Added `validateSiteDataObject` wrong types on numeric fields test.
 - Added `validateMapDataObject` duplicate modules detection test.
 - Added `assuranceForModule` partial assurance level test (invariant exists but does not import operations).
+
+## Comprehensive audit and refinement pass (0.3.0)
+
+### Data pipeline fixes
+
+- **Stale `site-data.json` version**: The bundled `data/site-data.json` had `version: "0.1.0"` while the website was at 0.2.0. Corrected to `0.3.0` with the version bump.
+- **`sync-site-data.mjs` missing fields**: The sync script did not write `admitted`, `sourceRepo`, or `sourceRef` fields. Added `admitted` defaulting to 0 if absent, and `sourceRepo`/`sourceRef` sourced from the script's `REPO`/`REF` constants.
+- **CI workflow theorem undercounting**: The GitHub Actions workflow (`sync-sele4n-data.yml`) only matched `^theorem ` at line start, missing attributed theorems (`@[simp] theorem`), private/protected theorems, and all lemma declarations. Updated the grep pattern to match the same regex used by `lean-analysis.mjs` for consistency.
+
+### Version bump to 0.3.0
+
+All version references across the project were updated:
+- `data/site-data.json`, `index.html` JSON-LD schema, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`
+- Documentation baselines in `docs/ARCHITECTURE.md`, `docs/CODEBASE_MAP.md`, `docs/TESTING.md`
+
+### Bug fixes
+
+- **Scroll behavior restoration**: Fixed three instances in `map.js` where `wrap.style.scrollBehavior` was saved and restored after instant-positioning scroll writes. If scroll-behavior was set via CSS (not inline), the restore wrote an empty string to inline style which did not revert to the CSS value. Changed to `wrap.style.removeProperty("scroll-behavior")` to correctly fall back to the stylesheet rule.
+- **Version fallback mismatch**: All `data-live="version"` fallback spans in `index.html` showed `0.1.0` instead of the current version. Users with JS disabled or slow connections saw the wrong version. Updated to `0.3.0`.
+- **JSON parse error context**: `validate-data.mjs` now catches `JSON.parse` errors and reports which file has malformed JSON, rather than throwing an unhandled exception.
+
+### SEO and social sharing
+
+- **Map page Open Graph tags**: Added `og:title`, `og:description`, `og:type`, `og:url`, `twitter:card`, `twitter:title`, and `twitter:description` meta tags to `map.html`. Previously the map page had no social sharing metadata, resulting in blank previews on social platforms.
+
+### Documentation accuracy
+
+- Updated `CLAUDE.md` large file line counts to match actual values (map.js ~4,295, site.js ~754, header-nav.js ~738, style.css ~1,824, map.css ~718).
 
 ## Future growth recommendations
 

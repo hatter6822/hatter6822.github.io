@@ -1577,11 +1577,10 @@
     var maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
     var maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
     // Temporarily disable smooth scrolling for instant programmatic positioning
-    var previousBehavior = wrap.style.scrollBehavior;
     wrap.style.scrollBehavior = "auto";
     wrap.scrollLeft = Math.min(maxScrollLeft, targetScrollLeft);
     wrap.scrollTop = Math.min(maxScrollTop, targetScrollTop);
-    wrap.style.scrollBehavior = previousBehavior;
+    wrap.style.removeProperty("scroll-behavior");
     state.flowScrollTarget = "";
     return true;
   }
@@ -1970,11 +1969,10 @@
     renderFlowNodeInteriorMenu(selected);
 
     if (!applyFlowScrollTarget(wrap, selected, center.x, center.y, center.w, center.h)) {
-      var prevBehavior = wrap.style.scrollBehavior;
       wrap.style.scrollBehavior = "auto";
       wrap.scrollLeft = previousScrollLeft;
       wrap.scrollTop = previousScrollTop;
-      wrap.style.scrollBehavior = prevBehavior;
+      wrap.style.removeProperty("scroll-behavior");
     }
   }
 
@@ -2247,11 +2245,10 @@
     renderFlowNodeInteriorMenu(moduleName);
 
     if (!applyFlowScrollTarget(wrap, declName, center.x, center.y, center.w, center.h)) {
-      var prevBehavior = wrap.style.scrollBehavior;
       wrap.style.scrollBehavior = "auto";
       wrap.scrollLeft = previousScrollLeft;
       wrap.scrollTop = previousScrollTop;
-      wrap.style.scrollBehavior = prevBehavior;
+      wrap.style.removeProperty("scroll-behavior");
     }
   }
 
