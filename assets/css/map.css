@@ -352,7 +352,7 @@
 }
 .interior-menu-item::after {
   content: attr(data-kind-label);
-  font-family: var(--font-ui);
+  font-family: var(--font-mono);
   font-size: 0.56rem;
   color: color-mix(in oklab, var(--interior-kind-color, var(--text-muted)) 72%, var(--text-muted));
   margin-left: auto;
@@ -646,7 +646,7 @@
   gap: 0.25rem;
   padding: 0.5rem 0.75rem;
   font-size: 0.82rem;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   flex-wrap: wrap;
 }
 .declaration-breadcrumb-module {
@@ -655,7 +655,7 @@
   cursor: pointer;
 }
 .breadcrumb-separator {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   user-select: none;
 }
 .breadcrumb-current {
@@ -676,13 +676,13 @@
   min-width: 0;
   color: var(--text);
   text-decoration: underline;
-  text-decoration-color: var(--interior-kind-color, var(--text-tertiary));
+  text-decoration-color: var(--interior-kind-color, var(--text-muted));
   text-underline-offset: 2px;
   overflow-wrap: anywhere;
 }
 .interior-menu-item-btn:hover,
 .interior-menu-item-btn:focus-visible {
-  color: var(--interior-kind-color, var(--link));
+  color: var(--interior-kind-color, var(--accent));
   text-decoration-thickness: 2px;
 }
 .interior-menu-item-btn:focus-visible {
