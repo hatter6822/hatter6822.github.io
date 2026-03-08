@@ -324,8 +324,16 @@
     if (!nav) return;
 
     syncScrollOffset();
-    window.addEventListener("resize", syncScrollOffset, { passive: true });
-    window.addEventListener("orientationchange", syncScrollOffset, { passive: true });
+    var syncScrollRafId = 0;
+    function debouncedSyncScrollOffset() {
+      if (syncScrollRafId) return;
+      syncScrollRafId = requestAnimationFrame(function () {
+        syncScrollRafId = 0;
+        syncScrollOffset();
+      });
+    }
+    window.addEventListener("resize", debouncedSyncScrollOffset, { passive: true });
+    window.addEventListener("orientationchange", debouncedSyncScrollOffset, { passive: true });
 
     window.addEventListener("hashchange", function () {
       scheduleHashScroll(window.location.hash, "smooth");
@@ -386,7 +394,7 @@
           for (var id in sectionMap) {
             sectionMap[id].removeAttribute("aria-current");
           }
-          link.setAttribute("aria-current", "page");
+          link.setAttribute("aria-current", "true");
         }
       }, { rootMargin: "-30% 0px -60% 0px", threshold: 0.01 });
 
@@ -580,10 +588,13 @@
     }
 
     var total = 0;
+    var counted = {};
 
     if (Array.isArray(map.modules)) {
       for (var i = 0; i < map.modules.length; i++) {
-        total += countModuleTheorems(map.modules[i]);
+        var mod = map.modules[i];
+        total += countModuleTheorems(mod);
+        if (mod && mod.name) counted[mod.name] = true;
       }
     }
 
@@ -591,6 +602,7 @@
     if (moduleMeta && typeof moduleMeta === "object") {
       var moduleNames = Object.keys(moduleMeta);
       for (var j = 0; j < moduleNames.length; j++) {
+        if (counted[moduleNames[j]]) continue;
         total += countModuleTheorems(moduleMeta[moduleNames[j]]);
       }
     }
@@ -701,13 +713,13 @@
       baseline = mergeData(baseline, bundled);
       setCache(baseline);
       applyData(baseline);
-    }).catch(function () {});
-
-    fetchLiveData().then(function (data) {
-      baseline = mergeData(baseline, data);
-      setCache(baseline);
-      applyData(baseline);
-    }).catch(function () {});
+    }).catch(function () {}).then(function () {
+      return fetchLiveData().then(function (data) {
+        baseline = mergeData(baseline, data);
+        setCache(baseline);
+        applyData(baseline);
+      }).catch(function () {});
+    });
   }
 
   function hardenExternalLinks() {

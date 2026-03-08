@@ -213,15 +213,18 @@ export function theoremCountFromCodebaseMap(codebaseMap) {
   };
 
   let total = 0;
+  const counted = new Set();
 
   if (Array.isArray(map.modules)) {
     for (const moduleInfo of map.modules) {
       total += countModuleTheorems(moduleInfo);
+      if (moduleInfo && moduleInfo.name) counted.add(moduleInfo.name);
     }
   }
 
   if (map.moduleMeta && typeof map.moduleMeta === 'object') {
-    for (const moduleInfo of Object.values(map.moduleMeta)) {
+    for (const [name, moduleInfo] of Object.entries(map.moduleMeta)) {
+      if (counted.has(name)) continue;
       total += countModuleTheorems(moduleInfo);
     }
   }

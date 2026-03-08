@@ -1255,6 +1255,7 @@
 
         var select = document.createElement("select");
         select.className = "interior-kind-select";
+        select.setAttribute("aria-label", "Filter " + group.label + " by kind");
         var allOption = document.createElement("option");
         allOption.value = INTERIOR_KIND_ALL_VALUE;
         allOption.textContent = "All (" + group.totalCount + ")";
@@ -1515,7 +1516,7 @@
     var svg = createSvgNode("svg", {
       "class": "flowchart-svg",
       "viewBox": "0 0 " + flowWidth + " " + flowHeight,
-      "role": "img",
+      "role": "group",
       "aria-roledescription": "flowchart",
       "aria-label": ariaLabel
     });
@@ -2007,6 +2008,7 @@
     breadcrumb.appendChild(moduleLabel);
     var separator = document.createElement("span");
     separator.className = "breadcrumb-separator";
+    separator.setAttribute("aria-hidden", "true");
     separator.textContent = " \u203A ";
     breadcrumb.appendChild(separator);
     var declLabel = document.createElement("span");
@@ -3959,10 +3961,16 @@
         else closeModuleSearchOptions();
       }
 
+      var searchDebounceTimer = null;
       search.addEventListener("input", function () {
         setSearchFeedback("", false);
         if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
-        if (!chooseExactFromCurrentValue()) refreshSuggestions();
+        if (chooseExactFromCurrentValue()) return;
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(function () {
+          searchDebounceTimer = null;
+          refreshSuggestions();
+        }, 90);
       });
       search.addEventListener("focus", refreshSuggestions);
       search.addEventListener("change", choose);
@@ -4102,6 +4110,7 @@
   }
 
   function syncUrlState() {
+    if (typeof URLSearchParams !== "function") return;
     var params = new URLSearchParams(window.location.search);
     if (state.selectedModule) params.set("module", state.selectedModule); else params.delete("module");
     if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");

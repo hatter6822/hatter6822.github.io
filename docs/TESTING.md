@@ -30,8 +30,12 @@ Validates:
 - module search scoring algorithm (`moduleSearchMatches` exact match ranking, prefix-before-substring ordering, empty query behavior returning first 10 modules)
 - accessibility: edge layer `aria-hidden` attribute on flowchart SVG group for screen reader exclusion of decorative edges
 - interior kind color coding (`interiorKindColor` known kind resolution, plural normalization fallback via `normalizeDeclarationKind`, gray fallback for unknown kinds, `normalizeDeclarationKind` plural-to-singular/case/whitespace normalization)
-- assurance level computation (`assuranceForModule` theorem density tracking, descriptive detail text with theorem counts, structural-only detail for zero-theorem linked pairs, `ASSURANCE_COLORS` constant validation for all four levels with hex color format verification)
+- assurance level computation (`assuranceForModule` theorem density tracking, descriptive detail text with theorem counts, structural-only detail for zero-theorem linked pairs, `ASSURANCE_COLORS` constant validation for all four levels with hex color format verification, partial assurance level detection for proof pairs where invariant exists but does not import operations)
 - flow legend expansion (10-entry legend with individual assurance level colors verified against `assuranceColors` hook)
+- `isLikelyModuleToken` standalone validation (valid module paths accepted, lowercase/empty/null/malformed rejected)
+- theorem deduplication (`theoremCountFromCodebaseMap` skips modules in `moduleMeta` already counted from `modules[]`)
+- edge case robustness (zero-theorem sources, null/undefined/string inputs to `theoremCount` and `theoremCountFromCodebaseMap`, empty import sources)
+- data validation root guards (`validateSiteDataObject` and `validateMapDataObject` reject null/non-object roots, wrong types on numeric fields, duplicate module entries)
 
 ### Bundled data integrity
 
@@ -56,7 +60,7 @@ node --check assets/js/theme-init.js
 ## Manual verification recommendations
 
 - Confirm `index.html` and `map.html` load from a static server.
-- Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="page"`) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
+- Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="true"` for section tracking, `aria-current="page"` for page-level nav) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
 - Stress-test long hash jumps (top-to-lower sections and back) in Chromium: active nav state should transition once per section boundary and stay stable near boundaries (no alternating flicker), including after repeated clicks on links whose sections are near midpoint boundaries.
 - While a lower section is active (for example `/#verification`), trigger an asynchronous layout shift (expand/collapse content above the fold using DevTools or temporary DOM edits): active nav selection should remain deterministic (no back-and-forth oscillation) and converge to the true in-focus section after layout settles.
 - Verify hash-near-header behavior: when the URL hash matches a section whose heading is currently inside the fixed-header focus window, that section's nav link remains active even if tiny scroll jitter is present.

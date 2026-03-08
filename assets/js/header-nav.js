@@ -38,6 +38,14 @@
 
     var supportsFocusPreventScroll = null;
     var hashNavigationEpoch = 0;
+    var prefersReducedMotion = false;
+    try {
+      var motionMql = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
+      if (motionMql) {
+        prefersReducedMotion = motionMql.matches;
+        if (motionMql.addEventListener) motionMql.addEventListener("change", function (e) { prefersReducedMotion = e.matches; });
+      }
+    } catch (e) {}
 
     function beginHashNavigation() {
       hashNavigationEpoch += 1;
@@ -61,9 +69,7 @@
 
     function preferredScrollBehavior(defaultBehavior) {
       if (defaultBehavior === "auto" || defaultBehavior === "instant") return defaultBehavior;
-      try {
-        if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return "auto";
-      } catch (e) {}
+      if (prefersReducedMotion) return "auto";
       return defaultBehavior || "smooth";
     }
 
@@ -352,7 +358,7 @@
         pendingObservations = 0;
 
         for (var i = 0; i < sectionEntries.length; i++) {
-          if (i === index) sectionEntries[i].link.setAttribute("aria-current", "page");
+          if (i === index) sectionEntries[i].link.setAttribute("aria-current", "true");
           else sectionEntries[i].link.removeAttribute("aria-current");
         }
       }

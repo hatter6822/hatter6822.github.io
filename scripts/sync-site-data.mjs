@@ -24,7 +24,12 @@ function formatNumber(n) {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-const data = JSON.parse(await readFile(OUT_FILE, 'utf8'));
+let data;
+try {
+  data = JSON.parse(await readFile(OUT_FILE, 'utf8'));
+} catch {
+  data = {};
+}
 
 const [toolchain, lakefile, readme, tree, langs, commit, codebaseMap] = await Promise.all([
   fetchText(`${RAW}lean-toolchain`),

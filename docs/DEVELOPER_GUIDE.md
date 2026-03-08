@@ -224,9 +224,9 @@ Pure validation utilities for site/map payload objects. Centralizes schema check
 ### `scripts/lib/*.test.mjs`
 Node tests for parser and validation correctness:
 
-- `lean-analysis.test.mjs`: parser behavior and edge cases.
-- `data-validation.test.mjs`: schema and invariant validation checks.
-- `map-runtime.test.mjs`: map runtime compatibility and behavior checks.
+- `lean-analysis.test.mjs`: parser behavior, edge cases, `isLikelyModuleToken` validation, theorem deduplication, null/empty input guards.
+- `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection.
+- `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none).
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.
 
 ## 9) Documentation folder (`docs/`)
