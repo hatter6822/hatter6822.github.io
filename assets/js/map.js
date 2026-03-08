@@ -114,6 +114,7 @@
     searchVisibleOptions: [],
     searchActiveOption: -1,
     searchDeclSuggestions: [],
+    declarationSearchList: [],
     filteredModulesKey: "", filteredModulesList: [], filteredModulesValid: false,
     contextListValid: false,
     interiorMenuModule: "",
@@ -320,6 +321,25 @@
       };
     }
     state.searchIndex = index;
+    buildDeclarationSearchIndex();
+  }
+
+  function buildDeclarationSearchIndex() {
+    var declIndex = [];
+    for (var declName in state.declarationIndex) {
+      if (!Object.prototype.hasOwnProperty.call(state.declarationIndex, declName)) continue;
+      var entry = state.declarationIndex[declName];
+      if (!entry || !entry.module) continue;
+      var qualifiedName = entry.module + "." + declName;
+      declIndex.push({
+        name: declName,
+        nameLower: declName.toLowerCase(),
+        module: entry.module,
+        qualifiedName: qualifiedName,
+        qualifiedLower: qualifiedName.toLowerCase()
+      });
+    }
+    state.declarationSearchList = declIndex;
   }
 
   function setSearchFeedback(message, isError) {
@@ -1460,7 +1480,7 @@
     defs.appendChild(marker);
     svg.appendChild(defs);
 
-    var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer" });
+    var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer", "aria-hidden": "true" });
     var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
     var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });
     svg.appendChild(edgeLayer);
@@ -3430,8 +3450,11 @@
     var value = (query || "").trim();
     if (!value || value.indexOf(".") === -1) return null;
 
-    // Try progressively shorter dot-separated prefixes as module candidates
     var parts = value.split(".");
+
+    // Strategy 1: Try progressively shorter dot-separated prefixes as exact module candidates.
+    // E.g. "SeLe4n.Kernel.API.apiInvariantBundle" splits to find module "SeLe4n.Kernel.API"
+    // with declaration suffix "apiInvariantBundle".
     for (var splitAt = parts.length - 1; splitAt >= 1; splitAt--) {
       var moduleCandidate = parts.slice(0, splitAt).join(".");
       if (!state.moduleMap[moduleCandidate]) continue;
@@ -3439,11 +3462,63 @@
       var declSuffix = parts.slice(splitAt).join(".").toLowerCase();
       if (!declSuffix) continue;
 
-      // Search declarations in this module
-      var interior = interiorCodeForModule(moduleCandidate);
-      if (!interior || !interior.byKind) continue;
+      var result = searchDeclarationsInModule(moduleCandidate, declSuffix);
+      if (result) return result;
+    }
 
-      var bestMatch = null;
+    // Strategy 2: Search all declarations across all modules using the pre-built index.
+    // This handles cases where the query is a qualified name but the module prefix is partial,
+    // or when the query matches a declaration's qualified name (module.declaration).
+    var queryLower = value.toLowerCase();
+    var declList = state.declarationSearchList || [];
+    var bestGlobal = null;
+    var bestGlobalScore = -1;
+
+    for (var gi = 0; gi < declList.length; gi++) {
+      var entry = declList[gi];
+      var score = -1;
+
+      // Exact qualified match: "SeLe4n.Kernel.API.apiInvariantBundle"
+      if (entry.qualifiedLower === queryLower) {
+        return { module: entry.module, declaration: entry.name, exact: true };
+      }
+      // Qualified name starts with query
+      if (entry.qualifiedLower.indexOf(queryLower) === 0) {
+        score = 1800 - entry.qualifiedLower.length;
+      }
+      // Query starts with qualified name (query is more specific, shouldn't match)
+      // Qualified name contains query as substring
+      else if (entry.qualifiedLower.indexOf(queryLower) !== -1) {
+        score = 1200 - entry.qualifiedLower.indexOf(queryLower);
+      }
+      // Declaration name alone matches the last dot-segment of the query
+      else {
+        var lastDot = queryLower.lastIndexOf(".");
+        var querySuffix = lastDot >= 0 ? queryLower.slice(lastDot + 1) : "";
+        if (querySuffix && entry.nameLower === querySuffix) {
+          score = 1600;
+        } else if (querySuffix && entry.nameLower.indexOf(querySuffix) === 0) {
+          score = 1400 - entry.nameLower.length;
+        } else if (querySuffix && entry.nameLower.indexOf(querySuffix) !== -1) {
+          score = 1000 - entry.nameLower.indexOf(querySuffix);
+        }
+      }
+
+      if (score > bestGlobalScore) {
+        bestGlobalScore = score;
+        bestGlobal = { module: entry.module, declaration: entry.name, exact: false };
+      }
+    }
+
+    return bestGlobal;
+  }
+
+  function searchDeclarationsInModule(moduleName, declSuffixLower) {
+    // Search interior declarations (from moduleMeta symbols)
+    var interior = interiorCodeForModule(moduleName);
+    var bestMatch = null;
+
+    if (interior && interior.byKind) {
       var kinds = allInteriorKinds();
       for (var k = 0; k < kinds.length; k++) {
         var items = interior.byKind[kinds[k]];
@@ -3451,36 +3526,112 @@
         for (var j = 0; j < items.length; j++) {
           if (!items[j] || !items[j].name) continue;
           var itemLower = items[j].name.toLowerCase();
-          if (itemLower === declSuffix) {
-            return { module: moduleCandidate, declaration: items[j].name, exact: true };
+          if (itemLower === declSuffixLower) {
+            return { module: moduleName, declaration: items[j].name, exact: true };
           }
-          if (!bestMatch && itemLower.indexOf(declSuffix) === 0) {
-            bestMatch = { module: moduleCandidate, declaration: items[j].name, exact: false };
+          if (!bestMatch && itemLower.indexOf(declSuffixLower) === 0) {
+            bestMatch = { module: moduleName, declaration: items[j].name, exact: false };
           }
-          if (!bestMatch && itemLower.indexOf(declSuffix) !== -1) {
-            bestMatch = { module: moduleCandidate, declaration: items[j].name, exact: false };
+          if (!bestMatch && itemLower.indexOf(declSuffixLower) !== -1) {
+            bestMatch = { module: moduleName, declaration: items[j].name, exact: false };
           }
         }
       }
-
-      // Also check declarationIndex for declarations that may have full qualified names
-      for (var declName in state.declarationIndex) {
-        if (!Object.prototype.hasOwnProperty.call(state.declarationIndex, declName)) continue;
-        var entry = state.declarationIndex[declName];
-        if (entry.module !== moduleCandidate) continue;
-        var declLower = declName.toLowerCase();
-        if (declLower === declSuffix) {
-          return { module: moduleCandidate, declaration: declName, exact: true };
-        }
-        if (!bestMatch && declLower.indexOf(declSuffix) === 0) {
-          bestMatch = { module: moduleCandidate, declaration: declName, exact: false };
-        }
-      }
-
-      if (bestMatch) return bestMatch;
     }
 
-    return null;
+    // Also check declarationIndex for declarations that may not appear in interior
+    var declList = state.declarationSearchList || [];
+    for (var di = 0; di < declList.length; di++) {
+      var entry = declList[di];
+      if (entry.module !== moduleName) continue;
+      if (entry.nameLower === declSuffixLower) {
+        return { module: moduleName, declaration: entry.name, exact: true };
+      }
+      if (!bestMatch && entry.nameLower.indexOf(declSuffixLower) === 0) {
+        bestMatch = { module: moduleName, declaration: entry.name, exact: false };
+      }
+    }
+
+    return bestMatch;
+  }
+
+  function declarationSearchMatches(query, limit) {
+    var value = (query || "").trim();
+    if (!value || value.indexOf(".") === -1) return [];
+    var queryLower = value.toLowerCase();
+    var parts = value.split(".");
+    var maxResults = Math.max(1, limit || 5);
+
+    var scored = [];
+
+    // Strategy 1: Check exact module prefix splits
+    for (var splitAt = parts.length - 1; splitAt >= 1; splitAt--) {
+      var moduleCandidate = parts.slice(0, splitAt).join(".");
+      if (!state.moduleMap[moduleCandidate]) continue;
+
+      var declSuffix = parts.slice(splitAt).join(".").toLowerCase();
+      if (!declSuffix) continue;
+
+      var interior = interiorCodeForModule(moduleCandidate);
+      if (!interior || !interior.byKind) continue;
+
+      var kinds = allInteriorKinds();
+      for (var k = 0; k < kinds.length; k++) {
+        var items = interior.byKind[kinds[k]];
+        if (!Array.isArray(items)) continue;
+        for (var j = 0; j < items.length; j++) {
+          if (!items[j] || !items[j].name) continue;
+          var itemLower = items[j].name.toLowerCase();
+          var score = -1;
+          if (itemLower === declSuffix) score = 2000;
+          else if (itemLower.indexOf(declSuffix) === 0) score = 1600 - itemLower.length;
+          else if (itemLower.indexOf(declSuffix) !== -1) score = 1200 - itemLower.indexOf(declSuffix);
+          if (score >= 0) {
+            scored.push({ module: moduleCandidate, declaration: items[j].name, exact: score >= 2000, score: score });
+          }
+        }
+      }
+      // If we found results in an exact module, prefer them
+      if (scored.length) break;
+    }
+
+    // Strategy 2: Search across all declarations via the pre-built index
+    if (!scored.length) {
+      var declList = state.declarationSearchList || [];
+      for (var gi = 0; gi < declList.length; gi++) {
+        var entry = declList[gi];
+        var score2 = -1;
+        if (entry.qualifiedLower === queryLower) score2 = 2000;
+        else if (entry.qualifiedLower.indexOf(queryLower) === 0) score2 = 1800 - entry.qualifiedLower.length;
+        else if (entry.qualifiedLower.indexOf(queryLower) !== -1) score2 = 1200 - entry.qualifiedLower.indexOf(queryLower);
+        else {
+          var lastDot = queryLower.lastIndexOf(".");
+          var querySuffix = lastDot >= 0 ? queryLower.slice(lastDot + 1) : "";
+          if (querySuffix && entry.nameLower === querySuffix) score2 = 1600;
+          else if (querySuffix && entry.nameLower.indexOf(querySuffix) === 0) score2 = 1400 - entry.nameLower.length;
+          else if (querySuffix && entry.nameLower.indexOf(querySuffix) !== -1) score2 = 1000 - entry.nameLower.indexOf(querySuffix);
+        }
+        if (score2 >= 0) {
+          scored.push({ module: entry.module, declaration: entry.name, exact: score2 >= 2000, score: score2 });
+        }
+      }
+    }
+
+    scored.sort(function (a, b) {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.declaration.localeCompare(b.declaration);
+    });
+
+    // Deduplicate by module+declaration
+    var seen = Object.create(null);
+    var out = [];
+    for (var ri = 0; ri < scored.length && out.length < maxResults; ri++) {
+      var key = scored[ri].module + "\0" + scored[ri].declaration;
+      if (seen[key]) continue;
+      seen[key] = true;
+      out.push(scored[ri]);
+    }
+    return out;
   }
 
   function moduleSearchMatches(query, list) {
@@ -3722,18 +3873,34 @@
       function refreshSuggestions() {
         var list = contextList();
         var matches = moduleSearchMatches(search.value, list);
-        // Also check for declaration-scoped suggestions
-        var declMatch = declarationSearchMatch(search.value);
-        if (declMatch && !declMatch.exact) {
-          // Show the parent module as the first suggestion with a declaration hint
-          var declHint = declMatch.module + "." + declMatch.declaration;
-          if (matches.indexOf(declHint) === -1) {
-            matches = [declHint].concat(matches);
-            state.searchDeclSuggestions = [{ hint: declHint, module: declMatch.module, declaration: declMatch.declaration }];
+        // Also check for declaration-scoped suggestions via dot-append search
+        var queryValue = (search.value || "").trim();
+        var declSuggestions = [];
+        if (queryValue.indexOf(".") !== -1) {
+          var declResults = declarationSearchMatches(queryValue, 5);
+          for (var ds = 0; ds < declResults.length; ds++) {
+            var dr = declResults[ds];
+            var declHint = dr.module + "." + dr.declaration;
+            if (matches.indexOf(declHint) === -1) {
+              matches.push(declHint);
+              declSuggestions.push({ hint: declHint, module: dr.module, declaration: dr.declaration });
+            }
           }
-        } else {
-          state.searchDeclSuggestions = [];
+          // Move declaration suggestions to the front if module search found nothing
+          if (declSuggestions.length && matches.length === declSuggestions.length) {
+            // All matches are declaration suggestions — they're already in order
+          } else if (declSuggestions.length) {
+            // Interleave: put top declaration suggestion first, then modules, then rest
+            var declHints = [];
+            for (var dh = 0; dh < declSuggestions.length; dh++) declHints.push(declSuggestions[dh].hint);
+            var moduleOnly = [];
+            for (var mo = 0; mo < matches.length; mo++) {
+              if (declHints.indexOf(matches[mo]) === -1) moduleOnly.push(matches[mo]);
+            }
+            matches = declHints.concat(moduleOnly);
+          }
         }
+        state.searchDeclSuggestions = declSuggestions;
         if (matches.length) openModuleSearchOptions(matches);
         else closeModuleSearchOptions();
       }
@@ -4002,6 +4169,7 @@
       declarationLineOf: declarationLineOf,
       declarationSourceHref: declarationSourceHref,
       declarationSearchMatch: declarationSearchMatch,
+      declarationSearchMatches: declarationSearchMatches,
       moduleSearchMatches: moduleSearchMatches,
       buildSearchIndex: buildSearchIndex,
       declarationLaneCollapseThreshold: function () { return 12; },

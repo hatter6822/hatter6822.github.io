@@ -1291,3 +1291,164 @@ test('moduleSearchMatches handles empty query by returning first 10 modules', as
   const matches = hooks.moduleSearchMatches('', normalized.modules);
   assert.equal(matches.length, 2, 'empty query should return all modules (up to 10)');
 });
+
+test('declarationSearchMatch uses global declaration index for cross-module search', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Kernel.API',
+        path: 'SeLe4n/Kernel/API.lean',
+        declarations: [
+          { kind: 'def', name: 'apiInvariantBundle', line: 10, called: [] },
+          { kind: 'theorem', name: 'apiSafety', line: 20, called: [] }
+        ]
+      },
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'def', name: 'mainEntry', line: 5, called: ['apiInvariantBundle'] }
+        ]
+      },
+      {
+        module: 'SeLe4n.Platform.Driver',
+        path: 'SeLe4n/Platform/Driver.lean',
+        declarations: [
+          { kind: 'def', name: 'driverInit', line: 8, called: [] }
+        ]
+      }
+    ]
+  });
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    declarationGraph: normalized.declarationGraph,
+    declarationReverseGraph: normalized.declarationReverseGraph,
+    declarationIndex: normalized.declarationIndex
+  });
+  hooks.buildSearchIndex();
+
+  // Strategy 1: Exact module prefix match with declaration suffix
+  const exact = hooks.declarationSearchMatch('SeLe4n.Kernel.API.apiInvariantBundle');
+  assert.ok(exact, 'should find exact declaration via module prefix');
+  assert.equal(exact.module, 'SeLe4n.Kernel.API');
+  assert.equal(exact.declaration, 'apiInvariantBundle');
+  assert.equal(exact.exact, true);
+
+  // Strategy 2: Partial qualified name that doesn't match any module exactly
+  // "SeLe4n.Kernel.API.api" — module matches, declaration is prefix
+  const partialDecl = hooks.declarationSearchMatch('SeLe4n.Kernel.API.api');
+  assert.ok(partialDecl, 'should find partial declaration match within exact module');
+  assert.equal(partialDecl.module, 'SeLe4n.Kernel.API');
+  assert.equal(partialDecl.exact, false);
+
+  // Strategy 2b: Global search when no module boundary matches
+  // "SeLe4n.Platform.Driver.driverInit" — exact module + exact declaration
+  const platformDecl = hooks.declarationSearchMatch('SeLe4n.Platform.Driver.driverInit');
+  assert.ok(platformDecl, 'should find declaration in Platform.Driver');
+  assert.equal(platformDecl.module, 'SeLe4n.Platform.Driver');
+  assert.equal(platformDecl.declaration, 'driverInit');
+  assert.equal(platformDecl.exact, true);
+});
+
+test('declarationSearchMatches returns multiple ranked results', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Kernel.API',
+        path: 'SeLe4n/Kernel/API.lean',
+        declarations: [
+          { kind: 'def', name: 'apiInvariantBundle', line: 10, called: [] },
+          { kind: 'theorem', name: 'apiSafety', line: 20, called: [] },
+          { kind: 'def', name: 'apiHandler', line: 30, called: [] }
+        ]
+      },
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'def', name: 'apiWrapper', line: 5, called: [] }
+        ]
+      }
+    ]
+  });
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    declarationGraph: normalized.declarationGraph,
+    declarationReverseGraph: normalized.declarationReverseGraph,
+    declarationIndex: normalized.declarationIndex
+  });
+  hooks.buildSearchIndex();
+
+  // Search for "SeLe4n.Kernel.API.api" should return multiple matches from that module
+  const results = hooks.declarationSearchMatches('SeLe4n.Kernel.API.api', 5);
+  assert.ok(results.length >= 2, 'should return multiple declaration matches');
+  // All results should be from the matched module
+  for (const r of results) {
+    assert.equal(r.module, 'SeLe4n.Kernel.API', 'all results should be from the matched module');
+  }
+  // The exact prefix match should be first (apiHandler or apiInvariantBundle or apiSafety)
+  const declNames = results.map(r => r.declaration);
+  assert.ok(declNames.every(n => n.toLowerCase().startsWith('api')), 'all results should start with "api"');
+});
+
+test('declarationSearchMatches handles empty and non-dot queries', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // Empty query and non-dot query should always return empty arrays
+  const emptyResults = hooks.declarationSearchMatches('', 5);
+  assert.ok(Array.isArray(emptyResults), 'empty query should return an array');
+  assert.equal(emptyResults.length, 0, 'empty query should return no results');
+
+  const noDotResults = hooks.declarationSearchMatches('noDots', 5);
+  assert.ok(Array.isArray(noDotResults), 'non-dot query should return an array');
+  assert.equal(noDotResults.length, 0, 'query without dots should return no results');
+});
+
+test('buildSearchIndex creates declarationSearchList from declarationIndex', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Kernel.API',
+        path: 'SeLe4n/Kernel/API.lean',
+        declarations: [
+          { kind: 'def', name: 'apiBundle', line: 10, called: [] }
+        ]
+      }
+    ]
+  });
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    declarationIndex: normalized.declarationIndex
+  });
+  hooks.buildSearchIndex();
+
+  // The declarationSearchMatch should work after buildSearchIndex populates the list
+  const match = hooks.declarationSearchMatch('SeLe4n.Kernel.API.apiBundle');
+  assert.ok(match, 'buildSearchIndex should enable declaration search');
+  assert.equal(match.module, 'SeLe4n.Kernel.API');
+  assert.equal(match.declaration, 'apiBundle');
+  assert.equal(match.exact, true);
+});
+
+test('edge layer in flowchart SVG is aria-hidden for accessibility', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  assert.ok(
+    mapSource.includes('"aria-hidden": "true"') && mapSource.includes('flow-edge-layer'),
+    'edge layer should be marked aria-hidden for screen readers'
+  );
+});
