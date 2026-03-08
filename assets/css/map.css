@@ -115,6 +115,11 @@
   background: color-mix(in oklab, var(--accent) 20%, transparent);
   color: var(--heading);
 }
+.module-search-option-decl {
+  font-style: italic;
+  border-left: 2px solid var(--accent);
+  padding-left: calc(0.5rem - 2px);
+}
 
 .detail-preset {
   margin: 0;
@@ -306,8 +311,8 @@
   gap: 0.28rem;
   max-height: 14rem;
   overflow: auto;
-  padding-right: 0.15rem;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
 .interior-menu-items .interior-menu-item::before {

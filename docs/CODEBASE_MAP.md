@@ -51,6 +51,7 @@ The map page provides a single operational and proof-aware architecture view of 
 ## Interaction model
 
 - **Context jump:** module/path search + Enter.
+- **Dot-append declaration search:** type `Module.Name.declarationName` in the search bar to navigate directly to a declaration within a module. The search progressively tries shorter module prefixes, then matches the remaining suffix against declarations in that module. Exact matches select immediately; partial/prefix matches appear as suggestions with distinct italic styling and a left border accent. Declaration suggestions are also selectable via keyboard (Arrow keys + Enter) and mouse click.
 - **Keyboard walk:** `j` and `k` outside input controls.
 - **Detail levels:** compact/balanced/expanded (Arrow keys cycle; Home/End jump to first/last preset).
 - **Toolbar layout:** the module-control toolbar is placed before the interior declaration panel and only includes module context search and reset in a compact density-tagged shell.
@@ -88,7 +89,7 @@ The map page provides a single operational and proof-aware architecture view of 
 
 ### Interior menu item layout
 
-Interior menu items use flex layout with the kind label (`::after` pseudo-element) right-aligned via `margin-left: auto`. Items have hover states with kind-color tinting, CSS transitions for smooth feedback, and `focus-visible` outlines on buttons and source links for keyboard accessibility. The grid column minimum uses `min(16rem, 100%)` to prevent overflow on narrow viewports. Mobile breakpoints increase touch target sizes (`min-height: 2.2rem`) and breadcrumb button targets. Landscape phone breakpoints compact item padding and reduce list max-height to maximize chart visibility. The `repaintList()` function uses stable DOM management via `showEmptyNote()`/`ensureListAttached()` helpers rather than `replaceWith()` to prevent orphaned DOM references. Source links are only rendered when `symbolSourceHref()` returns a valid href; items without a resolvable path render a plain `<span>` instead of an empty anchor.
+Interior menu items use flex layout with the kind label (`::after` pseudo-element) right-aligned via `margin-left: auto`. Items have hover states with kind-color tinting, CSS transitions for smooth feedback, and `focus-visible` outlines on buttons and source links for keyboard accessibility. The grid column minimum uses `min(16rem, 100%)` to prevent overflow on narrow viewports. Interior menu items list uses `scrollbar-gutter: stable` for consistent layout regardless of scrollbar visibility. Mobile breakpoints increase touch target sizes (`min-height: 2.2rem`) and breadcrumb button targets. Landscape phone breakpoints compact item padding and reduce list max-height to maximize chart visibility. The `repaintList()` function uses stable DOM management via `showEmptyNote()`/`ensureListAttached()` helpers rather than `replaceWith()` to prevent orphaned DOM references. Source links are only rendered when `symbolSourceHref()` returns a valid href; items without a resolvable path render a plain `<span>` instead of an empty anchor.
 
 ## Flowchart rendering architecture
 
@@ -102,6 +103,14 @@ Both the module-context and declaration-context flowchart renderers share six ex
 - `buildFlowNodeGroup()` — SVG node construction (rect, title wrapping, subtitle, keyboard/click handlers) using `role="img"` for non-interactive nodes and `role="button"` for interactive ones.
 
 Each renderer delegates to the shared helpers for setup, then applies its own context-specific class composition, aria-label construction, and event wiring via `buildFlowNodeGroup`. Node heights for proof-pair and external-dependency sections are pre-computed during layout passes to avoid redundant recalculation. The SVG element carries `aria-roledescription="flowchart"` for screen reader context. Declaration metadata lookups (`declarationModuleOf`, `declarationKindOf`, `declarationLineOf`) use a precomputed `declarationIndex` for O(1) performance instead of scanning all module symbol buckets. The flowchart container uses CSS `contain: layout style` for browser rendering optimization. `drawFlowEdge` includes a self-edge guard to prevent degenerate bezier curves. `minimumFlowWidth` caches results for 200ms to avoid redundant `window.innerWidth` reads during a render cycle. Flow legend uses `role="list"`/`role="listitem"` semantics with `aria-hidden` swatches for screen reader accessibility. Interior menu items use `DocumentFragment` for batch DOM insertion.
+
+### Search scoring optimizations
+
+Module search scoring uses a short-circuit cascade: once a high-confidence match category is found (exact > prefix > substring), lower-priority categories are skipped entirely. Token-based matching is only attempted when no direct string match is found. The label-wrap cache uses spec-guaranteed `Map` insertion-order iteration for FIFO eviction with an explicit `done` check for robustness.
+
+### Declaration search (dot-append)
+
+The `declarationSearchMatch()` function enables searching for declarations using module-qualified dot notation (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`). It progressively tries shorter dot-separated prefixes as module candidates, then matches the remaining suffix against declarations in the matched module's interior symbols and declaration index. Exact name matches are prioritized, then prefix matches, then substring matches. Declaration search suggestions are rendered with distinct styling (italic text, left accent border) and carry `data-declaration` attributes for proper selection handling via keyboard and mouse.
 
 ## Troubleshooting checklist
 

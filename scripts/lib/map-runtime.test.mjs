@@ -1133,3 +1133,161 @@ test('normalizeMapData builds declarationIndex for O(1) declaration metadata loo
   assert.equal(hooks.declarationKindOf('nonexistent'), '');
   assert.equal(hooks.declarationLineOf('nonexistent'), 0);
 });
+
+test('declarationSearchMatch resolves dot-appended declaration queries', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Kernel.API',
+        path: 'SeLe4n/Kernel/API.lean',
+        declarations: [
+          { kind: 'def', name: 'apiInvariantBundle', line: 10, called: [] },
+          { kind: 'theorem', name: 'apiSafety', line: 20, called: [] },
+          { kind: 'def', name: 'initHandler', line: 30, called: [] }
+        ]
+      },
+      {
+        module: 'SeLe4n.Core.Main',
+        path: 'SeLe4n/Core/Main.lean',
+        declarations: [
+          { kind: 'def', name: 'mainEntry', line: 5, called: [] }
+        ]
+      }
+    ]
+  });
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    declarationGraph: normalized.declarationGraph,
+    declarationReverseGraph: normalized.declarationReverseGraph,
+    declarationIndex: normalized.declarationIndex
+  });
+
+  // Exact declaration match via dot-append
+  const exact = hooks.declarationSearchMatch('SeLe4n.Kernel.API.apiInvariantBundle');
+  assert.ok(exact, 'should find exact declaration match');
+  assert.equal(exact.module, 'SeLe4n.Kernel.API');
+  assert.equal(exact.declaration, 'apiInvariantBundle');
+  assert.equal(exact.exact, true);
+
+  // Prefix match via dot-append
+  const prefix = hooks.declarationSearchMatch('SeLe4n.Kernel.API.api');
+  assert.ok(prefix, 'should find prefix declaration match');
+  assert.equal(prefix.module, 'SeLe4n.Kernel.API');
+  assert.ok(prefix.declaration === 'apiInvariantBundle' || prefix.declaration === 'apiSafety',
+    'should match a declaration starting with "api"');
+  assert.equal(prefix.exact, false);
+
+  // Substring match
+  const substring = hooks.declarationSearchMatch('SeLe4n.Kernel.API.Safety');
+  assert.ok(substring, 'should find substring declaration match');
+  assert.equal(substring.module, 'SeLe4n.Kernel.API');
+  assert.equal(substring.declaration, 'apiSafety');
+  assert.equal(substring.exact, false);
+
+  // No match when declaration suffix doesn't exist
+  const noMatch = hooks.declarationSearchMatch('SeLe4n.Kernel.API.nonExistentDecl');
+  assert.equal(noMatch, null, 'should return null for non-existent declaration');
+
+  // No dot means no declaration search
+  const noDot = hooks.declarationSearchMatch('apiInvariantBundle');
+  assert.equal(noDot, null, 'should return null for queries without dots');
+
+  // Module name only (no declaration suffix) should return null
+  const moduleOnly = hooks.declarationSearchMatch('SeLe4n.Kernel.API');
+  assert.equal(moduleOnly, null, 'should return null when query matches module exactly with no declaration suffix');
+
+  // Cross-module: different module
+  const otherModule = hooks.declarationSearchMatch('SeLe4n.Core.Main.mainEntry');
+  assert.ok(otherModule, 'should find declaration in another module');
+  assert.equal(otherModule.module, 'SeLe4n.Core.Main');
+  assert.equal(otherModule.declaration, 'mainEntry');
+  assert.equal(otherModule.exact, true);
+});
+
+test('moduleSearchMatches scores exact name matches highest', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Core.Main', path: 'SeLe4n/Core/Main.lean' },
+      { name: 'SeLe4n.Core.MainHelper', path: 'SeLe4n/Core/MainHelper.lean' },
+      { name: 'SeLe4n.Core.Other', path: 'SeLe4n/Core/Other.lean' }
+    ]
+  });
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    clearDegreeMap: true
+  });
+
+  hooks.buildSearchIndex();
+
+  const matches = hooks.moduleSearchMatches('SeLe4n.Core.Main', normalized.modules);
+  assert.ok(matches.length > 0, 'should return at least one match');
+  assert.equal(matches[0], 'SeLe4n.Core.Main', 'exact match should be ranked first');
+});
+
+test('moduleSearchMatches returns prefix matches before substring matches', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean' },
+      { name: 'SeLe4n.Core.KernelBridge', path: 'SeLe4n/Core/KernelBridge.lean' },
+      { name: 'SeLe4n.Kernel.IPC', path: 'SeLe4n/Kernel/IPC.lean' }
+    ]
+  });
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    clearDegreeMap: true
+  });
+
+  hooks.buildSearchIndex();
+
+  const matches = hooks.moduleSearchMatches('SeLe4n.Kernel', normalized.modules);
+  assert.ok(matches.length >= 2, 'should return at least 2 matches');
+  // Prefix matches (SeLe4n.Kernel.*) should come before substring matches
+  assert.ok(
+    matches[0] === 'SeLe4n.Kernel.API' || matches[0] === 'SeLe4n.Kernel.IPC',
+    'first result should be a prefix match'
+  );
+});
+
+test('moduleSearchMatches handles empty query by returning first 10 modules', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.A', path: 'SeLe4n/A.lean' },
+      { name: 'SeLe4n.B', path: 'SeLe4n/B.lean' }
+    ]
+  });
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    clearDegreeMap: true
+  });
+
+  hooks.buildSearchIndex();
+
+  const matches = hooks.moduleSearchMatches('', normalized.modules);
+  assert.equal(matches.length, 2, 'empty query should return all modules (up to 10)');
+});

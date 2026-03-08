@@ -113,6 +113,7 @@
     contextOptionsKey: "", searchIndex: Object.create(null),
     searchVisibleOptions: [],
     searchActiveOption: -1,
+    searchDeclSuggestions: [],
     filteredModulesKey: "", filteredModulesList: [], filteredModulesValid: false,
     contextListValid: false,
     interiorMenuModule: "",
@@ -1350,8 +1351,9 @@
     if (current.length) lines.push(current);
 
     if (LABEL_WRAP_CACHE.size >= LABEL_WRAP_CACHE_LIMIT) {
-      var oldestKey = LABEL_WRAP_CACHE.keys().next().value;
-      if (oldestKey) LABEL_WRAP_CACHE.delete(oldestKey);
+      var iter = LABEL_WRAP_CACHE.keys();
+      var oldest = iter.next();
+      if (!oldest.done && oldest.value !== undefined) LABEL_WRAP_CACHE.delete(oldest.value);
     }
     LABEL_WRAP_CACHE.set(cacheKey, lines.slice());
 
@@ -3424,6 +3426,63 @@
     }
   }
 
+  function declarationSearchMatch(query) {
+    var value = (query || "").trim();
+    if (!value || value.indexOf(".") === -1) return null;
+
+    // Try progressively shorter dot-separated prefixes as module candidates
+    var parts = value.split(".");
+    for (var splitAt = parts.length - 1; splitAt >= 1; splitAt--) {
+      var moduleCandidate = parts.slice(0, splitAt).join(".");
+      if (!state.moduleMap[moduleCandidate]) continue;
+
+      var declSuffix = parts.slice(splitAt).join(".").toLowerCase();
+      if (!declSuffix) continue;
+
+      // Search declarations in this module
+      var interior = interiorCodeForModule(moduleCandidate);
+      if (!interior || !interior.byKind) continue;
+
+      var bestMatch = null;
+      var kinds = allInteriorKinds();
+      for (var k = 0; k < kinds.length; k++) {
+        var items = interior.byKind[kinds[k]];
+        if (!Array.isArray(items)) continue;
+        for (var j = 0; j < items.length; j++) {
+          if (!items[j] || !items[j].name) continue;
+          var itemLower = items[j].name.toLowerCase();
+          if (itemLower === declSuffix) {
+            return { module: moduleCandidate, declaration: items[j].name, exact: true };
+          }
+          if (!bestMatch && itemLower.indexOf(declSuffix) === 0) {
+            bestMatch = { module: moduleCandidate, declaration: items[j].name, exact: false };
+          }
+          if (!bestMatch && itemLower.indexOf(declSuffix) !== -1) {
+            bestMatch = { module: moduleCandidate, declaration: items[j].name, exact: false };
+          }
+        }
+      }
+
+      // Also check declarationIndex for declarations that may have full qualified names
+      for (var declName in state.declarationIndex) {
+        if (!Object.prototype.hasOwnProperty.call(state.declarationIndex, declName)) continue;
+        var entry = state.declarationIndex[declName];
+        if (entry.module !== moduleCandidate) continue;
+        var declLower = declName.toLowerCase();
+        if (declLower === declSuffix) {
+          return { module: moduleCandidate, declaration: declName, exact: true };
+        }
+        if (!bestMatch && declLower.indexOf(declSuffix) === 0) {
+          bestMatch = { module: moduleCandidate, declaration: declName, exact: false };
+        }
+      }
+
+      if (bestMatch) return bestMatch;
+    }
+
+    return null;
+  }
+
   function moduleSearchMatches(query, list) {
     var value = (query || "").trim();
     if (!value) return list.slice(0, 10);
@@ -3443,13 +3502,19 @@
       };
 
       var score = -1;
-      if (idx.nameLower === lower || idx.pathLower === lower) score = 2000;
-      if (score < 0 && idx.nameLower.indexOf(lower) === 0) score = 1600 - idx.nameLower.length;
-      if (score < 0 && idx.pathLower.indexOf(lower) === 0) score = 1500 - idx.pathLower.length;
-      if (score < 0 && idx.nameLower.indexOf(lower) !== -1) score = 1200 - idx.nameLower.indexOf(lower);
-      if (score < 0 && idx.pathLower.indexOf(lower) !== -1) score = 1100 - idx.pathLower.indexOf(lower);
+      if (idx.nameLower === lower || idx.pathLower === lower) {
+        score = 2000;
+      } else if (idx.nameLower.indexOf(lower) === 0) {
+        score = 1600 - idx.nameLower.length;
+      } else if (idx.pathLower.indexOf(lower) === 0) {
+        score = 1500 - idx.pathLower.length;
+      } else if (idx.nameLower.indexOf(lower) !== -1) {
+        score = 1200 - idx.nameLower.indexOf(lower);
+      } else if (idx.pathLower.indexOf(lower) !== -1) {
+        score = 1100 - idx.pathLower.indexOf(lower);
+      }
 
-      if (queryTokens.length) {
+      if (score < 0 && queryTokens.length) {
         var tokenHits = 0;
         var nameJoined = idx.nameTokens.join(" ");
         var pathJoined = idx.pathTokens.join(" ");
@@ -3457,7 +3522,7 @@
           var token = queryTokens[q];
           if (nameJoined.indexOf(token) !== -1 || pathJoined.indexOf(token) !== -1) tokenHits += 1;
         }
-        if (tokenHits) score = Math.max(score, 700 + tokenHits * 45);
+        if (tokenHits) score = 700 + tokenHits * 45;
       }
 
       if (score >= 0) {
@@ -3499,6 +3564,10 @@
     }
 
     options.innerHTML = "";
+    var declSuggestionMap = Object.create(null);
+    for (var ds = 0; ds < (state.searchDeclSuggestions || []).length; ds++) {
+      declSuggestionMap[state.searchDeclSuggestions[ds].hint] = state.searchDeclSuggestions[ds];
+    }
     var fragment = document.createDocumentFragment();
     for (var i = 0; i < matches.length; i++) {
       var name = matches[i];
@@ -3507,8 +3576,16 @@
       item.className = "module-search-option";
       item.setAttribute("role", "option");
       item.setAttribute("aria-selected", i === 0 ? "true" : "false");
-      item.setAttribute("data-module", name);
-      item.textContent = name + " — " + (state.moduleMap[name] || "");
+      var declSuggestion = declSuggestionMap[name];
+      if (declSuggestion) {
+        item.setAttribute("data-module", declSuggestion.module);
+        item.setAttribute("data-declaration", declSuggestion.declaration);
+        item.textContent = declSuggestion.declaration + " — declaration in " + declSuggestion.module;
+        item.className += " module-search-option-decl";
+      } else {
+        item.setAttribute("data-module", name);
+        item.textContent = name + " — " + (state.moduleMap[name] || "");
+      }
       fragment.appendChild(item);
     }
     options.appendChild(fragment);
@@ -3586,6 +3663,16 @@
         return matches.length ? matches[0] : "";
       }
 
+      function tryDeclarationSearch(value) {
+        var declMatch = declarationSearchMatch(value);
+        if (!declMatch) return false;
+        search.value = declMatch.module + "." + declMatch.declaration;
+        selectDeclaration(declMatch.declaration, declMatch.module);
+        closeModuleSearchOptions();
+        setSearchFeedback("Declaration: " + declMatch.declaration + " in " + declMatch.module, false);
+        return true;
+      }
+
       var choose = function () {
         setSearchFeedback("", false);
         if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
@@ -3599,8 +3686,11 @@
           return;
         }
 
+        // Try dot-append declaration search (e.g. SeLe4n.Kernel.API.apiInvariantBundle)
+        if (tryDeclarationSearch(search.value)) return;
+
         if ((search.value || "").trim()) {
-          var message = "No module match in current filter scope. Try broader terms or reset filters.";
+          var message = "No module or declaration match in current filter scope. Try broader terms or reset filters.";
           setSearchFeedback(message, true);
           if (typeof search.setCustomValidity === "function") search.setCustomValidity(message);
           if (typeof search.reportValidity === "function") search.reportValidity();
@@ -3611,7 +3701,18 @@
         var direct = sanitizeModuleName(search.value);
         if (!direct) return false;
         var list = contextList();
-        if (!listHasModule(list, direct)) return false;
+        if (!listHasModule(list, direct)) {
+          // Try declaration search for dot-appended queries
+          var declMatch = declarationSearchMatch(search.value);
+          if (declMatch && declMatch.exact) {
+            search.value = declMatch.module + "." + declMatch.declaration;
+            selectDeclaration(declMatch.declaration, declMatch.module);
+            closeModuleSearchOptions();
+            setSearchFeedback("Declaration: " + declMatch.declaration + " in " + declMatch.module, false);
+            return true;
+          }
+          return false;
+        }
         if (search.value !== direct) search.value = direct;
         selectModule(direct, false);
         closeModuleSearchOptions();
@@ -3621,6 +3722,18 @@
       function refreshSuggestions() {
         var list = contextList();
         var matches = moduleSearchMatches(search.value, list);
+        // Also check for declaration-scoped suggestions
+        var declMatch = declarationSearchMatch(search.value);
+        if (declMatch && !declMatch.exact) {
+          // Show the parent module as the first suggestion with a declaration hint
+          var declHint = declMatch.module + "." + declMatch.declaration;
+          if (matches.indexOf(declHint) === -1) {
+            matches = [declHint].concat(matches);
+            state.searchDeclSuggestions = [{ hint: declHint, module: declMatch.module, declaration: declMatch.declaration }];
+          }
+        } else {
+          state.searchDeclSuggestions = [];
+        }
         if (matches.length) openModuleSearchOptions(matches);
         else closeModuleSearchOptions();
       }
@@ -3665,8 +3778,19 @@
           var selected = state.searchVisibleOptions[state.searchActiveOption];
           if (selected) {
             search.value = selected;
-            chooseExactFromCurrentValue();
-            closeModuleSearchOptions();
+            // Check if the selected option is a declaration suggestion
+            var optionEl = document.getElementById("module-search-option-" + state.searchActiveOption);
+            var optionDecl = optionEl ? optionEl.getAttribute("data-declaration") : "";
+            var optionMod = optionEl ? optionEl.getAttribute("data-module") : "";
+            if (optionDecl && optionMod) {
+              search.value = optionMod + "." + optionDecl;
+              selectDeclaration(optionDecl, optionMod);
+              closeModuleSearchOptions();
+              setSearchFeedback("Declaration: " + optionDecl + " in " + optionMod, false);
+            } else {
+              chooseExactFromCurrentValue();
+              closeModuleSearchOptions();
+            }
             event.preventDefault();
             return;
           }
@@ -3679,11 +3803,19 @@
         options.addEventListener("mousedown", function (event) {
           var node = event.target && event.target.closest ? event.target.closest(".module-search-option") : null;
           if (!node) return;
-          var selected = node.getAttribute("data-module") || "";
-          if (!selected) return;
-          search.value = selected;
-          chooseExactFromCurrentValue();
-          closeModuleSearchOptions();
+          var declName = node.getAttribute("data-declaration") || "";
+          var moduleName = node.getAttribute("data-module") || "";
+          if (!moduleName) return;
+          if (declName) {
+            search.value = moduleName + "." + declName;
+            selectDeclaration(declName, moduleName);
+            closeModuleSearchOptions();
+            setSearchFeedback("Declaration: " + declName + " in " + moduleName, false);
+          } else {
+            search.value = moduleName;
+            chooseExactFromCurrentValue();
+            closeModuleSearchOptions();
+          }
           event.preventDefault();
         });
       }
@@ -3869,6 +4001,9 @@
       declarationKindOf: declarationKindOf,
       declarationLineOf: declarationLineOf,
       declarationSourceHref: declarationSourceHref,
+      declarationSearchMatch: declarationSearchMatch,
+      moduleSearchMatches: moduleSearchMatches,
+      buildSearchIndex: buildSearchIndex,
       declarationLaneCollapseThreshold: function () { return 12; },
       declarationLaneVisibleLimit: function () { return 10; },
       assuranceForModule: assuranceForModule,
