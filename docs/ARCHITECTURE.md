@@ -242,6 +242,40 @@ The `LABEL_WRAP_CACHE` previously evicted a single entry when at capacity. This 
 - New test: `ASSURANCE_COLORS constant maps all four assurance levels` — verifies all four levels have valid hex color values.
 - Updated `flowLegendItems` test to verify the expanded 10-entry legend with individual assurance level colors.
 
+## Comprehensive audit and optimization pass (0.2.0)
+
+### Bug fixes
+
+- **Theorem double-counting**: Fixed `theoremCountFromCodebaseMap` in both `lean-analysis.mjs` and `site.js` to track already-counted module names. When both `modules[]` and `moduleMeta` contained entries for the same module, theorems were counted twice. Now modules counted from `modules[]` are skipped in the `moduleMeta` pass.
+- **URLSearchParams fallback**: `syncUrlState()` in `map.js` now guards against browsers lacking `URLSearchParams` support, consistent with the existing fallback in `readUrlState()`.
+- **Data fetch race condition**: `refreshLiveData()` in `site.js` now sequences bundled and live data fetches (bundled completes first, then live) instead of running them concurrently. This prevents the slower bundled fetch from overwriting newer live data that resolved first.
+
+### Performance optimizations
+
+- **Search input debounce**: Added 90ms debounce to the map search input handler to prevent O(n) module and declaration scans from firing on every keystroke during rapid typing.
+- **Reduced-motion caching**: `header-nav.js` now caches the `prefers-reduced-motion` media query result at initialization and updates it via a `change` listener, eliminating repeated `matchMedia` evaluations on every scroll-triggered navigation.
+- **Resize handler batching**: `site.js` now wraps the `syncScrollOffset` resize handler in `requestAnimationFrame` to prevent layout thrashing during drag-resize.
+
+### Accessibility improvements
+
+- **SVG role semantics**: Changed flowchart SVG `role` from `"img"` to `"group"` so screen readers can discover interactive child nodes (flow nodes with `tabindex="0"` and `role="button"`) instead of treating the entire SVG as a single opaque image.
+- **Interior kind select labels**: Added `aria-label="Filter [group] by kind"` to dynamically created interior kind `<select>` elements so screen readers announce the purpose of each filter dropdown.
+- **Breadcrumb separator**: Added `aria-hidden="true"` to the declaration breadcrumb separator character (`›`) to prevent screen readers from announcing it as punctuation.
+- **Section tracking semantics**: Changed section tracking from `aria-current="page"` to `aria-current="true"` in both `header-nav.js` and `site.js`. The `"page"` token is reserved for page-level navigation (which page link points to the current page), while `"true"` is the correct value for in-page section highlighting. Updated CSS to match both values.
+
+### Test coverage expansion
+
+- Added `isLikelyModuleToken` standalone test (valid paths, invalid paths, null/empty).
+- Added `theoremCount` edge cases (zero theorems, empty source, null input).
+- Added `theoremCountFromCodebaseMap` deduplication test (overlapping `modules[]` and `moduleMeta`).
+- Added `theoremCountFromCodebaseMap` null/undefined/string input test.
+- Added `extractImportTokens` empty source test.
+- Added `validateSiteDataObject` null/non-object root rejection test.
+- Added `validateMapDataObject` null/non-object root rejection test.
+- Added `validateSiteDataObject` wrong types on numeric fields test.
+- Added `validateMapDataObject` duplicate modules detection test.
+- Added `assuranceForModule` partial assurance level test (invariant exists but does not import operations).
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:

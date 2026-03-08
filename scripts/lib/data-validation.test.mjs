@@ -139,3 +139,49 @@ test('validateSiteDataObject accepts payload with valid ISO updatedAt', () => {
 
   assert.deepEqual(errors, []);
 });
+
+test('validateSiteDataObject rejects null and non-object root', () => {
+  assert.ok(validateSiteDataObject(null).length > 0);
+  assert.ok(validateSiteDataObject('string').length > 0);
+  assert.ok(validateSiteDataObject(42).length > 0);
+});
+
+test('validateMapDataObject rejects null and non-object root', () => {
+  assert.ok(validateMapDataObject(null).length > 0);
+  assert.ok(validateMapDataObject(undefined).length > 0);
+});
+
+test('validateSiteDataObject rejects wrong types on numeric fields', () => {
+  const errors = validateSiteDataObject({
+    version: '0.1.0',
+    leanVersion: '4.28.0',
+    modules: '23',
+    lines: '25,648',
+    theorems: 'many',
+    scripts: 17,
+    docs: 97,
+    buildJobs: 84,
+    admitted: 0,
+    commitSha: 'abc1234',
+    generatedAt: '2026-03-03T00:00:00Z'
+  });
+
+  assert.ok(errors.some((msg) => msg.includes('modules')));
+  assert.ok(errors.some((msg) => msg.includes('theorems')));
+});
+
+test('validateMapDataObject detects duplicate modules', () => {
+  const errors = validateMapDataObject({
+    files: [],
+    modules: ['A.Core', 'A.Core'],
+    moduleMap: { 'A.Core': 'A/Core.lean' },
+    moduleMeta: { 'A.Core': { symbols: { theorems: [], functions: [] } } },
+    importsTo: {},
+    importsFrom: {},
+    externalImportsFrom: {},
+    commitSha: 'abc',
+    generatedAt: '2026-03-03T00:00:00Z'
+  });
+
+  assert.ok(errors.some((msg) => msg.includes('duplicate')));
+});

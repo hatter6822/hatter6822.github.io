@@ -318,7 +318,8 @@ em {
   color: var(--text-bright);
   background: var(--accent-glow);
 }
-.nav-links a[aria-current="page"] {
+.nav-links a[aria-current="page"],
+.nav-links a[aria-current="true"] {
   color: var(--text-bright);
   background: var(--accent-glow);
 }

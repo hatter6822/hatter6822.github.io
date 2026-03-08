@@ -5,6 +5,7 @@ import {
   extractImportTokens,
   extractInteriorCodeItems,
   INTERIOR_KIND_GROUPS,
+  isLikelyModuleToken,
   normalizeSymbolName,
   parseCurrentStateMetrics,
   theoremCount,
@@ -249,4 +250,45 @@ test('theoremCountFromCodebaseMap derives theorem totals from module meta and sy
   };
 
   assert.equal(theoremCountFromCodebaseMap(codebaseMap), 17);
+});
+
+test('isLikelyModuleToken accepts valid module paths and rejects invalid ones', () => {
+  assert.ok(isLikelyModuleToken('SeLe4n.Kernel.Core'));
+  assert.ok(isLikelyModuleToken('Std'));
+  assert.ok(isLikelyModuleToken('A.B.C'));
+  assert.ok(!isLikelyModuleToken('lowercase'));
+  assert.ok(!isLikelyModuleToken('foo.bar'));
+  assert.ok(!isLikelyModuleToken(''));
+  assert.ok(!isLikelyModuleToken(null));
+  assert.ok(!isLikelyModuleToken('A..B'));
+  assert.ok(!isLikelyModuleToken('.A'));
+});
+
+test('theoremCount returns zero for source with no theorems', () => {
+  assert.equal(theoremCount('def x := 1\nstructure S where'), 0);
+  assert.equal(theoremCount(''), 0);
+  assert.equal(theoremCount(null), 0);
+});
+
+test('theoremCountFromCodebaseMap deduplicates modules appearing in both modules[] and moduleMeta', () => {
+  const codebaseMap = {
+    modules: [
+      { name: 'Core', declarations: [{ kind: 'theorem', name: 't1' }] }
+    ],
+    moduleMeta: {
+      Core: { declarations: [{ kind: 'theorem', name: 't1' }] }
+    }
+  };
+  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 1);
+});
+
+test('theoremCountFromCodebaseMap returns zero for null or non-object input', () => {
+  assert.equal(theoremCountFromCodebaseMap(null), 0);
+  assert.equal(theoremCountFromCodebaseMap(undefined), 0);
+  assert.equal(theoremCountFromCodebaseMap('string'), 0);
+});
+
+test('extractImportTokens returns empty array for source with no imports', () => {
+  assert.deepEqual(extractImportTokens('def x := 1'), []);
+  assert.deepEqual(extractImportTokens(''), []);
 });

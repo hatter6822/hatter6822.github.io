@@ -927,6 +927,50 @@ test('assuranceForModule returns correct levels based on proof pair state', asyn
   assert.equal(noneResult.level, 'none', 'module with no theorems or pair should have none assurance');
 });
 
+test('assuranceForModule returns partial when invariant exists but does not import operations', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Mem.Operations', path: 'SeLe4n/Mem/Operations.lean' },
+      { name: 'SeLe4n.Mem.Invariant', path: 'SeLe4n/Mem/Invariant.lean' }
+    ],
+    moduleMeta: {
+      'SeLe4n.Mem.Operations': { kind: 'operations', base: 'SeLe4n.Mem', theorems: 2 },
+      'SeLe4n.Mem.Invariant': { kind: 'invariant', base: 'SeLe4n.Mem', theorems: 1 }
+    },
+    importsFrom: {
+      'SeLe4n.Mem.Operations': [],
+      'SeLe4n.Mem.Invariant': []
+    }
+  });
+
+  const proofPairMap = {
+    'SeLe4n.Mem': {
+      base: 'SeLe4n.Mem',
+      operationsModule: 'SeLe4n.Mem.Operations',
+      invariantModule: 'SeLe4n.Mem.Invariant',
+      operationsTheorems: 2,
+      invariantTheorems: 1,
+      invariantImportsOperations: false
+    }
+  };
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    proofPairMap: proofPairMap,
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  const result = hooks.assuranceForModule('SeLe4n.Mem.Operations');
+  assert.equal(result.level, 'partial', 'pair without import link should have partial assurance');
+});
+
 test('relatedProofModules returns Operations/Invariant neighbors', async () => {
   const hooks = await loadMapTestHooks();
 
