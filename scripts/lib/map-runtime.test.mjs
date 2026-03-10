@@ -444,20 +444,19 @@ test('flowLegendItems returns canonical flow legend entries with individual assu
   const items = hooks.flowLegendItems();
   const colors = hooks.assuranceColors();
 
-  assert.equal(items.length, 10);
+  // Lane roles (6) + separator (1) + assurance levels (4) = 11
+  assert.equal(items.length, 11);
   assert.equal(items[0].label, 'Selected module');
   assert.equal(items[0].color, '#7c9cff');
-  assert.equal(items[5].label, 'External dependency');
+  assert.equal(items[5].label, 'External imports');
   assert.equal(items[5].color, '#b9c0d0');
-  // Individual assurance level entries
-  assert.equal(items[6].label, 'Linked proof');
-  assert.equal(items[6].color, colors.linked);
-  assert.equal(items[7].label, 'Partial proof');
-  assert.equal(items[7].color, colors.partial);
-  assert.equal(items[8].label, 'Local theorems');
-  assert.equal(items[8].color, colors.local);
-  assert.equal(items[9].label, 'No proof evidence');
-  assert.equal(items[9].color, colors.none);
+  // Separator between lane roles and assurance tint
+  assert.ok(items[6].separator, 'item 6 should be a separator');
+  // Individual assurance level entries (after separator)
+  assert.equal(items[7].color, colors.linked);
+  assert.equal(items[8].color, colors.partial);
+  assert.equal(items[9].color, colors.local);
+  assert.equal(items[10].color, colors.none);
 });
 
 test('normalizeMapData preserves declaration call graph from modules[].declarations', async () => {
@@ -527,7 +526,8 @@ test('declarationFlowLegendItems returns canonical declaration flow legend entri
   const hooks = await loadMapTestHooks();
   const items = hooks.declarationFlowLegendItems();
 
-  assert.equal(items.length, 4);
+  // 4 lane entries + separator + cross-module indicator = 6
+  assert.equal(items.length, 6);
   assert.equal(items[0].label, 'Selected declaration');
   assert.equal(items[0].color, '#7c9cff');
   assert.equal(items[1].label, 'Calls (outgoing)');
@@ -536,6 +536,8 @@ test('declarationFlowLegendItems returns canonical declaration flow legend entri
   assert.equal(items[2].color, '#ffad42');
   assert.equal(items[3].label, 'Color = declaration kind');
   assert.equal(items[3].color, '#8fa3bf');
+  assert.ok(items[4].separator, 'item 4 should be a separator');
+  assert.equal(items[5].label, 'Dashed border = cross-module');
 });
 
 test('normalizeMapData preserves callGraph on module symbols for declaration-centric payloads', async () => {
