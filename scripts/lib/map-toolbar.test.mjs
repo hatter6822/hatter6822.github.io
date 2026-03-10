@@ -215,4 +215,19 @@ assert(/LABEL_WRAP_CACHE_EVICT_BATCH/.test(mapJs), "label wrap cache should use 
 // JS: closeModuleSearchOptions should also clear searchDeclSuggestions
 assert(/searchDeclSuggestions\s*=\s*\[\]/.test(mapJs), "closeModuleSearchOptions should clear declaration suggestions");
 
+// JS: extensionDeclarationCount helper should exist for extension-aware assurance
+assert(/function extensionDeclarationCount\(/.test(mapJs), "extensionDeclarationCount function should exist for extension-aware assurance");
+
+// JS: verifiableSurfaceArea helper should exist for combined coverage denominator
+assert(/function verifiableSurfaceArea\(/.test(mapJs), "verifiableSurfaceArea function should exist for combined coverage denominator");
+
+// JS: extensionDeclarationCount should be exposed via test hooks
+assert(/extensionDeclarationCount:\s*extensionDeclarationCount/.test(mapJs), "extensionDeclarationCount should be exported via test hooks");
+
+// JS: verifiableSurfaceArea should be exposed via test hooks
+assert(/verifiableSurfaceArea:\s*verifiableSurfaceArea/.test(mapJs), "verifiableSurfaceArea should be exported via test hooks");
+
+// CSS: cross-module declaration nodes should have dashed border
+assert(/\.flow-node\.cross-module\s+rect\s*\{[^}]*stroke-dasharray/s.test(css), "cross-module declaration nodes should have dashed stroke");
+
 console.log("map-toolbar.test: ok");

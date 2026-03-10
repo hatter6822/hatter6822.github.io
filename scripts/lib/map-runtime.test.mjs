@@ -1775,7 +1775,7 @@ test('assuranceForModule computes pair-wide coverage for linked modules', async 
   assert.ok(result.coverage > 0.5, 'pair-wide coverage should exceed 50% (5 thm / 8 decl)');
   assert.ok(result.pairDeclarations >= 8, 'pairDeclarations should count both modules');
   assert.equal(result.strength, 'strong', 'should be strong with >=40% coverage and >=3 theorems');
-  assert.ok(result.detail.includes('object declaration'), 'detail should mention object declarations');
+  assert.ok(result.detail.includes('verifiable declaration'), 'detail should mention verifiable declarations');
 });
 
 test('assuranceForModule uses scaffolded label for linked pairs with zero theorems', async () => {
@@ -1930,4 +1930,77 @@ test('assuranceForModule local strength requires multiple theorems for well-cove
     'single theorem at 50% ratio should not be well-covered');
   assert.equal(result.strength, 'moderate',
     'single theorem with >=20% ratio should be moderate');
+});
+
+test('extensionDeclarationCount counts only extension-group declarations', async () => {
+  const hooks = await loadMapTestHooks();
+  const norm = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Syntax.Module',
+        path: 'SeLe4n/Syntax/Module.lean',
+        declarations: [
+          { kind: 'syntax', name: 'mySyntax', line: 5 },
+          { kind: 'macro', name: 'myMacro', line: 10 },
+          { kind: 'notation', name: 'myNotation', line: 15 },
+          { kind: 'def', name: 'helper', line: 20 },
+          { kind: 'theorem', name: 'thm1', line: 25 },
+          { kind: 'namespace', name: 'NS', line: 1 }
+        ]
+      }
+    ],
+    moduleMeta: { 'SeLe4n.Syntax.Module': { theorems: 1 } },
+    importsFrom: { 'SeLe4n.Syntax.Module': [] }
+  });
+  hooks.applyTestState({
+    modules: norm.modules,
+    moduleMap: norm.moduleMap,
+    moduleMeta: norm.moduleMeta,
+    clearAssuranceCache: true
+  });
+  const interior = hooks.makeEmptyInteriorSymbols();
+  // Populate from normalized module meta
+  const meta = norm.moduleMeta['SeLe4n.Syntax.Module'];
+  const extCount = hooks.extensionDeclarationCount(meta.symbols);
+  assert.equal(extCount, 3, 'should count syntax + macro + notation as 3 extension declarations');
+  const objCount = hooks.objectDeclarationCount(meta.symbols);
+  assert.equal(objCount, 2, 'should count def + theorem as 2 object declarations (namespace is context-init)');
+  const verifiable = hooks.verifiableSurfaceArea(meta.symbols);
+  // verifiable = obj(2) + floor(ext(3)*0.5) = 2 + 1 = 3
+  assert.equal(verifiable, 3, 'verifiable surface area should be obj + floor(ext*0.5)');
+});
+
+test('assuranceForModule extension-only module gets extension-only strength', async () => {
+  const hooks = await loadMapTestHooks();
+  const norm = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Lang.DSL',
+        path: 'SeLe4n/Lang/DSL.lean',
+        declarations: [
+          { kind: 'syntax', name: 'dslSyntax', line: 5 },
+          { kind: 'macro', name: 'dslMacro', line: 10 },
+          { kind: 'notation', name: 'dslNotation', line: 15 }
+        ]
+      }
+    ],
+    moduleMeta: { 'SeLe4n.Lang.DSL': { theorems: 0 } },
+    importsFrom: { 'SeLe4n.Lang.DSL': [] }
+  });
+  hooks.applyTestState({
+    modules: norm.modules,
+    moduleMap: norm.moduleMap,
+    moduleMeta: norm.moduleMeta,
+    importsFrom: norm.importsFrom,
+    importsTo: norm.importsTo,
+    proofPairMap: {},
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+  const result = hooks.assuranceForModule('SeLe4n.Lang.DSL');
+  assert.equal(result.level, 'none');
+  assert.equal(result.strength, 'extension-only',
+    'module with only extension declarations should be extension-only');
+  assert.ok(result.detail.includes('extension declaration'),
+    'detail should mention extension declarations');
 });
