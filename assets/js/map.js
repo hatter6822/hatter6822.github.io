@@ -1757,6 +1757,8 @@
   function createFlowSvg(flowWidth, flowHeight, ariaLabel) {
     var svg = createSvgNode("svg", {
       "class": "flowchart-svg",
+      "width": flowWidth,
+      "height": flowHeight,
       "viewBox": "0 0 " + flowWidth + " " + flowHeight,
       "role": "group",
       "aria-roledescription": "flowchart",
@@ -1920,7 +1922,7 @@
 
     group.appendChild(title);
 
-    if (subtitle && h >= 34) {
+    if ((subtitle || (metaLink && metaLink.label)) && h >= 34) {
       var subtitleLines = wrapLabelLines(subtitle, textAreaWidth, 14);
       /* Cap subtitle lines to prevent content overflow — must match nodeContentHeight.
          When lines are truncated, append an ellipsis to the last visible line so
@@ -1941,9 +1943,12 @@
       }
       if (metaLink && metaLink.href && metaLink.label) {
         var link = createSvgNode("a", { href: metaLink.href, target: "_blank", rel: "noopener noreferrer", "aria-label": metaLink.title || ("Open source for " + name) });
-        var linkSpan = createSvgNode("tspan", { x: x + textOffsetX, dy: subtitleLines.length ? "12" : "0", "class": "flow-meta-link" });
-        linkSpan.textContent = metaLink.label;
-        link.appendChild(linkSpan);
+        var linkLines = wrapLabelLines(metaLink.label, textAreaWidth, 14);
+        for (var li = 0; li < linkLines.length; li++) {
+          var linkSpan = createSvgNode("tspan", { x: x + textOffsetX, dy: (li === 0 && subtitleLines.length) ? "12" : (li === 0 ? "0" : "12"), "class": "flow-meta-link" });
+          linkSpan.textContent = linkLines[li];
+          link.appendChild(linkSpan);
+        }
         meta.appendChild(link);
       }
       group.appendChild(meta);
