@@ -48,9 +48,12 @@ const [toolchain, lakefile, readme, tree, langs, commit, codebaseMap] = await Pr
 const toolchainMatch = toolchain.match(/(\d+\.\d+\.\d+)/);
 if (toolchainMatch) data.leanVersion = toolchainMatch[1];
 
+const readmeSync = codebaseMap?.readme_sync;
+
 const versionMatch = lakefile.match(/version\s*=\s*"([^"]+)"/);
 const currentStateMetrics = parseCurrentStateMetrics(readme);
-if (currentStateMetrics.version) data.version = currentStateMetrics.version;
+if (readmeSync?.version) data.version = readmeSync.version;
+else if (currentStateMetrics.version) data.version = currentStateMetrics.version;
 else if (versionMatch) data.version = versionMatch[1];
 
 let modules = 0;
@@ -75,7 +78,9 @@ if (codebaseMapTheorems > 0) {
   data.theorems = codebaseMapTheorems;
 }
 
-if (currentStateMetrics.lines) data.lines = currentStateMetrics.lines;
+if (typeof readmeSync?.production_loc === 'number' && readmeSync.production_loc > 0) {
+  data.lines = formatNumber(readmeSync.production_loc);
+} else if (currentStateMetrics.lines) data.lines = currentStateMetrics.lines;
 else if (langs?.Lean) data.lines = formatNumber(Math.round(langs.Lean / 38));
 if (commit?.sha) data.commitSha = commit.sha.slice(0, 7);
 if (commit?.commit?.author?.date) data.updatedAt = commit.commit.author.date;
