@@ -825,48 +825,82 @@
       ? Math.min(1, degree.theorems / Math.max(1, totalDeclarations))
       : 0;
 
-    /* Check whether any neighbor in the import graph has linked assurance
-       (limited to direct neighbors to avoid recursion) */
-    var neighborLinkedCount = 0;
-    var neighbors = (state.importsFrom[name] || []).concat(state.importsTo[name] || []);
-    for (var ni = 0; ni < neighbors.length; ni++) {
-      var nbPair = findProofPair(neighbors[ni]);
-      if (nbPair && nbPair.invariantImportsOperations) neighborLinkedCount++;
-    }
-
     if (pair && pair.invariantImportsOperations) {
       var pairTheorems = pair.operationsTheorems + pair.invariantTheorems;
-      var densityBonus = pairTheorems > 0 ? pairTheorems * 2 : 0;
+
+      /* Pair-wide coverage: compute total declarations across both modules in the
+         pair, giving a more accurate picture of how well the pair is verified */
+      var opsInterior = pair.operationsModule ? interiorCodeForModule(pair.operationsModule) : { total: 0 };
+      var invInterior = pair.invariantModule ? interiorCodeForModule(pair.invariantModule) : { total: 0 };
+      var pairTotalDeclarations = (opsInterior.total || 0) + (invInterior.total || 0);
+      var pairCoverage = pairTotalDeclarations > 0
+        ? Math.min(1, pairTheorems / Math.max(1, pairTotalDeclarations))
+        : 0;
+
+      /* Strength thresholds:
+         - strong:     >=40% pair coverage AND at least 3 theorems across the pair
+         - moderate:   >=15% pair coverage OR at least 2 theorems
+         - scaffolded: structurally linked but no theorems — convention met, no proofs */
       var strengthLabel = pairTheorems === 0
-        ? "structural"
-        : theoremRatio >= 0.3 ? "strong" : "moderate";
+        ? "scaffolded"
+        : (pairCoverage >= 0.4 && pairTheorems >= 3) ? "strong"
+        : (pairCoverage >= 0.15 || pairTheorems >= 2) ? "moderate"
+        : "emerging";
+      var densityBonus = pairTheorems > 0 ? pairTheorems * 2 : 0;
       result = {
         level: "linked",
         label: "Linked proof chain (" + strengthLabel + ")",
         detail: pairTheorems > 0
-          ? "Operations \u2194 Invariant linked with " + pairTheorems + " theorem" + (pairTheorems === 1 ? "" : "s") + " (" + Math.round(theoremRatio * 100) + "% declaration coverage). Obligations trace from transitions to safety claims."
-          : "Operations \u2194 Invariant structurally linked but no theorems declared; proof obligations are not yet formalized.",
-        score: degree.score + densityBonus + neighborLinkedCount * 3,
+          ? "Operations \u2194 Invariant linked with " + pairTheorems + " theorem" + (pairTheorems === 1 ? "" : "s") + " across " + pairTotalDeclarations + " pair declaration" + (pairTotalDeclarations === 1 ? "" : "s") + " (" + Math.round(pairCoverage * 100) + "% pair coverage). Obligations trace from transitions to safety claims."
+          : "Operations \u2194 Invariant structurally linked but no theorems declared. Proof pair convention is established; proof obligations are not yet formalized.",
+        score: degree.score + densityBonus,
         theoremDensity: pairTheorems,
-        coverage: theoremRatio,
+        coverage: pairCoverage,
+        pairDeclarations: pairTotalDeclarations,
         strength: strengthLabel
       };
     } else if (pair) {
       var partialTheorems = (pair.operationsTheorems || 0) + (pair.invariantTheorems || 0);
-      var missingHalf = !pair.operationsModule ? "Operations" : !pair.invariantModule ? "Invariant" : "import link";
+      var missingHalf = !pair.operationsModule ? "Operations"
+        : !pair.invariantModule ? "Invariant"
+        : "import link";
+
+      /* Partial coverage: use pair declarations when both modules exist,
+         otherwise fall back to the current module's coverage */
+      var partialPairDecl = 0;
+      if (pair.operationsModule) partialPairDecl += (interiorCodeForModule(pair.operationsModule).total || 0);
+      if (pair.invariantModule) partialPairDecl += (interiorCodeForModule(pair.invariantModule).total || 0);
+      var partialCoverage = partialPairDecl > 0
+        ? Math.min(1, partialTheorems / Math.max(1, partialPairDecl))
+        : theoremRatio;
+
+      /* Partial strength: "disconnected" when both modules exist but import is
+         missing (fixable); "incomplete" when a half is absent (needs creation) */
+      var partialStrength = missingHalf === "import link" ? "disconnected" : "incomplete";
+      if (partialTheorems === 0) partialStrength = "weak";
+
       result = {
         level: "partial",
-        label: "Partial proof context (missing " + missingHalf + ")",
-        detail: "Proof pair exists but " + missingHalf + " is absent or not import-connected"
-          + (partialTheorems > 0 ? ". " + partialTheorems + " theorem" + (partialTheorems === 1 ? "" : "s") + " across the pair (" + Math.round(theoremRatio * 100) + "% coverage)" : "")
-          + ". Review assumptions before reusing results.",
+        label: "Partial proof context (" + partialStrength + ")",
+        detail: "Proof pair " + (missingHalf === "import link"
+          ? "exists but Invariant does not import Operations"
+          : "is incomplete \u2014 " + missingHalf + " module is absent")
+          + (partialTheorems > 0 ? ". " + partialTheorems + " theorem" + (partialTheorems === 1 ? "" : "s") + " across available modules (" + Math.round(partialCoverage * 100) + "% coverage)" : "")
+          + ". " + (missingHalf === "import link"
+            ? "Add an import from Invariant to Operations to complete the proof chain."
+            : "Create the " + missingHalf + " module to establish the proof pair."),
         score: degree.score + partialTheorems,
         theoremDensity: partialTheorems,
-        coverage: theoremRatio,
-        strength: partialTheorems > 0 ? "partial" : "weak"
+        coverage: partialCoverage,
+        pairDeclarations: partialPairDecl,
+        strength: partialStrength
       };
     } else if (degree.theorems > 0) {
-      var localStrength = theoremRatio >= 0.5 ? "well-covered" : theoremRatio >= 0.2 ? "moderate" : "sparse";
+      /* Local strength thresholds use absolute counts alongside ratios to
+         avoid misleading labels on very small modules */
+      var localStrength = (theoremRatio >= 0.5 && degree.theorems >= 2) ? "well-covered"
+        : theoremRatio >= 0.2 ? "moderate"
+        : "sparse";
       result = {
         level: "local",
         label: "Local theorems (" + localStrength + ")",
@@ -1205,9 +1239,9 @@
       { label: "External imports", color: "#b9c0d0", group: "edge" },
       { separator: true },
       /* Assurance indicators — node left-border marks showing proof confidence */
-      { label: ASSURANCE_ICONS.linked + " Linked proof chain", color: ASSURANCE_COLORS.linked, group: "assurance", indicator: "bar" },
-      { label: ASSURANCE_ICONS.partial + " Partial proof context", color: ASSURANCE_COLORS.partial, group: "assurance", indicator: "bar" },
-      { label: ASSURANCE_ICONS.local + " Local theorems only", color: ASSURANCE_COLORS.local, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.linked + " Linked proof pair", color: ASSURANCE_COLORS.linked, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.partial + " Partial proof pair", color: ASSURANCE_COLORS.partial, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.local + " Local theorems", color: ASSURANCE_COLORS.local, group: "assurance", indicator: "bar" },
       { label: ASSURANCE_ICONS.none + " No proof evidence", color: ASSURANCE_COLORS.none, group: "assurance", indicator: "bar" }
     ];
   }
@@ -1428,7 +1462,13 @@
   function wrapLabelLines(text, width, minChars) {
     if (!text) return [];
     var cacheKey = String(text) + "\u0000" + String(width || 180) + "\u0000" + String(minChars || 10);
-    if (LABEL_WRAP_CACHE.has(cacheKey)) return LABEL_WRAP_CACHE.get(cacheKey).slice();
+    if (LABEL_WRAP_CACHE.has(cacheKey)) {
+      /* Move to end for true LRU: delete + re-insert preserves access recency */
+      var cached = LABEL_WRAP_CACHE.get(cacheKey);
+      LABEL_WRAP_CACHE.delete(cacheKey);
+      LABEL_WRAP_CACHE.set(cacheKey, cached);
+      return cached.slice();
+    }
 
     var maxChars = Math.max(minChars || 10, Math.floor((width || 180) / 6.6));
     var tokens = String(text).split(/([._/\-])/);
@@ -1837,13 +1877,13 @@
     function moduleSummary(name) {
       var ctx = contextFor(name);
       var interior = interiorFor(name);
-      var parts = ["decl " + interior.total];
-      if (ctx.degree.theorems > 0) parts.push("thm " + ctx.degree.theorems);
-      parts.push("in " + ctx.degree.incoming + " \u00B7 out " + ctx.degree.outgoing);
+      var parts = [interior.total + " decl"];
+      if (ctx.degree.theorems > 0) parts.push(ctx.degree.theorems + " thm");
+      parts.push("\u2190" + ctx.degree.incoming + " \u2192" + ctx.degree.outgoing);
       if (ctx.assurance.level && ctx.assurance.level !== "none") {
         var icon = ASSURANCE_ICONS[ctx.assurance.level] || "";
-        parts.push(icon + " " + ctx.assurance.level);
-        if (ctx.assurance.coverage > 0) parts.push(Math.round(ctx.assurance.coverage * 100) + "% cov");
+        var covPct = ctx.assurance.coverage > 0 ? " " + Math.round(ctx.assurance.coverage * 100) + "%" : "";
+        parts.push(icon + " " + ctx.assurance.strength + covPct);
       }
       return parts.join(" \u00B7 ");
     }
@@ -1854,10 +1894,10 @@
       var interior = interiorFor(name);
       var topKinds = allInteriorKinds().map(function (kind) { return { kind: kind, count: (interior.byKind[kind] || []).length }; }).filter(function (item) { return item.count > 0; }).sort(function (a, b) { return b.count - a.count; }).slice(0, 3);
       var kindPreview = topKinds.map(function (item) { return item.kind + "=" + item.count; }).join(", ");
-      var coverageNote = ctx.assurance.coverage > 0
-        ? " (" + Math.round(ctx.assurance.coverage * 100) + "% coverage)"
+      var coverageLine = ctx.assurance.coverage > 0
+        ? "\ncoverage: " + Math.round(ctx.assurance.coverage * 100) + "%" + (ctx.assurance.pairDeclarations > 0 ? " across " + ctx.assurance.pairDeclarations + " pair declarations" : "")
         : "";
-      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | declarations: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label + coverageNote;
+      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | declarations: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label + coverageLine;
     }
 
     var layout = computeFlowLayout();
@@ -2072,7 +2112,12 @@
       if (laneLabels.proof) laneLabel("Proof pair context", centerX, proofStartY - 16, "#d37cff");
       var proofY = proofStartY;
       for (var n = 0; n < proofRelated.length; n++) {
-        var proofNode = createNode(proofRelated[n], centerX, proofY, centerWidth, proofHeights[n], "#d37cff", moduleSummary(proofRelated[n]), nodeTooltip(proofRelated[n], "Proof-pair neighbor"), false, false, contextFor(proofRelated[n]).assurance.level);
+        var proofModName = proofRelated[n];
+        var proofModKind = moduleKind(proofModName);
+        var proofRoleLabel = proofModKind === "operations" ? "Operations module"
+          : proofModKind === "invariant" ? "Invariant module"
+          : "Proof-pair neighbor";
+        var proofNode = createNode(proofModName, centerX, proofY, centerWidth, proofHeights[n], "#d37cff", moduleSummary(proofModName), nodeTooltip(proofModName, proofRoleLabel), false, false, contextFor(proofModName).assurance.level);
         drawFlowEdge(edgeLayer, center, proofNode, "#d37cff", true, { rank: n, total: proofRelated.length, spread: 18, vertical: true });
         proofY += proofHeights[n] + 8;
       }
@@ -2179,9 +2224,9 @@
       var outgoing = declarationCalls(name).length;
       var incoming = declarationCalledBy(name).length;
       if (outgoing > 0 || incoming > 0) {
-        parts.push("calls:" + outgoing + " callers:" + incoming);
+        parts.push("\u2190" + incoming + " \u2192" + outgoing);
       }
-      return parts.join(" · ") || "declaration";
+      return parts.join(" \u00B7 ") || "declaration";
     }
 
     function declMetaLink(name) {

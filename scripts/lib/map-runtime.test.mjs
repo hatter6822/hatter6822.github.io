@@ -1710,3 +1710,224 @@ test('ASSURANCE_COLORS constant maps all four assurance levels', async () => {
     assert.match(colors[level], /^#[0-9a-fA-F]{6}$/, `${level} color should be a valid hex color`);
   }
 });
+
+test('assuranceForModule computes pair-wide coverage for linked modules', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Net.Operations',
+        path: 'SeLe4n/Net/Operations.lean',
+        declarations: [
+          { kind: 'theorem', name: 'send_safe', line: 10, called: [] },
+          { kind: 'theorem', name: 'recv_safe', line: 20, called: [] },
+          { kind: 'theorem', name: 'conn_ok', line: 30, called: [] },
+          { kind: 'def', name: 'sendMsg', line: 40, called: [] },
+          { kind: 'def', name: 'recvMsg', line: 50, called: [] }
+        ]
+      },
+      {
+        module: 'SeLe4n.Net.Invariant',
+        path: 'SeLe4n/Net/Invariant.lean',
+        declarations: [
+          { kind: 'theorem', name: 'net_inv', line: 10, called: [] },
+          { kind: 'theorem', name: 'buf_inv', line: 20, called: [] },
+          { kind: 'def', name: 'checkInvariant', line: 30, called: [] }
+        ]
+      }
+    ],
+    moduleMeta: {
+      'SeLe4n.Net.Operations': { kind: 'operations', base: 'SeLe4n.Net', theorems: 3 },
+      'SeLe4n.Net.Invariant': { kind: 'invariant', base: 'SeLe4n.Net', theorems: 2 }
+    },
+    importsFrom: {
+      'SeLe4n.Net.Invariant': ['SeLe4n.Net.Operations'],
+      'SeLe4n.Net.Operations': []
+    }
+  });
+
+  const proofPairMap = {
+    'SeLe4n.Net': {
+      base: 'SeLe4n.Net',
+      operationsModule: 'SeLe4n.Net.Operations',
+      invariantModule: 'SeLe4n.Net.Invariant',
+      operationsTheorems: 3,
+      invariantTheorems: 2,
+      invariantImportsOperations: true
+    }
+  };
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    proofPairMap: proofPairMap,
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  const result = hooks.assuranceForModule('SeLe4n.Net.Operations');
+  assert.equal(result.level, 'linked', 'should be linked');
+  // Coverage should be pair-wide: 5 theorems across 8 total pair declarations = 62.5%
+  assert.ok(result.coverage > 0.5, 'pair-wide coverage should exceed 50% (5 thm / 8 decl)');
+  assert.ok(result.pairDeclarations >= 8, 'pairDeclarations should count both modules');
+  assert.equal(result.strength, 'strong', 'should be strong with >=40% coverage and >=3 theorems');
+  assert.ok(result.detail.includes('pair declaration'), 'detail should mention pair declarations');
+});
+
+test('assuranceForModule uses scaffolded label for linked pairs with zero theorems', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Fs.Operations', path: 'SeLe4n/Fs/Operations.lean' },
+      { name: 'SeLe4n.Fs.Invariant', path: 'SeLe4n/Fs/Invariant.lean' }
+    ],
+    moduleMeta: {
+      'SeLe4n.Fs.Operations': { kind: 'operations', base: 'SeLe4n.Fs', theorems: 0 },
+      'SeLe4n.Fs.Invariant': { kind: 'invariant', base: 'SeLe4n.Fs', theorems: 0 }
+    },
+    importsFrom: {
+      'SeLe4n.Fs.Invariant': ['SeLe4n.Fs.Operations'],
+      'SeLe4n.Fs.Operations': []
+    }
+  });
+
+  const proofPairMap = {
+    'SeLe4n.Fs': {
+      base: 'SeLe4n.Fs',
+      operationsModule: 'SeLe4n.Fs.Operations',
+      invariantModule: 'SeLe4n.Fs.Invariant',
+      operationsTheorems: 0,
+      invariantTheorems: 0,
+      invariantImportsOperations: true
+    }
+  };
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    proofPairMap: proofPairMap,
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  const result = hooks.assuranceForModule('SeLe4n.Fs.Operations');
+  assert.equal(result.level, 'linked', 'should still be linked');
+  assert.equal(result.strength, 'scaffolded', 'zero-theorem linked pair should be scaffolded');
+  assert.ok(result.label.includes('scaffolded'), 'label should say scaffolded');
+  assert.ok(result.detail.includes('convention'), 'detail should clarify convention is met but no proofs');
+});
+
+test('assuranceForModule distinguishes disconnected from incomplete partial pairs', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // Case 1: Both modules exist but Invariant doesn't import Operations (disconnected)
+  const norm1 = hooks.normalizeMapData({
+    modules: [
+      { name: 'A.Operations', path: 'A/Operations.lean' },
+      { name: 'A.Invariant', path: 'A/Invariant.lean' }
+    ],
+    moduleMeta: {
+      'A.Operations': { kind: 'operations', base: 'A', theorems: 2 },
+      'A.Invariant': { kind: 'invariant', base: 'A', theorems: 1 }
+    },
+    importsFrom: {
+      'A.Operations': [],
+      'A.Invariant': []
+    }
+  });
+
+  hooks.applyTestState({
+    modules: norm1.modules,
+    moduleMap: norm1.moduleMap,
+    moduleMeta: norm1.moduleMeta,
+    importsFrom: norm1.importsFrom,
+    importsTo: norm1.importsTo,
+    proofPairMap: {
+      'A': {
+        base: 'A',
+        operationsModule: 'A.Operations',
+        invariantModule: 'A.Invariant',
+        operationsTheorems: 2,
+        invariantTheorems: 1,
+        invariantImportsOperations: false
+      }
+    },
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  const disconnected = hooks.assuranceForModule('A.Operations');
+  assert.equal(disconnected.level, 'partial');
+  assert.equal(disconnected.strength, 'disconnected', 'both modules present but no import link should be disconnected');
+  assert.ok(disconnected.detail.includes('does not import'), 'detail should explain missing import');
+
+  // Case 2: Only Operations exists, Invariant is absent (incomplete)
+  hooks.applyTestState({
+    proofPairMap: {
+      'A': {
+        base: 'A',
+        operationsModule: 'A.Operations',
+        invariantModule: '',
+        operationsTheorems: 2,
+        invariantTheorems: 0,
+        invariantImportsOperations: false
+      }
+    },
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  const incomplete = hooks.assuranceForModule('A.Operations');
+  assert.equal(incomplete.level, 'partial');
+  assert.equal(incomplete.strength, 'incomplete', 'missing Invariant module should be incomplete');
+  assert.ok(incomplete.detail.includes('absent'), 'detail should explain missing module');
+});
+
+test('assuranceForModule local strength requires multiple theorems for well-covered', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // 1 theorem out of 2 declarations = 50% ratio but only 1 theorem
+  const norm = hooks.normalizeMapData({
+    modules: [
+      {
+        module: 'SeLe4n.Tiny.Module',
+        path: 'SeLe4n/Tiny/Module.lean',
+        declarations: [
+          { kind: 'theorem', name: 'only_thm', line: 5, called: [] },
+          { kind: 'def', name: 'only_def', line: 10, called: [] }
+        ]
+      }
+    ],
+    moduleMeta: {
+      'SeLe4n.Tiny.Module': { theorems: 1 }
+    },
+    importsFrom: { 'SeLe4n.Tiny.Module': [] }
+  });
+
+  hooks.applyTestState({
+    modules: norm.modules,
+    moduleMap: norm.moduleMap,
+    moduleMeta: norm.moduleMeta,
+    importsFrom: norm.importsFrom,
+    importsTo: norm.importsTo,
+    proofPairMap: {},
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  const result = hooks.assuranceForModule('SeLe4n.Tiny.Module');
+  assert.equal(result.level, 'local');
+  // 50% coverage but only 1 theorem should NOT be "well-covered"
+  assert.notEqual(result.strength, 'well-covered',
+    'single theorem at 50% ratio should not be well-covered');
+  assert.equal(result.strength, 'moderate',
+    'single theorem with >=20% ratio should be moderate');
+});
