@@ -816,44 +816,78 @@
 
     var pair = findProofPair(name);
     var degree = moduleDegree(name);
+    var interior = interiorCodeForModule(name);
+    var totalDeclarations = interior.total || 0;
     var result;
+
+    /* Theorem density: how much of this module's surface area is proven */
+    var theoremRatio = totalDeclarations > 0
+      ? Math.min(1, degree.theorems / Math.max(1, totalDeclarations))
+      : 0;
+
+    /* Check whether any neighbor in the import graph has linked assurance
+       (limited to direct neighbors to avoid recursion) */
+    var neighborLinkedCount = 0;
+    var neighbors = (state.importsFrom[name] || []).concat(state.importsTo[name] || []);
+    for (var ni = 0; ni < neighbors.length; ni++) {
+      var nbPair = findProofPair(neighbors[ni]);
+      if (nbPair && nbPair.invariantImportsOperations) neighborLinkedCount++;
+    }
 
     if (pair && pair.invariantImportsOperations) {
       var pairTheorems = pair.operationsTheorems + pair.invariantTheorems;
       var densityBonus = pairTheorems > 0 ? pairTheorems * 2 : 0;
+      var strengthLabel = pairTheorems === 0
+        ? "structural"
+        : theoremRatio >= 0.3 ? "strong" : "moderate";
       result = {
         level: "linked",
-        label: "Linked proof chain",
+        label: "Linked proof chain (" + strengthLabel + ")",
         detail: pairTheorems > 0
-          ? "Operations and Invariant modules are connected with " + pairTheorems + " theorem" + (pairTheorems === 1 ? "" : "s") + "; obligations can be traced from transitions to safety claims."
-          : "Operations and Invariant modules are connected but declare no theorems; the link is structural only.",
-        score: degree.score + densityBonus,
-        theoremDensity: pairTheorems
+          ? "Operations \u2194 Invariant linked with " + pairTheorems + " theorem" + (pairTheorems === 1 ? "" : "s") + " (" + Math.round(theoremRatio * 100) + "% declaration coverage). Obligations trace from transitions to safety claims."
+          : "Operations \u2194 Invariant structurally linked but no theorems declared; proof obligations are not yet formalized.",
+        score: degree.score + densityBonus + neighborLinkedCount * 3,
+        theoremDensity: pairTheorems,
+        coverage: theoremRatio,
+        strength: strengthLabel
       };
     } else if (pair) {
       var partialTheorems = (pair.operationsTheorems || 0) + (pair.invariantTheorems || 0);
+      var missingHalf = !pair.operationsModule ? "Operations" : !pair.invariantModule ? "Invariant" : "import link";
       result = {
         level: "partial",
-        label: "Partial proof context",
-        detail: "A proof pair exists but is not explicitly linked by imports" + (partialTheorems > 0 ? " (" + partialTheorems + " theorem" + (partialTheorems === 1 ? "" : "s") + " across the pair)" : "") + "; review assumptions before reusing results.",
+        label: "Partial proof context (missing " + missingHalf + ")",
+        detail: "Proof pair exists but " + missingHalf + " is absent or not import-connected"
+          + (partialTheorems > 0 ? ". " + partialTheorems + " theorem" + (partialTheorems === 1 ? "" : "s") + " across the pair (" + Math.round(theoremRatio * 100) + "% coverage)" : "")
+          + ". Review assumptions before reusing results.",
         score: degree.score + partialTheorems,
-        theoremDensity: partialTheorems
+        theoremDensity: partialTheorems,
+        coverage: theoremRatio,
+        strength: partialTheorems > 0 ? "partial" : "weak"
       };
     } else if (degree.theorems > 0) {
+      var localStrength = theoremRatio >= 0.5 ? "well-covered" : theoremRatio >= 0.2 ? "moderate" : "sparse";
       result = {
         level: "local",
-        label: "Local theorem coverage",
-        detail: "This module declares " + degree.theorems + " theorem" + (degree.theorems === 1 ? "" : "s") + " but has no Operations/Invariant pair mapping.",
+        label: "Local theorems (" + localStrength + ")",
+        detail: degree.theorems + " theorem" + (degree.theorems === 1 ? "" : "s") + " across " + totalDeclarations + " declaration" + (totalDeclarations === 1 ? "" : "s") + " (" + Math.round(theoremRatio * 100) + "% coverage). No Operations/Invariant pair mapping.",
         score: degree.score,
-        theoremDensity: degree.theorems
+        theoremDensity: degree.theorems,
+        coverage: theoremRatio,
+        strength: localStrength
       };
     } else {
+      var hasDeclarations = totalDeclarations > 0;
       result = {
         level: "none",
-        label: "No explicit proof evidence",
-        detail: "No theorem declarations or proof-pair mapping detected for this module.",
+        label: hasDeclarations ? "Unverified (" + totalDeclarations + " decl)" : "No declarations",
+        detail: hasDeclarations
+          ? totalDeclarations + " declaration" + (totalDeclarations === 1 ? "" : "s") + " with no theorem coverage and no proof-pair mapping."
+          : "No theorem declarations or proof-pair mapping detected.",
         score: degree.score,
-        theoremDensity: 0
+        theoremDensity: 0,
+        coverage: 0,
+        strength: "none"
       };
     }
 
@@ -946,12 +980,12 @@
 
   function declarationFlowLegendItems() {
     return [
-      { label: "Selected declaration", color: "#7c9cff" },
-      { label: "Calls (outgoing)", color: "#82f0b0" },
-      { label: "Called by (incoming)", color: "#ffad42" },
-      { label: "Color = declaration kind", color: "#8fa3bf" },
+      { label: "Selected declaration", color: "#7c9cff", group: "edge" },
+      { label: "Calls (outgoing)", color: "#82f0b0", group: "edge" },
+      { label: "Called by (incoming)", color: "#ffad42", group: "edge" },
       { separator: true },
-      { label: "Dashed border = cross-module", color: "#8fa3bf" }
+      { label: "Border = declaration kind", color: "#8fa3bf", group: "edge" },
+      { label: "Dashed = cross-module", color: "#8fa3bf", group: "edge" }
     ];
   }
 
@@ -1147,27 +1181,34 @@
 
 
   var ASSURANCE_COLORS = {
-    linked: "#35c98f",
-    partial: "#d37cff",
-    local: "#6de2ff",
-    none: "#ffad42"
+    linked: "#22b573",
+    partial: "#c47adb",
+    local: "#5ba8d4",
+    none: "#8e8e9a"
+  };
+
+  var ASSURANCE_ICONS = {
+    linked: "\u25C6",
+    partial: "\u25C7",
+    local: "\u25CB",
+    none: "\u25AB"
   };
 
   function flowLegendItems() {
     return [
-      /* Lane roles */
-      { label: "Selected module", color: "#7c9cff" },
-      { label: "Imports (dependencies)", color: "#35c98f" },
-      { label: "Impacted (dependents)", color: "#ffad42" },
-      { label: "Proof pair", color: "#d37cff" },
-      { label: "Linked-proof path", color: "#6de2ff" },
-      { label: "External imports", color: "#b9c0d0" },
+      /* Edge/lane roles — what lines and positions mean */
+      { label: "Selected module", color: "#7c9cff", group: "edge" },
+      { label: "Imports (dependencies)", color: "#35c98f", group: "edge" },
+      { label: "Impacted (dependents)", color: "#ffad42", group: "edge" },
+      { label: "Proof pair", color: "#d37cff", group: "edge" },
+      { label: "Linked-proof path", color: "#6de2ff", group: "edge" },
+      { label: "External imports", color: "#b9c0d0", group: "edge" },
       { separator: true },
-      /* Assurance tint (node background) */
-      { label: "\u2713 Linked proof", color: ASSURANCE_COLORS.linked },
-      { label: "\u00BD Partial proof", color: ASSURANCE_COLORS.partial },
-      { label: "\u2022 Local theorems", color: ASSURANCE_COLORS.local },
-      { label: "\u2013 No proof evidence", color: ASSURANCE_COLORS.none }
+      /* Assurance indicators — node left-border marks showing proof confidence */
+      { label: ASSURANCE_ICONS.linked + " Linked proof chain", color: ASSURANCE_COLORS.linked, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.partial + " Partial proof context", color: ASSURANCE_COLORS.partial, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.local + " Local theorems only", color: ASSURANCE_COLORS.local, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.none + " No proof evidence", color: ASSURANCE_COLORS.none, group: "assurance", indicator: "bar" }
     ];
   }
 
@@ -1584,12 +1625,23 @@
       }
       var chip = document.createElement("span");
       chip.className = "legend-item";
+      if (items[i].group) chip.classList.add("legend-" + items[i].group);
       chip.setAttribute("role", "listitem");
-      var swatch = document.createElement("span");
-      swatch.className = "legend-swatch";
-      swatch.setAttribute("aria-hidden", "true");
-      swatch.style.backgroundColor = items[i].color;
-      chip.appendChild(swatch);
+
+      if (items[i].indicator === "bar") {
+        /* Assurance items use a vertical bar swatch instead of a circle */
+        var barSwatch = document.createElement("span");
+        barSwatch.className = "legend-swatch legend-swatch-bar";
+        barSwatch.setAttribute("aria-hidden", "true");
+        barSwatch.style.backgroundColor = items[i].color;
+        chip.appendChild(barSwatch);
+      } else {
+        var swatch = document.createElement("span");
+        swatch.className = "legend-swatch";
+        swatch.setAttribute("aria-hidden", "true");
+        swatch.style.backgroundColor = items[i].color;
+        chip.appendChild(swatch);
+      }
       chip.appendChild(document.createTextNode(items[i].label));
       legend.appendChild(chip);
     }
@@ -1625,31 +1677,61 @@
     var full = createSvgNode("title", {});
     full.textContent = tooltip || name;
 
+    /* Extract assurance level from className for the bar indicator */
+    var assuranceMatch = /assurance-(\w+)/.exec(className);
+    var assuranceLevel = assuranceMatch ? assuranceMatch[1] : "";
+
+    var barWidth = 4;
+    var textOffsetX = assuranceLevel ? barWidth + 8 : 10;
+
     var compactNode = h < 44;
-    var title = createSvgNode("text", { x: x + 10, y: y + (compactNode ? 20 : 19) });
-    var titleLines = wrapLabelLines(name, w - 18, compactNode ? 14 : 12);
+    var title = createSvgNode("text", { x: x + textOffsetX, y: y + (compactNode ? 20 : 19) });
+    var titleLines = wrapLabelLines(name, w - textOffsetX - 8, compactNode ? 14 : 12);
     for (var ll = 0; ll < titleLines.length; ll++) {
-      var tspan = createSvgNode("tspan", { x: x + 10, dy: ll === 0 ? "0" : "13" });
+      var tspan = createSvgNode("tspan", { x: x + textOffsetX, dy: ll === 0 ? "0" : "13" });
       tspan.textContent = titleLines[ll];
       title.appendChild(tspan);
     }
 
     group.appendChild(full);
     group.appendChild(rect);
+
+    /* Assurance bar: a thin vertical strip on the left edge of the node */
+    if (assuranceLevel) {
+      var barPad = 3;
+      var barH = Math.max(12, h - barPad * 2);
+      var bar = createSvgNode("rect", {
+        x: x + 2, y: y + barPad, width: barWidth, height: barH,
+        rx: 2, ry: 2, "class": "assurance-bar"
+      });
+      group.appendChild(bar);
+
+      /* Small assurance icon in the top-right corner */
+      var iconChar = ASSURANCE_ICONS[assuranceLevel] || "";
+      if (iconChar) {
+        var icon = createSvgNode("text", {
+          x: x + w - 10, y: y + 14,
+          "text-anchor": "end", "class": "assurance-icon"
+        });
+        icon.textContent = iconChar;
+        group.appendChild(icon);
+      }
+    }
+
     group.appendChild(title);
 
     if (subtitle && h >= 40) {
-      var subtitleLines = wrapLabelLines(subtitle, w - 18, 14);
+      var subtitleLines = wrapLabelLines(subtitle, w - textOffsetX - 8, 14);
       var subtitleStartY = y + 22 + Math.max(1, titleLines.length) * 13 + 3;
-      var meta = createSvgNode("text", { x: x + 10, y: subtitleStartY, "class": "flow-meta" });
+      var meta = createSvgNode("text", { x: x + textOffsetX, y: subtitleStartY, "class": "flow-meta" });
       for (var mm = 0; mm < subtitleLines.length; mm++) {
-        var metaSpan = createSvgNode("tspan", { x: x + 10, dy: mm === 0 ? "0" : "12" });
+        var metaSpan = createSvgNode("tspan", { x: x + textOffsetX, dy: mm === 0 ? "0" : "12" });
         metaSpan.textContent = subtitleLines[mm];
         meta.appendChild(metaSpan);
       }
       if (metaLink && metaLink.href && metaLink.label) {
         var link = createSvgNode("a", { href: metaLink.href, target: "_blank", rel: "noopener noreferrer", "aria-label": metaLink.title || ("Open source for " + name) });
-        var linkSpan = createSvgNode("tspan", { x: x + 10, dy: subtitleLines.length ? "12" : "0", "class": "flow-meta-link" });
+        var linkSpan = createSvgNode("tspan", { x: x + textOffsetX, dy: subtitleLines.length ? "12" : "0", "class": "flow-meta-link" });
         linkSpan.textContent = metaLink.label;
         link.appendChild(linkSpan);
         meta.appendChild(link);
@@ -1682,6 +1764,7 @@
     var leftX = framePad;
     var centerX = leftX + sideWidth + laneGap;
     var rightX = centerX + centerWidth + laneGap;
+    var compact = prefersCompactViewport();
 
     return {
       flowWidth: flowWidth,
@@ -1692,8 +1775,8 @@
       leftX: leftX,
       centerX: centerX,
       rightX: rightX,
-      laneYStart: 62,
-      laneGapY: 10
+      laneYStart: compact ? 52 : 62,
+      laneGapY: compact ? 8 : 10
     };
   }
 
@@ -1756,11 +1839,13 @@
       var interior = interiorFor(name);
       var parts = ["decl " + interior.total];
       if (ctx.degree.theorems > 0) parts.push("thm " + ctx.degree.theorems);
-      parts.push("in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing);
+      parts.push("in " + ctx.degree.incoming + " \u00B7 out " + ctx.degree.outgoing);
       if (ctx.assurance.level && ctx.assurance.level !== "none") {
-        parts.push("\u2713 " + ctx.assurance.level);
+        var icon = ASSURANCE_ICONS[ctx.assurance.level] || "";
+        parts.push(icon + " " + ctx.assurance.level);
+        if (ctx.assurance.coverage > 0) parts.push(Math.round(ctx.assurance.coverage * 100) + "% cov");
       }
-      return parts.join(" · ");
+      return parts.join(" \u00B7 ");
     }
 
     function nodeTooltip(name, roleLabel) {
@@ -1769,7 +1854,10 @@
       var interior = interiorFor(name);
       var topKinds = allInteriorKinds().map(function (kind) { return { kind: kind, count: (interior.byKind[kind] || []).length }; }).filter(function (item) { return item.count > 0; }).sort(function (a, b) { return b.count - a.count; }).slice(0, 3);
       var kindPreview = topKinds.map(function (item) { return item.kind + "=" + item.count; }).join(", ");
-      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | declarations: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label;
+      var coverageNote = ctx.assurance.coverage > 0
+        ? " (" + Math.round(ctx.assurance.coverage * 100) + "% coverage)"
+        : "";
+      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | declarations: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label + coverageNote;
     }
 
     var layout = computeFlowLayout();
@@ -4301,6 +4389,7 @@
       interiorKindColor: interiorKindColor,
       normalizeDeclarationKind: normalizeDeclarationKind,
       assuranceColors: function () { return Object.assign({}, ASSURANCE_COLORS); },
+      assuranceIcons: function () { return Object.assign({}, ASSURANCE_ICONS); },
       flowLegendItems: flowLegendItems,
       flowLaneLabelVisibility: flowLaneLabelVisibility,
       normalizeCaretRange: normalizeCaretRange,

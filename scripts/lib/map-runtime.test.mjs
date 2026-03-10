@@ -526,7 +526,7 @@ test('declarationFlowLegendItems returns canonical declaration flow legend entri
   const hooks = await loadMapTestHooks();
   const items = hooks.declarationFlowLegendItems();
 
-  // 4 lane entries + separator + cross-module indicator = 6
+  // 3 lane entries + separator + 2 style indicators = 6
   assert.equal(items.length, 6);
   assert.equal(items[0].label, 'Selected declaration');
   assert.equal(items[0].color, '#7c9cff');
@@ -534,10 +534,9 @@ test('declarationFlowLegendItems returns canonical declaration flow legend entri
   assert.equal(items[1].color, '#82f0b0');
   assert.equal(items[2].label, 'Called by (incoming)');
   assert.equal(items[2].color, '#ffad42');
-  assert.equal(items[3].label, 'Color = declaration kind');
-  assert.equal(items[3].color, '#8fa3bf');
-  assert.ok(items[4].separator, 'item 4 should be a separator');
-  assert.equal(items[5].label, 'Dashed border = cross-module');
+  assert.ok(items[3].separator, 'item 3 should be a separator');
+  assert.equal(items[4].label, 'Border = declaration kind');
+  assert.equal(items[5].label, 'Dashed = cross-module');
 });
 
 test('normalizeMapData preserves callGraph on module symbols for declaration-centric payloads', async () => {
@@ -1689,7 +1688,7 @@ test('assuranceForModule includes theoremDensity and descriptive detail text', a
   const linkedNoTheorems = hooks.assuranceForModule('Y.Operations');
   assert.equal(linkedNoTheorems.level, 'linked');
   assert.equal(linkedNoTheorems.theoremDensity, 0);
-  assert.ok(linkedNoTheorems.detail.includes('structural only'), 'detail should note structural-only link');
+  assert.ok(linkedNoTheorems.detail.includes('structurally linked'), 'detail should note structural-only link');
 
   // Local theorem coverage
   const localResult = hooks.assuranceForModule('Z.Standalone');
