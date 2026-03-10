@@ -1050,6 +1050,18 @@
     return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath + lineAnchor;
   }
 
+  function moduleSourceLink(name) {
+    if (!name || !state.moduleMap[name]) return null;
+    var ref = state.commitSha || REF;
+    var path = state.moduleMap[name];
+    var encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    return {
+      href: "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath,
+      label: path,
+      title: "Open " + name + " source on GitHub"
+    };
+  }
+
   function selectDeclaration(declName, moduleName) {
     var mod = moduleName || declarationModuleOf(declName);
     if (!mod || !state.moduleMap[mod]) return;
@@ -1616,8 +1628,9 @@
 
   function nodeContentHeight(name, subtitle, width, compactHint, metaLinkLabel) {
     /* Account for assurance bar (left) and icon (right) taking space — text area is narrower.
-       Left: barWidth(5) + gap(8) = 13.  Right: icon(20).  Total inset ~33px. */
-    var textAreaWidth = width - 33;
+       Left: barWidth(5) + gap(9) = 14.  Right: iconMargin(22).  Total inset = 36px.
+       Must match the wrap width used in buildFlowNodeGroup to prevent content overflow. */
+    var textAreaWidth = width - 36;
     var titleLines = wrapLabelLines(name, textAreaWidth, compactHint ? 14 : 12);
     var subtitleLines = subtitle ? wrapLabelLines(subtitle, textAreaWidth, 14) : [];
     var linkLines = metaLinkLabel ? wrapLabelLines(metaLinkLabel, textAreaWidth, 14) : [];
@@ -1811,10 +1824,11 @@
     var textOffsetX = assuranceLevel ? barWidth + 9 : 10;
 
     var compactNode = h < 46;
-    /* Reserve extra right margin for assurance icon to prevent title overlap */
-    var rightPad = assuranceLevel ? 22 : 8;
+    /* Use a fixed 36px total inset for text wrapping — must match nodeContentHeight.
+       This covers the worst-case: assurance bar left (14px) + icon right (22px). */
+    var textAreaWidth = w - 36;
     var title = createSvgNode("text", { x: x + textOffsetX, y: y + (compactNode ? 20 : 20) });
-    var titleLines = wrapLabelLines(name, w - textOffsetX - rightPad, compactNode ? 14 : 12);
+    var titleLines = wrapLabelLines(name, textAreaWidth, compactNode ? 14 : 12);
     for (var ll = 0; ll < titleLines.length; ll++) {
       var tspan = createSvgNode("tspan", { x: x + textOffsetX, dy: ll === 0 ? "0" : "14" });
       tspan.textContent = titleLines[ll];
@@ -1849,8 +1863,8 @@
 
     group.appendChild(title);
 
-    if (subtitle && h >= 38) {
-      var subtitleLines = wrapLabelLines(subtitle, w - textOffsetX - 8, 14);
+    if (subtitle && h >= 34) {
+      var subtitleLines = wrapLabelLines(subtitle, textAreaWidth, 14);
       /* Position subtitle directly below the last title tspan:
          title baseline starts at y + titleBaseY, each additional line adds 14px */
       var titleBaseY = compactNode ? 20 : 20;
@@ -2028,23 +2042,25 @@
     var laneYStart = layout.laneYStart;
     var laneGapY = layout.laneGapY;
 
-    function stackedLayout(names, width, subtitleFn, compactHint) {
+    function stackedLayout(names, width, subtitleFn, compactHint, includeSourceLinks) {
       var nodes = [];
       var cursor = laneYStart;
       for (var ii = 0; ii < names.length; ii++) {
         var subtitleText = subtitleFn ? subtitleFn(names[ii]) : "";
-        var height = nodeContentHeight(names[ii], subtitleText, width, compactHint);
-        nodes.push({ name: names[ii], y: cursor, h: height, subtitle: subtitleText });
+        var srcLink = includeSourceLinks ? moduleSourceLink(names[ii]) : null;
+        var height = nodeContentHeight(names[ii], subtitleText, width, compactHint, srcLink ? srcLink.label : "");
+        nodes.push({ name: names[ii], y: cursor, h: height, subtitle: subtitleText, sourceLink: srcLink });
         cursor += height + laneGapY;
       }
       return { nodes: nodes, bottom: names.length ? (cursor - laneGapY) : laneYStart + 44 };
     }
 
-    var importLayout = stackedLayout(imports, sideWidth, moduleSummary, false);
-    var importerLayout = stackedLayout(importers, sideWidth, moduleSummary, false);
+    var importLayout = stackedLayout(imports, sideWidth, moduleSummary, false, true);
+    var importerLayout = stackedLayout(importers, sideWidth, moduleSummary, false, true);
     var laneBottom = Math.max(importLayout.bottom, importerLayout.bottom);
 
-    var centerHeight = nodeContentHeight(selected, moduleSummary(selected), centerWidth, false, "") + 14;
+    var centerSourceLink = moduleSourceLink(selected);
+    var centerHeight = nodeContentHeight(selected, moduleSummary(selected), centerWidth, false, centerSourceLink ? centerSourceLink.label : "") + 14;
     var laneContentHeight = Math.max(importLayout.bottom, importerLayout.bottom) - laneYStart;
     var idealCenterY = laneYStart + Math.floor((laneContentHeight - centerHeight) / 2);
     /* Anchor center node proportionally: clamp between the first node's top
@@ -2060,8 +2076,11 @@
     var proofStartY = lowerSectionTop;
     var proofBottom = proofStartY;
     var proofHeights = [];
+    var proofSourceLinks = [];
     for (var pr = 0; pr < proofRelated.length; pr++) {
-      var prH = nodeContentHeight(proofRelated[pr], moduleSummary(proofRelated[pr]), centerWidth, true, "");
+      var prLink = moduleSourceLink(proofRelated[pr]);
+      proofSourceLinks.push(prLink);
+      var prH = nodeContentHeight(proofRelated[pr], moduleSummary(proofRelated[pr]), centerWidth, true, prLink ? prLink.label : "");
       proofHeights.push(prH);
       proofBottom += prH + 8;
     }
@@ -2173,32 +2192,32 @@
       flowLaneLabel(labelLayer, text, x, y, color);
     }
 
-    function createNode(name, x, y, w, h, color, subtitle, tooltip, active, isStatic, assuranceLevel, onActivate) {
+    function createNode(name, x, y, w, h, color, subtitle, tooltip, active, isStatic, assuranceLevel, onActivate, metaLink) {
       var className = "flow-node" + (active ? " active" : "") + (isStatic ? " static" : "");
       if (onActivate) className += " action";
       if (assuranceLevel && !isStatic) className += " assurance-" + assuranceLevel;
       var interactive = !isStatic || Boolean(onActivate);
       var ariaLabel = interactive ? (onActivate ? name : ("Select module " + name)) : name;
       var activator = interactive ? (onActivate || function () { selectModule(name, false); }) : null;
-      return buildFlowNodeGroup(nodeLayer, className, interactive, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, activator, null);
+      return buildFlowNodeGroup(nodeLayer, className, interactive, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, activator, metaLink || null);
     }
 
     if (laneLabels.imports) laneLabel("Imports used by selected", leftX, 30, "#35c98f");
     if (laneLabels.selected) laneLabel("Selected module context", centerX, centerY - 12, "#7c9cff");
     if (laneLabels.impacted) laneLabel("Modules impacted by selected", rightX, 30, "#ffad42");
 
-    var center = createNode(selected, centerX, centerY, centerWidth, centerHeight, "#7c9cff", moduleSummary(selected), nodeTooltip(selected, "Selected module context"), true, false, contextFor(selected).assurance.level);
+    var center = createNode(selected, centerX, centerY, centerWidth, centerHeight, "#7c9cff", moduleSummary(selected), nodeTooltip(selected, "Selected module context"), true, false, contextFor(selected).assurance.level, null, centerSourceLink);
 
     var importNodes = [];
     for (var i = 0; i < importLayout.nodes.length; i++) {
       var importItem = importLayout.nodes[i];
-      importNodes.push(createNode(importItem.name, leftX, importItem.y, sideWidth, importItem.h, "#35c98f", importItem.subtitle, nodeTooltip(importItem.name, "Imported dependency"), false, false, contextFor(importItem.name).assurance.level));
+      importNodes.push(createNode(importItem.name, leftX, importItem.y, sideWidth, importItem.h, "#35c98f", importItem.subtitle, nodeTooltip(importItem.name, "Imported dependency"), false, false, contextFor(importItem.name).assurance.level, null, importItem.sourceLink));
     }
 
     var importerNodes = [];
     for (var j = 0; j < importerLayout.nodes.length; j++) {
       var importerItem = importerLayout.nodes[j];
-      importerNodes.push(createNode(importerItem.name, rightX, importerItem.y, sideWidth, importerItem.h, "#ffad42", importerItem.subtitle, nodeTooltip(importerItem.name, "Impacted module"), false, false, contextFor(importerItem.name).assurance.level));
+      importerNodes.push(createNode(importerItem.name, rightX, importerItem.y, sideWidth, importerItem.h, "#ffad42", importerItem.subtitle, nodeTooltip(importerItem.name, "Impacted module"), false, false, contextFor(importerItem.name).assurance.level, null, importerItem.sourceLink));
     }
 
     var hasHiddenImports = allImports.length > imports.length;
@@ -2236,7 +2255,7 @@
         var proofRoleLabel = proofModKind === "operations" ? "Operations module"
           : proofModKind === "invariant" ? "Invariant module"
           : "Proof-pair neighbor";
-        var proofNode = createNode(proofModName, centerX, proofY, centerWidth, proofHeights[n], "#d37cff", moduleSummary(proofModName), nodeTooltip(proofModName, proofRoleLabel), false, false, contextFor(proofModName).assurance.level);
+        var proofNode = createNode(proofModName, centerX, proofY, centerWidth, proofHeights[n], "#d37cff", moduleSummary(proofModName), nodeTooltip(proofModName, proofRoleLabel), false, false, contextFor(proofModName).assurance.level, null, proofSourceLinks[n]);
         drawFlowEdge(edgeLayer, center, proofNode, "#d37cff", true, { rank: n, total: proofRelated.length, spread: 18, vertical: true });
         proofY += proofHeights[n] + 8;
       }
