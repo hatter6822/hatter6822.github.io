@@ -402,6 +402,9 @@
     padding-right: 0.95rem;
   }
 }
+/* SVG must declare its intrinsic size so the browser can calculate scrollable
+   overflow correctly.  min-width:0 prevents flexbox/grid from collapsing it,
+   while the actual width comes from the viewBox attribute set in JS. */
 .flowchart-svg { width: 100%; min-width: 0; height: auto; display: block; }
 .flowchart-mobile-hint {
   display: none;
@@ -440,7 +443,9 @@
 .flow-node.assurance-partial .assurance-bar { fill: #c47adb; }
 .flow-node.assurance-local .assurance-bar { fill: #5ba8d4; }
 .flow-node.assurance-none .assurance-bar { fill: #8e8e9a; }
-.flow-node .assurance-bar { transition: fill 0.15s ease-out; filter: drop-shadow(0 0 3px currentColor); }
+/* Use a subtle box-shadow-equivalent via opacity rather than the expensive
+   SVG drop-shadow filter which triggers per-node compositing on large graphs. */
+.flow-node .assurance-bar { transition: fill 0.15s ease-out; opacity: 0.92; }
 .flow-node .assurance-icon { font-family: var(--font-mono); font-size: 11px; transition: fill 0.15s ease-out; opacity: 0.88; }
 .flow-node.assurance-linked .assurance-icon { fill: #22b573; }
 .flow-node.assurance-partial .assurance-icon { fill: #c47adb; }
@@ -619,7 +624,14 @@
     min-height: 2.2rem;
     padding: 0.25rem 0.6rem;
   }
+  /* Slightly larger text on mobile for readability since SVG is zoomed out.
+     Also increase the meta line-height for better touch separation between
+     flow-meta tspan elements which act as visual content. */
   .flow-node text { font-size: 12px; }
+  .flow-node .flow-meta { font-size: 10.5px; }
+  .flow-node .assurance-icon { font-size: 12px; }
+  /* Ensure cross-module dashed outlines remain visible at mobile zoom levels */
+  .flow-node.cross-module rect { stroke-dasharray: 7 4; stroke-width: 1.6; }
 }
 
 
@@ -709,6 +721,22 @@
   .map-stats {
     grid-template-columns: repeat(8, minmax(6.8rem, 82vw));
   }
+  /* On very small phones the flowchart legend can obscure content when
+     sticky-positioned.  Switch to a compact inline layout at the top
+     and prevent it from covering nodes. */
+  .flowchart-legend-corner {
+    position: relative;
+    top: 0;
+    flex-wrap: wrap;
+    gap: 0.18rem;
+    margin-bottom: 0.25rem;
+  }
+  .legend-item { font-size: 0.66rem; padding: 0.12rem 0.38rem; }
+  /* Scale flow-node text up slightly on very small phones because the
+     reduced SVG canvas width means less zoom-out is needed, so text
+     can be relatively larger without overflow. */
+  .flow-node text { font-size: 12.5px; }
+  .flow-node .flow-meta { font-size: 11px; }
   .detail-preset-options {
     display: grid;
     grid-template-columns: 1fr;
