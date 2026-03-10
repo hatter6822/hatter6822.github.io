@@ -425,7 +425,8 @@
   fill: var(--text);
 }
 .flow-node .flow-meta { fill: var(--text-muted); font-size: 10px; overflow: hidden; white-space: pre; }
-.flow-node .flow-meta-link { fill: var(--accent); text-decoration: underline; cursor: pointer; }
+.flow-node .flow-meta-link { fill: var(--accent); text-decoration: underline; cursor: pointer; pointer-events: auto; }
+.flow-node .flow-meta a:hover .flow-meta-link { opacity: 0.78; }
 .flow-node .flow-meta tspan { dominant-baseline: auto; }
 .flow-lane-label { font-family: var(--font-mono); letter-spacing: 0.02em; }
 .flow-node.static { cursor: default; }
