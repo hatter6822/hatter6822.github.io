@@ -543,6 +543,23 @@
     return filterByQuery(selectedItems);
   }
 
+  function parseHexColor(hex) {
+    var h = String(hex || "").replace(/^#/, "");
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h, 16);
+    return isNaN(n) ? { r: 143, g: 163, b: 191 } : { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  function blendHexColor(a, b, t) {
+    /* Linearly blend two hex colors. t=0 returns a, t=1 returns b. */
+    var ca = parseHexColor(a);
+    var cb = parseHexColor(b);
+    var r = Math.round(ca.r + (cb.r - ca.r) * t);
+    var g = Math.round(ca.g + (cb.g - ca.g) * t);
+    var bl = Math.round(ca.b + (cb.b - ca.b) * t);
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1);
+  }
+
   function interiorKindColor(kind) {
     var k = String(kind || "");
     return INTERIOR_KIND_COLOR_MAP[k] || INTERIOR_KIND_COLOR_MAP[normalizeDeclarationKind(k)] || "#8fa3bf";
@@ -1231,8 +1248,16 @@
     if (cachedMinFlowWidth > 0 && now - cachedMinFlowWidthTs < 200) return cachedMinFlowWidth;
     var width = window.innerWidth || 1200;
     var result;
-    if (width <= 640) result = 900;
-    else if (width <= 900) result = 980;
+    /* Scale SVG width proportionally so mobile devices don't get an
+       excessively wide canvas.  On very small screens (≤420px) the old
+       fixed 900px created ~2.4× horizontal scrolling; the new formula
+       keeps the graph readable while limiting pan distance.
+       The multiplier (2.15–2.35×) ensures three-lane layouts still fit
+       without overlapping, but the user only scrolls ~1× viewport width
+       instead of ~1.5×. */
+    if (width <= 420) result = Math.max(680, Math.round(width * 2.15));
+    else if (width <= 640) result = Math.max(780, Math.round(width * 2.0));
+    else if (width <= 900) result = Math.max(900, Math.round(width * 1.35));
     else result = 1180;
     cachedMinFlowWidth = result;
     cachedMinFlowWidthTs = now;
@@ -1681,12 +1706,15 @@
        but use an explicit hint when provided (e.g. vertical for proof edges). */
     var forceVertical = Boolean(opts.vertical);
     var horizontalBias = forceVertical ? false : Math.abs(dx) >= Math.abs(dy);
+    /* Inset the endpoint slightly (4px) so the arrow marker doesn't
+       visually pierce the rounded corners (rx=10) of the target node. */
+    var endInset = 4;
     if (horizontalBias) {
       startX = dx >= 0 ? from.x + from.w : from.x;
-      endX = dx >= 0 ? to.x : to.x + to.w;
+      endX = dx >= 0 ? to.x + endInset : to.x + to.w - endInset;
     } else {
       startY = dy >= 0 ? from.y + from.h : from.y;
-      endY = dy >= 0 ? to.y : to.y + to.h;
+      endY = dy >= 0 ? to.y + endInset : to.y + to.h - endInset;
     }
 
     var distFactor = Math.sqrt(dx * dx + dy * dy);
@@ -1874,11 +1902,15 @@
       group.appendChild(bar);
 
       /* Small assurance icon in the top-right corner — positioned inside the
-         rounded rect boundary to avoid overlap with title text */
+         rounded rect boundary.  Scale the Y offset with node height so that
+         on compact nodes (h < 40) the icon sits closer to the vertical
+         center rather than a fixed 14px from the top which can overlap
+         with the title text baseline on very short nodes. */
       var iconChar = ASSURANCE_ICONS[assuranceLevel] || "";
       if (iconChar) {
+        var iconY = h < 40 ? y + Math.max(12, Math.round(h * 0.42)) : y + 14;
         var icon = createSvgNode("text", {
-          x: x + w - 10, y: y + 14,
+          x: x + w - 10, y: iconY,
           "text-anchor": "end", "class": "assurance-icon"
         });
         icon.textContent = iconChar;
@@ -1890,16 +1922,21 @@
 
     if (subtitle && h >= 34) {
       var subtitleLines = wrapLabelLines(subtitle, textAreaWidth, 14);
-      /* Cap subtitle lines to prevent content overflow — must match nodeContentHeight */
+      /* Cap subtitle lines to prevent content overflow — must match nodeContentHeight.
+         When lines are truncated, append an ellipsis to the last visible line so
+         users can see that additional content was clipped. */
       var maxSubtitleLines = compactNode ? 2 : 3;
-      if (subtitleLines.length > maxSubtitleLines) subtitleLines = subtitleLines.slice(0, maxSubtitleLines);
+      var subtitleTruncated = subtitleLines.length > maxSubtitleLines;
+      if (subtitleTruncated) subtitleLines = subtitleLines.slice(0, maxSubtitleLines);
       /* Position subtitle directly below the last title tspan:
          title baseline starts at y + titleBaseY, each additional line adds 14px */
       var subtitleStartY = y + titleBaseY + (Math.max(1, titleLines.length) - 1) * 14 + 14;
       var meta = createSvgNode("text", { x: x + textOffsetX, y: subtitleStartY, "class": "flow-meta" });
       for (var mm = 0; mm < subtitleLines.length; mm++) {
         var metaSpan = createSvgNode("tspan", { x: x + textOffsetX, dy: mm === 0 ? "0" : "12" });
-        metaSpan.textContent = subtitleLines[mm];
+        var lineText = subtitleLines[mm];
+        if (subtitleTruncated && mm === subtitleLines.length - 1) lineText += "\u2026";
+        metaSpan.textContent = lineText;
         meta.appendChild(metaSpan);
       }
       if (metaLink && metaLink.href && metaLink.label) {
@@ -1930,17 +1967,23 @@
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     var wrapWidth = Math.max(0, ((wrap && wrap.clientWidth) || 0) - 8);
     var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
-    var framePad = 34;
-    var laneGap = 24;
-    /* Scale center width proportionally — ensure it can show full module summaries */
-    var centerWidth = Math.min(380, Math.max(300, Math.floor(flowWidth * 0.28)));
+    var compact = prefersCompactViewport();
+    /* Scale padding and gaps for smaller canvases so more area is
+       usable for actual node content rather than whitespace. */
+    var framePad = compact ? Math.max(14, Math.round(flowWidth * 0.018)) : 34;
+    var laneGap = compact ? Math.max(12, Math.round(flowWidth * 0.016)) : 24;
+    /* Scale center width proportionally — ensure it can show full module summaries.
+       On compact viewports, allow the center to be slightly narrower to give
+       more room to side lanes, improving text readability. */
+    var centerRatio = compact ? 0.30 : 0.28;
+    var minCenter = compact ? 220 : 300;
+    var centerWidth = Math.min(380, Math.max(minCenter, Math.floor(flowWidth * centerRatio)));
     /* Allocate remaining width evenly to side lanes */
     var availableSideWidth = Math.floor((flowWidth - framePad * 2 - centerWidth - laneGap * 2) / 2);
-    var sideWidth = Math.min(360, Math.max(240, availableSideWidth));
+    var sideWidth = Math.min(360, Math.max(compact ? 180 : 240, availableSideWidth));
     var leftX = framePad;
     var centerX = leftX + sideWidth + laneGap;
     var rightX = centerX + centerWidth + laneGap;
-    var compact = prefersCompactViewport();
 
     return {
       flowWidth: flowWidth,
@@ -2418,6 +2461,15 @@
       if (outgoing > 0 || incoming > 0) {
         parts.push("\u2190" + incoming + " \u2192" + outgoing);
       }
+      /* Show assurance context for the containing module so users can see
+         whether this declaration lives in a verified/proven module. */
+      if (mod && state.moduleMap[mod]) {
+        var modAssurance = assuranceForModule(mod);
+        if (modAssurance && modAssurance.level !== "none") {
+          var aIcon = ASSURANCE_ICONS[modAssurance.level] || "";
+          parts.push(aIcon + " " + modAssurance.level);
+        }
+      }
       return parts.join(" \u00B7 ") || "declaration";
     }
 
@@ -2443,7 +2495,14 @@
 
     function declNodeColor(name) {
       var kind = declarationKindOf(name);
-      return kind ? (INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf") : "#8fa3bf";
+      if (!kind) return "#8fa3bf";
+      /* Use the kind-specific color for same-module declarations but
+         desaturate slightly for cross-module ones so that visual weight
+         emphasizes the local module's declarations. */
+      var raw = INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf";
+      var declMod = declarationModuleOf(name);
+      if (declMod && declMod !== moduleName) return blendHexColor(raw, "#8fa3bf", 0.45);
+      return raw;
     }
 
     function sortByModuleRelevance(arr, referenceModule) {
