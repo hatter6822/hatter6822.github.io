@@ -393,8 +393,8 @@
   font-size: 0.75rem;
 }
 .flow-edge-layer { pointer-events: none; }
-.flow-line { fill: none; stroke-width: 2.1; opacity: 0.88; stroke-linecap: round; stroke-linejoin: round; }
-.flow-line.proof-link { stroke-dasharray: 5 4; stroke-width: 2.4; }
+.flow-line { fill: none; stroke-width: 2; opacity: 0.92; stroke-linecap: round; stroke-linejoin: round; }
+.flow-line.proof-link { stroke-dasharray: 6 4; stroke-width: 2.2; opacity: 0.85; }
 .flow-node { cursor: pointer; }
 .flow-node rect {
   stroke-width: 1.2;
@@ -412,8 +412,9 @@
 .flow-lane-label { font-family: var(--font-mono); letter-spacing: 0.02em; }
 .flow-node.static { cursor: default; }
 .flow-node.static.action { cursor: pointer; }
-.flow-node:not(.static):hover rect,
-.flow-node:not(.static):focus-visible rect { stroke: var(--accent); filter: brightness(1.03); }
+.flow-node:not(.static):hover rect { stroke: var(--accent); filter: brightness(1.03); }
+.flow-node:not(.static):focus-visible rect { stroke: var(--accent); stroke-width: 2; filter: brightness(1.05); }
+.flow-node:not(.static):focus-visible { outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent); outline-offset: 3px; border-radius: 12px; }
 .flow-node.active rect { stroke-width: 2; }
 .flow-node.assurance-linked rect {
   --assurance-tint: #35c98f;
@@ -425,11 +426,11 @@
 }
 .flow-node.assurance-local rect {
   --assurance-tint: #6de2ff;
-  fill: color-mix(in oklab, var(--flow-node-bg) 85%, var(--assurance-tint) 15%);
+  fill: color-mix(in oklab, var(--flow-node-bg) 82%, var(--assurance-tint) 18%);
 }
 .flow-node.assurance-none rect {
   --assurance-tint: #ffad42;
-  fill: color-mix(in oklab, var(--flow-node-bg) 88%, var(--assurance-tint) 12%);
+  fill: color-mix(in oklab, var(--flow-node-bg) 82%, var(--assurance-tint) 18%);
 }
 
 @supports not (color: color-mix(in oklab, white 50%, black)) {

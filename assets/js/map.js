@@ -599,10 +599,12 @@
     var kinds = allInteriorKinds();
     var seenByKind = Object.create(null);
     var byKind = Object.create(null);
+    var anonCounters = Object.create(null);
 
     for (var i = 0; i < kinds.length; i++) {
       seenByKind[kinds[i]] = Object.create(null);
       byKind[kinds[i]] = [];
+      anonCounters[kinds[i]] = 0;
     }
 
     var match;
@@ -612,7 +614,12 @@
       var line = declarationLineFromMatch(match, lineNumberForIndex);
       var rawName = normalizeSymbolName(match[2]);
       var name = rawName || "<" + kind + "@L" + line + ">";
-      if (seenByKind[kind][name]) continue;
+      if (seenByKind[kind][name]) {
+        /* Disambiguate collisions from unnamed declarations at the same line */
+        anonCounters[kind] += 1;
+        name = "<" + kind + "@L" + line + "#" + anonCounters[kind] + ">";
+        if (seenByKind[kind][name]) continue;
+      }
       seenByKind[kind][name] = true;
       byKind[kind].push({ name: name, line: line });
     }
@@ -960,7 +967,7 @@
       var neighbors = (state.importsFrom[node.name] || []).concat(state.importsTo[node.name] || []);
       for (var i = 0; i < neighbors.length; i++) {
         var next = neighbors[i];
-        if (!next || visited[next]) continue;
+        if (!next || next === node.name || visited[next]) continue;
         visited[next] = true;
         queue.push({ name: next, depth: node.depth + 1 });
       }
@@ -1422,11 +1429,16 @@
     if (current.length) lines.push(current);
 
     if (LABEL_WRAP_CACHE.size >= LABEL_WRAP_CACHE_LIMIT) {
+      /* Collect keys first, then delete — avoids iterator invalidation overhead */
+      var evictKeys = [];
       var iter = LABEL_WRAP_CACHE.keys();
       for (var evicted = 0; evicted < LABEL_WRAP_CACHE_EVICT_BATCH; evicted++) {
         var oldest = iter.next();
         if (oldest.done || oldest.value === undefined) break;
-        LABEL_WRAP_CACHE.delete(oldest.value);
+        evictKeys.push(oldest.value);
+      }
+      for (var ek = 0; ek < evictKeys.length; ek++) {
+        LABEL_WRAP_CACHE.delete(evictKeys[ek]);
       }
     }
     LABEL_WRAP_CACHE.set(cacheKey, lines.slice());
@@ -1481,7 +1493,8 @@
       endY = dy >= 0 ? to.y : to.y + to.h;
     }
 
-    var controlOffset = Math.max(56, Math.min(180, Math.abs(dx) * 0.45 + Math.abs(dy) * 0.2));
+    var distFactor = Math.sqrt(dx * dx + dy * dy);
+    var controlOffset = Math.max(56, Math.min(180, distFactor * 0.35));
     var spread = Math.max(0, Number(opts.spread) || 0);
     var rank = Math.max(0, Number(opts.rank) || 0);
     var total = Math.max(1, Number(opts.total) || 1);
@@ -1722,7 +1735,13 @@
     function moduleSummary(name) {
       var ctx = contextFor(name);
       var interior = interiorFor(name);
-      return "decl " + interior.total + " · thm " + ctx.degree.theorems + " · in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing;
+      var parts = ["decl " + interior.total];
+      if (ctx.degree.theorems > 0) parts.push("thm " + ctx.degree.theorems);
+      parts.push("in " + ctx.degree.incoming + " · out " + ctx.degree.outgoing);
+      if (ctx.assurance.level && ctx.assurance.level !== "none") {
+        parts.push("\u2713 " + ctx.assurance.level);
+      }
+      return parts.join(" · ");
     }
 
     function nodeTooltip(name, roleLabel) {
@@ -1926,8 +1945,8 @@
       createNode("Return to Compact mode", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", "hide extra impacted modules", "Activate compact mode", false, true, "", setCompactFlowMode);
     }
 
-    var importSpread = Math.min(52, Math.max(14, importNodes.length * 2));
-    var importerSpread = Math.min(52, Math.max(14, importerNodes.length * 2));
+    var importSpread = Math.min(56, Math.max(14, Math.round(14 + Math.log2(Math.max(1, importNodes.length)) * 8)));
+    var importerSpread = Math.min(56, Math.max(14, Math.round(14 + Math.log2(Math.max(1, importerNodes.length)) * 8)));
     for (var k = 0; k < importNodes.length; k++) {
       drawFlowEdge(edgeLayer, importNodes[k], center, "#35c98f", false, { rank: k, total: importNodes.length, spread: importSpread });
     }
@@ -2031,7 +2050,15 @@
       var mod = declarationModuleOf(name);
       var parts = [];
       if (kind) parts.push(symbolKindLabel(kind));
-      if (mod) parts.push("in " + mod);
+      if (mod) {
+        var isCrossModule = mod !== moduleName;
+        parts.push((isCrossModule ? "\u2192 " : "in ") + mod);
+      }
+      var outgoing = declarationCalls(name).length;
+      var incoming = declarationCalledBy(name).length;
+      if (outgoing > 0 || incoming > 0) {
+        parts.push("calls:" + outgoing + " callers:" + incoming);
+      }
       return parts.join(" · ") || "declaration";
     }
 
@@ -2175,8 +2202,15 @@
 
     if (!hasCallees && !hasCallers) {
       var emptyHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 28, fill: "#8fa3bf", "font-size": "12", "class": "flow-lane-label" });
-      emptyHint.textContent = "No internal call relationships detected for this declaration.";
+      var kind = declarationKindOf(declName);
+      var hintMsg = kind
+        ? "This " + kind + " has no detected internal call relationships."
+        : "No internal call relationships detected for this declaration.";
+      emptyHint.textContent = hintMsg;
       labelLayer.appendChild(emptyHint);
+      var returnHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 46, fill: "#6e7a91", "font-size": "11", "class": "flow-lane-label" });
+      returnHint.textContent = "Use the breadcrumb above to return to module context.";
+      labelLayer.appendChild(returnHint);
     }
 
     var center = createDeclNode(declName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(declName), declTooltip(declName, "Selected declaration"), true, null, centerMetaLink);
@@ -2223,8 +2257,8 @@
     for (var cre = 0; cre < callerLayout.length; cre++) {
       if (!callerLayout[cre].compactControl) callerEdgeCount++;
     }
-    var callSpread = Math.min(52, Math.max(14, callEdgeCount * 2));
-    var callerSpread = Math.min(52, Math.max(14, callerEdgeCount * 2));
+    var callSpread = Math.min(56, Math.max(14, Math.round(14 + Math.log2(Math.max(1, callEdgeCount)) * 8)));
+    var callerSpread = Math.min(56, Math.max(14, Math.round(14 + Math.log2(Math.max(1, callerEdgeCount)) * 8)));
     var callEdgeIndex = 0;
     for (var k = 0; k < callNodes.length; k++) {
       if (callLayout[k].compactControl) continue;
@@ -2270,7 +2304,8 @@
       totals.importEdges += (state.importsFrom[name] || []).length;
       if (meta.kind !== "operations" && meta.kind !== "invariant") continue;
       if (!groups[meta.base]) groups[meta.base] = {};
-      groups[meta.base][meta.kind] = name;
+      /* Preserve first occurrence: skip if this base+kind slot is already claimed */
+      if (!groups[meta.base][meta.kind]) groups[meta.base][meta.kind] = name;
     }
 
     var pairs = [];
