@@ -517,7 +517,7 @@
       var cells = rows[i].split('|');
       if (cells.length < 3) continue;
 
-      var metric = (cells[1] || '').toLowerCase();
+      var metric = (cells[1] || '').trim().toLowerCase();
       var value = (cells[2] || '').trim();
 
       if (metric.indexOf('version') !== -1) {
