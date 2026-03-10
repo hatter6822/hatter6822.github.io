@@ -1775,7 +1775,7 @@ test('assuranceForModule computes pair-wide coverage for linked modules', async 
   assert.ok(result.coverage > 0.5, 'pair-wide coverage should exceed 50% (5 thm / 8 decl)');
   assert.ok(result.pairDeclarations >= 8, 'pairDeclarations should count both modules');
   assert.equal(result.strength, 'strong', 'should be strong with >=40% coverage and >=3 theorems');
-  assert.ok(result.detail.includes('pair declaration'), 'detail should mention pair declarations');
+  assert.ok(result.detail.includes('object declaration'), 'detail should mention object declarations');
 });
 
 test('assuranceForModule uses scaffolded label for linked pairs with zero theorems', async () => {

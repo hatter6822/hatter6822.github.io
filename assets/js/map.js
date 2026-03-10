@@ -811,6 +811,18 @@
     return state.proofPairMap[moduleBase(name)] || null;
   }
 
+  function objectDeclarationCount(interior) {
+    /* Count only object-group declarations (defs, theorems, structures, etc.)
+       which represent provable/verifiable surface area.  Context-init kinds
+       (namespace, section, variable, etc.) are scaffolding — not proof targets. */
+    var objectKinds = INTERIOR_KIND_GROUPS.object || [];
+    var count = 0;
+    for (var i = 0; i < objectKinds.length; i++) {
+      count += ((interior.byKind || {})[objectKinds[i]] || []).length;
+    }
+    return count;
+  }
+
   function assuranceForModule(name) {
     if (ASSURANCE_CACHE[name]) return ASSURANCE_CACHE[name];
 
@@ -818,23 +830,29 @@
     var degree = moduleDegree(name);
     var interior = interiorCodeForModule(name);
     var totalDeclarations = interior.total || 0;
+    /* Object declarations are the meaningful coverage denominator — they represent
+       definitions, structures, theorems, etc. that can be verified.  Context-init
+       kinds (namespace, section, variable) are structural scaffolding. */
+    var objectDecls = objectDeclarationCount(interior);
     var result;
 
-    /* Theorem density: how much of this module's surface area is proven */
-    var theoremRatio = totalDeclarations > 0
-      ? Math.min(1, degree.theorems / Math.max(1, totalDeclarations))
+    /* Theorem density: ratio of theorems to object declarations (not all declarations) */
+    var theoremRatio = objectDecls > 0
+      ? Math.min(1, degree.theorems / Math.max(1, objectDecls))
       : 0;
 
     if (pair && pair.invariantImportsOperations) {
       var pairTheorems = pair.operationsTheorems + pair.invariantTheorems;
 
-      /* Pair-wide coverage: compute total declarations across both modules in the
-         pair, giving a more accurate picture of how well the pair is verified */
+      /* Pair-wide coverage: count object declarations across both modules in the
+         pair for an accurate picture of verifiable surface area */
       var opsInterior = pair.operationsModule ? interiorCodeForModule(pair.operationsModule) : { total: 0 };
       var invInterior = pair.invariantModule ? interiorCodeForModule(pair.invariantModule) : { total: 0 };
+      var pairObjectDecls = (pair.operationsModule ? objectDeclarationCount(opsInterior) : 0)
+        + (pair.invariantModule ? objectDeclarationCount(invInterior) : 0);
       var pairTotalDeclarations = (opsInterior.total || 0) + (invInterior.total || 0);
-      var pairCoverage = pairTotalDeclarations > 0
-        ? Math.min(1, pairTheorems / Math.max(1, pairTotalDeclarations))
+      var pairCoverage = pairObjectDecls > 0
+        ? Math.min(1, pairTheorems / Math.max(1, pairObjectDecls))
         : 0;
 
       /* Strength thresholds:
@@ -851,12 +869,13 @@
         level: "linked",
         label: "Linked proof chain (" + strengthLabel + ")",
         detail: pairTheorems > 0
-          ? "Operations \u2194 Invariant linked with " + pairTheorems + " theorem" + (pairTheorems === 1 ? "" : "s") + " across " + pairTotalDeclarations + " pair declaration" + (pairTotalDeclarations === 1 ? "" : "s") + " (" + Math.round(pairCoverage * 100) + "% pair coverage). Obligations trace from transitions to safety claims."
+          ? "Operations \u2194 Invariant linked with " + pairTheorems + " theorem" + (pairTheorems === 1 ? "" : "s") + " across " + pairObjectDecls + " object declaration" + (pairObjectDecls === 1 ? "" : "s") + " (" + Math.round(pairCoverage * 100) + "% coverage). Obligations trace from transitions to safety claims."
           : "Operations \u2194 Invariant structurally linked but no theorems declared. Proof pair convention is established; proof obligations are not yet formalized.",
         score: degree.score + densityBonus,
         theoremDensity: pairTheorems,
         coverage: pairCoverage,
         pairDeclarations: pairTotalDeclarations,
+        objectDeclarations: pairObjectDecls,
         strength: strengthLabel
       };
     } else if (pair) {
@@ -865,13 +884,21 @@
         : !pair.invariantModule ? "Invariant"
         : "import link";
 
-      /* Partial coverage: use pair declarations when both modules exist,
-         otherwise fall back to the current module's coverage */
+      /* Partial coverage: use object declarations when both modules exist */
       var partialPairDecl = 0;
-      if (pair.operationsModule) partialPairDecl += (interiorCodeForModule(pair.operationsModule).total || 0);
-      if (pair.invariantModule) partialPairDecl += (interiorCodeForModule(pair.invariantModule).total || 0);
-      var partialCoverage = partialPairDecl > 0
-        ? Math.min(1, partialTheorems / Math.max(1, partialPairDecl))
+      var partialObjectDecl = 0;
+      if (pair.operationsModule) {
+        var opsInt = interiorCodeForModule(pair.operationsModule);
+        partialPairDecl += (opsInt.total || 0);
+        partialObjectDecl += objectDeclarationCount(opsInt);
+      }
+      if (pair.invariantModule) {
+        var invInt = interiorCodeForModule(pair.invariantModule);
+        partialPairDecl += (invInt.total || 0);
+        partialObjectDecl += objectDeclarationCount(invInt);
+      }
+      var partialCoverage = partialObjectDecl > 0
+        ? Math.min(1, partialTheorems / Math.max(1, partialObjectDecl))
         : theoremRatio;
 
       /* Partial strength: "disconnected" when both modules exist but import is
@@ -885,7 +912,7 @@
         detail: "Proof pair " + (missingHalf === "import link"
           ? "exists but Invariant does not import Operations"
           : "is incomplete \u2014 " + missingHalf + " module is absent")
-          + (partialTheorems > 0 ? ". " + partialTheorems + " theorem" + (partialTheorems === 1 ? "" : "s") + " across available modules (" + Math.round(partialCoverage * 100) + "% coverage)" : "")
+          + (partialTheorems > 0 ? ". " + partialTheorems + " theorem" + (partialTheorems === 1 ? "" : "s") + " across " + partialObjectDecl + " object declaration" + (partialObjectDecl === 1 ? "" : "s") + " (" + Math.round(partialCoverage * 100) + "% coverage)" : "")
           + ". " + (missingHalf === "import link"
             ? "Add an import from Invariant to Operations to complete the proof chain."
             : "Create the " + missingHalf + " module to establish the proof pair."),
@@ -893,6 +920,7 @@
         theoremDensity: partialTheorems,
         coverage: partialCoverage,
         pairDeclarations: partialPairDecl,
+        objectDeclarations: partialObjectDecl,
         strength: partialStrength
       };
     } else if (degree.theorems > 0) {
@@ -904,24 +932,36 @@
       result = {
         level: "local",
         label: "Local theorems (" + localStrength + ")",
-        detail: degree.theorems + " theorem" + (degree.theorems === 1 ? "" : "s") + " across " + totalDeclarations + " declaration" + (totalDeclarations === 1 ? "" : "s") + " (" + Math.round(theoremRatio * 100) + "% coverage). No Operations/Invariant pair mapping.",
+        detail: degree.theorems + " theorem" + (degree.theorems === 1 ? "" : "s") + " across " + objectDecls + " object declaration" + (objectDecls === 1 ? "" : "s") + " (" + Math.round(theoremRatio * 100) + "% coverage). No Operations/Invariant pair mapping.",
         score: degree.score,
         theoremDensity: degree.theorems,
         coverage: theoremRatio,
+        objectDeclarations: objectDecls,
         strength: localStrength
       };
     } else {
+      /* Distinguish modules with only context-init scaffolding (namespace, section, etc.)
+         from modules that have substantive object declarations but no proofs */
+      var hasObjectDecls = objectDecls > 0;
       var hasDeclarations = totalDeclarations > 0;
+      var noneStrength = hasObjectDecls ? "unverified" : (hasDeclarations ? "scaffold-only" : "none");
       result = {
         level: "none",
-        label: hasDeclarations ? "Unverified (" + totalDeclarations + " decl)" : "No declarations",
-        detail: hasDeclarations
-          ? totalDeclarations + " declaration" + (totalDeclarations === 1 ? "" : "s") + " with no theorem coverage and no proof-pair mapping."
-          : "No theorem declarations or proof-pair mapping detected.",
+        label: hasObjectDecls
+          ? "Unverified (" + objectDecls + " obj, " + totalDeclarations + " total)"
+          : hasDeclarations
+            ? "Scaffold only (" + totalDeclarations + " decl)"
+            : "No declarations",
+        detail: hasObjectDecls
+          ? objectDecls + " object declaration" + (objectDecls === 1 ? "" : "s") + " (" + totalDeclarations + " total) with no theorem coverage and no proof-pair mapping."
+          : hasDeclarations
+            ? totalDeclarations + " context/init declaration" + (totalDeclarations === 1 ? "" : "s") + " (namespace, section, variable, etc.) — structural scaffolding only, no provable surface area."
+            : "No declarations or proof-pair mapping detected.",
         score: degree.score,
         theoremDensity: 0,
         coverage: 0,
-        strength: "none"
+        objectDeclarations: hasObjectDecls ? objectDecls : 0,
+        strength: noneStrength
       };
     }
 
@@ -1239,10 +1279,10 @@
       { label: "External imports", color: "#b9c0d0", group: "edge" },
       { separator: true },
       /* Assurance indicators — node left-border marks showing proof confidence */
-      { label: ASSURANCE_ICONS.linked + " Linked proof pair", color: ASSURANCE_COLORS.linked, group: "assurance", indicator: "bar" },
-      { label: ASSURANCE_ICONS.partial + " Partial proof pair", color: ASSURANCE_COLORS.partial, group: "assurance", indicator: "bar" },
-      { label: ASSURANCE_ICONS.local + " Local theorems", color: ASSURANCE_COLORS.local, group: "assurance", indicator: "bar" },
-      { label: ASSURANCE_ICONS.none + " No proof evidence", color: ASSURANCE_COLORS.none, group: "assurance", indicator: "bar" }
+      { label: ASSURANCE_ICONS.linked + " Linked (Ops\u2194Inv verified)", color: ASSURANCE_COLORS.linked, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.partial + " Partial (pair incomplete)", color: ASSURANCE_COLORS.partial, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.local + " Local (standalone proofs)", color: ASSURANCE_COLORS.local, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.none + " None (unverified)", color: ASSURANCE_COLORS.none, group: "assurance", indicator: "bar" }
     ];
   }
 
@@ -1470,7 +1510,9 @@
       return cached.slice();
     }
 
-    var maxChars = Math.max(minChars || 10, Math.floor((width || 180) / 6.6));
+    var maxChars = Math.max(minChars || 10, Math.floor((width || 180) / 6.4));
+    /* Split on common delimiters but prefer dots for Lean qualified names
+       (e.g. SeLe4n.Kernel.Operations → ["SeLe4n", ".", "Kernel", ".", "Operations"]) */
     var tokens = String(text).split(/([._/\-])/);
     var lines = [];
     var current = "";
@@ -1533,9 +1575,12 @@
   }
 
   function nodeContentHeight(name, subtitle, width, compactHint, metaLinkLabel) {
-    var titleLines = wrapLabelLines(name, width - 18, compactHint ? 14 : 12);
-    var subtitleLines = subtitle ? wrapLabelLines(subtitle, width - 18, 14) : [];
-    var linkLines = metaLinkLabel ? wrapLabelLines(metaLinkLabel, width - 18, 14) : [];
+    /* Account for assurance bar (left) and icon (right) taking space — text area is narrower.
+       Left: barWidth(4) + gap(8) = 12.  Right: icon(18).  Total inset ~30px. */
+    var textAreaWidth = width - 30;
+    var titleLines = wrapLabelLines(name, textAreaWidth, compactHint ? 14 : 12);
+    var subtitleLines = subtitle ? wrapLabelLines(subtitle, textAreaWidth, 14) : [];
+    var linkLines = metaLinkLabel ? wrapLabelLines(metaLinkLabel, textAreaWidth, 14) : [];
     var titleLineHeight = 13;
     var subtitleLineHeight = 12;
     var topPad = compactHint ? 8 : 10;
@@ -1725,8 +1770,10 @@
     var textOffsetX = assuranceLevel ? barWidth + 8 : 10;
 
     var compactNode = h < 44;
+    /* Reserve extra right margin for assurance icon to prevent title overlap */
+    var rightPad = assuranceLevel ? 18 : 8;
     var title = createSvgNode("text", { x: x + textOffsetX, y: y + (compactNode ? 20 : 19) });
-    var titleLines = wrapLabelLines(name, w - textOffsetX - 8, compactNode ? 14 : 12);
+    var titleLines = wrapLabelLines(name, w - textOffsetX - rightPad, compactNode ? 14 : 12);
     for (var ll = 0; ll < titleLines.length; ll++) {
       var tspan = createSvgNode("tspan", { x: x + textOffsetX, dy: ll === 0 ? "0" : "13" });
       tspan.textContent = titleLines[ll];
@@ -1746,11 +1793,12 @@
       });
       group.appendChild(bar);
 
-      /* Small assurance icon in the top-right corner */
+      /* Small assurance icon in the top-right corner — positioned inside the
+         rounded rect boundary to avoid overlap with title text */
       var iconChar = ASSURANCE_ICONS[assuranceLevel] || "";
       if (iconChar) {
         var icon = createSvgNode("text", {
-          x: x + w - 10, y: y + 14,
+          x: x + w - 8, y: y + 13,
           "text-anchor": "end", "class": "assurance-icon"
         });
         icon.textContent = iconChar;
@@ -1760,9 +1808,12 @@
 
     group.appendChild(title);
 
-    if (subtitle && h >= 40) {
+    if (subtitle && h >= 36) {
       var subtitleLines = wrapLabelLines(subtitle, w - textOffsetX - 8, 14);
-      var subtitleStartY = y + 22 + Math.max(1, titleLines.length) * 13 + 3;
+      /* Position subtitle directly below the last title tspan:
+         title baseline starts at y + titleBaseY, each additional line adds 13px */
+      var titleBaseY = compactNode ? 20 : 19;
+      var subtitleStartY = y + titleBaseY + (Math.max(1, titleLines.length) - 1) * 13 + 14;
       var meta = createSvgNode("text", { x: x + textOffsetX, y: subtitleStartY, "class": "flow-meta" });
       for (var mm = 0; mm < subtitleLines.length; mm++) {
         var metaSpan = createSvgNode("tspan", { x: x + textOffsetX, dy: mm === 0 ? "0" : "12" });
@@ -1799,8 +1850,11 @@
     var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
     var framePad = 34;
     var laneGap = 24;
-    var centerWidth = Math.min(360, Math.max(300, Math.floor(flowWidth * 0.27)));
-    var sideWidth = Math.min(360, Math.max(240, Math.floor((flowWidth - framePad * 2 - centerWidth - laneGap * 2) / 2)));
+    /* Scale center width proportionally — ensure it can show full module summaries */
+    var centerWidth = Math.min(380, Math.max(300, Math.floor(flowWidth * 0.28)));
+    /* Allocate remaining width evenly to side lanes */
+    var availableSideWidth = Math.floor((flowWidth - framePad * 2 - centerWidth - laneGap * 2) / 2);
+    var sideWidth = Math.min(360, Math.max(240, availableSideWidth));
     var leftX = framePad;
     var centerX = leftX + sideWidth + laneGap;
     var rightX = centerX + centerWidth + laneGap;
@@ -1877,14 +1931,20 @@
     function moduleSummary(name) {
       var ctx = contextFor(name);
       var interior = interiorFor(name);
-      var parts = [interior.total + " decl"];
+      var objCount = objectDeclarationCount(interior);
+      var parts = [];
+      /* Show object declarations as the primary count, with total if different */
+      if (objCount > 0 && objCount !== interior.total) {
+        parts.push(objCount + " obj / " + interior.total + " total");
+      } else {
+        parts.push(interior.total + " decl");
+      }
       if (ctx.degree.theorems > 0) parts.push(ctx.degree.theorems + " thm");
       parts.push("\u2190" + ctx.degree.incoming + " \u2192" + ctx.degree.outgoing);
-      if (ctx.assurance.level && ctx.assurance.level !== "none") {
-        var icon = ASSURANCE_ICONS[ctx.assurance.level] || "";
-        var covPct = ctx.assurance.coverage > 0 ? " " + Math.round(ctx.assurance.coverage * 100) + "%" : "";
-        parts.push(icon + " " + ctx.assurance.strength + covPct);
-      }
+      /* Always show assurance info — even "none" level is meaningful */
+      var icon = ASSURANCE_ICONS[ctx.assurance.level] || ASSURANCE_ICONS.none;
+      var covPct = ctx.assurance.coverage > 0 ? " " + Math.round(ctx.assurance.coverage * 100) + "%" : "";
+      parts.push(icon + " " + ctx.assurance.strength + covPct);
       return parts.join(" \u00B7 ");
     }
 
@@ -1892,12 +1952,21 @@
       if (!state.moduleMap[name]) return roleLabel + ": " + name;
       var ctx = contextFor(name);
       var interior = interiorFor(name);
-      var topKinds = allInteriorKinds().map(function (kind) { return { kind: kind, count: (interior.byKind[kind] || []).length }; }).filter(function (item) { return item.count > 0; }).sort(function (a, b) { return b.count - a.count; }).slice(0, 3);
+      var objCount = objectDeclarationCount(interior);
+      var topKinds = allInteriorKinds().map(function (kind) { return { kind: kind, count: (interior.byKind[kind] || []).length }; }).filter(function (item) { return item.count > 0; }).sort(function (a, b) { return b.count - a.count; }).slice(0, 5);
       var kindPreview = topKinds.map(function (item) { return item.kind + "=" + item.count; }).join(", ");
       var coverageLine = ctx.assurance.coverage > 0
-        ? "\ncoverage: " + Math.round(ctx.assurance.coverage * 100) + "%" + (ctx.assurance.pairDeclarations > 0 ? " across " + ctx.assurance.pairDeclarations + " pair declarations" : "")
+        ? "\ncoverage: " + Math.round(ctx.assurance.coverage * 100) + "% of " + (ctx.assurance.objectDeclarations || objCount) + " object declarations"
         : "";
-      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | declarations: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label + coverageLine;
+      var pairLine = "";
+      var pairInfo = findProofPair(name);
+      if (pairInfo) {
+        var pairParts = [];
+        if (pairInfo.operationsModule) pairParts.push("ops=" + pairInfo.operationsModule);
+        if (pairInfo.invariantModule) pairParts.push("inv=" + pairInfo.invariantModule);
+        pairLine = "\nproof pair: " + pairParts.join(", ") + (pairInfo.invariantImportsOperations ? " (linked)" : " (unlinked)");
+      }
+      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | obj-decl: " + objCount + " | total-decl: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label + coverageLine + pairLine;
     }
 
     var layout = computeFlowLayout();
@@ -1999,7 +2068,7 @@
       var externalNodeHeights = [];
       for (var ex = 0; ex < external.length; ex++) {
         var exRow = Math.floor(ex / externalPerRow);
-        var exH = nodeContentHeight(external[ex], "", externalWidth, true, "");
+        var exH = nodeContentHeight(external[ex], "external dependency", externalWidth, true, "");
         externalNodeHeights.push(exH);
         externalRowHeights[exRow] = Math.max(externalRowHeights[exRow] || 0, exH);
       }
@@ -2141,7 +2210,8 @@
       for (var z = 0; z < externalItems.length; z++) {
         var externalItem = externalItems[z];
         var isMorePlaceholder = externalItem.name.charAt(0) === "+";
-        var extNode = createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", "", "", false, true, "");
+        var extSubtitle = isMorePlaceholder ? "" : "external dependency";
+        var extNode = createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", extSubtitle, isMorePlaceholder ? "" : "External import: " + externalItem.name + "\nImported by " + selected, false, true, "");
         if (!isMorePlaceholder) externalEdgeNodes.push(extNode);
       }
       /* Draw subtle edges from center to each external import node */
@@ -4451,6 +4521,7 @@
       buildSearchIndex: buildSearchIndex,
       declarationLaneCollapseThreshold: function () { return 12; },
       declarationLaneVisibleLimit: function () { return 10; },
+      objectDeclarationCount: objectDeclarationCount,
       assuranceForModule: assuranceForModule,
       relatedProofModules: relatedProofModules,
       findNearestLinkedPath: findNearestLinkedPath,

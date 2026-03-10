@@ -248,6 +248,7 @@
   border-style: dashed;
   border-color: color-mix(in oklab, var(--border) 70%, transparent);
 }
+.legend-assurance[title] { cursor: help; }
 .legend-separator {
   width: 1px;
   align-self: stretch;
@@ -423,8 +424,9 @@
   font-size: 11px;
   fill: var(--text);
 }
-.flow-node .flow-meta { fill: var(--text-muted); font-size: 10px; }
+.flow-node .flow-meta { fill: var(--text-muted); font-size: 10px; overflow: hidden; }
 .flow-node .flow-meta-link { fill: var(--accent); text-decoration: underline; cursor: pointer; }
+.flow-node .flow-meta tspan { dominant-baseline: auto; }
 .flow-lane-label { font-family: var(--font-mono); letter-spacing: 0.02em; }
 .flow-node.static { cursor: default; }
 .flow-node.static.action { cursor: pointer; }
@@ -437,8 +439,8 @@
 .flow-node.assurance-partial .assurance-bar { fill: #c47adb; }
 .flow-node.assurance-local .assurance-bar { fill: #5ba8d4; }
 .flow-node.assurance-none .assurance-bar { fill: #8e8e9a; }
-.flow-node .assurance-bar { transition: fill 0.15s ease-out; }
-.flow-node .assurance-icon { font-family: var(--font-mono); font-size: 10px; transition: fill 0.15s ease-out; }
+.flow-node .assurance-bar { transition: fill 0.15s ease-out; filter: drop-shadow(0 0 2px currentColor); }
+.flow-node .assurance-icon { font-family: var(--font-mono); font-size: 10px; transition: fill 0.15s ease-out; opacity: 0.85; }
 .flow-node.assurance-linked .assurance-icon { fill: #22b573; }
 .flow-node.assurance-partial .assurance-icon { fill: #c47adb; }
 .flow-node.assurance-local .assurance-icon { fill: #5ba8d4; }
