@@ -1626,17 +1626,25 @@
     return lines;
   }
 
-  function nodeContentHeight(name, subtitle, width, compactHint, metaLinkLabel) {
+  function nodeContentHeight(name, subtitle, width, compactHint, metaLinkLabel, hasAssurance) {
     /* Account for assurance bar (left) and icon (right) taking space — text area is narrower.
        Left: barWidth(5) + gap(9) = 14.  Right: iconMargin(22).  Total inset = 36px.
+       Non-assurance nodes use a smaller inset: just left+right padding = 20px.
        Must match the wrap width used in buildFlowNodeGroup to prevent content overflow. */
-    var textAreaWidth = width - 36;
+    var textInset = hasAssurance ? 36 : 20;
+    var textAreaWidth = width - textInset;
     var titleLines = wrapLabelLines(name, textAreaWidth, compactHint ? 14 : 12);
     var subtitleLines = subtitle ? wrapLabelLines(subtitle, textAreaWidth, 14) : [];
+    /* Cap subtitle lines to prevent excessively tall nodes */
+    var maxSubtitleLines = compactHint ? 2 : 3;
+    if (subtitleLines.length > maxSubtitleLines) subtitleLines = subtitleLines.slice(0, maxSubtitleLines);
     var linkLines = metaLinkLabel ? wrapLabelLines(metaLinkLabel, textAreaWidth, 14) : [];
     var titleLineHeight = 14;
     var subtitleLineHeight = 12;
-    var topPad = compactHint ? 9 : 11;
+    /* topPad derived from buildFlowNodeGroup's titleBaseY:
+       compact: titleBaseY=17, so visual text top ≈ 17 - fontAscent(~8) = 9.
+       full:    titleBaseY=20, so visual text top ≈ 20 - fontAscent(~8) = 12. */
+    var topPad = compactHint ? 8 : 11;
     var bottomPad = 9;
     var gap = (subtitleLines.length || linkLines.length) ? 6 : 0;
     var linkGap = (subtitleLines.length && linkLines.length) ? 3 : 0;
@@ -1683,9 +1691,11 @@
 
     var distFactor = Math.sqrt(dx * dx + dy * dy);
     /* Scale control offset by axis context: vertical edges use a gentler curve
-       to avoid the S-shape distortion on short vertical drops. */
+       to avoid the S-shape distortion on short vertical drops.
+       For very short distances, use a smaller minimum to avoid overshooting. */
     var offsetRatio = horizontalBias ? 0.35 : 0.30;
-    var controlOffset = Math.max(40, Math.min(160, distFactor * offsetRatio));
+    var minOffset = distFactor < 80 ? Math.max(20, distFactor * 0.4) : 40;
+    var controlOffset = Math.max(minOffset, Math.min(160, distFactor * offsetRatio));
     var spread = Math.max(0, Number(opts.spread) || 0);
     var rank = Math.max(0, Number(opts.rank) || 0);
     var total = Math.max(1, Number(opts.total) || 1);
@@ -1745,7 +1755,19 @@
     svg.appendChild(nodeLayer);
     svg.appendChild(labelLayer);
 
-    return { svg: svg, edgeLayer: edgeLayer, nodeLayer: nodeLayer, labelLayer: labelLayer };
+    return {
+      svg: svg,
+      edgeLayer: edgeLayer,
+      nodeLayer: nodeLayer,
+      labelLayer: labelLayer,
+      /* Flush all pending layer children into the SVG in one batch.
+         Call this after all nodes/edges/labels have been constructed
+         to minimize DOM reflow during construction. */
+      flush: function () {
+        /* Layers are already appended to SVG; this is a no-op hook for
+           future fragment-based construction if needed. */
+      }
+    };
   }
 
   function createFlowLegend(items, ariaLabel) {
@@ -1824,10 +1846,13 @@
     var textOffsetX = assuranceLevel ? barWidth + 9 : 10;
 
     var compactNode = h < 46;
-    /* Use a fixed 36px total inset for text wrapping — must match nodeContentHeight.
-       This covers the worst-case: assurance bar left (14px) + icon right (22px). */
-    var textAreaWidth = w - 36;
-    var title = createSvgNode("text", { x: x + textOffsetX, y: y + (compactNode ? 20 : 20) });
+    /* Text wrapping inset must match nodeContentHeight:
+       assurance nodes: barLeft(14) + iconRight(22) = 36px.
+       non-assurance nodes: left(10) + right(10) = 20px. */
+    var textInset = assuranceLevel ? 36 : 20;
+    var textAreaWidth = w - textInset;
+    var titleBaseY = compactNode ? 17 : 20;
+    var title = createSvgNode("text", { x: x + textOffsetX, y: y + titleBaseY });
     var titleLines = wrapLabelLines(name, textAreaWidth, compactNode ? 14 : 12);
     for (var ll = 0; ll < titleLines.length; ll++) {
       var tspan = createSvgNode("tspan", { x: x + textOffsetX, dy: ll === 0 ? "0" : "14" });
@@ -1865,9 +1890,11 @@
 
     if (subtitle && h >= 34) {
       var subtitleLines = wrapLabelLines(subtitle, textAreaWidth, 14);
+      /* Cap subtitle lines to prevent content overflow — must match nodeContentHeight */
+      var maxSubtitleLines = compactNode ? 2 : 3;
+      if (subtitleLines.length > maxSubtitleLines) subtitleLines = subtitleLines.slice(0, maxSubtitleLines);
       /* Position subtitle directly below the last title tspan:
          title baseline starts at y + titleBaseY, each additional line adds 14px */
-      var titleBaseY = compactNode ? 20 : 20;
       var subtitleStartY = y + titleBaseY + (Math.max(1, titleLines.length) - 1) * 14 + 14;
       var meta = createSvgNode("text", { x: x + textOffsetX, y: subtitleStartY, "class": "flow-meta" });
       for (var mm = 0; mm < subtitleLines.length; mm++) {
@@ -2048,7 +2075,8 @@
       for (var ii = 0; ii < names.length; ii++) {
         var subtitleText = subtitleFn ? subtitleFn(names[ii]) : "";
         var srcLink = includeSourceLinks ? moduleSourceLink(names[ii]) : null;
-        var height = nodeContentHeight(names[ii], subtitleText, width, compactHint, srcLink ? srcLink.label : "");
+        /* Module nodes always have assurance indicators */
+        var height = nodeContentHeight(names[ii], subtitleText, width, compactHint, srcLink ? srcLink.label : "", true);
         nodes.push({ name: names[ii], y: cursor, h: height, subtitle: subtitleText, sourceLink: srcLink });
         cursor += height + laneGapY;
       }
@@ -2060,14 +2088,30 @@
     var laneBottom = Math.max(importLayout.bottom, importerLayout.bottom);
 
     var centerSourceLink = moduleSourceLink(selected);
-    var centerHeight = nodeContentHeight(selected, moduleSummary(selected), centerWidth, false, centerSourceLink ? centerSourceLink.label : "") + 14;
+    var centerHeight = nodeContentHeight(selected, moduleSummary(selected), centerWidth, false, centerSourceLink ? centerSourceLink.label : "", true) + 14;
     var laneContentHeight = Math.max(importLayout.bottom, importerLayout.bottom) - laneYStart;
     var idealCenterY = laneYStart + Math.floor((laneContentHeight - centerHeight) / 2);
-    /* Anchor center node proportionally: clamp between the first node's top
-       and the lane midpoint so the center stays visually connected to its
-       neighbors — never float below all side nodes. */
-    var minCenterY = laneYStart + Math.min(20, Math.floor(laneContentHeight * 0.15));
-    var maxCenterY = Math.max(minCenterY, laneYStart + Math.floor(laneContentHeight * 0.5));
+    /* Anchor center node proportionally: when both lanes exist, center between
+       them. When only one lane has nodes, anchor closer to it so the center
+       stays visually connected. When both are empty, start near the top. */
+    var hasLeftLane = importLayout.nodes.length > 0;
+    var hasRightLane = importerLayout.nodes.length > 0;
+    var minCenterY, maxCenterY;
+    if (!hasLeftLane && !hasRightLane) {
+      /* No side lanes — position center near top */
+      minCenterY = laneYStart;
+      maxCenterY = laneYStart + 40;
+    } else if (hasLeftLane !== hasRightLane) {
+      /* Single-sided — anchor center near the populated lane's visual center */
+      var populatedBottom = hasLeftLane ? importLayout.bottom : importerLayout.bottom;
+      var populatedHeight = populatedBottom - laneYStart;
+      minCenterY = laneYStart + Math.min(10, Math.floor(populatedHeight * 0.1));
+      maxCenterY = Math.max(minCenterY, laneYStart + Math.floor(populatedHeight * 0.45));
+    } else {
+      /* Both lanes populated — use proportional clamp */
+      minCenterY = laneYStart + Math.min(20, Math.floor(laneContentHeight * 0.15));
+      maxCenterY = Math.max(minCenterY, laneYStart + Math.floor(laneContentHeight * 0.5));
+    }
     var centerY = Math.max(minCenterY, Math.min(maxCenterY, idealCenterY));
     var centerBottom = centerY + centerHeight;
 
@@ -2080,7 +2124,7 @@
     for (var pr = 0; pr < proofRelated.length; pr++) {
       var prLink = moduleSourceLink(proofRelated[pr]);
       proofSourceLinks.push(prLink);
-      var prH = nodeContentHeight(proofRelated[pr], moduleSummary(proofRelated[pr]), centerWidth, true, prLink ? prLink.label : "");
+      var prH = nodeContentHeight(proofRelated[pr], moduleSummary(proofRelated[pr]), centerWidth, true, prLink ? prLink.label : "", true);
       proofHeights.push(prH);
       proofBottom += prH + 8;
     }
@@ -2100,7 +2144,7 @@
       var pathRowHeights = [];
       for (var lp = 1; lp < linkedPath.length; lp++) {
         var pathName = linkedPath[lp];
-        var pathHeight = nodeContentHeight(pathName, moduleSummary(pathName), pathNodeWidth, true, "");
+        var pathHeight = nodeContentHeight(pathName, moduleSummary(pathName), pathNodeWidth, true, "", true);
         var pathIndex = lp - 1;
         var pathRow = Math.floor(pathIndex / pathPerRow);
         var pathCol = pathIndex % pathPerRow;
@@ -2137,7 +2181,7 @@
       var externalNodeHeights = [];
       for (var ex = 0; ex < external.length; ex++) {
         var exRow = Math.floor(ex / externalPerRow);
-        var exH = nodeContentHeight(external[ex], "external dependency", externalWidth, true, "");
+        var exH = nodeContentHeight(external[ex], "external dependency", externalWidth, true, "", false);
         externalNodeHeights.push(exH);
         externalRowHeights[exRow] = Math.max(externalRowHeights[exRow] || 0, exH);
       }
@@ -2176,13 +2220,20 @@
       externalBottom = externalStartY + 36;
     }
     var hasExternalSection = external.length > 0;
-    var effectiveBottom = hasExternalSection ? externalBottom : pathBlockBottom;
+    var hasPathSection = linkedPath.length > 1;
+    var hasProofSection = proofRelated.length > 0;
+    /* Compute effective bottom by finding the lowest section that has content */
+    var effectiveBottom = hasExternalSection ? externalBottom
+      : hasPathSection ? pathBlockBottom
+      : hasProofSection ? proofBottom
+      : Math.max(laneBottom, centerBottom);
     var minFlowHeight = prefersCompactViewport() ? 420 : 620;
-    var flowHeight = Math.max(minFlowHeight, effectiveBottom + (hasExternalSection ? 68 : 40));
+    var flowHeight = Math.max(minFlowHeight, effectiveBottom + (hasExternalSection ? 48 : 32));
 
     wrap.appendChild(createFlowLegend(flowLegendItems(), "Flow chart legend"));
 
-    var flowSvg = createFlowSvg(flowWidth, flowHeight, "Flow chart for selected module interactions and proof links: " + selected + ", imports " + allImports.length + ", impacted modules " + allImporters.length + ", proof neighbors " + proofRelated.length);
+    var svgAriaLabel = "Flow chart for " + selected + ": " + allImports.length + " import" + (allImports.length === 1 ? "" : "s") + ", " + allImporters.length + " impacted module" + (allImporters.length === 1 ? "" : "s") + (proofRelated.length ? ", " + proofRelated.length + " proof neighbor" + (proofRelated.length === 1 ? "" : "s") : "") + (external.length ? ", " + allExternal.length + " external import" + (allExternal.length === 1 ? "" : "s") : "");
+    var flowSvg = createFlowSvg(flowWidth, flowHeight, svgAriaLabel);
     var svg = flowSvg.svg;
     var edgeLayer = flowSvg.edgeLayer;
     var nodeLayer = flowSvg.nodeLayer;
@@ -2435,19 +2486,19 @@
     var cursorLeft = laneYStart;
     for (var ci = 0; ci < visibleCalls.length; ci++) {
       var callMetaLink = declMetaLink(visibleCalls[ci]);
-      var ch = nodeContentHeight(visibleCalls[ci], declSummary(visibleCalls[ci]), sideWidth, true, callMetaLink ? callMetaLink.label : "");
+      var ch = nodeContentHeight(visibleCalls[ci], declSummary(visibleCalls[ci]), sideWidth, true, callMetaLink ? callMetaLink.label : "", false);
       callLayout.push({ name: visibleCalls[ci], y: cursorLeft, h: ch, collapsed: false, expandable: false, compactControl: false, metaLink: callMetaLink });
       cursorLeft += ch + laneGapY;
     }
     if (collapsedCallCount > 0) {
       var collapsedCallLabel = "+" + collapsedCallCount + " more";
-      var cch = nodeContentHeight(collapsedCallLabel, "expand to show all", sideWidth, true);
+      var cch = nodeContentHeight(collapsedCallLabel, "expand to show all", sideWidth, true, "", false);
       callLayout.push({ name: collapsedCallLabel, y: cursorLeft, h: cch, collapsed: true, expandable: true });
       cursorLeft += cch + laneGapY;
     }
     if (canCompactCalls) {
       var compactCallLabel = "Return to Compact";
-      var compactCallH = nodeContentHeight(compactCallLabel, "hide extra calls", sideWidth, true);
+      var compactCallH = nodeContentHeight(compactCallLabel, "hide extra calls", sideWidth, true, "", false);
       callLayout.push({ name: compactCallLabel, y: cursorLeft, h: compactCallH, compactControl: true });
       cursorLeft += compactCallH + laneGapY;
     }
@@ -2457,26 +2508,26 @@
     var cursorRight = laneYStart;
     for (var bi = 0; bi < visibleCallers.length; bi++) {
       var callerMetaLink = declMetaLink(visibleCallers[bi]);
-      var bh = nodeContentHeight(visibleCallers[bi], declSummary(visibleCallers[bi]), sideWidth, true, callerMetaLink ? callerMetaLink.label : "");
+      var bh = nodeContentHeight(visibleCallers[bi], declSummary(visibleCallers[bi]), sideWidth, true, callerMetaLink ? callerMetaLink.label : "", false);
       callerLayout.push({ name: visibleCallers[bi], y: cursorRight, h: bh, collapsed: false, expandable: false, compactControl: false, metaLink: callerMetaLink });
       cursorRight += bh + laneGapY;
     }
     if (collapsedCallerCount > 0) {
       var collapsedCallerLabel = "+" + collapsedCallerCount + " more";
-      var ccbh = nodeContentHeight(collapsedCallerLabel, "expand to show all", sideWidth, true);
+      var ccbh = nodeContentHeight(collapsedCallerLabel, "expand to show all", sideWidth, true, "", false);
       callerLayout.push({ name: collapsedCallerLabel, y: cursorRight, h: ccbh, collapsed: true, expandable: true });
       cursorRight += ccbh + laneGapY;
     }
     if (canCompactCallers) {
       var compactCallerLabel = "Return to Compact";
-      var compactCallerH = nodeContentHeight(compactCallerLabel, "hide extra callers", sideWidth, true);
+      var compactCallerH = nodeContentHeight(compactCallerLabel, "hide extra callers", sideWidth, true, "", false);
       callerLayout.push({ name: compactCallerLabel, y: cursorRight, h: compactCallerH, compactControl: true });
       cursorRight += compactCallerH + laneGapY;
     }
     var callerBottom = callerLayout.length ? cursorRight - laneGapY : laneYStart + 44;
 
     var centerMetaLink = declMetaLink(declName);
-    var centerHeight = nodeContentHeight(declName, declSummary(declName), centerWidth, false, centerMetaLink ? centerMetaLink.label : "") + 14;
+    var centerHeight = nodeContentHeight(declName, declSummary(declName), centerWidth, false, centerMetaLink ? centerMetaLink.label : "", false) + 14;
     var declLaneContentHeight = Math.max(callBottom, callerBottom) - laneYStart;
     var idealDeclCenterY = laneYStart + Math.floor((declLaneContentHeight - centerHeight) / 2);
     var minDeclCenterY = Math.max(laneYStart + 20, Math.min(170, laneYStart + Math.floor(declLaneContentHeight * 0.25)));
