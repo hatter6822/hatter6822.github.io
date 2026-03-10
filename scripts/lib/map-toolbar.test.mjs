@@ -74,9 +74,9 @@ assert(/\.flowchart-mobile-hint\s*\{[^}]*display:\s*none/s.test(css), "flowchart
 // CSS: flow node rect should have transition for smooth hover/focus effects
 assert(/\.flow-node\s+rect\s*\{[^}]*transition:/s.test(css), "flow node rect should have CSS transition for smooth visual feedback");
 
-// CSS: light-theme assurance fallback colors should be defined
-assert(/\[data-theme="light"\]\s*\.flow-node\.assurance-linked/.test(css), "light-theme assurance fallback colors should be defined for linked level");
-assert(/\[data-theme="light"\]\s*\.flow-node\.assurance-none/.test(css), "light-theme assurance fallback colors should be defined for none level");
+// CSS: assurance bar indicator styles should be defined for all levels
+assert(/\.flow-node\.assurance-linked\s+\.assurance-bar/.test(css), "assurance bar styles should be defined for linked level");
+assert(/\.flow-node\.assurance-none\s+\.assurance-bar/.test(css), "assurance bar styles should be defined for none level");
 
 // JS: shared buildFlowNodeGroup helper should exist for node construction
 assert(/function buildFlowNodeGroup\(/.test(mapJs), "buildFlowNodeGroup shared helper should exist to reduce node creation duplication");

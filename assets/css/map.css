@@ -237,6 +237,16 @@
   width: 0.68rem;
   height: 0.68rem;
   border-radius: 50%;
+  flex-shrink: 0;
+}
+.legend-swatch-bar {
+  width: 0.28rem;
+  height: 0.82rem;
+  border-radius: 2px;
+}
+.legend-assurance {
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--border) 70%, transparent);
 }
 .legend-separator {
   width: 1px;
@@ -423,33 +433,16 @@
 .flow-node:not(.static):focus-visible rect { stroke: var(--accent); stroke-width: 2; filter: brightness(1.05); }
 .flow-node:not(.static):focus-visible { outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent); outline-offset: 3px; border-radius: 12px; }
 .flow-node.active rect { stroke-width: 2; }
-.flow-node.assurance-linked rect {
-  --assurance-tint: #35c98f;
-  fill: color-mix(in oklab, var(--flow-node-bg) 82%, var(--assurance-tint) 18%);
-}
-.flow-node.assurance-partial rect {
-  --assurance-tint: #d37cff;
-  fill: color-mix(in oklab, var(--flow-node-bg) 82%, var(--assurance-tint) 18%);
-}
-.flow-node.assurance-local rect {
-  --assurance-tint: #6de2ff;
-  fill: color-mix(in oklab, var(--flow-node-bg) 82%, var(--assurance-tint) 18%);
-}
-.flow-node.assurance-none rect {
-  --assurance-tint: #ffad42;
-  fill: color-mix(in oklab, var(--flow-node-bg) 82%, var(--assurance-tint) 18%);
-}
-
-@supports not (color: color-mix(in oklab, white 50%, black)) {
-  .flow-node.assurance-linked rect { fill: #2e5f56; }
-  .flow-node.assurance-partial rect { fill: #5a4769; }
-  .flow-node.assurance-local rect { fill: #31566a; }
-  .flow-node.assurance-none rect { fill: #68553c; }
-  [data-theme="light"] .flow-node.assurance-linked rect { fill: #d0ece5; }
-  [data-theme="light"] .flow-node.assurance-partial rect { fill: #e8d8f2; }
-  [data-theme="light"] .flow-node.assurance-local rect { fill: #d4eaf4; }
-  [data-theme="light"] .flow-node.assurance-none rect { fill: #f2e4d0; }
-}
+.flow-node.assurance-linked .assurance-bar { fill: #22b573; }
+.flow-node.assurance-partial .assurance-bar { fill: #c47adb; }
+.flow-node.assurance-local .assurance-bar { fill: #5ba8d4; }
+.flow-node.assurance-none .assurance-bar { fill: #8e8e9a; }
+.flow-node .assurance-bar { transition: fill 0.15s ease-out; }
+.flow-node .assurance-icon { font-family: var(--font-mono); font-size: 10px; transition: fill 0.15s ease-out; }
+.flow-node.assurance-linked .assurance-icon { fill: #22b573; }
+.flow-node.assurance-partial .assurance-icon { fill: #c47adb; }
+.flow-node.assurance-local .assurance-icon { fill: #5ba8d4; }
+.flow-node.assurance-none .assurance-icon { fill: #8e8e9a; }
 .pill-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 
 @media (max-width: 1320px) {
