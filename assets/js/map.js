@@ -949,7 +949,9 @@
       { label: "Selected declaration", color: "#7c9cff" },
       { label: "Calls (outgoing)", color: "#82f0b0" },
       { label: "Called by (incoming)", color: "#ffad42" },
-      { label: "Color = declaration kind", color: "#8fa3bf" }
+      { label: "Color = declaration kind", color: "#8fa3bf" },
+      { separator: true },
+      { label: "Dashed border = cross-module", color: "#8fa3bf" }
     ];
   }
 
@@ -1153,16 +1155,19 @@
 
   function flowLegendItems() {
     return [
+      /* Lane roles */
       { label: "Selected module", color: "#7c9cff" },
-      { label: "Imports used by selected", color: "#35c98f" },
-      { label: "Modules impacted by selected", color: "#ffad42" },
-      { label: "Proof pair relation", color: "#d37cff" },
-      { label: "Nearest linked-proof path", color: "#6de2ff" },
-      { label: "External dependency", color: "#b9c0d0" },
-      { label: "Linked proof", color: ASSURANCE_COLORS.linked },
-      { label: "Partial proof", color: ASSURANCE_COLORS.partial },
-      { label: "Local theorems", color: ASSURANCE_COLORS.local },
-      { label: "No proof evidence", color: ASSURANCE_COLORS.none }
+      { label: "Imports (dependencies)", color: "#35c98f" },
+      { label: "Impacted (dependents)", color: "#ffad42" },
+      { label: "Proof pair", color: "#d37cff" },
+      { label: "Linked-proof path", color: "#6de2ff" },
+      { label: "External imports", color: "#b9c0d0" },
+      { separator: true },
+      /* Assurance tint (node background) */
+      { label: "\u2713 Linked proof", color: ASSURANCE_COLORS.linked },
+      { label: "\u00BD Partial proof", color: ASSURANCE_COLORS.partial },
+      { label: "\u2022 Local theorems", color: ASSURANCE_COLORS.local },
+      { label: "\u2013 No proof evidence", color: ASSURANCE_COLORS.none }
     ];
   }
 
@@ -1484,7 +1489,10 @@
     var endX = toCenterX;
     var endY = toCenterY;
 
-    var horizontalBias = Math.abs(dx) >= Math.abs(dy);
+    /* Determine exit direction: prefer the axis with greater separation,
+       but use an explicit hint when provided (e.g. vertical for proof edges). */
+    var forceVertical = Boolean(opts.vertical);
+    var horizontalBias = forceVertical ? false : Math.abs(dx) >= Math.abs(dy);
     if (horizontalBias) {
       startX = dx >= 0 ? from.x + from.w : from.x;
       endX = dx >= 0 ? to.x : to.x + to.w;
@@ -1494,7 +1502,10 @@
     }
 
     var distFactor = Math.sqrt(dx * dx + dy * dy);
-    var controlOffset = Math.max(56, Math.min(180, distFactor * 0.35));
+    /* Scale control offset by axis context: vertical edges use a gentler curve
+       to avoid the S-shape distortion on short vertical drops. */
+    var offsetRatio = horizontalBias ? 0.35 : 0.30;
+    var controlOffset = Math.max(40, Math.min(160, distFactor * offsetRatio));
     var spread = Math.max(0, Number(opts.spread) || 0);
     var rank = Math.max(0, Number(opts.rank) || 0);
     var total = Math.max(1, Number(opts.total) || 1);
@@ -1563,6 +1574,14 @@
     legend.setAttribute("role", "list");
     legend.setAttribute("aria-label", ariaLabel);
     for (var i = 0; i < items.length; i++) {
+      if (items[i].separator) {
+        var sep = document.createElement("span");
+        sep.className = "legend-separator";
+        sep.setAttribute("role", "separator");
+        sep.setAttribute("aria-hidden", "true");
+        legend.appendChild(sep);
+        continue;
+      }
       var chip = document.createElement("span");
       chip.className = "legend-item";
       chip.setAttribute("role", "listitem");
@@ -1781,10 +1800,16 @@
     var laneBottom = Math.max(importLayout.bottom, importerLayout.bottom);
 
     var centerHeight = nodeContentHeight(selected, moduleSummary(selected), centerWidth, false, "") + 14;
-    var centerY = Math.max(170, laneYStart + Math.floor((Math.max(importLayout.bottom, importerLayout.bottom) - laneYStart - centerHeight) / 2));
+    var laneContentHeight = Math.max(importLayout.bottom, importerLayout.bottom) - laneYStart;
+    var idealCenterY = laneYStart + Math.floor((laneContentHeight - centerHeight) / 2);
+    /* Anchor center node proportionally: use a lower minimum when side lanes
+       are short so the center doesn't float far below them. */
+    var minCenterY = Math.max(laneYStart + 20, Math.min(170, laneYStart + Math.floor(laneContentHeight * 0.25)));
+    var centerY = Math.max(minCenterY, idealCenterY);
     var centerBottom = centerY + centerHeight;
 
-    var lowerSectionTop = Math.max(laneBottom + 54, centerBottom + 54);
+    var sectionGap = prefersCompactViewport() ? 36 : 54;
+    var lowerSectionTop = Math.max(laneBottom + sectionGap, centerBottom + sectionGap);
     var proofStartY = lowerSectionTop;
     var proofBottom = proofStartY;
     var proofHeights = [];
@@ -1886,7 +1911,8 @@
     }
     var hasExternalSection = external.length > 0;
     var effectiveBottom = hasExternalSection ? externalBottom : pathBlockBottom;
-    var flowHeight = Math.max(620, effectiveBottom + (hasExternalSection ? 68 : 40));
+    var minFlowHeight = prefersCompactViewport() ? 420 : 620;
+    var flowHeight = Math.max(minFlowHeight, effectiveBottom + (hasExternalSection ? 68 : 40));
 
     wrap.appendChild(createFlowLegend(flowLegendItems(), "Flow chart legend"));
 
@@ -1945,8 +1971,8 @@
       createNode("Return to Compact mode", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", "hide extra impacted modules", "Activate compact mode", false, true, "", setCompactFlowMode);
     }
 
-    var importSpread = Math.min(56, Math.max(14, Math.round(14 + Math.log2(Math.max(1, importNodes.length)) * 8)));
-    var importerSpread = Math.min(56, Math.max(14, Math.round(14 + Math.log2(Math.max(1, importerNodes.length)) * 8)));
+    var importSpread = Math.min(64, Math.max(14, Math.round(14 + Math.sqrt(Math.max(1, importNodes.length)) * 6)));
+    var importerSpread = Math.min(64, Math.max(14, Math.round(14 + Math.sqrt(Math.max(1, importerNodes.length)) * 6)));
     for (var k = 0; k < importNodes.length; k++) {
       drawFlowEdge(edgeLayer, importNodes[k], center, "#35c98f", false, { rank: k, total: importNodes.length, spread: importSpread });
     }
@@ -1959,7 +1985,7 @@
       var proofY = proofStartY;
       for (var n = 0; n < proofRelated.length; n++) {
         var proofNode = createNode(proofRelated[n], centerX, proofY, centerWidth, proofHeights[n], "#d37cff", moduleSummary(proofRelated[n]), nodeTooltip(proofRelated[n], "Proof-pair neighbor"), false, false, contextFor(proofRelated[n]).assurance.level);
-        drawFlowEdge(edgeLayer, center, proofNode, "#d37cff", true, { rank: n, total: proofRelated.length, spread: 18 });
+        drawFlowEdge(edgeLayer, center, proofNode, "#d37cff", true, { rank: n, total: proofRelated.length, spread: 18, vertical: true });
         proofY += proofHeights[n] + 8;
       }
     }
@@ -1970,16 +1996,24 @@
       for (var q = 0; q < pathItems.length; q++) {
         var pathItem = pathItems[q];
         var pathNode = createNode(pathItem.name, pathItem.x, pathItem.y, pathNodeWidth, pathItem.h, "#6de2ff", moduleSummary(pathItem.name), nodeTooltip(pathItem.name, "Linked-proof path step " + (q + 1)), false, false, contextFor(pathItem.name).assurance.level);
-        drawFlowEdge(edgeLayer, previousNode, pathNode, "#6de2ff", true, { rank: q, total: Math.max(1, pathItems.length), spread: 12 });
+        var pathEdgeVertical = Math.abs((previousNode.x + previousNode.w / 2) - (pathNode.x + pathNodeWidth / 2)) < pathNodeWidth;
+        drawFlowEdge(edgeLayer, previousNode, pathNode, "#6de2ff", true, { rank: q, total: Math.max(1, pathItems.length), spread: 12, vertical: pathEdgeVertical });
         previousNode = pathNode;
       }
     }
 
     if (laneLabels.external) {
       laneLabel("External imports", leftX, externalStartY - 10, "#b9c0d0");
+      var externalEdgeNodes = [];
       for (var z = 0; z < externalItems.length; z++) {
         var externalItem = externalItems[z];
-        createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", "", "", false, true, "");
+        var isMorePlaceholder = externalItem.name.charAt(0) === "+";
+        var extNode = createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", "", "", false, true, "");
+        if (!isMorePlaceholder) externalEdgeNodes.push(extNode);
+      }
+      /* Draw subtle edges from center to each external import node */
+      for (var ze = 0; ze < externalEdgeNodes.length; ze++) {
+        drawFlowEdge(edgeLayer, center, externalEdgeNodes[ze], "#b9c0d0", true, { rank: ze, total: externalEdgeNodes.length, spread: Math.min(40, externalEdgeNodes.length * 4), vertical: true });
       }
     }
 
@@ -2169,8 +2203,12 @@
 
     var centerMetaLink = declMetaLink(declName);
     var centerHeight = nodeContentHeight(declName, declSummary(declName), centerWidth, false, centerMetaLink ? centerMetaLink.label : "") + 14;
-    var centerY = Math.max(170, laneYStart + Math.floor((Math.max(callBottom, callerBottom) - laneYStart - centerHeight) / 2));
-    var flowHeight = Math.max(620, Math.max(callBottom, callerBottom, centerY + centerHeight) + 68);
+    var declLaneContentHeight = Math.max(callBottom, callerBottom) - laneYStart;
+    var idealDeclCenterY = laneYStart + Math.floor((declLaneContentHeight - centerHeight) / 2);
+    var minDeclCenterY = Math.max(laneYStart + 20, Math.min(170, laneYStart + Math.floor(declLaneContentHeight * 0.25)));
+    var centerY = Math.max(minDeclCenterY, idealDeclCenterY);
+    var declMinFlowHeight = prefersCompactViewport() ? 420 : 620;
+    var flowHeight = Math.max(declMinFlowHeight, Math.max(callBottom, callerBottom, centerY + centerHeight) + 68);
 
     wrap.appendChild(createFlowLegend(declarationFlowLegendItems(), "Declaration flow chart legend"));
 
@@ -2187,6 +2225,8 @@
     function createDeclNode(name, x, y, w, h, color, subtitle, tooltip, active, onActivate, metaLink) {
       var className = "flow-node" + (active ? " active" : "");
       if (onActivate) className += " action";
+      var declMod = declarationModuleOf(name);
+      if (declMod && declMod !== moduleName) className += " cross-module";
       var interactive = Boolean(onActivate);
       var focusable = interactive || active;
       var ariaLabel = interactive ? "Select declaration " + name : name;
@@ -2257,8 +2297,8 @@
     for (var cre = 0; cre < callerLayout.length; cre++) {
       if (!callerLayout[cre].compactControl) callerEdgeCount++;
     }
-    var callSpread = Math.min(56, Math.max(14, Math.round(14 + Math.log2(Math.max(1, callEdgeCount)) * 8)));
-    var callerSpread = Math.min(56, Math.max(14, Math.round(14 + Math.log2(Math.max(1, callerEdgeCount)) * 8)));
+    var callSpread = Math.min(64, Math.max(14, Math.round(14 + Math.sqrt(Math.max(1, callEdgeCount)) * 6)));
+    var callerSpread = Math.min(64, Math.max(14, Math.round(14 + Math.sqrt(Math.max(1, callerEdgeCount)) * 6)));
     var callEdgeIndex = 0;
     for (var k = 0; k < callNodes.length; k++) {
       if (callLayout[k].compactControl) continue;

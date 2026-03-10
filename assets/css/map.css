@@ -238,6 +238,12 @@
   height: 0.68rem;
   border-radius: 50%;
 }
+.legend-separator {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 0.12rem;
+}
 .flow-node-interior-menu {
   display: grid;
   gap: 0.24rem;
@@ -412,6 +418,7 @@
 .flow-lane-label { font-family: var(--font-mono); letter-spacing: 0.02em; }
 .flow-node.static { cursor: default; }
 .flow-node.static.action { cursor: pointer; }
+.flow-node.cross-module rect { stroke-dasharray: 4 2; }
 .flow-node:not(.static):hover rect { stroke: var(--accent); filter: brightness(1.03); }
 .flow-node:not(.static):focus-visible rect { stroke: var(--accent); stroke-width: 2; filter: brightness(1.05); }
 .flow-node:not(.static):focus-visible { outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent); outline-offset: 3px; border-radius: 12px; }
