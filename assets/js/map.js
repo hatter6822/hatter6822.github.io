@@ -4512,15 +4512,35 @@
     }
     if (reset) {
       reset.addEventListener("click", function () {
+        /* Restore the page to its original first-visit state */
+
         /* Return to module context if currently viewing a declaration */
         if (state.flowContext === "declaration") {
           returnToModuleContext();
         }
-        if (search && state.selectedModule) search.value = state.selectedModule;
+
+        /* Reset selected module to the first module (same default as initial data load) */
+        var firstModule = state.modules[0] || null;
+        state.selectedModule = firstModule;
+
+        /* Clear interior menu state */
+        state.interiorMenuModule = "";
+        state.interiorMenuQuery = "";
+        state.interiorMenuSelections = { object: "", extension: "", contextInit: "" };
+
+        /* Reset search field to match the initial module */
+        if (search) search.value = firstModule || "";
         setSearchFeedback("", false);
         if (search && typeof search.setCustomValidity === "function") search.setCustomValidity("");
         closeModuleSearchOptions();
+
+        /* Reset detail level to compact */
         selectedDetail = "compact";
+
+        /* Auto-center the flowchart on the reset module */
+        state.flowScrollTarget = firstModule || "";
+
+        /* Reset all filters and re-render */
         apply();
       });
     }
