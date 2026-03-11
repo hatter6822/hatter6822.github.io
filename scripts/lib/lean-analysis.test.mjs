@@ -93,6 +93,16 @@ def notCounted := 0
   assert.equal(theoremCount(source), 3);
 });
 
+test('theoremCount supports noncomputable theorem declarations', () => {
+  const source = `
+noncomputable theorem a : True := by trivial
+@[simp] noncomputable theorem b : True := by trivial
+private noncomputable lemma c : True := by trivial
+noncomputable def notCounted := 0
+`;
+  assert.equal(theoremCount(source), 3);
+});
+
 test('parseCurrentStateMetrics extracts dashboard values from markdown table', () => {
   const readme = `
 | Metric | Value |
@@ -291,4 +301,35 @@ test('theoremCountFromCodebaseMap returns zero for null or non-object input', ()
 test('extractImportTokens returns empty array for source with no imports', () => {
   assert.deepEqual(extractImportTokens('def x := 1'), []);
   assert.deepEqual(extractImportTokens(''), []);
+});
+
+test('theoremCountFromCodebaseMap returns zero for module with empty declarations array', () => {
+  const codebaseMap = {
+    modules: [{ name: 'Empty', declarations: [] }]
+  };
+  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 0);
+});
+
+test('parseCurrentStateMetrics returns empty metrics for non-numeric value cells', () => {
+  const readme = `
+| Metric | Value |
+| --- | --- |
+| Theorems | unknown count |
+| Build Jobs | pending |
+`;
+  assert.deepEqual(parseCurrentStateMetrics(readme), {});
+});
+
+test('extractImportTokens handles comment-only continuation lines', () => {
+  const source = `
+import SeLe4n.Kernel.Core
+  SeLe4n.Kernel.Helper
+  -- just a comment
+  SeLe4n.Kernel.Utils
+`;
+  assert.deepEqual(extractImportTokens(source), [
+    'SeLe4n.Kernel.Core',
+    'SeLe4n.Kernel.Helper',
+    'SeLe4n.Kernel.Utils'
+  ]);
 });

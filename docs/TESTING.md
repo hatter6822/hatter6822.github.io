@@ -35,7 +35,11 @@ Validates:
 - `isLikelyModuleToken` standalone validation (valid module paths accepted, lowercase/empty/null/malformed rejected)
 - theorem deduplication (`theoremCountFromCodebaseMap` skips modules in `moduleMeta` already counted from `modules[]`)
 - edge case robustness (zero-theorem sources, null/undefined/string inputs to `theoremCount` and `theoremCountFromCodebaseMap`, empty import sources)
-- data validation root guards (`validateSiteDataObject` and `validateMapDataObject` reject null/non-object roots, wrong types on numeric fields, duplicate module entries)
+- data validation root guards (`validateSiteDataObject` and `validateMapDataObject` reject null/non-object roots, wrong types on numeric fields, duplicate module entries, non-string entries in modules array)
+- noncomputable theorem counting (`theoremCount` correctly matches `noncomputable theorem` and `noncomputable lemma` declarations with attributes)
+- empty declarations array edge case (`theoremCountFromCodebaseMap` returns zero for modules with empty `declarations: []`)
+- non-numeric metric cell robustness (`parseCurrentStateMetrics` returns empty object when table cells contain only text without numbers)
+- import continuation with comment-only lines (`extractImportTokens` skips comment-only continuation lines and resumes parsing subsequent continuation imports)
 
 ### Bundled data integrity
 
