@@ -61,12 +61,12 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~4,295 | Largest runtime; read in chunks of ≤500 lines |
+| `assets/js/map.js` | ~4,760 | Largest runtime; read in chunks of ≤500 lines |
 | `assets/css/style.css` | ~1,824 | Global design system |
-| `assets/js/background-pattern.js` | ~782 | WebGL shader; contains third-party noise code |
+| `assets/js/background-pattern.js` | ~806 | WebGL shader; contains third-party noise code |
 | `assets/js/site.js` | ~754 | Landing page runtime |
 | `assets/js/header-nav.js` | ~738 | Shared navigation controller |
-| `assets/css/map.css` | ~718 | Map-specific styles |
+| `assets/css/map.css` | ~756 | Map-specific styles |
 
 **Rules:**
 - Never read an entire large file in one operation. Use offset/limit (≤500 lines per read).

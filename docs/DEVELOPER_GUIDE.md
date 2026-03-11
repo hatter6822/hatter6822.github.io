@@ -104,10 +104,12 @@ Use this file when changing same-page hash behavior or accessibility semantics o
 ### `assets/js/background-pattern.js`
 Canvas/WebGL animated background. Responsibilities:
 
-- shader setup + rendering loop.
+- shader setup + rendering loop with tracked RAF handle for proper cancellation.
 - theme-aware palette/alpha behavior.
 - scroll/mouse reactive geometry and motion.
+- page visibility detection to pause rendering when the tab is hidden.
 - graceful fallback behavior when graphics capabilities are constrained.
+- proper GPU resource cleanup (shader objects deleted after program linking).
 
 Contains third-party simplex-noise GLSL implementation (licensed and attributed in notices).
 
@@ -224,8 +226,8 @@ Pure validation utilities for site/map payload objects. Centralizes schema check
 ### `scripts/lib/*.test.mjs`
 Node tests for parser and validation correctness:
 
-- `lean-analysis.test.mjs`: parser behavior, edge cases, `isLikelyModuleToken` validation, theorem deduplication, null/empty input guards.
-- `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection.
+- `lean-analysis.test.mjs`: parser behavior, edge cases, `isLikelyModuleToken` validation, theorem deduplication, null/empty input guards, noncomputable theorem counting, comment-only continuation line handling, non-numeric metric cell robustness.
+- `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection, non-string module array entries.
 - `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none).
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.
 

@@ -304,6 +304,30 @@ All version references across the project were updated:
 
 - Updated `CLAUDE.md` large file line counts to match actual values (map.js ~4,295, site.js ~754, header-nav.js ~738, style.css ~1,824, map.css ~718).
 
+## Comprehensive audit and optimization pass (post-0.3.0)
+
+### Lean analysis fixes
+
+- **Noncomputable theorem counting**: The `theoremCount` regex in `lean-analysis.mjs` did not match `noncomputable theorem` or `noncomputable lemma` declarations. This caused theorem counts to be undercounted when modules used the `noncomputable` modifier. Added `(?:noncomputable\s+)?` to the theorem counting regex to match the same pattern already used in `extractInteriorCodeItems`.
+
+### WebGL background optimization
+
+- **GPU shader memory leak**: `createProgram()` in `background-pattern.js` did not delete vertex/fragment shader objects after linking. In WebGL, shader objects should be deleted after program linking because the program holds the compiled code. Added `gl.deleteShader(vs)` and `gl.deleteShader(fs)` after linking, and proper cleanup of the surviving shader when one fails to compile.
+- **Animation frame cancellation**: The `requestAnimationFrame` return value was never stored, making it impossible to cancel the animation loop when the page became hidden or the WebGL context was lost. Added `rafId` tracking with proper `cancelAnimationFrame` calls on context loss and visibility change.
+- **Page visibility detection**: Added `visibilitychange` listener that pauses the animation loop when the tab is hidden and resumes when visible. This prevents unnecessary GPU/CPU usage when the page is not visible, improving battery life on mobile devices.
+
+### Test coverage expansion
+
+- Added `theoremCount supports noncomputable theorem declarations` test verifying the regex handles `noncomputable theorem`, attributed noncomputable theorems, and noncomputable lemmas correctly.
+- Added `theoremCountFromCodebaseMap returns zero for module with empty declarations array` edge case test.
+- Added `parseCurrentStateMetrics returns empty metrics for non-numeric value cells` robustness test for markdown rows containing only text (no numbers).
+- Added `extractImportTokens handles comment-only continuation lines` test verifying that import parsing correctly skips comment-only continuation lines and resumes parsing subsequent continuation imports.
+- Added `validateMapDataObject rejects non-string entries in modules array` test covering mixed-type entries (numbers, null) in the modules array.
+
+### Documentation accuracy
+
+- Updated `CLAUDE.md` large file line counts to match actual values (map.js ~4,760, background-pattern.js ~806, map.css ~756).
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:

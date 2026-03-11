@@ -170,6 +170,22 @@ test('validateSiteDataObject rejects wrong types on numeric fields', () => {
   assert.ok(errors.some((msg) => msg.includes('theorems')));
 });
 
+test('validateMapDataObject rejects non-string entries in modules array', () => {
+  const errors = validateMapDataObject({
+    files: [],
+    modules: [123, null, 'A.Core'],
+    moduleMap: { 'A.Core': 'A/Core.lean' },
+    moduleMeta: { 'A.Core': { symbols: { theorems: [], functions: [] } } },
+    importsTo: {},
+    importsFrom: {},
+    externalImportsFrom: {},
+    commitSha: 'abc',
+    generatedAt: '2026-03-03T00:00:00Z'
+  });
+
+  assert.ok(errors.some((msg) => msg.includes('non-empty strings')));
+});
+
 test('validateMapDataObject detects duplicate modules', () => {
   const errors = validateMapDataObject({
     files: [],

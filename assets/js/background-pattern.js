@@ -539,11 +539,17 @@
   function createProgram(vSrc, fSrc) {
     var vs = compileShader(gl.VERTEX_SHADER, vSrc);
     var fs = compileShader(gl.FRAGMENT_SHADER, fSrc);
-    if (!vs || !fs) return null;
+    if (!vs || !fs) {
+      if (vs) gl.deleteShader(vs);
+      if (fs) gl.deleteShader(fs);
+      return null;
+    }
     var pg = gl.createProgram();
     gl.attachShader(pg, vs);
     gl.attachShader(pg, fs);
     gl.linkProgram(pg);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
     if (!gl.getProgramParameter(pg, gl.LINK_STATUS)) {
       gl.deleteProgram(pg);
       return null;
@@ -607,6 +613,7 @@
 
   var resizeTimer = null;
   var running     = !prefersReduced;
+  var rafId       = 0;
 
   /* ═══════════════════════════════════════════════════════════
      Canvas sizing
@@ -678,7 +685,7 @@
     /* ── Draw ─────────────────────────────────────────────── */
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    requestAnimationFrame(animate);
+    rafId = requestAnimationFrame(animate);
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -691,7 +698,7 @@
   if (prefersReduced) {
     renderStatic();
   } else {
-    requestAnimationFrame(animate);
+    rafId = requestAnimationFrame(animate);
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -716,6 +723,22 @@
       }
     }
   }).observe(document.documentElement, { attributes: true });
+
+  /* ═══════════════════════════════════════════════════════════
+     Page visibility — pause rendering when tab is hidden
+     ═══════════════════════════════════════════════════════════ */
+  document.addEventListener('visibilitychange', function () {
+    if (prefersReduced) return;
+    if (document.hidden) {
+      running = false;
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    } else {
+      running = true;
+      startTime = performance.now();
+      prevTime  = startTime;
+      rafId = requestAnimationFrame(animate);
+    }
+  });
 
   /* ═══════════════════════════════════════════════════════════
      Mouse / touch tracking
@@ -746,6 +769,7 @@
   canvasA.addEventListener('webglcontextlost', function (e) {
     e.preventDefault();
     running = false;
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
   });
 
   canvasA.addEventListener('webglcontextrestored', function () {
@@ -773,7 +797,7 @@
     if (running) {
       startTime = performance.now();
       prevTime  = startTime;
-      requestAnimationFrame(animate);
+      rafId = requestAnimationFrame(animate);
     } else {
       renderStatic();
     }

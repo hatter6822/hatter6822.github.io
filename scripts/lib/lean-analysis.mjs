@@ -15,7 +15,7 @@ const ALL_INTERIOR_KINDS = Object.freeze([
 ]);
 
 export function theoremCount(text) {
-  const matches = String(text || '').match(/^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+[\w'.`]+/gm);
+  const matches = String(text || '').match(/^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:theorem|lemma)\s+[\w'.`]+/gm);
   return matches ? matches.length : 0;
 }
 
