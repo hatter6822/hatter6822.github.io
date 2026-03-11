@@ -324,6 +324,11 @@ All version references across the project were updated:
 - Added `extractImportTokens handles comment-only continuation lines` test verifying that import parsing correctly skips comment-only continuation lines and resumes parsing subsequent continuation imports.
 - Added `validateMapDataObject rejects non-string entries in modules array` test covering mixed-type entries (numbers, null) in the modules array.
 
+### HTML validation fixes
+
+- **Redundant `imagesrcset` on preload link**: Removed invalid `imagesrcset` attribute from the `<link rel="preload" as="image">` tag in `index.html`. The attribute duplicated the `href` URL with a `1x` descriptor, which is redundant and not standard for preload links.
+- **Empty `datetime` attribute**: Removed the empty `datetime=""` attribute from the `<time>` element in the footer of `index.html`. The attribute is populated dynamically by `site.js` when live data is available; an empty string is not a valid datetime value per the HTML spec.
+
 ### Documentation accuracy
 
 - Updated `CLAUDE.md` large file line counts to match actual values (map.js ~4,760, background-pattern.js ~806, map.css ~756).
