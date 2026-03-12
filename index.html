@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark light">
   <title>seLe4n — A Microkernel Written in Lean 4</title>
-  <meta name="description" content="seLe4n is a formally verified microkernel written entirely in Lean 4 with machine-checked proofs, zero sorry, zero axiom. Inspired by seL4, targeting Raspberry Pi 5.">
-  <meta name="keywords" content="seLe4n, microkernel, Lean 4, formal verification, seL4, operating system, kernel, Raspberry Pi 5, theorem proving, capability, IPC">
+  <meta name="description" content="seLe4n is a formally verified microkernel written entirely in Lean 4 with machine-checked proofs, zero sorry, zero axiom. Targeting Raspberry Pi 5.">
+  <meta name="keywords" content="seLe4n, microkernel, Lean 4, formal verification, operating system, kernel, Raspberry Pi 5, theorem proving, capability, IPC">
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
 
@@ -65,7 +65,7 @@
       <ul class="nav-links" id="nav-links" role="list">
         <li><a href="/#about">About</a></li>
         <li><a href="/#architecture">Architecture</a></li>
-        <li><a href="/#comparison">vs seL4</a></li>
+        <li><a href="/#comparison">Comparison</a></li>
         <li><a href="/#features">Features</a></li>
         <li><a href="/map.html">Code Map</a></li>
         <li><a href="/#security">Security</a></li>
@@ -135,8 +135,7 @@
     <div class="container">
       <h2 class="section-title">What is seLe4n?</h2>
       <p class="section-lead">
-        seLe4n is a microkernel written entirely in <strong>Lean 4</strong> with machine-checked proofs,
-        inspired by the <a href="https://sel4.systems/" target="_blank" rel="noopener noreferrer">seL4</a> architecture.
+        seLe4n is a capability-based microkernel written entirely in <strong>Lean 4</strong> with machine-checked proofs.
         It targets the <strong>Raspberry Pi 5</strong> (ARM64 / BCM2712) as its first hardware platform.
       </p>
 
@@ -185,8 +184,8 @@
         <div class="card">
           <h3>What Makes It Different?</h3>
           <p>
-            Unlike seL4 which uses C for implementation and Isabelle/HOL for proofs, seLe4n
-            <strong>unifies implementation and proof in a single language</strong>. Each subsystem
+            seLe4n <strong>unifies implementation and proof in a single language</strong> &mdash;
+            no separate proof assistant, no translation layer, no semantic gap. Each subsystem
             follows an Operations/Invariant split: executable transitions live in
             <code>Operations.lean</code>, and their machine-checked proofs live alongside in
             <code>Invariant.lean</code>. The type-checker enforces that every invariant holds
@@ -337,9 +336,9 @@
   <!-- Comparison -->
   <section class="section" id="comparison">
     <div class="container">
-      <h2 class="section-title">seLe4n vs seL4</h2>
+      <h2 class="section-title">seLe4n vs Traditional Verified Kernels</h2>
       <p class="section-lead">
-        seLe4n preserves seL4's capability-based security model while introducing
+        seLe4n builds on decades of capability-based microkernel research while introducing
         architectural improvements enabled by the Lean 4 proof framework.
       </p>
 
@@ -348,7 +347,7 @@
           <thead>
             <tr>
               <th scope="col">Domain</th>
-              <th scope="col">seL4</th>
+              <th scope="col">Traditional</th>
               <th scope="col">seLe4n</th>
             </tr>
           </thead>
@@ -504,8 +503,7 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="code-link">Service Orchestration</a></h3>
           <p>
-            First-class kernel service concept &mdash; a feature seL4 lacks entirely.
-            Graph-based component lifecycle management with O(n+e) DFS cycle detection
+            First-class kernel service concept with graph-based component lifecycle management and O(n+e) DFS cycle detection
             using <code>HashSet ServiceId</code>. Dependency-aware startup, shutdown,
             and restart with service health tracking. Acyclic policy enforcement prevents
             circular dependencies at the kernel level.
