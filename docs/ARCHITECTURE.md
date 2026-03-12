@@ -328,6 +328,23 @@ All version references across the project were updated:
 
 - Updated `CLAUDE.md` large file line counts to match actual values (map.js ~4,760, background-pattern.js ~806, map.css ~756).
 
+## Mobile flow-node overflow fix
+
+Flow-node content could overflow its SVG rect boundary on mobile devices due to a mismatch between the character width estimate used for text wrapping and the actual rendered glyph advance at mobile font sizes.
+
+### Root cause
+
+The `wrapLabelLines()` function used a fixed 6.4px per-character estimate (matching 11.5px monospace), but the CSS scales `.flow-node text` to 12px at ≤640px and 12.5px at ≤420px. At these larger sizes, actual glyph advance is ~7.0px, causing wrapped lines to exceed node width.
+
+### Fixes applied
+
+1. **Viewport-aware character width**: `wrapLabelLines()` now uses 7.0px per character on compact viewports (≤900px) instead of the fixed 6.4px, producing more conservative line breaks that stay within node boundaries.
+2. **SVG clipPath clipping**: `buildFlowNodeGroup()` now creates a `<clipPath>` element matching the node rect (including rounded corners) and wraps all text and assurance indicators in a clipped `<g>` group. Any text that still marginally exceeds the boundary is cleanly clipped rather than visually overflowing.
+3. **Wider minimum flow canvas**: The `minimumFlowWidth()` thresholds were raised from 680/780/900px to 720/820/920px at the ≤420/≤640/≤900 breakpoints, giving side lanes more room for content.
+4. **Increased minimum side lane width**: The minimum side lane width on compact viewports was raised from 180px to 200px, ensuring assurance-indicator nodes have enough text area (200px - 36px inset = 164px usable) for readable wrapped content.
+5. **CSS overflow clipping**: Added `overflow: hidden` on `.flow-node` and `min-width: 0` on `.interior-menu-column` to prevent grid blowout on narrow viewports.
+6. **Clip ID management**: The `flowClipIdCounter` is reset to 0 at the start of each flowchart render cycle to prevent unbounded ID growth across re-renders.
+
 ## Future growth recommendations
 
 1. Split `assets/js/map.js` into module-scoped files:

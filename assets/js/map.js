@@ -1255,9 +1255,9 @@
        The multiplier (2.15–2.35×) ensures three-lane layouts still fit
        without overlapping, but the user only scrolls ~1× viewport width
        instead of ~1.5×. */
-    if (width <= 420) result = Math.max(680, Math.round(width * 2.15));
-    else if (width <= 640) result = Math.max(780, Math.round(width * 2.0));
-    else if (width <= 900) result = Math.max(900, Math.round(width * 1.35));
+    if (width <= 420) result = Math.max(720, Math.round(width * 2.25));
+    else if (width <= 640) result = Math.max(820, Math.round(width * 2.1));
+    else if (width <= 900) result = Math.max(920, Math.round(width * 1.4));
     else result = 1180;
     cachedMinFlowWidth = result;
     cachedMinFlowWidthTs = now;
@@ -1587,7 +1587,12 @@
       return cached.slice();
     }
 
-    var maxChars = Math.max(minChars || 10, Math.floor((width || 180) / 6.4));
+    /* Use a wider per-character estimate on mobile where CSS scales flow-node
+       text up to 12–12.5px (vs. 11.5px desktop).  A 6.4px estimate works for
+       11.5px monospace, but at 12px the actual glyph advance is ~7.0px, causing
+       text to overflow node boundaries on compact viewports. */
+    var charWidth = prefersCompactViewport() ? 7.0 : 6.4;
+    var maxChars = Math.max(minChars || 10, Math.floor((width || 180) / charWidth));
     /* Split on common delimiters but prefer dots for Lean qualified names
        (e.g. SeLe4n.Kernel.Operations → ["SeLe4n", ".", "Kernel", ".", "Operations"]) */
     var tokens = String(text).split(/([._/\-])/);
@@ -1860,9 +1865,17 @@
     return true;
   }
 
+  var flowClipIdCounter = 0;
   function buildFlowNodeGroup(nodeLayer, className, focusable, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, onActivate, metaLink) {
     var group = createSvgNode("g", { "class": className, tabindex: focusable ? "0" : "-1", role: onActivate ? "button" : "img", "aria-label": ariaLabel });
     if (focusable) group.setAttribute("focusable", "true");
+
+    /* Clip text to the node boundary so long labels never overflow the rect */
+    var clipId = "fc" + (++flowClipIdCounter);
+    var clipPath = createSvgNode("clipPath", { id: clipId });
+    var clipRect = createSvgNode("rect", { x: x, y: y, width: w, height: h, rx: 10, ry: 10 });
+    clipPath.appendChild(clipRect);
+    group.appendChild(clipPath);
 
     var rect = createSvgNode("rect", { x: x, y: y, width: w, height: h, fill: "var(--flow-node-bg)", stroke: color });
     var full = createSvgNode("title", {});
@@ -1893,6 +1906,9 @@
     group.appendChild(full);
     group.appendChild(rect);
 
+    /* Content group — clipped to the node rect so text never overflows */
+    var contentGroup = createSvgNode("g", { "clip-path": "url(#" + clipId + ")" });
+
     /* Assurance bar: a thin vertical strip on the left edge of the node */
     if (assuranceLevel) {
       var barPad = 3;
@@ -1901,7 +1917,7 @@
         x: x + 2, y: y + barPad, width: barWidth, height: barH,
         rx: 2, ry: 2, "class": "assurance-bar"
       });
-      group.appendChild(bar);
+      contentGroup.appendChild(bar);
 
       /* Small assurance icon in the top-right corner — positioned inside the
          rounded rect boundary.  Scale the Y offset with node height so that
@@ -1916,11 +1932,11 @@
           "text-anchor": "end", "class": "assurance-icon"
         });
         icon.textContent = iconChar;
-        group.appendChild(icon);
+        contentGroup.appendChild(icon);
       }
     }
 
-    group.appendChild(title);
+    contentGroup.appendChild(title);
 
     if ((subtitle || (metaLink && metaLink.label)) && h >= 34) {
       var subtitleLines = wrapLabelLines(subtitle, textAreaWidth, 14);
@@ -1951,8 +1967,10 @@
         }
         meta.appendChild(link);
       }
-      group.appendChild(meta);
+      contentGroup.appendChild(meta);
     }
+
+    group.appendChild(contentGroup);
 
     if (onActivate) {
       group.addEventListener("click", function () { onActivate(); });
@@ -1985,7 +2003,7 @@
     var centerWidth = Math.min(380, Math.max(minCenter, Math.floor(flowWidth * centerRatio)));
     /* Allocate remaining width evenly to side lanes */
     var availableSideWidth = Math.floor((flowWidth - framePad * 2 - centerWidth - laneGap * 2) / 2);
-    var sideWidth = Math.min(360, Math.max(compact ? 180 : 240, availableSideWidth));
+    var sideWidth = Math.min(360, Math.max(compact ? 200 : 240, availableSideWidth));
     var leftX = framePad;
     var centerX = leftX + sideWidth + laneGap;
     var rightX = centerX + centerWidth + laneGap;
@@ -2011,6 +2029,7 @@
     var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
     var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
     wrap.innerHTML = "";
+    flowClipIdCounter = 0;
 
     var selected = state.selectedModule;
     if (!selected) {
@@ -2407,6 +2426,7 @@
     var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
     var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
     wrap.innerHTML = "";
+    flowClipIdCounter = 0;
 
     var declName = state.selectedDeclaration;
     var moduleName = state.selectedDeclarationModule;

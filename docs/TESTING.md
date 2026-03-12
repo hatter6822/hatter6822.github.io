@@ -71,7 +71,7 @@ node --check assets/js/theme-init.js
 - Verify repeated same-page hash clicks (especially `/#verification`, `/#api`, `/#roadmap`) do not produce alternating `aria-current` assignments in Chrome after smooth-scroll completes.
 - Verify rapid alternating clicks across multiple hash links (for example `/#features` → `/#security` → `/#verification` → `/#getting-started`) converge to the final clicked section without post-settle `aria-current` oscillation.
 - Confirm only one nav controller is active on `index.html`: with normal script order (`site.js` before `header-nav.js`), `header-nav.js` should own same-page hash behavior and no duplicate `aria-current` toggling should be observable in DevTools event listener traces.
-- Test map page on mobile viewport (~390px width).
+- Test map page on mobile viewport (~390px width). Verify flow-node text does not overflow node boundaries — text should wrap within the node rect and be clipped cleanly at node edges.
 - Confirm the compact toolbar is rendered before the interior declaration panel and contains only current module context search and reset, with compact-density toolbar semantics.
 - Confirm map context-search keyboard navigation (Arrow/Home/End) and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
