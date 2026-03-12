@@ -84,6 +84,8 @@ The map page provides a single operational and proof-aware architecture view of 
 - Interior menu panel hides via `:empty` pseudo-class before a module is selected, preventing a visible empty box.
 - On small screens, touch targets are enlarged and a usage hint is shown.
 - Chart scrolling uses touch-optimized overflow behavior.
+- Flow-node text wrapping uses viewport-aware character width estimates (7.0px on mobile vs 6.4px on desktop) to prevent content overflow when CSS scales SVG text to 12–12.5px.
+- Flow-node groups use SVG `<clipPath>` clipping to ensure text never visually overflows node boundaries even with variable font rendering across devices.
 
 ## Flowchart rendering architecture
 
@@ -100,7 +102,7 @@ Both the module-context and declaration-context flowchart renderers share six ex
 - `flowLaneLabel()` — SVG lane label placement.
 - `applyFlowScrollTarget()` — Scroll-to-target centering after navigation; temporarily disables smooth scrolling for instant programmatic positioning.
 - `computeFlowLayout()` — Three-lane layout geometry computation.
-- `buildFlowNodeGroup()` — SVG node construction (rect, title wrapping, subtitle, keyboard/click handlers) using `role="img"` for non-interactive node elements and `role="button"` for interactive ones.
+- `buildFlowNodeGroup()` — SVG node construction (rect, title wrapping, subtitle, keyboard/click handlers) using `role="img"` for non-interactive node elements and `role="button"` for interactive ones. All text and assurance indicators are rendered inside a `<clipPath>`-clipped `<g>` group matching the node rect to prevent content overflow on mobile viewports where font scaling can cause text to exceed node boundaries.
 
 Each renderer delegates to the shared helpers for setup, then applies its own context-specific class composition, aria-label construction, and event wiring via `buildFlowNodeGroup`. Node heights for proof-pair and external-dependency sections are pre-computed during layout passes to avoid redundant recalculation. The SVG element carries `aria-roledescription="flowchart"` for screen reader context. Declaration metadata lookups (`declarationModuleOf`, `declarationKindOf`, `declarationLineOf`) use a precomputed `declarationIndex` for O(1) performance instead of scanning all module symbol buckets. The flowchart container uses CSS `contain: layout style` for browser rendering optimization. `drawFlowEdge` includes a self-edge guard to prevent degenerate bezier curves. `minimumFlowWidth` caches results for 200ms to avoid redundant `window.innerWidth` reads during a render cycle. Flow legend uses `role="list"`/`role="listitem"` semantics with `aria-hidden` swatches for screen reader accessibility. Interior menu items use `DocumentFragment` for batch DOM insertion.
 

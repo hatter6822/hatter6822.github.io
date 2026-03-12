@@ -291,6 +291,7 @@
   padding: 0.4rem;
   background: rgba(20, 28, 45, 0.88);
   background: color-mix(in oklab, var(--surface) 88%, transparent);
+  min-width: 0;
 }
 .interior-menu-column-top {
   display: flex;
@@ -421,7 +422,7 @@
 .flow-edge-layer { pointer-events: none; }
 .flow-line { fill: none; stroke-width: 2; opacity: 0.92; stroke-linecap: round; stroke-linejoin: round; }
 .flow-line.proof-link { stroke-dasharray: 6 4; stroke-width: 2.2; opacity: 0.85; }
-.flow-node { cursor: pointer; }
+.flow-node { cursor: pointer; overflow: hidden; }
 .flow-node rect {
   stroke-width: 1.2;
   rx: 10;
@@ -432,6 +433,8 @@
   font-family: var(--font-mono);
   font-size: 11.5px;
   fill: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .flow-node .flow-meta { fill: var(--text-muted); font-size: 10px; }
 .flow-node .flow-meta-link { fill: var(--accent); text-decoration: underline; cursor: pointer; pointer-events: auto; }
