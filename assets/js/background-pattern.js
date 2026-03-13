@@ -56,6 +56,7 @@
   var ALPHA_SCALE   = 0.25;   // global opacity cap multiplier
   var SCROLL_SMOOTH = 7;      // exponential smoothing rate (Hz)
   var MOUSE_SMOOTH  = 5;      // mouse smoothing rate (Hz)
+  var BG_ANIMATION_KEY = 'sele4n-bg-animation-paused-v1';
 
   /* ═══════════════════════════════════════════════════════════
      DOM
@@ -64,6 +65,11 @@
   var canvasA = document.getElementById('math-bg-a');
   var mover   = document.getElementById('bg-canvas-mover');
   if (!wrap || !canvasA || !mover) return;
+
+  function readManualPaused() {
+    try { return localStorage.getItem(BG_ANIMATION_KEY) === '1'; }
+    catch (e) { return false; }
+  }
 
   var prefersReduced = window.matchMedia &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -613,6 +619,7 @@
 
   var resizeTimer = null;
   var running     = !prefersReduced;
+  var userPaused  = readManualPaused();
   var rafId       = 0;
 
   /* ═══════════════════════════════════════════════════════════
@@ -688,6 +695,33 @@
     rafId = requestAnimationFrame(animate);
   }
 
+
+  function startAnimation() {
+    if (prefersReduced || userPaused || document.hidden || rafId) return;
+    running = true;
+    startTime = performance.now();
+    prevTime = startTime;
+    rafId = requestAnimationFrame(animate);
+  }
+
+  function stopAnimation() {
+    running = false;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  }
+
+  function applyPausedState(paused) {
+    userPaused = !!paused;
+    if (userPaused) {
+      stopAnimation();
+      renderStatic();
+      return;
+    }
+    startAnimation();
+  }
+
   /* ═══════════════════════════════════════════════════════════
      Initialisation
      ═══════════════════════════════════════════════════════════ */
@@ -695,10 +729,10 @@
   gl.clear(gl.COLOR_BUFFER_BIT);
   resize();
 
-  if (prefersReduced) {
+  if (prefersReduced || userPaused) {
     renderStatic();
   } else {
-    rafId = requestAnimationFrame(animate);
+    startAnimation();
   }
 
   /* ═══════════════════════════════════════════════════════════
@@ -708,7 +742,7 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function () {
       resize();
-      if (prefersReduced) renderStatic();
+      if (prefersReduced || userPaused) renderStatic();
     }, 200);
   });
 
@@ -718,7 +752,7 @@
   new MutationObserver(function (mutations) {
     for (var i = 0; i < mutations.length; i++) {
       if (mutations[i].attributeName === 'data-theme') {
-        if (prefersReduced) renderStatic();
+        if (prefersReduced || userPaused) renderStatic();
         return;
       }
     }
@@ -730,14 +764,22 @@
   document.addEventListener('visibilitychange', function () {
     if (prefersReduced) return;
     if (document.hidden) {
-      running = false;
-      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
-    } else {
-      running = true;
-      startTime = performance.now();
-      prevTime  = startTime;
-      rafId = requestAnimationFrame(animate);
+      stopAnimation();
+      return;
     }
+    if (!userPaused) startAnimation();
+  });
+
+
+  window.addEventListener('sele4n:bg-animation-toggle', function (event) {
+    var detail = event && event.detail;
+    if (!detail || typeof detail.paused !== 'boolean') return;
+    applyPausedState(detail.paused);
+  });
+
+  window.addEventListener('storage', function (event) {
+    if (!event || event.key !== BG_ANIMATION_KEY) return;
+    applyPausedState(readManualPaused());
   });
 
   /* ═══════════════════════════════════════════════════════════
@@ -794,10 +836,8 @@
 
     resize();
     running = !prefersReduced;
-    if (running) {
-      startTime = performance.now();
-      prevTime  = startTime;
-      rafId = requestAnimationFrame(animate);
+    if (!prefersReduced && !userPaused && !document.hidden) {
+      startAnimation();
     } else {
       renderStatic();
     }

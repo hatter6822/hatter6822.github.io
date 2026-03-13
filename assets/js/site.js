@@ -18,6 +18,7 @@
   var DATA_SCHEMA_VERSION = 4;
   var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
   var NAV_INTENT_MAX_AGE_MS = 60 * 1000;
+  var BG_ANIMATION_KEY = "sele4n-bg-animation-paused-v1";
 
   var FETCH_TIMEOUT_MS = 8000;
   var FETCH_OPTIONS = {
@@ -163,6 +164,38 @@
       if (mq.addEventListener) mq.addEventListener("change", onChange);
       else if (mq.addListener) mq.addListener(onChange);
     }
+  }
+
+
+  function setupBackgroundAnimationToggle() {
+    var button = document.getElementById("bg-animation-toggle");
+    if (!button) return;
+
+    function readPausedState() {
+      try { return localStorage.getItem(BG_ANIMATION_KEY) === "1"; } catch (e) { return false; }
+    }
+
+    function applyState(paused) {
+      button.classList.toggle("is-paused", paused);
+      button.setAttribute("aria-pressed", paused ? "true" : "false");
+      button.setAttribute("aria-label", paused ? "Resume background animation" : "Pause background animation");
+      button.title = paused ? "Resume background animation" : "Pause background animation";
+      document.documentElement.setAttribute("data-bg-animation", paused ? "paused" : "running");
+      window.dispatchEvent(new CustomEvent("sele4n:bg-animation-toggle", { detail: { paused: paused } }));
+    }
+
+    applyState(readPausedState());
+
+    button.addEventListener("click", function () {
+      var nextPaused = button.getAttribute("aria-pressed") !== "true";
+      try { localStorage.setItem(BG_ANIMATION_KEY, nextPaused ? "1" : "0"); } catch (e) {}
+      applyState(nextPaused);
+    });
+
+    window.addEventListener("storage", function (event) {
+      if (event.key !== BG_ANIMATION_KEY) return;
+      applyState(readPausedState());
+    });
   }
 
   function setupNav() {
@@ -742,6 +775,7 @@
 
   applyData(STATIC_FALLBACK);
   setupTheme();
+  setupBackgroundAnimationToggle();
   if (typeof window.sele4nSetupHeaderNav !== "function") {
     window.requestAnimationFrame(function () {
       if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();

@@ -76,6 +76,7 @@ node --check assets/js/theme-init.js
 - Confirm map context-search keyboard navigation (Arrow/Home/End) and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
 - Confirm reset clears any search validity errors and preserves a minimal toolbar footprint across desktop/mobile breakpoints.
+- On `index.html`, verify the background animation toggle in the header pauses the WebGL background immediately, updates `aria-pressed`, and resumes animation when toggled again (test on desktop and ~390px mobile viewport).
 - Confirm each interior dropdown (Object, Context/Init, Extension) defaults to `All (N)`, can switch kinds, and deep-link declarations to source lines.
 - Confirm interior declaration chips and kind-select options are color-coded consistently by declaration kind (selector serves as key for chip colors).
 - Confirm interior declaration ordering is case-insensitive alphabetical within each dropdown selection, including `All` aggregation.
