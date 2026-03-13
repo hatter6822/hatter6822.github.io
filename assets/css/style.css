@@ -398,6 +398,10 @@ em {
 [data-theme="light"] .theme-toggle .icon-sun { display: block; }
 [data-theme="light"] .theme-toggle .icon-moon { display: none; }
 
+.bg-animation-toggle .icon-play { display: none; }
+.bg-animation-toggle.is-paused .icon-pause { display: none; }
+.bg-animation-toggle.is-paused .icon-play { display: block; }
+
 /* --- Logo Image --- */
 .logo-img {
   height: 4rem;

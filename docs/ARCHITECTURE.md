@@ -315,6 +315,7 @@ All version references across the project were updated:
 - **GPU shader memory leak**: `createProgram()` in `background-pattern.js` did not delete vertex/fragment shader objects after linking. In WebGL, shader objects should be deleted after program linking because the program holds the compiled code. Added `gl.deleteShader(vs)` and `gl.deleteShader(fs)` after linking, and proper cleanup of the surviving shader when one fails to compile.
 - **Animation frame cancellation**: The `requestAnimationFrame` return value was never stored, making it impossible to cancel the animation loop when the page became hidden or the WebGL context was lost. Added `rafId` tracking with proper `cancelAnimationFrame` calls on context loss and visibility change.
 - **Page visibility detection**: Added `visibilitychange` listener that pauses the animation loop when the tab is hidden and resumes when visible. This prevents unnecessary GPU/CPU usage when the page is not visible, improving battery life on mobile devices.
+- **User animation control path**: Added an explicit navigation toggle (`#bg-animation-toggle`) that persists paused/running state in `localStorage` (`sele4n-bg-animation-paused-v1`) and synchronizes runtime state through a custom `sele4n:bg-animation-toggle` event + `storage` listener. This enables immediate battery-saving animation suspension on mobile without sacrificing visual fidelity for users who keep animation enabled.
 
 ### Test coverage expansion
 

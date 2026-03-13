@@ -108,6 +108,7 @@ Canvas/WebGL animated background. Responsibilities:
 - theme-aware palette/alpha behavior.
 - scroll/mouse reactive geometry and motion.
 - page visibility detection to pause rendering when the tab is hidden.
+- manual background animation pause/resume state (`#bg-animation-toggle`) synchronized via `localStorage` and runtime event dispatch for responsive mobile battery savings.
 - graceful fallback behavior when graphics capabilities are constrained.
 - proper GPU resource cleanup (shader objects deleted after program linking).
 
