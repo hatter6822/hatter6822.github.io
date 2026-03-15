@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.3.0`
+- Website version: `0.3.1`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -82,6 +82,7 @@ The code map interior panel supports declaration-first navigation:
 - [Developer guide (file-by-file orientation)](docs/DEVELOPER_GUIDE.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [AI development guidance](CLAUDE.md)
+- [Syscall completion workstream plan](docs/audits/AUDIT_v0.15.10_SYSCALL_COMPLETION_WORKSTREAM_PLAN.md)
 
 ## Third-party notices
 

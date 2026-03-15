@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.3.0`
+**Website version:** `0.3.1`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands

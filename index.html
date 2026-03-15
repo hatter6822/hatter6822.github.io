@@ -320,8 +320,10 @@
           <p>
             Intrusive dual-queue endpoints with <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>sendQ</code></a>/<a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>receiveQ</code></a> and
             per-thread <code>prev</code>/<code>next</code> links for O(1) mid-queue removal.
-            Message transfer via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>TCB.pendingMessage</code></a> rendezvous. 14 preservation
-            theorems. Legacy single-queue operations deprecated in v0.12.12.
+            Message population via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>TCB.pendingMessage</code></a> rendezvous
+            with verified transfer integrity across send/receive transitions.
+            14 preservation theorems and queue disjointness invariants.
+            Legacy single-queue operations deprecated in v0.12.12.
           </p>
         </div>
         <div class="card card-compact">
@@ -373,8 +375,8 @@
             </tr>
             <tr>
               <td><strong>IPC queuing</strong></td>
-              <td>Intrusive singly-linked list</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener noreferrer">Dual-queue (sendQ/receiveQ)</a> with O(1) mid-queue removal</td>
+              <td>Intrusive singly-linked list; unverified message transfer</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener noreferrer">Dual-queue (sendQ/receiveQ)</a> with O(1) mid-queue removal and verified message population</td>
             </tr>
             <tr>
               <td><strong>Scheduling</strong></td>
@@ -394,7 +396,7 @@
             <tr>
               <td><strong>Service management</strong></td>
               <td>No kernel-level concept</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer">Dependency graph</a> with DFS cycle detection</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer">Dependency graph</a> with DFS cycle detection and acyclic service policy enforcement</td>
             </tr>
             <tr>
               <td><strong>Revocation</strong></td>
@@ -463,8 +465,14 @@
             Inspired by Linux kernel queue design. Endpoints maintain separate
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>sendQ</code></a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>receiveQ</code></a> lists. Each TCB carries intrusive
             <code>prev</code>/<code>next</code> links enabling O(1) mid-queue removal
-            without scanning. Messages flow through <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>TCB.pendingMessage</code></a> rendezvous
-            with 14 preservation theorems (TPI-D08/D09) and 7 trace anchors. Sentinel ID rejection
+            without scanning. Message population flows through
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>TCB.pendingMessage</code></a>
+            rendezvous: the sender populates the receiver&rsquo;s pending message field during
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>endpointSendDual</code></a>,
+            and the receiver consumes it during
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>endpointReceiveDual</code></a>.
+            14 preservation theorems (TPI-D08/D09) verify message transfer integrity
+            and queue disjointness, with 7 trace anchors. Sentinel ID rejection
             at IPC boundaries prevents ghost queue entries.
           </p>
         </div>
@@ -507,10 +515,17 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="code-link">Service Orchestration</a></h3>
           <p>
-            First-class kernel service concept with graph-based component lifecycle management and O(n+e) DFS cycle detection
-            using <code>HashSet ServiceId</code>. Dependency-aware startup, shutdown,
-            and restart with service health tracking. Acyclic policy enforcement prevents
-            circular dependencies at the kernel level.
+            First-class kernel service concept with graph-based component lifecycle management.
+            Service policy enforcement uses O(n+e) DFS cycle detection via
+            <code>HashSet ServiceId</code> to guarantee acyclic dependency graphs
+            at the kernel level. Dependency-aware
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>serviceStart</code></a>,
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>serviceStop</code></a>, and
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>serviceRestart</code></a>
+            operations enforce correct startup/shutdown ordering with service health state tracking.
+            Information-flow-checked variant
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>serviceRestartChecked</code></a>
+            enforces domain policy compliance on restart transitions.
           </p>
         </div>
 

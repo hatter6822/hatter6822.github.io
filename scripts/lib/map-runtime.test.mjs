@@ -2004,3 +2004,218 @@ test('assuranceForModule extension-only module gets extension-only strength', as
   assert.ok(result.detail.includes('extension declaration'),
     'detail should mention extension declarations');
 });
+
+test('service proof-pair detection produces linked assurance for Service.Operations/Invariant', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Kernel.Service.Operations', path: 'SeLe4n/Kernel/Service/Operations.lean' },
+      { name: 'SeLe4n.Kernel.Service.Invariant', path: 'SeLe4n/Kernel/Service/Invariant.lean' }
+    ],
+    moduleMeta: {
+      'SeLe4n.Kernel.Service.Operations': { kind: 'operations', base: 'SeLe4n.Kernel.Service', theorems: 5 },
+      'SeLe4n.Kernel.Service.Invariant': { kind: 'invariant', base: 'SeLe4n.Kernel.Service', theorems: 8 }
+    },
+    importsFrom: {
+      'SeLe4n.Kernel.Service.Invariant': ['SeLe4n.Kernel.Service.Operations'],
+      'SeLe4n.Kernel.Service.Operations': []
+    }
+  });
+
+  const proofPairMap = {
+    'SeLe4n.Kernel.Service': {
+      base: 'SeLe4n.Kernel.Service',
+      operationsModule: 'SeLe4n.Kernel.Service.Operations',
+      invariantModule: 'SeLe4n.Kernel.Service.Invariant',
+      operationsTheorems: 5,
+      invariantTheorems: 8,
+      invariantImportsOperations: true
+    }
+  };
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    proofPairMap: proofPairMap,
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  const opsResult = hooks.assuranceForModule('SeLe4n.Kernel.Service.Operations');
+  assert.equal(opsResult.level, 'linked', 'Service Operations should have linked assurance');
+  assert.ok(opsResult.theoremDensity > 0, 'should report non-zero theorem density');
+
+  const invResult = hooks.assuranceForModule('SeLe4n.Kernel.Service.Invariant');
+  assert.equal(invResult.level, 'linked', 'Service Invariant should have linked assurance');
+});
+
+test('IPC multi-module proof-pair detection: DualQueue gets independent assurance', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Kernel.IPC.Operations', path: 'SeLe4n/Kernel/IPC/Operations.lean' },
+      { name: 'SeLe4n.Kernel.IPC.Invariant', path: 'SeLe4n/Kernel/IPC/Invariant.lean' },
+      { name: 'SeLe4n.Kernel.IPC.DualQueue', path: 'SeLe4n/Kernel/IPC/DualQueue.lean' }
+    ],
+    moduleMeta: {
+      'SeLe4n.Kernel.IPC.Operations': { kind: 'operations', base: 'SeLe4n.Kernel.IPC', theorems: 6 },
+      'SeLe4n.Kernel.IPC.Invariant': { kind: 'invariant', base: 'SeLe4n.Kernel.IPC', theorems: 14 },
+      'SeLe4n.Kernel.IPC.DualQueue': { theorems: 4 }
+    },
+    importsFrom: {
+      'SeLe4n.Kernel.IPC.Invariant': ['SeLe4n.Kernel.IPC.Operations'],
+      'SeLe4n.Kernel.IPC.Operations': ['SeLe4n.Kernel.IPC.DualQueue'],
+      'SeLe4n.Kernel.IPC.DualQueue': []
+    }
+  });
+
+  const proofPairMap = {
+    'SeLe4n.Kernel.IPC': {
+      base: 'SeLe4n.Kernel.IPC',
+      operationsModule: 'SeLe4n.Kernel.IPC.Operations',
+      invariantModule: 'SeLe4n.Kernel.IPC.Invariant',
+      operationsTheorems: 6,
+      invariantTheorems: 14,
+      invariantImportsOperations: true
+    }
+  };
+
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    proofPairMap: proofPairMap,
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  // Operations and Invariant should be linked pair
+  const opsResult = hooks.assuranceForModule('SeLe4n.Kernel.IPC.Operations');
+  assert.equal(opsResult.level, 'linked', 'IPC Operations should have linked assurance');
+
+  const invResult = hooks.assuranceForModule('SeLe4n.Kernel.IPC.Invariant');
+  assert.equal(invResult.level, 'linked', 'IPC Invariant should have linked assurance');
+
+  // DualQueue should not be part of the pair — it has theorems so should be local
+  const dqResult = hooks.assuranceForModule('SeLe4n.Kernel.IPC.DualQueue');
+  assert.equal(dqResult.level, 'local', 'DualQueue should have local assurance (not paired)');
+  assert.ok(dqResult.theoremDensity > 0, 'DualQueue should report its own theorem density');
+});
+
+test('service declaration context: declarationIndex maps service operations correctly', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        name: 'SeLe4n.Kernel.Service.Operations',
+        path: 'SeLe4n/Kernel/Service/Operations.lean',
+        declarations: [
+          { kind: 'def', name: 'serviceStart', line: 42, called: ['lookupService', 'validateDeps'] },
+          { kind: 'def', name: 'serviceStop', line: 78, called: ['lookupService'] },
+          { kind: 'def', name: 'serviceRestart', line: 115, called: ['serviceStop', 'serviceStart'] }
+        ]
+      },
+      {
+        name: 'SeLe4n.Kernel.Service.Invariant',
+        path: 'SeLe4n/Kernel/Service/Invariant.lean',
+        declarations: [
+          { kind: 'theorem', name: 'serviceStart_preserves', line: 20, called: [] },
+          { kind: 'theorem', name: 'serviceStop_preserves', line: 55, called: [] }
+        ]
+      }
+    ],
+    importsFrom: {
+      'SeLe4n.Kernel.Service.Invariant': ['SeLe4n.Kernel.Service.Operations'],
+      'SeLe4n.Kernel.Service.Operations': []
+    }
+  });
+
+  // Verify declarationIndex contains service operations
+  assert.ok(normalized.declarationIndex['serviceStart'], 'declarationIndex should contain serviceStart');
+  assert.equal(normalized.declarationIndex['serviceStart'].module, 'SeLe4n.Kernel.Service.Operations');
+  assert.equal(normalized.declarationIndex['serviceStart'].kind, 'def');
+  assert.equal(normalized.declarationIndex['serviceStart'].line, 42);
+
+  assert.ok(normalized.declarationIndex['serviceStop'], 'declarationIndex should contain serviceStop');
+  assert.equal(normalized.declarationIndex['serviceStop'].module, 'SeLe4n.Kernel.Service.Operations');
+
+  assert.ok(normalized.declarationIndex['serviceRestart'], 'declarationIndex should contain serviceRestart');
+  assert.equal(normalized.declarationIndex['serviceRestart'].line, 115);
+
+  // Verify declarationGraph contains service operations with called relationships
+  assert.ok(normalized.declarationGraph['serviceStart'], 'declarationGraph should contain serviceStart');
+  assert.deepStrictEqual(normalized.declarationGraph['serviceStart'].calls, ['lookupService', 'validateDeps']);
+  assert.equal(normalized.declarationGraph['serviceStart'].module, 'SeLe4n.Kernel.Service.Operations');
+
+  assert.ok(normalized.declarationGraph['serviceRestart'], 'declarationGraph should contain serviceRestart');
+  assert.deepStrictEqual(normalized.declarationGraph['serviceRestart'].calls, ['serviceStop', 'serviceStart']);
+
+  // Verify reverse graph
+  assert.ok(normalized.declarationReverseGraph['serviceStop'], 'reverse graph should contain serviceStop as callee');
+  assert.ok(normalized.declarationReverseGraph['serviceStop'].includes('serviceRestart'),
+    'serviceRestart should be listed as caller of serviceStop');
+  assert.ok(normalized.declarationReverseGraph['serviceStart'].includes('serviceRestart'),
+    'serviceRestart should be listed as caller of serviceStart');
+
+  // Verify invariant theorems are in declarationIndex
+  assert.ok(normalized.declarationIndex['serviceStart_preserves'], 'declarationIndex should contain serviceStart_preserves');
+  assert.equal(normalized.declarationIndex['serviceStart_preserves'].kind, 'theorem');
+  assert.equal(normalized.declarationIndex['serviceStart_preserves'].module, 'SeLe4n.Kernel.Service.Invariant');
+});
+
+test('IPC message transfer declarations: call graph edges and reverse lookups', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      {
+        name: 'SeLe4n.Kernel.IPC.Operations',
+        path: 'SeLe4n/Kernel/IPC/Operations.lean',
+        declarations: [
+          { kind: 'def', name: 'endpointSendDual', line: 30, called: ['populateMessage', 'dqEnqueue'] },
+          { kind: 'def', name: 'endpointReceiveDual', line: 85, called: ['consumeMessage', 'dqDequeue'] },
+          { kind: 'def', name: 'endpointReply', line: 140, called: ['populateMessage'] },
+          { kind: 'def', name: 'endpointCall', line: 180, called: ['endpointSendDual', 'endpointReceiveDual'] },
+          { kind: 'def', name: 'endpointReplyRecv', line: 220, called: ['endpointReply', 'endpointReceiveDual'] }
+        ]
+      }
+    ],
+    importsFrom: { 'SeLe4n.Kernel.IPC.Operations': [] }
+  });
+
+  // Verify declaration graph for IPC operations
+  assert.ok(normalized.declarationGraph['endpointSendDual'], 'should have endpointSendDual in declaration graph');
+  assert.deepStrictEqual(normalized.declarationGraph['endpointSendDual'].calls, ['populateMessage', 'dqEnqueue']);
+
+  assert.ok(normalized.declarationGraph['endpointReceiveDual'], 'should have endpointReceiveDual in declaration graph');
+  assert.deepStrictEqual(normalized.declarationGraph['endpointReceiveDual'].calls, ['consumeMessage', 'dqDequeue']);
+
+  // Verify reverse graph for message transfer helpers
+  assert.ok(normalized.declarationReverseGraph['populateMessage'], 'populateMessage should have callers');
+  assert.ok(normalized.declarationReverseGraph['populateMessage'].includes('endpointSendDual'),
+    'endpointSendDual should call populateMessage');
+  assert.ok(normalized.declarationReverseGraph['populateMessage'].includes('endpointReply'),
+    'endpointReply should call populateMessage');
+
+  // Verify compound operations have correct reverse edges
+  assert.ok(normalized.declarationReverseGraph['endpointSendDual'].includes('endpointCall'),
+    'endpointCall should call endpointSendDual');
+  assert.ok(normalized.declarationReverseGraph['endpointReceiveDual'].includes('endpointCall'),
+    'endpointCall should call endpointReceiveDual');
+  assert.ok(normalized.declarationReverseGraph['endpointReceiveDual'].includes('endpointReplyRecv'),
+    'endpointReplyRecv should call endpointReceiveDual');
+
+  // Verify declarationIndex module resolution for IPC declarations
+  assert.equal(normalized.declarationIndex['endpointSendDual'].module, 'SeLe4n.Kernel.IPC.Operations');
+  assert.equal(normalized.declarationIndex['endpointSendDual'].kind, 'def');
+  assert.equal(normalized.declarationIndex['endpointSendDual'].line, 30);
+  assert.equal(normalized.declarationIndex['endpointReplyRecv'].line, 220);
+});

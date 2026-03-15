@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.3.0**.
+> Documentation baseline: website release **0.3.1**.
 
 ## Automated checks
 
@@ -40,6 +40,10 @@ Validates:
 - empty declarations array edge case (`theoremCountFromCodebaseMap` returns zero for modules with empty `declarations: []`)
 - non-numeric metric cell robustness (`parseCurrentStateMetrics` returns empty object when table cells contain only text without numbers)
 - import continuation with comment-only lines (`extractImportTokens` skips comment-only continuation lines and resumes parsing subsequent continuation imports)
+- service proof-pair detection (`SeLe4n.Kernel.Service.Operations`/`Invariant` linked pair with correct assurance level and theorem density)
+- IPC multi-module proof-pair detection (`SeLe4n.Kernel.IPC.Operations`/`Invariant` linked pair with `DualQueue` getting independent local assurance)
+- service declaration context (`declarationIndex` mapping for `serviceStart`/`serviceStop`/`serviceRestart` operations, call graph edges, reverse graph callers, invariant theorem index entries)
+- IPC message transfer declarations (`endpointSendDual`/`endpointReceiveDual`/`endpointReply`/`endpointCall`/`endpointReplyRecv` call graph edges, message population helper reverse lookups, compound operation reverse edges, module resolution)
 
 ### Bundled data integrity
 

@@ -246,6 +246,9 @@ Manual and scripted testing matrix.
 ### `docs/DEVELOPER_GUIDE.md` (this file)
 Fast onboarding and file-by-file “what belongs where” reference.
 
+### `docs/audits/`
+Workstream plans and audit documents. Contains structured task breakdowns with completion criteria for each development phase.
+
 ## 10) Common change recipes
 
 ### A) “I need to update a number on the landing page”

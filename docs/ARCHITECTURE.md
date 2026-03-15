@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.3.0**.
+> Documentation baseline: website release **0.3.1**.
 
 ## Audit summary
 
@@ -345,6 +345,30 @@ The `wrapLabelLines()` function used a fixed 6.4px per-character estimate (match
 4. **Increased minimum side lane width**: The minimum side lane width on compact viewports was raised from 180px to 200px, ensuring assurance-indicator nodes have enough text area (200px - 36px inset = 164px usable) for readable wrapped content.
 5. **CSS overflow clipping**: Added `overflow: hidden` on `.flow-node` and `min-width: 0` on `.interior-menu-column` to prevent grid blowout on narrow viewports.
 6. **Clip ID management**: The `flowClipIdCounter` is reset to 0 at the start of each flowchart render cycle to prevent unbounded ID growth across re-renders.
+
+## WS-K-E: Service Policy and IPC Message Population (0.3.1)
+
+### Landing page content refinements
+
+- **Service Orchestration card**: Expanded to include service policy enforcement details (acyclic dependency policy via DFS cycle detection), explicit `serviceStart`/`serviceStop`/`serviceRestart` operation links, service health state tracking, and information-flow-checked `serviceRestartChecked` variant reference.
+- **IPC & Dual-Queue feature card**: Added message population semantics describing how `TCB.pendingMessage` is set during `endpointSendDual` and consumed during `endpointReceiveDual`, with verified message transfer integrity and queue disjointness invariants.
+- **IPC & Dual-Queue architecture card**: Updated to describe verified message population transfer integrity across send/receive transitions with queue disjointness invariants.
+- **Comparison table**: Enhanced "IPC queuing" row to contrast verified message population against traditional unverified IPC. Enhanced "Service management" row to mention acyclic service policy enforcement.
+
+### Test coverage expansion
+
+- **Service proof-pair test**: Added `map-runtime.test.mjs` test verifying `SeLe4n.Kernel.Service.Operations`/`Invariant` produce a linked proof pair with correct assurance level and non-zero theorem density.
+- **IPC multi-module test**: Added test verifying `SeLe4n.Kernel.IPC.Operations`/`Invariant` form a linked pair while `SeLe4n.Kernel.IPC.DualQueue` gets independent local assurance (not paired), ensuring multi-file subsystems are handled correctly.
+- **Service declaration context test**: Added test constructing declaration-centric payloads for service operations (`serviceStart`, `serviceStop`, `serviceRestart`) with `called` relationships, verifying `declarationGraph`, `declarationReverseGraph`, and `declarationIndex` correctness.
+- **IPC message transfer declaration test**: Added test with IPC declaration data (`endpointSendDual`, `endpointReceiveDual`, `endpointReply`, `endpointCall`, `endpointReplyRecv`) with message transfer call relationships, verifying forward and reverse graph edges and module resolution.
+
+### Version bump to 0.3.1
+
+All version references across the project were updated: `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`, documentation baselines in `docs/ARCHITECTURE.md`, `docs/CODEBASE_MAP.md`, `docs/TESTING.md`.
+
+### Workstream plan
+
+- Added `docs/audits/AUDIT_v0.15.10_SYSCALL_COMPLETION_WORKSTREAM_PLAN.md` with the complete WS-K-E workstream plan including five phases, task breakdowns, completion criteria, and risk mitigations.
 
 ## Future growth recommendations
 
