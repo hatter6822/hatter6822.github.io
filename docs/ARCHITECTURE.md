@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.3.0**.
+> Documentation baseline: website release **0.17.5**.
 
 ## Audit summary
 
