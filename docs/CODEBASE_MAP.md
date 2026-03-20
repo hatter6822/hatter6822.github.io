@@ -122,6 +122,24 @@ Both strategies rank results by: exact match (2000) > qualified prefix (1800) > 
 
 Declaration search suggestions are rendered with distinct styling (italic text, left accent border) and carry `data-declaration` attributes for proper selection handling via keyboard and mouse. Multiple declaration suggestions can appear simultaneously in the dropdown when the query contains dots.
 
+## Upstream module structure (reflected in map data)
+
+The seLe4n codebase now comprises 77 total modules across 4 layers:
+
+| Layer | Module count | Description |
+|-------|-------------|-------------|
+| kernel | 57 | Core kernel subsystems |
+| platform | 10 | Simulator and RPi5 bindings |
+| other | 6 | Testing framework and root modules |
+| model | 4 | Object types, structures, state |
+
+Key structural features visible in the map:
+
+- **Robin Hood** (`SeLe4n.Kernel.RobinHood.*`): 7 modules, 139 theorems — verified hash map foundation imported by `Model.Object.Types`.
+- **Deep IPC modularization**: 14 files covering DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Endpoint, SchedulerLemmas}, Invariant/{Structural, EndpointPreservation, NotificationPreservation, CallReplyRecv, Defs}.
+- **Architecture expansion**: 9 files including RegisterDecode, SyscallArgDecode, TlbModel, VSpaceInvariant alongside the existing VSpace/VSpaceBackend/Adapter triad.
+- **Capability invariant decomposition**: Authority, Defs, and Preservation sub-modules with 118 total theorems.
+
 ## Troubleshooting checklist
 
 1. Run data sync scripts and commit refreshed snapshots.

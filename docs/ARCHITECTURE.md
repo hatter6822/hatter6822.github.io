@@ -226,7 +226,7 @@ The `LABEL_WRAP_CACHE` previously evicted a single entry when at capacity. This 
 - Enhanced detail text to be dynamically descriptive: linked pairs now report the exact theorem count ("5 theorems") or note "structural only" when the link has zero theorems; partial pairs report their combined theorem count; local modules report their individual theorem count.
 - Linked pair scoring now uses a `densityBonus` formula (`pairTheorems * 2`) instead of adding raw theorem counts, making high-theorem-density pairs score proportionally higher than vacuously-linked zero-theorem pairs.
 - Partial pair scoring now includes combined theorem count for meaningful ranking.
-- Introduced `ASSURANCE_COLORS` constant as a single source of truth for all four assurance level colors (`linked: #35c98f`, `partial: #d37cff`, `local: #6de2ff`, `none: #ffad42`), referenced by the flow legend.
+- Introduced `ASSURANCE_COLORS` constant as a single source of truth for all four assurance level colors (`linked: #22b573`, `partial: #c47adb`, `local: #5ba8d4`, `none: #8e8e9a`), referenced by the flow legend.
 - Replaced the single "Node tint = assurance level" legend entry with four individual assurance level entries ("Linked proof", "Partial proof", "Local theorems", "No proof evidence") with their respective colors for immediate visual reference.
 - Updated assurance CSS to use `--assurance-tint` CSS custom properties on each `.flow-node.assurance-*` rule, providing a named reference point for the tint color.
 - Graduated assurance tint intensity by level: linked (18%), partial (18%), local (15%), none (12%), reflecting the confidence hierarchy where stronger assurance levels have more prominent visual tinting.
@@ -358,3 +358,44 @@ The `wrapLabelLines()` function used a fixed 6.4px per-character estimate (match
    - headless smoke checks for `index.html` + `map.html`
 3. Add visual diff tests for map page breakpoints (desktop/tablet/mobile).
 4. Add JSON schema validation for `data/map-data.json` and `data/site-data.json`.
+
+## Upstream seLe4n architecture evolution (reflected in website)
+
+The upstream seLe4n codebase has undergone significant architectural changes now reflected in the website content:
+
+### Robin Hood hash map subsystem
+
+A fully verified Robin Hood hash table implementation (`SeLe4n/Kernel/RobinHood/`) serves as the algebraic foundation for all kernel hash-based data structures. 7 modules, 139 theorems:
+
+- **Core** (`Core.lean`): `RHTable` data type with O(1) amortized insert, lookup, erase, and resize. 9 theorems including `insertLoop_preserves_len` and `RHTable.empty_wf`.
+- **Bridge** (`Bridge.lean`): 30 theorems connecting the implementation to `HashMap`-compatible semantics (`getElem?_insert_self`, `getElem?_erase_self`, `mem_iff_isSome_getElem?`).
+- **Invariant/Defs**: Well-formedness definitions and 4 foundational theorems.
+- **Invariant/Lookup**: 40 lookup correctness theorems including `getLoop_none_of_absent` and `findLoop_some_has_key`.
+- **Invariant/Preservation**: 56 preservation proofs including `insertLoop_countOccupied` and `backshiftLoop_countOccupied`.
+
+Imported by `Model.Object.Types` — the entire kernel object type system builds on verified hash operations.
+
+### Architecture layer expansion (9 files, 123 theorems)
+
+- **RegisterDecode** (`RegisterDecode.lean`): 18 roundtrip proofs for register encode/decode (CapPtr, SyscallId, MsgInfo, MessageRegisters).
+- **SyscallArgDecode** (`SyscallArgDecode.lean`): 28 determinism proofs for verified syscall argument parsing across all syscall types.
+- **TlbModel** (`TlbModel.lean`): 13 TLB consistency proofs including flush-after-modify theorems.
+- **VSpaceInvariant** (`VSpaceInvariant.lean`): 17 VSpace invariant proofs separated from operations.
+
+### Deep modularization
+
+Subsystems have been decomposed into focused sub-modules:
+
+- **IPC**: 14 files, 223 theorems — DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Endpoint, SchedulerLemmas}, Invariant/{Structural(76), EndpointPreservation(27), NotificationPreservation(15), CallReplyRecv(9), Defs}.
+- **Capability**: 5 files, 118 theorems — Invariant/{Authority(26), Defs(46), Preservation(46)}.
+- **InformationFlow**: 10 files — Enforcement/{Soundness, Wrappers}, Invariant/{Composition, Helpers, Operations}.
+- **Scheduler**: 6 files — Operations/{Core, Preservation, Selection}.
+- **Service**: 4 files — Invariant/{Acyclicity, Policy}.
+
+### Object model split
+
+`Model/Object.lean` split into `Object/Types.lean` (type definitions importing RobinHood) and `Object/Structures.lean` (structural operations).
+
+### In-Lean testing framework
+
+New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.lean`, `Testing/RuntimeContractFixtures.lean`, `Testing/StateBuilder.lean`.
