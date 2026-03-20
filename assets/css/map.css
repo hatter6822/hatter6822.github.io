@@ -757,3 +757,118 @@
     max-height: calc(100svh - var(--nav-height) - 7.75rem);
   }
 }
+
+/* Keyboard shortcuts hint — collapsible reference near the flowchart */
+.keyboard-shortcuts-hint {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.keyboard-shortcuts-hint summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  padding: 0.2rem 0;
+}
+.keyboard-shortcuts-hint summary:hover { color: var(--text); }
+.keyboard-shortcuts-hint[open] summary { margin-bottom: 0.3rem; }
+.shortcut-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.15rem 1rem;
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 0.1rem);
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
+}
+.shortcut-list > div {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.shortcut-list dt { display: flex; gap: 0.15rem; flex-shrink: 0; }
+.shortcut-list dd { margin: 0; color: var(--text-muted); font-size: 0.7rem; }
+.shortcut-list kbd {
+  display: inline-block;
+  min-width: 1.4rem;
+  text-align: center;
+  padding: 0.1rem 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text);
+  background: color-mix(in oklab, var(--surface-2) 80%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  box-shadow: 0 1px 0 var(--border);
+}
+
+/* Improve focus indicators for the flowchart container */
+.flowchart-wrap:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+}
+
+/* Smooth entry animation for stat cards */
+.stat-card {
+  animation: stat-card-in 0.3s ease-out backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat-card { animation: none; }
+}
+@keyframes stat-card-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.stat-card:nth-child(1) { animation-delay: 0ms; }
+.stat-card:nth-child(2) { animation-delay: 30ms; }
+.stat-card:nth-child(3) { animation-delay: 60ms; }
+.stat-card:nth-child(4) { animation-delay: 90ms; }
+.stat-card:nth-child(5) { animation-delay: 120ms; }
+.stat-card:nth-child(6) { animation-delay: 150ms; }
+.stat-card:nth-child(7) { animation-delay: 180ms; }
+.stat-card:nth-child(8) { animation-delay: 210ms; }
+
+@media (max-width: 640px) {
+  .keyboard-shortcuts-hint { display: none; }
+}
+
+/* --- Light Theme Refinements --- */
+[data-theme="light"] .code-map-hero-shell {
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
+  border-color: var(--border);
+}
+[data-theme="light"] .stat-card {
+  background: color-mix(in oklab, var(--surface) 95%, transparent);
+}
+[data-theme="light"] .flowchart-wrap {
+  --flow-node-bg: color-mix(in oklab, var(--surface) 96%, transparent);
+  background: color-mix(in oklab, var(--bg-alt) 92%, transparent);
+}
+[data-theme="light"] .flow-node-interior-menu {
+  background: color-mix(in oklab, var(--surface) 94%, transparent);
+}
+[data-theme="light"] .interior-menu-column {
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
+}
+[data-theme="light"] .interior-menu-item {
+  background: color-mix(in oklab, var(--interior-kind-color, var(--surface)) 10%, var(--surface) 90%);
+}
+[data-theme="light"] .legend-item {
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+}
+[data-theme="light"] .module-search-options {
+  background: color-mix(in oklab, var(--surface) 98%, transparent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .map-toolbar {
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
+}
+[data-theme="light"] .shortcut-list {
+  background: color-mix(in oklab, var(--surface) 95%, transparent);
+}
+[data-theme="light"] .shortcut-list kbd {
+  background: color-mix(in oklab, var(--bg-alt) 90%, transparent);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
