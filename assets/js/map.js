@@ -295,7 +295,16 @@
 
     return fetch(url, opts).then(function (res) {
       if (timer) clearTimeout(timer);
-      if (!res.ok) throw new Error("HTTP " + res.status);
+      if (!res.ok) {
+        var errMsg = "HTTP " + res.status;
+        /* Surface rate-limit info so status messages are actionable */
+        if (res.status === 403 || res.status === 429) {
+          var retryAfter = res.headers && res.headers.get ? res.headers.get("retry-after") : "";
+          if (retryAfter) errMsg += " (retry after " + retryAfter + "s)";
+          else errMsg += " (rate limited)";
+        }
+        throw new Error(errMsg);
+      }
       return asText ? res.text() : res.json();
     }).catch(function (error) {
       if (timer) clearTimeout(timer);
@@ -1573,7 +1582,10 @@
       })(groups[g]);
     }
 
-    menu.appendChild(grid);
+    /* Batch-append the grid in a single DOM operation to minimize reflows */
+    var gridFragment = document.createDocumentFragment();
+    gridFragment.appendChild(grid);
+    menu.appendChild(gridFragment);
   }
 
   function wrapLabelLines(text, width, minChars) {
@@ -2795,6 +2807,13 @@
     updateMetric("linkedPairs", totals.linked);
     updateMetric("commit", state.commitSha ? state.commitSha.slice(0, 7) : "-");
     updateMetric("generatedAt", formatGeneratedAt(state.generatedAt));
+
+    /* Pre-warm assurance cache for all visible modules so the first render
+       doesn't stall on assurance computation for each node.  This moves the
+       cost to data-load time where the user is already waiting. */
+    for (var warmIdx = 0; warmIdx < state.modules.length; warmIdx++) {
+      assuranceForModule(state.modules[warmIdx]);
+    }
   }
 
   function renderAll() {
@@ -4648,11 +4667,23 @@
   function setupKeyboardNavigation() {
     document.addEventListener("keydown", function (event) {
       var target = event.target;
-      if (isTypingTarget(target)) return;
-
       if (event.isComposing) return;
 
       var key = (event.key || "").toLowerCase();
+
+      /* "/" focuses the search field from anywhere — standard convention */
+      if (key === "/" && !isTypingTarget(target)) {
+        var search = DOM.moduleSearch || document.getElementById("module-search");
+        if (search) {
+          event.preventDefault();
+          search.focus();
+          search.select();
+        }
+        return;
+      }
+
+      if (isTypingTarget(target)) return;
+
       if (key !== "j" && key !== "k") return;
       var list = contextList();
       if (!list.length) return;
@@ -4665,14 +4696,20 @@
   }
 
   function setupFlowchartResize() {
-    var queued = false;
+    var resizeTimer = null;
     window.addEventListener("resize", function () {
-      if (queued) return;
-      queued = true;
-      window.requestAnimationFrame(function () {
-        queued = false;
+      /* Debounce resize events: clear stale width cache on every resize,
+         but defer the expensive re-render until the user has stopped resizing
+         for 150ms.  This prevents janky mid-resize re-renders on drag-resize
+         windows while still responding promptly when resizing finishes. */
+      cachedMinFlowWidth = 0;
+      cachedMinFlowWidthTs = 0;
+      LABEL_WRAP_CACHE.clear();
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () {
+        resizeTimer = null;
         scheduleRender();
-      });
+      }, 150);
     }, { passive: true });
   }
 
@@ -4708,10 +4745,23 @@
     }).finally(function () {
       var cachedCommitSha = cached && cached.commitSha ? String(cached.commitSha) : "";
       var hasLocalData = Boolean(state.modules && state.modules.length);
-      refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, { force: true, reason: "boot" }).catch(function (error) {
+      refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, { force: true, reason: "boot" }).then(function () {
+        if (state.modules && state.modules.length) {
+          hardenExternalLinks();
+        }
+      }).catch(function (error) {
         var message = error && error.message ? error.message : "Unknown error";
-        if (!hasLocalData) setStatus("Unable to load codebase map. " + message, true);
-        else setStatus("Refresh failed; showing cached data. " + message, true);
+        /* Provide actionable guidance depending on the error type */
+        var isRateLimit = /rate.limit|429|403/i.test(message);
+        if (!hasLocalData) {
+          setStatus(isRateLimit
+            ? "GitHub API rate limit reached. Refresh later to load the map."
+            : "Unable to load codebase map. " + message, true);
+        } else {
+          setStatus(isRateLimit
+            ? "Live refresh rate-limited; showing cached data."
+            : "Refresh failed; showing cached data. " + message, true);
+        }
       });
     });
   }

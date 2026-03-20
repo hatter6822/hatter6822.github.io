@@ -16,7 +16,7 @@
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
-  <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=()">
+  <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests">
 
   <link rel="canonical" href="https://sele4n.org/map.html">
@@ -26,6 +26,17 @@
   <link rel="stylesheet" href="assets/css/style.css">
   <link rel="stylesheet" href="assets/css/map.css">
   <script src="assets/js/theme-init.js"></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "seLe4n Adaptive Codebase Navigator",
+    "description": "Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, theorem coupling, and guided traversal context.",
+    "url": "https://sele4n.org/map.html",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Any"
+  }
+  </script>
 </head>
 <body>
   <div id="bg-canvas-wrap" aria-hidden="true">
@@ -107,6 +118,14 @@
             <div id="flow-node-interior-menu" class="flow-node-interior-menu" aria-live="polite"></div>
             <div class="flowchart-shell">
               <p class="flowchart-mobile-hint" aria-hidden="true">Tip: On mobile, drag to pan, pinch to zoom, and tap a node to inspect details.</p>
+              <details class="keyboard-shortcuts-hint">
+                <summary>Keyboard shortcuts</summary>
+                <dl class="shortcut-list">
+                  <div><dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd>Navigate modules</dd></div>
+                  <div><dt><kbd>/</kbd></dt><dd>Focus search</dd></div>
+                  <div><dt><kbd>Esc</kbd></dt><dd>Close search</dd></div>
+                </dl>
+              </details>
               <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite" role="region" aria-label="Dependency and proof flow chart" tabindex="0"></div>
             </div>
           </article>
