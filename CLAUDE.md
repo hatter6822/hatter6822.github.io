@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.3.0`
+**Website version:** `0.17.5`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -62,9 +62,9 @@ Several files exceed 500 lines:
 | File | Lines | Notes |
 |------|-------|-------|
 | `assets/js/map.js` | ~4,800 | Largest runtime; read in chunks of ≤500 lines |
-| `assets/css/style.css` | ~1,824 | Global design system |
-| `assets/js/background-pattern.js` | ~806 | WebGL shader; contains third-party noise code |
-| `assets/js/site.js` | ~754 | Landing page runtime |
+| `assets/css/style.css` | ~1,828 | Global design system |
+| `assets/js/background-pattern.js` | ~846 | WebGL shader; contains third-party noise code |
+| `assets/js/site.js` | ~788 | Landing page runtime |
 | `assets/js/header-nav.js` | ~738 | Shared navigation controller |
 | `assets/css/map.css` | ~759 | Map-specific styles |
 
