@@ -12,6 +12,12 @@
   var RAW = "https://raw.githubusercontent.com/" + REPO + "/";
   var REF = "main";
   var CODEBASE_MAP_PATH = "docs/codebase_map.json";
+  /* localStorage keys used by this page (index.html):
+     - sele4n-live-v2               : cached live site data (schema v4)
+     - sele4n-nav-intent-v1         : cross-page hash navigation (sessionStorage)
+     - sele4n-theme                 : theme preference (shared with map.html)
+     - sele4n-bg-animation-paused-v1: background animation pause state
+     See also map.js keys: sele4n-code-map-v9, sele4n-code-map-live-sync-meta-v1 */
   var CACHE_KEY = "sele4n-live-v2";
   var CACHE_TTL = 6 * 60 * 60 * 1000;
   var CACHE_MAX_STALE = 30 * 24 * 60 * 60 * 1000;

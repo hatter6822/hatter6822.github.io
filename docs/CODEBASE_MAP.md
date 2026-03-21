@@ -24,6 +24,7 @@ The map page provides a single operational and proof-aware architecture view of 
    - Fetches latest commit SHA and repo tree when policy allows.
    - Uses incremental GitHub compare sync to re-parse only changed `SeLe4n/**/*.lean` modules when possible (with automatic full rebuild fallback when compare payloads are truncated/unreliable).
    - Runs continuous polling (plus visibility/focus/online triggers) for near real-time sync without overwhelming API quotas.
+   - The polling timer ID is tracked in `liveSyncPollTimerId` and cleaned up on `pagehide` for proper page teardown.
 
 4. **Lean module analysis**
    - Derives module paths from `SeLe4n/**/*.lean`.
@@ -43,6 +44,7 @@ The map page provides a single operational and proof-aware architecture view of 
   - Sparse import reconstruction is only triggered when a new canonical commit is detected, preventing repeated per-module source fetches during no-op polling cycles.
 
 5. **Rendering lifecycle**
+   - Uses a `renderEpoch` counter to skip stale `requestAnimationFrame` callbacks after `applyData()` has already rendered the fresh state synchronously.
    - Updates stat cards and status text.
    - Renders a compact in-panel control toolbar (context search with search-key hint and reset in a density-compact form).
    - Builds flow chart with an integrated upper-right legend, three-kind dropdown interior menu (Object, Context/Init, Extension), compact filter controls, and traversal trail.

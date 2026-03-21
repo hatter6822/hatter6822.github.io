@@ -132,6 +132,8 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - caches frequently queried DOM elements (`flowchartWrap`, `moduleSearch`, `moduleSearchOptions`, `moduleSearchFeedback`, `moduleSearchLabel`, `flowNodeInteriorMenu`, `mapStatus`, `mainContent`, `moduleResults`) once at boot in a `DOM` namespace object via `cacheDomElements()` to avoid repeated `getElementById` calls during render cycles. All DOM-accessing functions use `DOM.xxx || document.getElementById(...)` fallback pattern.
 - uses batch eviction (120 entries per cycle via `LABEL_WRAP_CACHE_EVICT_BATCH`) for the label-wrap cache to amortize eviction cost and prevent single-entry churn on cache-full renders.
 - manages map status messaging and sync lifecycle feedback.
+- tracks live sync polling timer (`liveSyncPollTimerId`) with `pagehide` cleanup for clean page teardown.
+- uses a render epoch counter (`renderEpoch`) to skip stale `requestAnimationFrame` callbacks when `applyData()` has already rendered fresh state synchronously.
 
 If the map visualization, interactions, or data compatibility changes, this is the primary file.
 
@@ -278,3 +280,18 @@ Suggested order:
 5. Source files relevant to the feature area.
 
 This sequence gives context first, then implementation detail, then quick lookup while making edits.
+
+## 12) localStorage and sessionStorage key reference
+
+All browser storage keys used by the runtime are documented inline in each JS file. Canonical list:
+
+| Key | Storage | File(s) | Purpose |
+|-----|---------|---------|---------|
+| `sele4n-theme` | localStorage | site.js, map.js | Theme preference (dark/light) |
+| `sele4n-live-v2` | localStorage | site.js | Cached site metrics (schema v4) |
+| `sele4n-code-map-v9` | localStorage | map.js | Cached map data snapshot (schema v3) |
+| `sele4n-code-map-live-sync-meta-v1` | localStorage | map.js | Sync cooldown and last-checked commit |
+| `sele4n-bg-animation-paused-v1` | localStorage | site.js, background-pattern.js | Background animation pause state |
+| `sele4n-nav-intent-v1` | sessionStorage | site.js, header-nav.js | Cross-page hash navigation intent |
+
+When adding new keys, follow the `sele4n-<feature>-v<N>` convention and bump the version suffix when the schema changes.

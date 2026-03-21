@@ -2004,3 +2004,59 @@ test('assuranceForModule extension-only module gets extension-only strength', as
   assert.ok(result.detail.includes('extension declaration'),
     'detail should mention extension declarations');
 });
+
+test('render epoch guard: applyData invalidates pending scheduled renders', async () => {
+  const source = await fs.readFile(mapScriptPath, 'utf8');
+  // Verify renderEpoch variable exists and is incremented in applyData
+  assert.ok(/var renderEpoch\s*=\s*0/.test(source), 'renderEpoch should be initialized to 0');
+  assert.ok(/renderEpoch\s*\+=\s*1/.test(source), 'applyData should increment renderEpoch');
+  // Verify scheduleRender captures and checks epoch
+  const scheduleRenderMatch = source.match(/function scheduleRender\(\)[\s\S]*?^\s{2}\}/m);
+  assert.ok(scheduleRenderMatch, 'scheduleRender function should exist');
+  assert.ok(scheduleRenderMatch[0].includes('epoch !== renderEpoch'), 'scheduleRender should check epoch before rendering');
+});
+
+test('live sync polling tracks timer ID for cleanup', async () => {
+  const source = await fs.readFile(mapScriptPath, 'utf8');
+  // Verify liveSyncPollTimerId is declared and used
+  assert.ok(/var liveSyncPollTimerId\s*=\s*0/.test(source), 'liveSyncPollTimerId should be declared');
+  assert.ok(/liveSyncPollTimerId\s*=\s*window\.setTimeout/.test(source), 'poll timer should be stored in liveSyncPollTimerId');
+  // Verify pagehide cleanup handler exists
+  assert.ok(/pagehide/.test(source), 'pagehide event should be handled for polling cleanup');
+  assert.ok(/clearTimeout\(liveSyncPollTimerId\)/.test(source), 'pagehide should clear the polling timer');
+});
+
+test('normalizeMapData followed by applyTestState produces consistent render state', async () => {
+  const hooks = await loadMapTestHooks();
+
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Core.Main', path: 'SeLe4n/Core/Main.lean' },
+      { name: 'SeLe4n.Core.Helper', path: 'SeLe4n/Core/Helper.lean' }
+    ],
+    importsFrom: {
+      'SeLe4n.Core.Main': ['SeLe4n.Core.Helper'],
+      'SeLe4n.Core.Helper': []
+    }
+  });
+
+  assert.ok(normalized, 'normalizeMapData should return valid data');
+  assert.equal(normalized.modules.length, 2, 'should have 2 modules');
+
+  // Apply to test state (simulating applyData)
+  hooks.applyTestState({
+    modules: normalized.modules,
+    moduleMap: normalized.moduleMap,
+    moduleMeta: normalized.moduleMeta,
+    importsFrom: normalized.importsFrom,
+    importsTo: normalized.importsTo,
+    clearAssuranceCache: true,
+    clearDegreeMap: true
+  });
+
+  // Verify state is consistent after apply
+  const assurance = hooks.assuranceForModule('SeLe4n.Core.Main');
+  assert.ok(assurance, 'assurance should be computable after state apply');
+  assert.ok(['linked', 'partial', 'local', 'none'].includes(assurance.level),
+    'assurance level should be a valid enum value');
+});

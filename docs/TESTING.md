@@ -40,6 +40,8 @@ Validates:
 - empty declarations array edge case (`theoremCountFromCodebaseMap` returns zero for modules with empty `declarations: []`)
 - non-numeric metric cell robustness (`parseCurrentStateMetrics` returns empty object when table cells contain only text without numbers)
 - import continuation with comment-only lines (`extractImportTokens` skips comment-only continuation lines and resumes parsing subsequent continuation imports)
+- lifecycle coherence: render epoch guard (`renderEpoch` initialization and increment in `applyData`, `scheduleRender` epoch check), live sync polling timer tracking (`liveSyncPollTimerId` declaration and assignment, `pagehide` cleanup handler), `normalizeMapData` → `applyTestState` consistent render state validation
+- structural lifecycle assertions: `renderEpoch` variable and increment pattern, `liveSyncPollTimerId` declaration and assignment pattern, `pagehide` event handling, localStorage key documentation comments in both `site.js` and `map.js`, WebGL context loss resize timer cleanup in `background-pattern.js`
 
 ### Bundled data integrity
 

@@ -17,6 +17,12 @@
     referrerPolicy: "no-referrer"
   };
 
+  /* localStorage keys used by this page (map.html):
+     - sele4n-code-map-v9           : cached map data snapshot (schema v3)
+     - sele4n-code-map-live-sync-meta-v1 : sync cooldown/commit tracking
+     - sele4n-nav-intent-v1         : cross-page hash navigation (sessionStorage)
+     - sele4n-theme                 : theme preference (shared with index.html)
+     See also site.js keys: sele4n-live-v2, sele4n-bg-animation-paused-v1 */
   var CACHE_KEY = "sele4n-code-map-v9";
   var CACHE_SCHEMA_VERSION = 3;
   var CACHE_TTL_MS = 60 * 60 * 1000;
@@ -158,6 +164,7 @@
   };
 
   var renderScheduled = false;
+  var renderEpoch = 0;
   var interiorMenuRenderScheduled = false;
 
   function safeScrollTo(top, behavior) {
@@ -201,8 +208,10 @@
   function scheduleRender() {
     if (renderScheduled) return;
     renderScheduled = true;
+    var epoch = renderEpoch;
     window.requestAnimationFrame(function () {
       renderScheduled = false;
+      if (epoch !== renderEpoch) return;
       renderAll();
     });
   }
@@ -3641,6 +3650,10 @@
   }
 
   function applyData(data) {
+    /* Advance render epoch so any pending scheduled render from the previous
+       data state is skipped — applyData calls renderAll() synchronously below,
+       making the stale frame redundant. */
+    renderEpoch += 1;
     state.files = data.files || [];
     state.modules = data.modules || [];
     state.moduleMap = data.moduleMap || Object.create(null);
@@ -3927,6 +3940,8 @@
     return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: reason === "poll" });
   }
 
+  var liveSyncPollTimerId = 0;
+
   function setupLiveSyncPolling() {
     var inFlight = false;
 
@@ -3943,7 +3958,8 @@
 
     function queueNextPoll() {
       var jitter = Math.floor(Math.random() * 15000);
-      window.setTimeout(function () {
+      liveSyncPollTimerId = window.setTimeout(function () {
+        liveSyncPollTimerId = 0;
         trigger("poll");
         queueNextPoll();
       }, LIVE_SYNC_POLL_INTERVAL_MS + jitter);
@@ -3956,6 +3972,14 @@
     });
     window.addEventListener("focus", function () { trigger("focus"); });
     window.addEventListener("online", function () { trigger("online"); });
+
+    /* Clean up polling timer on page teardown to prevent orphaned timers */
+    window.addEventListener("pagehide", function () {
+      if (liveSyncPollTimerId) {
+        window.clearTimeout(liveSyncPollTimerId);
+        liveSyncPollTimerId = 0;
+      }
+    });
   }
 
   function detailLevelFromState() {

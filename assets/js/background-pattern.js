@@ -812,6 +812,7 @@
     e.preventDefault();
     running = false;
     if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = null; }
   });
 
   canvasA.addEventListener('webglcontextrestored', function () {

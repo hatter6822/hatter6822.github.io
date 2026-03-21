@@ -82,6 +82,7 @@ The code map interior panel supports declaration-first navigation:
 - [Developer guide (file-by-file orientation)](docs/DEVELOPER_GUIDE.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [AI development guidance](CLAUDE.md)
+- [Audit workstream plan](docs/audits/AUDIT_v0.17.14_WORKSTREAM_PLAN.md)
 
 ## Third-party notices
 

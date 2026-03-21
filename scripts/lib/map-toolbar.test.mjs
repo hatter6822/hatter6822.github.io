@@ -230,4 +230,27 @@ assert(/verifiableSurfaceArea:\s*verifiableSurfaceArea/.test(mapJs), "verifiable
 // CSS: cross-module declaration nodes should have dashed border
 assert(/\.flow-node\.cross-module\s+rect\s*\{[^}]*stroke-dasharray/s.test(css), "cross-module declaration nodes should have dashed stroke");
 
+// JS: render epoch guard should exist for stale-frame prevention
+assert(/var renderEpoch\s*=\s*0/.test(mapJs), "renderEpoch variable should be initialized for stale-frame prevention");
+assert(/renderEpoch\s*\+=\s*1/.test(mapJs), "applyData should increment renderEpoch to invalidate pending renders");
+
+// JS: live sync polling should store timer ID for cleanup
+assert(/var liveSyncPollTimerId\s*=\s*0/.test(mapJs), "liveSyncPollTimerId should be declared for polling cleanup");
+assert(/liveSyncPollTimerId\s*=\s*window\.setTimeout/.test(mapJs), "poll timer should be assigned to liveSyncPollTimerId");
+
+// JS: pagehide should clean up polling timer
+assert(/pagehide/.test(mapJs), "pagehide event should be handled for clean polling teardown");
+assert(/clearTimeout\(liveSyncPollTimerId\)/.test(mapJs), "pagehide handler should clear the live sync poll timer");
+
+// JS: localStorage key documentation should be present in map.js
+assert(/localStorage keys used by this page/.test(mapJs), "map.js should document its localStorage keys");
+
+// JS: localStorage key documentation should be present in site.js
+const siteJs = readFileSync(new URL("../../assets/js/site.js", import.meta.url), "utf8");
+assert(/localStorage keys used by this page/.test(siteJs), "site.js should document its localStorage keys");
+
+// JS: background-pattern.js should clear resize timer on context loss
+const bgJs = readFileSync(new URL("../../assets/js/background-pattern.js", import.meta.url), "utf8");
+assert(/webglcontextlost[\s\S]*?clearTimeout\(resizeTimer\)/.test(bgJs), "background-pattern.js should clear resize timer on WebGL context loss");
+
 console.log("map-toolbar.test: ok");

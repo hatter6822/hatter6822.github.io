@@ -399,3 +399,34 @@ Subsystems have been decomposed into focused sub-modules:
 ### In-Lean testing framework
 
 New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.lean`, `Testing/RuntimeContractFixtures.lean`, `Testing/StateBuilder.lean`.
+
+## Lifecycle & Service Coherence (Phase R4)
+
+### Render epoch guard
+
+The map runtime's `scheduleRender()` uses `requestAnimationFrame` to coalesce renders. When `applyData()` replaces the entire data state and calls `renderAll()` synchronously, a previously scheduled rAF could fire afterwards, rendering stale state. A `renderEpoch` counter now increments on every `applyData()` call, and `scheduleRender()` captures the epoch at scheduling time — if the epoch has advanced by the time the rAF fires, the stale render is skipped.
+
+### Live sync polling lifecycle
+
+`setupLiveSyncPolling()` uses recursive `setTimeout` for near-real-time sync. The timer ID is now stored in `liveSyncPollTimerId` so it can be cancelled. A `pagehide` event handler clears the pending timer on page teardown, preventing orphaned timers during navigation.
+
+### WebGL resource cleanup
+
+`background-pattern.js` now clears the debounced resize timer on `webglcontextlost` to prevent resize operations during a lost-context state where GL calls would fail silently.
+
+### localStorage key inventory
+
+All localStorage/sessionStorage keys used across the codebase are documented inline in each runtime file:
+
+| Key | File | Purpose |
+|-----|------|---------|
+| `sele4n-theme` | site.js, map.js | Theme preference (dark/light) |
+| `sele4n-live-v2` | site.js | Cached live site data (schema v4) |
+| `sele4n-code-map-v9` | map.js | Cached map data snapshot (schema v3) |
+| `sele4n-code-map-live-sync-meta-v1` | map.js | Sync cooldown/commit tracking |
+| `sele4n-nav-intent-v1` | site.js, header-nav.js | Cross-page hash navigation (sessionStorage) |
+| `sele4n-bg-animation-paused-v1` | site.js, background-pattern.js | Background animation pause state |
+
+### Utility duplication rationale
+
+Several utility functions (`safeScrollTo`, `normalizePagePath`, `setupTheme`, `hardenExternalLinks`, `setupNav`) are duplicated across `site.js`, `map.js`, and `header-nav.js`. This is intentional: the no-bundler architecture means each HTML page loads its own script set, and `site.js` (index.html) and `map.js` (map.html) never run in the same page context. Each file's copy operates independently with appropriate guards (`typeof window.sele4nSetupHeaderNav !== "function"`) to prevent double-initialization when `header-nav.js` is present.

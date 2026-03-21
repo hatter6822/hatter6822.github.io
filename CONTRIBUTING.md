@@ -64,3 +64,10 @@ If you changed scripts or map data flow:
 - Keep command examples copy/paste-ready.
 - Cross-link docs from `README.md` when adding new guides.
 - Keep `docs/DEVELOPER_GUIDE.md` in sync when adding/renaming top-level runtime or script files so new contributors can still navigate the codebase quickly.
+
+## Lifecycle and service conventions
+
+- Every polling timer or recurring `setTimeout` must store its timer ID in a module-scoped variable and be clearable on `pagehide`.
+- Use the `renderEpoch` guard pattern when scheduling deferred renders that could be invalidated by synchronous data reloads.
+- New `localStorage`/`sessionStorage` keys must follow the `sele4n-<feature>-v<N>` convention and be added to the key reference in `docs/DEVELOPER_GUIDE.md`.
+- WebGL resource cleanup: clear any debounced timers on `webglcontextlost` to prevent operations during a lost-context state.
