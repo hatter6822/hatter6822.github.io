@@ -28,6 +28,7 @@
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
   var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
+  var BG_ANIMATION_KEY = "sele4n-bg-animation-paused-v1";
   var NODE_CACHE = Object.create(null);
   var LABEL_WRAP_CACHE = new Map();
   var LABEL_WRAP_CACHE_LIMIT = 1200;
@@ -1795,12 +1796,16 @@
     defs.appendChild(marker);
     svg.appendChild(defs);
 
+    /* Build layers in detached DocumentFragments so all DOM mutations during
+       node/edge/label construction happen off-screen.  flush() assembles the
+       final SVG in one reflow-free batch append. */
+    var edgeFrag = document.createDocumentFragment();
+    var nodeFrag = document.createDocumentFragment();
+    var labelFrag = document.createDocumentFragment();
+
     var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer", "aria-hidden": "true" });
     var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
     var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });
-    svg.appendChild(edgeLayer);
-    svg.appendChild(nodeLayer);
-    svg.appendChild(labelLayer);
 
     return {
       svg: svg,
@@ -1811,8 +1816,9 @@
          Call this after all nodes/edges/labels have been constructed
          to minimize DOM reflow during construction. */
       flush: function () {
-        /* Layers are already appended to SVG; this is a no-op hook for
-           future fragment-based construction if needed. */
+        svg.appendChild(edgeLayer);
+        svg.appendChild(nodeLayer);
+        svg.appendChild(labelLayer);
       }
     };
   }
@@ -2419,6 +2425,7 @@
       }
     }
 
+    flowSvg.flush();
     wrap.appendChild(svg);
 
     renderFlowNodeInteriorMenu(selected);
@@ -2735,6 +2742,7 @@
       callerEdgeIndex++;
     }
 
+    flowSvg.flush();
     wrap.appendChild(svg);
 
     renderFlowNodeInteriorMenu(moduleName);
@@ -3058,6 +3066,37 @@
       try { localStorage.setItem("sele4n-theme", next); } catch (e) {}
       var meta = document.getElementById("theme-color-meta");
       if (meta) meta.setAttribute("content", next === "light" ? "#f8f9fc" : "#0a0e17");
+    });
+  }
+
+  function setupBackgroundAnimationToggle() {
+    var button = document.getElementById("bg-animation-toggle");
+    if (!button) return;
+
+    function readPausedState() {
+      try { return localStorage.getItem(BG_ANIMATION_KEY) === "1"; } catch (e) { return false; }
+    }
+
+    function applyState(paused) {
+      button.classList.toggle("is-paused", paused);
+      button.setAttribute("aria-pressed", paused ? "true" : "false");
+      button.setAttribute("aria-label", paused ? "Resume background animation" : "Pause background animation");
+      button.title = paused ? "Resume background animation" : "Pause background animation";
+      document.documentElement.setAttribute("data-bg-animation", paused ? "paused" : "running");
+      window.dispatchEvent(new CustomEvent("sele4n:bg-animation-toggle", { detail: { paused: paused } }));
+    }
+
+    applyState(readPausedState());
+
+    button.addEventListener("click", function () {
+      var nextPaused = button.getAttribute("aria-pressed") !== "true";
+      try { localStorage.setItem(BG_ANIMATION_KEY, nextPaused ? "1" : "0"); } catch (e) {}
+      applyState(nextPaused);
+    });
+
+    window.addEventListener("storage", function (event) {
+      if (event.key !== BG_ANIMATION_KEY) return;
+      applyState(readPausedState());
     });
   }
 
@@ -4717,6 +4756,7 @@
   function boot() {
     cacheDomElements();
     setupTheme();
+    setupBackgroundAnimationToggle();
     if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();
     hardenExternalLinks();
     readUrlState();
