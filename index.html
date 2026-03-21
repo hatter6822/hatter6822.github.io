@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark light">
   <title>seLe4n — A Microkernel Written in Lean 4</title>
-  <meta name="description" content="seLe4n is a formally verified microkernel written entirely in Lean 4 with machine-checked proofs, zero sorry, zero axiom. Targeting Raspberry Pi 5.">
-  <meta name="keywords" content="seLe4n, microkernel, Lean 4, formal verification, operating system, kernel, Raspberry Pi 5, theorem proving, capability, IPC">
+  <meta name="description" content="seLe4n is a formally verified microkernel written in Lean 4 with machine-checked proofs and safe Rust syscall wrappers. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
+  <meta name="keywords" content="seLe4n, microkernel, Lean 4, Rust, formal verification, operating system, kernel, Raspberry Pi 5, theorem proving, capability, IPC, syscall, no_std">
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
 
   <meta property="og:title" content="seLe4n — A Microkernel Written in Lean 4">
-  <meta property="og:description" content="Formally verified microkernel with machine-checked proofs. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
+  <meta property="og:description" content="Formally verified microkernel with machine-checked proofs and safe Rust syscall wrappers. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sele4n.org">
 
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="seLe4n — A Microkernel Written in Lean 4">
-  <meta name="twitter:description" content="Formally verified microkernel with machine-checked proofs. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
+  <meta name="twitter:description" content="Formally verified microkernel with machine-checked proofs and safe Rust syscall wrappers. Zero sorry, zero axiom. Targeting Raspberry Pi 5.">
 
   <link rel="canonical" href="https://sele4n.org">
   <link rel="icon" type="image/png" href="assets/images/favicon.png">
@@ -38,9 +38,9 @@
     "@context": "https://schema.org",
     "@type": "SoftwareSourceCode",
     "name": "seLe4n",
-    "description": "A formally verified microkernel written in Lean 4 with machine-checked proofs",
+    "description": "A formally verified microkernel written in Lean 4 with machine-checked proofs and safe Rust syscall wrappers",
     "codeRepository": "https://github.com/hatter6822/seLe4n",
-    "programmingLanguage": "Lean 4",
+    "programmingLanguage": ["Lean 4", "Rust"],
     "license": "https://www.gnu.org/licenses/gpl-3.0.html",
     "version": "0.17.5"
   }
@@ -93,7 +93,7 @@
   <header class="hero" id="hero">
     <div class="hero-bg" aria-hidden="true"></div>
     <div class="container hero-content">      
-      <p class="hero-label">Microkernel &middot; Lean 4 &middot; Formally Verified</p>
+      <p class="hero-label">Microkernel &middot; Lean 4 &middot; Rust &middot; Formally Verified</p>
       <div class="hero-logo" aria-hidden="true">
         <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="" class="logo-img logo-img-light" width="320" height="128" fetchpriority="high" decoding="async">
         <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="" class="logo-img logo-img-dark" width="320" height="128" fetchpriority="high" decoding="async">
@@ -203,6 +203,8 @@
             model is feature-complete with IPC, scheduling, capabilities, memory management,
             information-flow control, and service orchestration. The performance optimization
             is complete &mdash; all hot paths now use O(1) hash-based structures.
+            A companion <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust workspace</a>
+            provides safe, <code>no_std</code> syscall wrappers for user-space programs targeting the kernel.
             Hardware platform bindings for the Raspberry Pi 5 are prepared and awaiting final
             refinement work.
           </p>
@@ -276,6 +278,14 @@
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Platform/Contract.lean" target="_blank" rel="noopener noreferrer" class="arch-block">Contract</a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Platform/Sim" target="_blank" rel="noopener noreferrer" class="arch-block">Simulator</a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Platform/RPi5" target="_blank" rel="noopener noreferrer" class="arch-block">RPi5</a>
+          </div>
+        </div>
+        <div class="arch-layer arch-rust">
+          <div class="arch-layer-label">Rust Syscall Wrappers <span class="arch-layer-stat">3 crates &middot; 14 syscalls &middot; zero unsafe in sele4n-sys</span></div>
+          <div class="arch-blocks">
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-types <span class="arch-stat">Core types &middot; no_std &middot; zero unsafe</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-abi <span class="arch-stat">ARM64 ABI &middot; svc #0 trap</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-sys <span class="arch-stat">Safe wrappers &middot; 14 syscalls</span></a>
           </div>
         </div>
       </div>
@@ -385,6 +395,23 @@
             (BCM2712 memory map, GIC-400 constants, ARM64 config, 48-bit VA / 44-bit PA).
           </p>
         </div>
+        <div class="card card-compact">
+          <h4><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust Syscall Wrappers</a></h4>
+          <p>
+            Three <code>no_std</code> Rust crates provide ergonomic, fully safe wrappers around all 14 seLe4n syscalls.
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-types</code></a> defines
+            14 <code>#[repr(transparent)]</code> newtype identifiers, a 34-variant <code>KernelError</code> enum, and bitmask-based
+            <code>AccessRights</code> &mdash; all with <code>#![deny(unsafe_code)]</code>.
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-abi</code></a> handles
+            ARM64 register encoding/decoding, IPC buffer overflow, and <code>MessageInfo</code> bitfield packing &mdash;
+            with exactly <strong>one</strong> <code>unsafe</code> block: the inline <code>svc #0</code> instruction in
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/rust/sele4n-abi/src/trap.rs" target="_blank" rel="noopener noreferrer" class="code-link"><code>trap.rs</code></a>.
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-sys</code></a> exposes
+            typed wrappers for IPC (send/receive/call/reply), CSpace (mint/copy/move/delete),
+            lifecycle (retype), VSpace (map/unmap with W^X enforcement), and service registry
+            (register/revoke/query) &mdash; zero <code>unsafe</code> code.
+          </p>
+        </div>
       </div>
     </div>
   </section>
@@ -457,6 +484,11 @@
               <td><strong>Syscall boundary</strong></td>
               <td>Unverified register parsing</td>
               <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/SyscallArgDecode.lean" target="_blank" rel="noopener noreferrer">Verified decode</a> with roundtrip + determinism proofs</td>
+            </tr>
+            <tr>
+              <td><strong>User-space bindings</strong></td>
+              <td>C headers with manual register marshalling</td>
+              <td><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer">Safe Rust wrappers</a> &mdash; typed capabilities, zero <code>unsafe</code> in sele4n-sys, single <code>svc #0</code> trap</td>
             </tr>
             <tr>
               <td><strong>State model</strong></td>
@@ -611,6 +643,24 @@
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/SyscallArgDecode.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>SyscallArgDecode</code></a> (28 determinism proofs)
             verify the hardware-software boundary end-to-end.
             48-bit VA / 44-bit PA address space for RPi5.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Safe Rust Syscall Wrappers</a></h3>
+          <p>
+            Three <code>no_std</code> Rust crates wrap all 14 seLe4n syscalls with ergonomic, fully safe APIs.
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-types</code></a>
+            mirrors the Lean kernel&rsquo;s typed identifiers and 34-variant error model with <code>#![deny(unsafe_code)]</code>.
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-abi</code></a>
+            handles ARM64 register marshalling with exactly one <code>unsafe</code> block &mdash; the <code>svc&nbsp;#0</code> trap.
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-sys</code></a>
+            provides phantom-typed <a href="https://github.com/hatter6822/seLe4n/blob/main/rust/sele4n-sys/src/cap.rs" target="_blank" rel="noopener noreferrer" class="code-link"><code>Cap&lt;Obj,&nbsp;Rts&gt;</code></a>
+            capabilities with compile-time rights tracking, W^X enforcement on VSpace mappings, and IPC buffer
+            overflow handling for ARM64&rsquo;s 4-register inline limit. Mock trap on non-AArch64 enables host-based testing.
           </p>
         </div>
 
@@ -916,6 +966,12 @@
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/docs" target="_blank" rel="noopener noreferrer">docs/</a> <span class="tree-desc">&mdash; Living specifications, ADRs, threat model, IF roadmap, and claim index evidence.</span></div>
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/scripts" target="_blank" rel="noopener noreferrer">scripts/</a> <span class="tree-desc">&mdash; <span data-live="scripts">19</span> test, CI, and documentation scripts</span></div>
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/tests" target="_blank" rel="noopener noreferrer">tests/</a> <span class="tree-desc">&mdash; InformationFlowSuite, NegativeStateSuite, TraceSequenceProbe</span></div>
+          <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer">rust/</a> <span class="tree-desc">&mdash; Rust workspace (3 crates, 14 syscall wrappers)</span></div>
+          <div class="tree-children">
+            <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer">sele4n-types/</a> <span class="tree-desc">&mdash; Core types, 14 newtypes, KernelError, AccessRights &middot; no_std &middot; zero unsafe</span></div>
+            <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer">sele4n-abi/</a> <span class="tree-desc">&mdash; ARM64 register ABI, MessageInfo, trap (sole unsafe: svc #0)</span></div>
+            <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer">sele4n-sys/</a> <span class="tree-desc">&mdash; Safe syscall wrappers: IPC, CSpace, lifecycle, VSpace, service &middot; zero unsafe</span></div>
+          </div>
         </div>
       </div>
     </div>
@@ -977,6 +1033,20 @@ cd seLe4n</code></pre>
 
 <span class="cm"># Quick CI check (Tiers 0-1 only)</span>
 ./scripts/test_fast.sh</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number" aria-hidden="true">5</div>
+          <div class="step-content">
+            <h3>Build Rust Syscall Wrappers</h3>
+            <p>
+              The <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link"><code>rust/</code></a> workspace
+              provides safe, <code>no_std</code> wrappers around all 14 seLe4n syscalls. Builds on both ARM64 (real trap) and x86_64 (mock trap for host-based testing).
+            </p>
+            <pre><code>cd rust
+cargo build
+cargo test</code></pre>
           </div>
         </div>
       </div>
@@ -1063,6 +1133,20 @@ cd seLe4n</code></pre>
               object store HashMap, ASID resolution table, RunQueue restructure, CNode slot HashMap,
               VSpace mapping HashMap, IPC dual-queue + notification, graph traversal optimization,
               and information-flow projection optimization. 400+ theorems re-verified.
+            </p>
+          </div>
+        </div>
+        <div class="timeline-item done">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <h3>Rust Syscall Wrappers <span class="timeline-tag">Complete</span></h3>
+            <p>
+              Three <code>no_std</code> Rust crates (<a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-types</a>,
+              <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-abi</a>,
+              <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-sys</a>)
+              providing safe wrappers around all 14 syscalls. Phantom-typed capabilities,
+              ARM64 register ABI layer, W^X enforcement, IPC buffer overflow handling.
+              Single <code>unsafe</code> block isolated to the <code>svc&nbsp;#0</code> trap instruction.
             </p>
           </div>
         </div>

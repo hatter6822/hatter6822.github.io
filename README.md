@@ -1,6 +1,6 @@
 # seLe4n Website
 
-Static site for **seLe4n**, including a marketing homepage and an interactive architecture/codebase map.
+Static site for **seLe4n**, including a marketing homepage and an interactive architecture/codebase map. Covers the Lean 4 kernel model, Rust syscall wrappers, and hardware platform bindings.
 
 ## Current website release
 

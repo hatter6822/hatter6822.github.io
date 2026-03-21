@@ -887,6 +887,9 @@ html:not([data-theme="light"]) .hero-subtitle {
 .arch-platform { background: rgba(198, 120, 221, 0.04); }
 .arch-platform .arch-block { border-color: rgba(198, 120, 221, 0.2); }
 
+.arch-rust { background: rgba(222, 120, 60, 0.05); }
+.arch-rust .arch-block { border-color: rgba(222, 120, 60, 0.25); }
+
 /* --- Features Grid --- */
 .features-grid {
   display: grid;
