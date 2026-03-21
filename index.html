@@ -139,7 +139,8 @@
     <div class="container">
       <h2 class="section-title">What is seLe4n?</h2>
       <p class="section-lead">
-        seLe4n is a capability-based microkernel written entirely in <strong>Lean 4</strong> with machine-checked proofs.
+        seLe4n is a capability-based microkernel whose kernel model is written entirely in <strong>Lean 4</strong> with machine-checked proofs,
+        complemented by safe <strong>Rust</strong> syscall wrappers for user-space programs.
         It targets the <strong>Raspberry Pi 5</strong> (ARM64 / BCM2712) as its first hardware platform.
       </p>
 
@@ -225,9 +226,18 @@
         executable logic (<code>Operations.lean</code>) from machine-checked proofs
         (<code>Invariant.lean</code>). Layers compose upward into a unified
         <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>apiInvariantBundle</code></a> that covers the entire kernel.
+        A companion <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust workspace</a> provides safe, <code>no_std</code> syscall wrappers above the API surface for user-space programs.
       </p>
 
-      <div class="arch-diagram" role="img" aria-label="seLe4n architecture diagram showing layered subsystems from API surface down to platform bindings">
+      <div class="arch-diagram" role="img" aria-label="seLe4n architecture diagram showing Rust user-space wrappers, kernel API surface, and layered subsystems down to platform bindings">
+        <div class="arch-layer arch-rust">
+          <div class="arch-layer-label">Rust User-Space Wrappers <span class="arch-layer-stat">3 crates &middot; 14 syscalls &middot; zero unsafe in sele4n-sys</span></div>
+          <div class="arch-blocks">
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-types <span class="arch-stat">Core types &middot; no_std &middot; zero unsafe</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-abi <span class="arch-stat">ARM64 ABI &middot; svc #0 trap</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-sys <span class="arch-stat">Safe wrappers &middot; 14 syscalls</span></a>
+          </div>
+        </div>
         <div class="arch-layer arch-api">
           <div class="arch-layer-label">API Surface</div>
           <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="arch-block">Kernel API <span class="arch-hint">SeLe4n/Kernel/API.lean</span></a>
@@ -278,14 +288,6 @@
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Platform/Contract.lean" target="_blank" rel="noopener noreferrer" class="arch-block">Contract</a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Platform/Sim" target="_blank" rel="noopener noreferrer" class="arch-block">Simulator</a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Platform/RPi5" target="_blank" rel="noopener noreferrer" class="arch-block">RPi5</a>
-          </div>
-        </div>
-        <div class="arch-layer arch-rust">
-          <div class="arch-layer-label">Rust Syscall Wrappers <span class="arch-layer-stat">3 crates &middot; 14 syscalls &middot; zero unsafe in sele4n-sys</span></div>
-          <div class="arch-blocks">
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-types <span class="arch-stat">Core types &middot; no_std &middot; zero unsafe</span></a>
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-abi <span class="arch-stat">ARM64 ABI &middot; svc #0 trap</span></a>
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-sys <span class="arch-stat">Safe wrappers &middot; 14 syscalls</span></a>
           </div>
         </div>
       </div>
@@ -901,6 +903,7 @@
       <p class="section-lead">
         The kernel exposes a stable public API through <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>SeLe4n/Kernel/API.lean</code></a>.
         All entry points are classified by subsystem and stability.
+        The 14 syscall-facing operations have corresponding safe Rust wrappers in <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-sys</code></a>.
       </p>
 
       <div class="table-wrap">

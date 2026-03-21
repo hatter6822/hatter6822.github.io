@@ -424,7 +424,7 @@ Three crates form a layered dependency chain:
 
 ### Website integration
 
-- Architecture diagram: new "Rust Syscall Wrappers" layer with `.arch-rust` CSS styling
+- Architecture diagram: new "Rust User-Space Wrappers" layer at the top of the diagram (above the Lean kernel API surface) with `.arch-rust` CSS styling, reflecting that these crates represent the user-space side of the syscall boundary
 - Architecture cards: detailed Rust crate description card
 - Comparison table: "User-space bindings" row contrasting C headers vs safe Rust wrappers
 - Features grid: "Safe Rust Syscall Wrappers" feature card
