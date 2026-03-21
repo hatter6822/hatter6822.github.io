@@ -832,7 +832,7 @@ html:not([data-theme="light"]) .hero-subtitle {
   font-weight: 600;
   color: var(--text-bright);
   text-align: center;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 6rem;
 }
 
