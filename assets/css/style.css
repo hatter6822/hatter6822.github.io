@@ -834,6 +834,7 @@ html:not([data-theme="light"]) .hero-subtitle {
   text-align: center;
   flex: 1 1 auto;
   min-width: 6rem;
+  max-width: calc(33.333% - 0.5rem);
 }
 
 /* File path hints inside architecture blocks */
@@ -1683,6 +1684,7 @@ html:not([data-theme="light"]) .hero-subtitle {
   }
   .arch-block {
     min-width: 0;
+    max-width: none;
     padding: 0.4375rem 0.625rem;
     font-size: 0.75rem;
     word-break: break-word;
