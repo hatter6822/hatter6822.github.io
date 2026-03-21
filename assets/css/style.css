@@ -820,6 +820,7 @@ html:not([data-theme="light"]) .hero-subtitle {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+  justify-content: center;
 }
 
 .arch-block {
