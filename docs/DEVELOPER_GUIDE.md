@@ -53,6 +53,8 @@ Owns:
   1. `theme-init.js` (early, in `<head>`) to avoid theme flash.
   2. `header-nav.js`, `background-pattern.js`, `site.js` (deferred in body).
 
+The landing page includes documentation of the upstream seLe4n Rust syscall wrapper crates (`sele4n-types`, `sele4n-abi`, `sele4n-sys`) in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap sections.
+
 Edit this file when adding/removing a section, changing metadata defaults, or wiring new live data placeholders.
 
 ### `map.html` (interactive map page)

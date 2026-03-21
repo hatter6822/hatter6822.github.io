@@ -399,3 +399,36 @@ Subsystems have been decomposed into focused sub-modules:
 ### In-Lean testing framework
 
 New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.lean`, `Testing/RuntimeContractFixtures.lean`, `Testing/StateBuilder.lean`.
+
+## Rust syscall wrapper layer
+
+The upstream seLe4n repository includes a `rust/` workspace (v0.17.13, Rust 2021 edition, GPL-3.0) providing safe, `no_std` user-space bindings for all 14 kernel syscalls. The website now documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+
+### Crate architecture
+
+Three crates form a layered dependency chain:
+
+1. **`sele4n-types`** — Zero-dependency foundation. 14 `#[repr(transparent)]` newtype identifiers mirroring `SeLe4n/Prelude.lean` (ObjId, ThreadId, CPtr, Slot, ASID, VAddr, PAddr, etc.), a 34-variant `KernelError` enum matching the Lean kernel model, bitmask-based `AccessRights` (Read/Write/Grant/GrantReply/Retype), and a 14-variant `SyscallId` enum with `#[repr(u64)]` discriminants. Enforces `#![deny(unsafe_code)]`.
+
+2. **`sele4n-abi`** — ARM64 register ABI layer. `MessageInfo` bitfield encoding/decoding, syscall request/response marshalling via `encode`/`decode` modules, IPC buffer overflow handling for messages exceeding the 4-register inline limit (x2–x5), and `TypeTag`/`PagePerms` enums. Contains exactly **one** `unsafe` block: the inline `svc #0` instruction in `trap.rs`. Non-AArch64 targets get a mock trap returning `InvalidSyscallNumber` for host-based testing.
+
+3. **`sele4n-sys`** — Safe high-level wrappers. Organized into six modules:
+   - `ipc.rs` — `endpoint_send`, `endpoint_receive`, `endpoint_call`, `endpoint_reply`, `notification_signal`, `notification_wait`
+   - `cspace.rs` — `cspace_mint`, `cspace_copy`, `cspace_move`, `cspace_delete`
+   - `lifecycle.rs` — `lifecycle_retype` with convenience wrappers (`retype_tcb`, `retype_endpoint`, etc.)
+   - `vspace.rs` — `vspace_map` (with W^X pre-check), `vspace_unmap`, plus `vspace_map_read_only`/`read_write`/`read_execute` helpers
+   - `service.rs` — `service_register`, `service_revoke`, `service_query`
+   - `cap.rs` — Phantom-typed `Cap<Obj, Rts>` with sealed marker traits, compile-time rights tracking, and safe `restrict()` (the insecure `downgrade()` was removed)
+
+   Zero `unsafe` code — all unsafe is isolated in `sele4n-abi`.
+
+### Website integration
+
+- Architecture diagram: new "Rust User-Space Wrappers" layer at the top of the diagram (above the Lean kernel API surface) with `.arch-rust` CSS styling, reflecting that these crates represent the user-space side of the syscall boundary
+- Architecture cards: detailed Rust crate description card
+- Comparison table: "User-space bindings" row contrasting C headers vs safe Rust wrappers
+- Features grid: "Safe Rust Syscall Wrappers" feature card
+- Project structure tree: `rust/` directory with three crate entries
+- Getting Started: Step 5 with `cargo build && cargo test` instructions
+- Roadmap: completed "Rust Syscall Wrappers" milestone entry
+- Meta tags: updated descriptions across both pages to mention Rust
