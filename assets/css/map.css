@@ -220,6 +220,7 @@
   margin-left: auto;
   justify-content: flex-end;
   max-width: min(52rem, calc(100% - 0.35rem));
+  contain: layout style;
 }
 .legend-item {
   display: inline-flex;
@@ -396,6 +397,7 @@
   scrollbar-gutter: stable both-edges;
   scroll-behavior: smooth;
   contain: layout style;
+  will-change: scroll-position;
 }
 
 @supports not (scrollbar-gutter: stable) {
@@ -406,7 +408,7 @@
 /* SVG must declare its intrinsic size so the browser can calculate scrollable
    overflow correctly.  min-width:0 prevents flexbox/grid from collapsing it,
    while the actual width comes from the viewBox attribute set in JS. */
-.flowchart-svg { width: 100%; min-width: 0; height: auto; display: block; }
+.flowchart-svg { width: 100%; min-width: 0; height: auto; display: block; shape-rendering: geometricPrecision; }
 /* On compact viewports, render the SVG at its intrinsic viewBox size rather
    than scaling-to-fit.  This keeps node text readable at 1:1 and relies on
    the parent .flowchart-wrap's overflow:auto for native pan/scroll. */
@@ -420,7 +422,7 @@
   font-size: 0.75rem;
 }
 .flow-edge-layer { pointer-events: none; }
-.flow-line { fill: none; stroke-width: 2; opacity: 0.92; stroke-linecap: round; stroke-linejoin: round; }
+.flow-line { fill: none; stroke-width: 2; opacity: 0.92; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .flow-line.proof-link { stroke-dasharray: 6 4; stroke-width: 2.2; opacity: 0.85; }
 .flow-node { cursor: pointer; overflow: hidden; }
 .flow-node rect {
@@ -429,6 +431,10 @@
   ry: 10;
   transition: stroke 0.15s ease-out, stroke-width 0.15s ease-out, filter 0.15s ease-out, fill 0.15s ease-out;
 }
+/* Promote active node to its own compositing layer during interaction
+   so hover/focus filter changes don't repaint the entire SVG. */
+.flow-node:not(.static):hover,
+.flow-node:not(.static):focus-visible { will-change: filter; }
 .flow-node text {
   font-family: var(--font-mono);
   font-size: 11.5px;
@@ -816,6 +822,10 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .stat-card { animation: none; }
+  .flow-node rect { transition: none; }
+  .flow-node .assurance-bar,
+  .flow-node .assurance-icon { transition: none; }
+  .flowchart-wrap { scroll-behavior: auto; }
 }
 @keyframes stat-card-in {
   from { opacity: 0; transform: translateY(4px); }
