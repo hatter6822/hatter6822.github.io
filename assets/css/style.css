@@ -884,6 +884,14 @@ html:not([data-theme="light"]) .hero-subtitle {
 
 .arch-hw { background: rgba(224, 108, 117, 0.04); }
 .arch-hw .arch-block { border-color: rgba(224, 108, 117, 0.2); }
+.arch-hw .arch-blocks {
+  flex-wrap: nowrap;
+}
+.arch-hw .arch-blocks .arch-block {
+  max-width: none;
+  min-width: 0;
+  padding: 0.5rem 0.625rem;
+}
 
 .arch-model { background: rgba(91, 160, 245, 0.03); }
 .arch-model .arch-block { border-color: rgba(91, 160, 245, 0.15); }
