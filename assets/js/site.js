@@ -30,6 +30,7 @@
   };
 
   var LIVE_NODE_CACHE = Object.create(null);
+  var lastAppliedData = null;
 
 
   function normalizePagePath(pathname, options) {
@@ -88,6 +89,7 @@
   }
 
   function applyData(data) {
+    lastAppliedData = data;
     update("version", data.version);
     update("lean-version", data.leanVersion);
     update("modules", data.modules);
@@ -200,6 +202,10 @@
 
     window.addEventListener("storage", function (event) {
       if (event.key !== BG_ANIMATION_KEY) return;
+      applyState(readPausedState());
+    });
+
+    window.addEventListener("sele4n:locale-changed", function () {
       applyState(readPausedState());
     });
   }
@@ -788,6 +794,11 @@
     });
   }
   hardenExternalLinks();
+
+  window.addEventListener("sele4n:locale-changed", function () {
+    for (var k in LIVE_NODE_CACHE) delete LIVE_NODE_CACHE[k];
+    if (lastAppliedData) applyData(lastAppliedData);
+  });
 
   if (typeof requestIdleCallback === "function") requestIdleCallback(refreshLiveData);
   else setTimeout(refreshLiveData, 1);

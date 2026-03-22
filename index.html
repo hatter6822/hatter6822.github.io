@@ -82,7 +82,7 @@
           <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
-        <button class="theme-toggle bg-animation-toggle" id="bg-animation-toggle" aria-label="Pause background animation" aria-pressed="false" title="Pause background animation">
+        <button class="theme-toggle bg-animation-toggle" id="bg-animation-toggle" aria-label="Pause background animation" aria-pressed="false" title="Pause background animation" data-i18n-aria-label="nav.pause_bg" data-i18n-title="nav.pause_bg">
           <svg class="icon-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
           <svg class="icon-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 5v14l11-7z"/></svg>
         </button>
@@ -91,7 +91,7 @@
             <svg class="icon-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             <span class="lang-switcher-label" id="lang-switcher-label">EN</span>
           </button>
-          <ul class="lang-switcher-menu" id="lang-switcher-menu" role="listbox" aria-label="Select language" hidden></ul>
+          <ul class="lang-switcher-menu" id="lang-switcher-menu" role="listbox" aria-label="Select language" data-i18n-aria-label="nav.select_language" hidden></ul>
         </div>
       </div>
     </div>
@@ -177,14 +177,14 @@
 
       <div class="callout">
         <h3 data-i18n="about.how_it_works_title">How It Works: Pure Functional Kernel Transitions</h3>
-        <p>
+        <p data-i18n-html="about.how_it_works_p1">
           In seLe4n, every kernel operation is a <strong>pure function</strong> from state to state.
           The entire kernel state &mdash; object stores, scheduler queues, capabilities, IPC queues,
           ASID tables &mdash; is captured in a single immutable <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/State.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>SystemState</code></a> record. Every
           system call takes the current state and returns a new state (or an error). There is no
           mutable global state, no side effects, and no hidden control flow.
         </p>
-        <p>
+        <p data-i18n-html="about.how_it_works_p2">
           This is made possible by the <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Prelude.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>KernelM</code></a> monad, defined as
           <code>&#963; &rarr; Except &#949; (&#945; &times; &#963;)</code> &mdash; a state-transformer
           with explicit error handling. Every transition is deterministic: given the same input state
@@ -207,7 +207,7 @@
         </div>
         <div class="card">
           <h3 data-i18n="about.status_title">Project Status</h3>
-          <p>
+          <p data-i18n-html="about.status_text">
             seLe4n is an active research project at version <strong data-live="version">0.17.5</strong>. The kernel
             model is feature-complete with IPC, scheduling, capabilities, memory management,
             information-flow control, and service orchestration. The performance optimization
@@ -229,7 +229,7 @@
   <section class="section section-alt" id="architecture">
     <div class="container">
       <h2 class="section-title" data-i18n="architecture.title">Architecture</h2>
-      <p class="section-lead">
+      <p class="section-lead" data-i18n-html="architecture.lead">
         seLe4n follows a <strong>layered contract model</strong>. Each subsystem separates
         executable logic (<code>Operations.lean</code>) from machine-checked proofs
         (<code>Invariant.lean</code>). Layers compose upward into a unified
@@ -237,9 +237,9 @@
         A companion <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust workspace</a> provides safe, <code>no_std</code> syscall wrappers above the API surface for user-space programs.
       </p>
 
-      <div class="arch-diagram" role="img" aria-label="seLe4n architecture diagram showing Rust user-space wrappers, kernel API surface, and layered subsystems down to platform bindings">
+      <div class="arch-diagram" role="img" aria-label="seLe4n architecture diagram showing Rust user-space wrappers, kernel API surface, and layered subsystems down to platform bindings" data-i18n-aria-label="architecture.diagram_aria">
         <div class="arch-layer arch-rust">
-          <div class="arch-layer-label">Rust User-Space Wrappers <span class="arch-layer-stat">3 crates &middot; 14 syscalls &middot; zero unsafe in sele4n-sys</span></div>
+          <div class="arch-layer-label"><span data-i18n="architecture.rust_layer">Rust User-Space Wrappers</span> <span class="arch-layer-stat">3 crates &middot; 14 syscalls &middot; zero unsafe in sele4n-sys</span></div>
           <div class="arch-blocks">
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-types <span class="arch-stat">Core types &middot; no_std &middot; zero unsafe</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-abi <span class="arch-stat">ARM64 ABI &middot; svc #0 trap</span></a>
@@ -247,11 +247,11 @@
           </div>
         </div>
         <div class="arch-layer arch-api">
-          <div class="arch-layer-label">API Surface</div>
+          <div class="arch-layer-label" data-i18n="architecture.api_surface">API Surface</div>
           <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="arch-block">Kernel API <span class="arch-hint">SeLe4n/Kernel/API.lean</span></a>
         </div>
         <div class="arch-layer arch-core">
-          <div class="arch-layer-label">Core Subsystems</div>
+          <div class="arch-layer-label" data-i18n="architecture.core_subsystems">Core Subsystems</div>
           <div class="arch-blocks">
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer" class="arch-block">Scheduler <span class="arch-stat">6 files &middot; 133 thms</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer" class="arch-block">Capability <span class="arch-stat">5 files &middot; 118 thms</span></a>
@@ -261,7 +261,7 @@
           </div>
         </div>
         <div class="arch-layer arch-security">
-          <div class="arch-layer-label">Information Flow <span class="arch-layer-stat">9 files &middot; 182 theorems</span></div>
+          <div class="arch-layer-label"><span data-i18n="architecture.information_flow">Information Flow</span> <span class="arch-layer-stat">9 files &middot; 182 theorems</span></div>
           <div class="arch-blocks">
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="arch-block">Policy</a>
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean" target="_blank" rel="noopener noreferrer" class="arch-block">Projection</a>
@@ -270,7 +270,7 @@
           </div>
         </div>
         <div class="arch-layer arch-hw">
-          <div class="arch-layer-label">Hardware Abstraction <span class="arch-layer-stat">9 files &middot; 123 theorems</span></div>
+          <div class="arch-layer-label"><span data-i18n="architecture.hw_abstraction">Hardware Abstraction</span> <span class="arch-layer-stat">9 files &middot; 123 theorems</span></div>
           <div class="arch-blocks">
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener noreferrer" class="arch-block">VSpace</a>
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpaceBackend.lean" target="_blank" rel="noopener noreferrer" class="arch-block">VSpaceBackend</a>
@@ -281,7 +281,7 @@
           </div>
         </div>
         <div class="arch-layer arch-model">
-          <div class="arch-layer-label">Foundations</div>
+          <div class="arch-layer-label" data-i18n="architecture.foundations">Foundations</div>
           <div class="arch-blocks">
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Model/Object" target="_blank" rel="noopener noreferrer" class="arch-block">Object Model <span class="arch-stat">Types &middot; Structures</span></a>
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/State.lean" target="_blank" rel="noopener noreferrer" class="arch-block">State</a>
@@ -291,7 +291,7 @@
           </div>
         </div>
         <div class="arch-layer arch-platform">
-          <div class="arch-layer-label">Platform Bindings</div>
+          <div class="arch-layer-label" data-i18n="architecture.platform_bindings">Platform Bindings</div>
           <div class="arch-blocks">
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Platform/Contract.lean" target="_blank" rel="noopener noreferrer" class="arch-block">Contract</a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Platform/Sim" target="_blank" rel="noopener noreferrer" class="arch-block">Simulator</a>
@@ -526,7 +526,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           </div>
-          <h3>O(1) Everywhere</h3>
+          <h3 data-i18n="features.o1_title">O(1) Everywhere</h3>
           <p>
             Every hot-path data structure uses hash-based collections, backed by a
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer" class="code-link">verified Robin Hood hash map</a>
@@ -542,7 +542,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer" class="code-link">Verified Robin Hood Hash Map</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.robin_hood_title">Verified Robin Hood Hash Map</a></h3>
           <p>
             A ground-up verified Robin Hood hash table across 7 modules. Open addressing with linear
             probing, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/RobinHood/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>RHTable</code></a>
@@ -560,7 +560,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer" class="code-link">Priority-Bucketed Scheduler</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.scheduler_title">Priority-Bucketed Scheduler</a></h3>
           <p>
             133 theorems across 6 files. The <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>RunQueue</code></a> is backed by <code>HashMap Priority (List ThreadId)</code>
             with a <code>HashSet ThreadId</code> membership index. Domain-aware EDF scheduling
@@ -577,7 +577,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="code-link">Intrusive Dual-Queue IPC</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.ipc_title">Intrusive Dual-Queue IPC</a></h3>
           <p>
             223 theorems across 14 deeply modularized files. Endpoints maintain separate
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>sendQ</code></a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>receiveQ</code></a> lists. Each TCB carries intrusive
@@ -593,7 +593,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer" class="code-link">Capability Derivation Tree</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.cdt_title">Capability Derivation Tree</a></h3>
           <p>
             Node-stable CDT with <code>childMap : HashMap CdtNodeId (List CdtNodeId)</code>
             for O(1) slot transfer and revocation. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>descendantsOf</code></a> runs in O(N+E).
@@ -608,7 +608,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer" class="code-link">N-Domain Information Flow</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.info_flow_title">N-Domain Information Flow</a></h3>
           <p>
             182 theorems across 9 deeply modularized files. Parameterized security framework with two-dimensional labels (confidentiality +
             integrity). <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a> supports arbitrary domain counts and
@@ -628,7 +628,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="code-link">Service Orchestration</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.service_title">Service Orchestration</a></h3>
           <p>
             90 theorems across 4 files. First-class kernel service concept with graph-based lifecycle management and O(n+e) DFS cycle detection
             using <code>HashSet ServiceId</code>. Invariant proofs split into
@@ -643,7 +643,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer" class="code-link">Architecture &amp; Memory</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.arch_title">Architecture &amp; Memory</a></h3>
           <p>
             123 theorems across 9 modules. Virtual address space with <code>HashMap VAddr PAddr</code> mappings
             and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpaceBackend.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>VSpaceBackend</code></a> adapter pattern.
@@ -659,7 +659,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Safe Rust Syscall Wrappers</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.rust_title">Safe Rust Syscall Wrappers</a></h3>
           <p>
             Three <code>no_std</code> Rust crates wrap all 14 seLe4n syscalls with ergonomic, fully safe APIs.
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-types</code></a>
@@ -677,7 +677,7 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="code-link">Composable Invariant Bundles</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.invariant_title">Composable Invariant Bundles</a></h3>
           <p>
             Each subsystem proves its own invariant bundle. Bundles compose upward:
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Invariant.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>coreIpcInvariantBundle</code></a>,
@@ -1034,7 +1034,7 @@ cd seLe4n</code></pre>
           <div class="step-number" aria-hidden="true">4</div>
           <div class="step-content">
             <h3 data-i18n="getting_started.step4_title">Run Tests</h3>
-            <p>Start with the smoke test (minimum for PRs), then run the full suite for invariant work.</p>
+            <p data-i18n="getting_started.step4_text">Start with the smoke test (minimum for PRs), then run the full suite for invariant work.</p>
             <pre><code><span class="cm"># Minimum PR requirement (Tiers 0-2)</span>
 ./scripts/test_smoke.sh
 
@@ -1064,7 +1064,7 @@ cargo test</code></pre>
       <div class="grid grid-2">
         <div class="card">
           <h3 data-i18n="getting_started.contributing_title">Contributing</h3>
-          <p>seLe4n welcomes contributors. Before submitting a PR:</p>
+          <p data-i18n="getting_started.contributing_intro">seLe4n welcomes contributors. Before submitting a PR:</p>
           <ul>
             <li>Read the <a href="https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contributing Guide</a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener noreferrer">Development Docs</a></li>
             <li>Identify which area of the project your change addresses</li>
@@ -1076,7 +1076,7 @@ cargo test</code></pre>
         </div>
         <div class="card">
           <h3 data-i18n="getting_started.documentation_title">Documentation</h3>
-          <p>Comprehensive docs live in the <a href="https://github.com/hatter6822/seLe4n/tree/main/docs" target="_blank" rel="noopener noreferrer" class="code-link"><code>docs/</code></a> directory:</p>
+          <p data-i18n-html="getting_started.documentation_intro">Comprehensive docs live in the <a href="https://github.com/hatter6822/seLe4n/tree/main/docs" target="_blank" rel="noopener noreferrer" class="code-link"><code>docs/</code></a> directory:</p>
           <ul>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/spec/SELE4N_SPEC.md" target="_blank" rel="noopener noreferrer">Master Specification</a> &mdash; Complete kernel design</li>
             <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener noreferrer">Development Guide</a> &mdash; Workflow and standards</li>

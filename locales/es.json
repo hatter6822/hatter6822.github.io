@@ -25,7 +25,8 @@
     "toggle_theme": "Alternar tema claro/oscuro",
     "pause_bg": "Pausar animación de fondo",
     "resume_bg": "Reanudar animación de fondo",
-    "language": "Idioma"
+    "language": "Idioma",
+    "select_language": "Seleccionar idioma"
   },
   "hero": {
     "label": "Microkernel \u00b7 Lean 4 \u00b7 Rust \u00b7 Formalmente Verificado",
@@ -53,7 +54,7 @@
     "what_different_title": "¿Qué lo Hace Diferente?",
     "what_different_text": "seLe4n <strong>unifica implementación y prueba en un único lenguaje</strong> \u2014 sin un asistente de pruebas separado, sin capa de traducción, sin brecha semántica. Cada subsistema sigue una separación Operations/Invariant: las transiciones ejecutables residen en <code>Operations.lean</code>, y sus pruebas verificadas por máquina residen junto a ellas en <code>Invariant.lean</code>. El verificador de tipos garantiza que cada invariante se cumple en cada operación.",
     "status_title": "Estado del Proyecto",
-    "status_text": "seLe4n es un proyecto de investigación activo en la versión <strong>{{version}}</strong>. El modelo del kernel está completo funcionalmente con IPC, planificación, capacidades, gestión de memoria, control de flujo de información y orquestación de servicios. La optimización de rendimiento está completa: todas las rutas críticas ahora utilizan estructuras basadas en hash de O(1). Un espacio de trabajo complementario en Rust proporciona wrappers de syscall seguros, <code>no_std</code>, para programas de espacio de usuario dirigidos al kernel. Los enlaces de plataforma para el Raspberry Pi 5 están preparados y a la espera del trabajo de refinamiento final.",
+    "status_text": "seLe4n es un proyecto de investigación activo en la versión <strong data-live=\"version\">{{version}}</strong>. El modelo del kernel está completo funcionalmente con IPC, planificación, capacidades, gestión de memoria, control de flujo de información y orquestación de servicios. La optimización de rendimiento está completa: todas las rutas críticas ahora utilizan estructuras basadas en hash de O(1). Un espacio de trabajo complementario en Rust proporciona wrappers de syscall seguros, <code>no_std</code>, para programas de espacio de usuario dirigidos al kernel. Los enlaces de plataforma para el Raspberry Pi 5 están preparados y a la espera del trabajo de refinamiento final.",
     "created_with": "Creado con dedicación con la ayuda de Claude y Codex."
   },
   "architecture": {
@@ -65,7 +66,8 @@
     "information_flow": "Flujo de Información",
     "hw_abstraction": "Abstracción de Hardware",
     "foundations": "Fundamentos",
-    "platform_bindings": "Enlaces de Plataforma"
+    "platform_bindings": "Enlaces de Plataforma",
+    "diagram_aria": "Diagrama de arquitectura de seLe4n mostrando wrappers de espacio de usuario en Rust, superficie de la API del kernel y subsistemas por capas hasta los enlaces de plataforma"
   },
   "comparison": {
     "title": "seLe4n vs Kernels Verificados Tradicionales",
@@ -172,8 +174,11 @@
     "step3_title": "Compilar y Verificar",
     "step4_title": "Ejecutar Pruebas",
     "step5_title": "Compilar Wrappers de Syscall en Rust",
+    "step4_text": "Comience con la prueba de humo (mínimo para PRs), luego ejecute la suite completa para trabajo con invariantes.",
     "contributing_title": "Contribuciones",
-    "documentation_title": "Documentación"
+    "contributing_intro": "seLe4n da la bienvenida a colaboradores. Antes de enviar un PR:",
+    "documentation_title": "Documentación",
+    "documentation_intro": "La documentación completa se encuentra en el directorio <a href=\"https://github.com/hatter6822/seLe4n/tree/main/docs\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>docs/</code></a>:"
   },
   "roadmap": {
     "title": "Hoja de Ruta",

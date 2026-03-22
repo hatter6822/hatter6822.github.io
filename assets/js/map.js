@@ -3090,8 +3090,12 @@
     function applyState(paused) {
       button.classList.toggle("is-paused", paused);
       button.setAttribute("aria-pressed", paused ? "true" : "false");
-      button.setAttribute("aria-label", paused ? "Resume background animation" : "Pause background animation");
-      button.title = paused ? "Resume background animation" : "Pause background animation";
+      var resumeLabel = (window.sele4nI18n && window.sele4nI18n.t("nav.resume_bg")) || "Resume background animation";
+      var pauseLabel = (window.sele4nI18n && window.sele4nI18n.t("nav.pause_bg")) || "Pause background animation";
+      if (resumeLabel === "nav.resume_bg") resumeLabel = "Resume background animation";
+      if (pauseLabel === "nav.pause_bg") pauseLabel = "Pause background animation";
+      button.setAttribute("aria-label", paused ? resumeLabel : pauseLabel);
+      button.title = paused ? resumeLabel : pauseLabel;
       document.documentElement.setAttribute("data-bg-animation", paused ? "paused" : "running");
       window.dispatchEvent(new CustomEvent("sele4n:bg-animation-toggle", { detail: { paused: paused } }));
     }
@@ -3106,6 +3110,10 @@
 
     window.addEventListener("storage", function (event) {
       if (event.key !== BG_ANIMATION_KEY) return;
+      applyState(readPausedState());
+    });
+
+    window.addEventListener("sele4n:locale-changed", function () {
       applyState(readPausedState());
     });
   }
