@@ -25,7 +25,8 @@
     "toggle_theme": "Basculer le thème clair/sombre",
     "pause_bg": "Suspendre l'animation d'arrière-plan",
     "resume_bg": "Reprendre l'animation d'arrière-plan",
-    "language": "Langue"
+    "language": "Langue",
+    "select_language": "Sélectionner la langue"
   },
   "hero": {
     "label": "Micro-noyau \u00b7 Lean 4 \u00b7 Rust \u00b7 Formellement vérifié",
@@ -53,7 +54,7 @@
     "what_different_title": "Qu'est-ce qui le distingue ?",
     "what_different_text": "seLe4n <strong>unifie implémentation et preuve dans un seul langage</strong> \u2014 pas d'assistant de preuve séparé, pas de couche de traduction, pas de fossé sémantique. Chaque sous-système suit une séparation Operations/Invariant : les transitions exécutables résident dans <code>Operations.lean</code>, et leurs preuves vérifiées par machine se trouvent dans <code>Invariant.lean</code>. Le vérificateur de types garantit que chaque invariant est respecté à travers chaque opération.",
     "status_title": "État du projet",
-    "status_text": "seLe4n est un projet de recherche actif en version <strong>{{version}}</strong>. Le modèle noyau est fonctionnellement complet avec IPC, ordonnancement, capacités, gestion de la mémoire, contrôle des flux d'information et orchestration des services. L'optimisation des performances est terminée \u2014 tous les chemins critiques utilisent désormais des structures à hachage en O(1). Un espace de travail Rust compagnon fournit des wrappers d'appels système sûrs, <code>no_std</code>, pour les programmes en espace utilisateur ciblant le noyau. Les liaisons matérielles pour le Raspberry Pi 5 sont préparées et en attente des derniers travaux de raffinement.",
+    "status_text": "seLe4n est un projet de recherche actif en version <strong data-live=\"version\">{{version}}</strong>. Le modèle noyau est fonctionnellement complet avec IPC, ordonnancement, capacités, gestion de la mémoire, contrôle des flux d'information et orchestration des services. L'optimisation des performances est terminée \u2014 tous les chemins critiques utilisent désormais des structures à hachage en O(1). Un espace de travail Rust compagnon fournit des wrappers d'appels système sûrs, <code>no_std</code>, pour les programmes en espace utilisateur ciblant le noyau. Les liaisons matérielles pour le Raspberry Pi 5 sont préparées et en attente des derniers travaux de raffinement.",
     "created_with": "Créé avec soin grâce à l'aide de Claude et Codex."
   },
   "architecture": {
@@ -65,7 +66,8 @@
     "information_flow": "Flux d'information",
     "hw_abstraction": "Abstraction matérielle",
     "foundations": "Fondations",
-    "platform_bindings": "Liaisons de plateforme"
+    "platform_bindings": "Liaisons de plateforme",
+    "diagram_aria": "Diagramme d'architecture de seLe4n montrant les wrappers Rust en espace utilisateur, la surface API du noyau et les sous-systèmes en couches jusqu'aux liaisons de plateforme"
   },
   "comparison": {
     "title": "seLe4n vs noyaux vérifiés traditionnels",
@@ -149,7 +151,11 @@
     "proof_quality_title": "Classification de la qualité des preuves",
     "high_assurance": "Assurance élevée",
     "low_assurance": "Assurance faible",
-    "resolved_findings": "Constats résolus"
+    "resolved_findings": "Constats résolus",
+    "use_fast": "CI \u2014 hygiène et compilation uniquement",
+    "use_smoke": "Exigence minimale pour les PRs",
+    "use_full": "Vérification complète \u2014 changements d'invariants/théorèmes",
+    "use_nightly": "CI nocturne \u2014 déterminisme + expérimental"
   },
   "api": {
     "title": "Surface API",
@@ -162,7 +168,7 @@
   },
   "structure": {
     "title": "Structure du projet",
-    "lead": "{{modules}} modules noyau organisés selon un schéma cohérent Operations/Invariant, {{scripts}} scripts de test et d'intégration continue, et {{docs}} fichiers de documentation avec spécifications, ADR et feuilles de route."
+    "lead": "<span data-live=\"modules\">{{modules}}</span> modules noyau organisés selon un schéma cohérent Operations/Invariant, <span data-live=\"scripts\">{{scripts}}</span> scripts de test et d'intégration continue, et <span data-live=\"docs\">{{docs}}</span> fichiers de documentation avec spécifications, ADR et feuilles de route."
   },
   "getting_started": {
     "title": "Démarrage",
@@ -172,8 +178,11 @@
     "step3_title": "Compiler et vérifier",
     "step4_title": "Exécuter les tests",
     "step5_title": "Compiler les wrappers d'appels système Rust",
+    "step4_text": "Commencez par le test rapide (minimum pour les PRs), puis lancez la suite complète pour le travail sur les invariants.",
     "contributing_title": "Contribuer",
-    "documentation_title": "Documentation"
+    "contributing_intro": "seLe4n accueille les contributeurs. Avant de soumettre une PR :",
+    "documentation_title": "Documentation",
+    "documentation_intro": "La documentation complète se trouve dans le répertoire <a href=\"https://github.com/hatter6822/seLe4n/tree/main/docs\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>docs/</code></a> :"
   },
   "roadmap": {
     "title": "Feuille de route",
@@ -275,6 +284,13 @@
     "legend_called_by": "Appelé par (entrants)",
     "legend_border_kind": "Bordure = type de déclaration",
     "legend_dashed_cross": "Pointillé = inter-module",
+    "assurance_linked": "Lié (chaîne de preuves Ops\u2194Inv)",
+    "assurance_partial": "Partiel (paire incomplète/déconnectée)",
+    "assurance_local": "Local (théorèmes autonomes)",
+    "assurance_none": "Aucun (pas de couverture de preuves)",
+    "kind_object": "Objets",
+    "kind_extension": "Extensions",
+    "kind_contextInit": "Contextes/Inits",
     "decl_in_module": "{{declaration}} \u2014 déclaration dans {{module}}",
     "module_desc": "{{name}} \u2014 {{description}}"
   }

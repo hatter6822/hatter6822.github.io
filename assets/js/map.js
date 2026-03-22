@@ -81,11 +81,15 @@
     contextInit: ["universe", "universes", "variable", "variables", "parameter", "parameters", "section", "namespace", "end", "initialize"]
   };
   var INTERIOR_KIND_GROUP_ORDER = ["object", "contextInit", "extension"];
-  var INTERIOR_KIND_GROUP_LABELS = {
+  var INTERIOR_KIND_GROUP_LABELS_EN = {
     object: "Objects",
     extension: "Extensions",
     contextInit: "Contexts/Inits"
   };
+  function interiorKindGroupLabel(key) {
+    var i18nKey = "map.kind_" + key;
+    return t(i18nKey) || INTERIOR_KIND_GROUP_LABELS_EN[key] || key;
+  }
   var INTERIOR_KIND_ALL_VALUE = "__all__";
   var INTERIOR_KIND_COLOR_MAP = {
     inductive: "#8ecbff",
@@ -1143,12 +1147,12 @@
 
   function declarationFlowLegendItems() {
     return [
-      { label: "Selected declaration", color: "#7c9cff", group: "edge" },
-      { label: "Calls (outgoing)", color: "#82f0b0", group: "edge" },
-      { label: "Called by (incoming)", color: "#ffad42", group: "edge" },
+      { label: t("map.legend_selected_decl") || "Selected declaration", color: "#7c9cff", group: "edge" },
+      { label: t("map.legend_calls") || "Calls (outgoing)", color: "#82f0b0", group: "edge" },
+      { label: t("map.legend_called_by") || "Called by (incoming)", color: "#ffad42", group: "edge" },
       { separator: true },
-      { label: "Border = declaration kind", color: "#8fa3bf", group: "edge" },
-      { label: "Dashed = cross-module", color: "#8fa3bf", group: "edge" }
+      { label: t("map.legend_border_kind") || "Border = declaration kind", color: "#8fa3bf", group: "edge" },
+      { label: t("map.legend_dashed_cross") || "Dashed = cross-module", color: "#8fa3bf", group: "edge" }
     ];
   }
 
@@ -1368,18 +1372,18 @@
   function flowLegendItems() {
     return [
       /* Edge/lane roles — what lines and positions mean */
-      { label: "Selected module", color: "#7c9cff", group: "edge" },
-      { label: "Imports (dependencies)", color: "#35c98f", group: "edge" },
-      { label: "Impacted (dependents)", color: "#ffad42", group: "edge" },
-      { label: "Proof pair", color: "#d37cff", group: "edge" },
-      { label: "Linked-proof path", color: "#6de2ff", group: "edge" },
-      { label: "External imports", color: "#b9c0d0", group: "edge" },
+      { label: t("map.legend_selected_module") || "Selected module", color: "#7c9cff", group: "edge" },
+      { label: t("map.legend_imports") || "Imports (dependencies)", color: "#35c98f", group: "edge" },
+      { label: t("map.legend_impacted") || "Impacted (dependents)", color: "#ffad42", group: "edge" },
+      { label: t("map.legend_proof_pair") || "Proof pair", color: "#d37cff", group: "edge" },
+      { label: t("map.legend_linked_proof") || "Linked-proof path", color: "#6de2ff", group: "edge" },
+      { label: t("map.legend_external") || "External imports", color: "#b9c0d0", group: "edge" },
       { separator: true },
       /* Assurance indicators — node left-border marks showing proof confidence */
-      { label: ASSURANCE_ICONS.linked + " Linked (Ops\u2194Inv proof chain)", color: ASSURANCE_COLORS.linked, group: "assurance", indicator: "bar" },
-      { label: ASSURANCE_ICONS.partial + " Partial (pair incomplete/disconnected)", color: ASSURANCE_COLORS.partial, group: "assurance", indicator: "bar" },
-      { label: ASSURANCE_ICONS.local + " Local (standalone theorems)", color: ASSURANCE_COLORS.local, group: "assurance", indicator: "bar" },
-      { label: ASSURANCE_ICONS.none + " None (no proof coverage)", color: ASSURANCE_COLORS.none, group: "assurance", indicator: "bar" }
+      { label: ASSURANCE_ICONS.linked + " " + (t("map.assurance_linked") || "Linked (Ops\u2194Inv proof chain)"), color: ASSURANCE_COLORS.linked, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.partial + " " + (t("map.assurance_partial") || "Partial (pair incomplete/disconnected)"), color: ASSURANCE_COLORS.partial, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.local + " " + (t("map.assurance_local") || "Local (standalone theorems)"), color: ASSURANCE_COLORS.local, group: "assurance", indicator: "bar" },
+      { label: ASSURANCE_ICONS.none + " " + (t("map.assurance_none") || "None (no proof coverage)"), color: ASSURANCE_COLORS.none, group: "assurance", indicator: "bar" }
     ];
   }
 
@@ -1423,7 +1427,7 @@
       var kinds = INTERIOR_KIND_GROUPS[groupKey] || [];
       return {
         key: groupKey,
-        label: INTERIOR_KIND_GROUP_LABELS[groupKey] || groupKey,
+        label: interiorKindGroupLabel(groupKey),
         kinds: kinds,
         selectedKind: pickInteriorDefaultKind(interior, kinds, state.interiorMenuSelections[groupKey] || ""),
         totalCount: interiorGroupItemCount(interior, kinds)
@@ -1482,7 +1486,7 @@
         select.setAttribute("aria-label", "Filter " + group.label + " by kind");
         var allOption = document.createElement("option");
         allOption.value = INTERIOR_KIND_ALL_VALUE;
-        allOption.textContent = "All (" + group.totalCount + ")";
+        allOption.textContent = t("map.all_count", { count: group.totalCount }) || ("All (" + group.totalCount + ")");
         allOption.selected = group.selectedKind === INTERIOR_KIND_ALL_VALUE;
         select.appendChild(allOption);
         for (var i = 0; i < group.kinds.length; i++) {
@@ -3090,8 +3094,12 @@
     function applyState(paused) {
       button.classList.toggle("is-paused", paused);
       button.setAttribute("aria-pressed", paused ? "true" : "false");
-      button.setAttribute("aria-label", paused ? "Resume background animation" : "Pause background animation");
-      button.title = paused ? "Resume background animation" : "Pause background animation";
+      var resumeLabel = (window.sele4nI18n && window.sele4nI18n.t("nav.resume_bg")) || "Resume background animation";
+      var pauseLabel = (window.sele4nI18n && window.sele4nI18n.t("nav.pause_bg")) || "Pause background animation";
+      if (resumeLabel === "nav.resume_bg") resumeLabel = "Resume background animation";
+      if (pauseLabel === "nav.pause_bg") pauseLabel = "Pause background animation";
+      button.setAttribute("aria-label", paused ? resumeLabel : pauseLabel);
+      button.title = paused ? resumeLabel : pauseLabel;
       document.documentElement.setAttribute("data-bg-animation", paused ? "paused" : "running");
       window.dispatchEvent(new CustomEvent("sele4n:bg-animation-toggle", { detail: { paused: paused } }));
     }
@@ -3106,6 +3114,10 @@
 
     window.addEventListener("storage", function (event) {
       if (event.key !== BG_ANIMATION_KEY) return;
+      applyState(readPausedState());
+    });
+
+    window.addEventListener("sele4n:locale-changed", function () {
       applyState(readPausedState());
     });
   }
@@ -4336,11 +4348,12 @@
       if (declSuggestion) {
         item.setAttribute("data-module", declSuggestion.module);
         item.setAttribute("data-declaration", declSuggestion.declaration);
-        item.textContent = declSuggestion.declaration + " — declaration in " + declSuggestion.module;
+        item.textContent = t("map.decl_in_module", { declaration: declSuggestion.declaration, module: declSuggestion.module }) || (declSuggestion.declaration + " \u2014 declaration in " + declSuggestion.module);
         item.className += " module-search-option-decl";
       } else {
         item.setAttribute("data-module", name);
-        item.textContent = name + " — " + (state.moduleMap[name] || "");
+        var desc = state.moduleMap[name] || "";
+        item.textContent = (desc && t("map.module_desc", { name: name, description: desc })) || (name + (desc ? " \u2014 " + desc : ""));
       }
       fragment.appendChild(item);
     }

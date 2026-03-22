@@ -25,7 +25,8 @@
     "toggle_theme": "ライト/ダークテーマ切替",
     "pause_bg": "背景アニメーションを一時停止",
     "resume_bg": "背景アニメーションを再開",
-    "language": "言語"
+    "language": "言語",
+    "select_language": "言語を選択"
   },
   "hero": {
     "label": "マイクロカーネル · Lean 4 · Rust · 形式検証済み",
@@ -53,7 +54,7 @@
     "what_different_title": "何が違うのか？",
     "what_different_text": "seLe4nは<strong>実装と証明を単一言語で統合</strong>しています — 別の証明アシスタントも、変換層も、セマンティックギャップもありません。各サブシステムはOperations/Invariant分離パターンに従います。実行可能な遷移は<code>Operations.lean</code>に、機械検査済み証明は<code>Invariant.lean</code>に並んで配置されます。型チェッカーがすべての操作にわたるすべての不変条件の成立を保証します。",
     "status_title": "プロジェクト状況",
-    "status_text": "seLe4nはバージョン<strong>{{version}}</strong>の活発な研究プロジェクトです。カーネルモデルはIPC、スケジューリング、ケイパビリティ、メモリ管理、情報フロー制御、サービスオーケストレーションの機能が完成しています。パフォーマンス最適化は完了し、すべてのホットパスがO(1)ハッシュベース構造を使用しています。コンパニオンRustワークスペースが、カーネルを対象とするユーザースペースプログラム向けの安全な<code>no_std</code> syscallラッパーを提供しています。Raspberry Pi 5のハードウェアプラットフォームバインディングは準備済みで、最終調整作業を待っています。",
+    "status_text": "seLe4nはバージョン<strong data-live=\"version\">{{version}}</strong>の活発な研究プロジェクトです。カーネルモデルはIPC、スケジューリング、ケイパビリティ、メモリ管理、情報フロー制御、サービスオーケストレーションの機能が完成しています。パフォーマンス最適化は完了し、すべてのホットパスがO(1)ハッシュベース構造を使用しています。コンパニオンRustワークスペースが、カーネルを対象とするユーザースペースプログラム向けの安全な<code>no_std</code> syscallラッパーを提供しています。Raspberry Pi 5のハードウェアプラットフォームバインディングは準備済みで、最終調整作業を待っています。",
     "created_with": "ClaudeとCodexの助けを借りて丁寧に作成されました。"
   },
   "architecture": {
@@ -65,7 +66,8 @@
     "information_flow": "情報フロー",
     "hw_abstraction": "ハードウェア抽象化",
     "foundations": "基盤",
-    "platform_bindings": "プラットフォームバインディング"
+    "platform_bindings": "プラットフォームバインディング",
+    "diagram_aria": "seLe4nアーキテクチャ図：Rustユーザースペースラッパー、カーネルAPI表面、プラットフォームバインディングまでの階層型サブシステムを表示"
   },
   "comparison": {
     "title": "seLe4n vs 従来の検証済みカーネル",
@@ -149,7 +151,11 @@
     "proof_quality_title": "証明品質分類",
     "high_assurance": "高保証",
     "low_assurance": "低保証",
-    "resolved_findings": "解決済み指摘"
+    "resolved_findings": "解決済み指摘",
+    "use_fast": "CI — ハイジーンとビルドのみ",
+    "use_smoke": "PR提出の最低要件",
+    "use_full": "完全検証 — インバリアント/定理の変更",
+    "use_nightly": "ナイトリーCI — 決定性 + 実験的"
   },
   "api": {
     "title": "API表面",
@@ -162,7 +168,7 @@
   },
   "structure": {
     "title": "プロジェクト構成",
-    "lead": "一貫したOperations/Invariantパターンで構成された{{modules}}のカーネルモジュール、{{scripts}}のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む{{docs}}のドキュメントファイル。"
+    "lead": "一貫したOperations/Invariantパターンで構成された<span data-live=\"modules\">{{modules}}</span>のカーネルモジュール、<span data-live=\"scripts\">{{scripts}}</span>のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む<span data-live=\"docs\">{{docs}}</span>のドキュメントファイル。"
   },
   "getting_started": {
     "title": "はじめに",
@@ -172,8 +178,11 @@
     "step3_title": "ビルドと検証",
     "step4_title": "テストの実行",
     "step5_title": "Rust Syscallラッパーのビルド",
+    "step4_text": "まずスモークテスト（PR提出の最低要件）から始め、その後インバリアント作業用のフルスイートを実行してください。",
     "contributing_title": "コントリビューション",
-    "documentation_title": "ドキュメント"
+    "contributing_intro": "seLe4nはコントリビューターを歓迎します。PRを提出する前に：",
+    "documentation_title": "ドキュメント",
+    "documentation_intro": "包括的なドキュメントは <a href=\"https://github.com/hatter6822/seLe4n/tree/main/docs\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>docs/</code></a> ディレクトリにあります："
   },
   "roadmap": {
     "title": "ロードマップ",
@@ -275,6 +284,13 @@
     "legend_called_by": "呼び出し元（着信）",
     "legend_border_kind": "ボーダー = 宣言の種類",
     "legend_dashed_cross": "破線 = クロスモジュール",
+    "assurance_linked": "リンク済み (Ops\u2194Inv証明チェーン)",
+    "assurance_partial": "部分的 (ペア不完全/未接続)",
+    "assurance_local": "ローカル (独立した定理)",
+    "assurance_none": "なし (証明カバレッジなし)",
+    "kind_object": "オブジェクト",
+    "kind_extension": "拡張",
+    "kind_contextInit": "コンテキスト/初期化",
     "decl_in_module": "{{declaration}} — {{module}}の宣言",
     "module_desc": "{{name}} — {{description}}"
   }

@@ -25,7 +25,8 @@
     "toggle_theme": "切换亮色/暗色主题",
     "pause_bg": "暂停背景动画",
     "resume_bg": "恢复背景动画",
-    "language": "语言"
+    "language": "语言",
+    "select_language": "选择语言"
   },
   "hero": {
     "label": "微内核 · Lean 4 · Rust · 形式化验证",
@@ -53,7 +54,7 @@
     "what_different_title": "有何独特之处？",
     "what_different_text": "seLe4n <strong>将实现和证明统一在同一种语言中</strong>——没有单独的证明助手，没有翻译层，没有语义鸿沟。每个子系统遵循 Operations/Invariant 分离模式：可执行状态转换位于 <code>Operations.lean</code> 中，对应的机器检查证明则在 <code>Invariant.lean</code> 中。类型检查器确保每个不变量在每个操作中都成立。",
     "status_title": "项目状态",
-    "status_text": "seLe4n 是一个活跃的研究项目，当前版本为 <strong>{{version}}</strong>。内核模型功能完备，涵盖 IPC、调度、能力、内存管理、信息流控制和服务编排。性能优化已完成——所有热路径现均使用 O(1) 基于哈希的数据结构。配套的 Rust 工作区为面向内核的用户空间程序提供安全的 <code>no_std</code> 系统调用封装。Raspberry Pi 5 的硬件平台绑定已准备就绪，等待最终的精化工作。",
+    "status_text": "seLe4n 是一个活跃的研究项目，当前版本为 <strong data-live=\"version\">{{version}}</strong>。内核模型功能完备，涵盖 IPC、调度、能力、内存管理、信息流控制和服务编排。性能优化已完成——所有热路径现均使用 O(1) 基于哈希的数据结构。配套的 Rust 工作区为面向内核的用户空间程序提供安全的 <code>no_std</code> 系统调用封装。Raspberry Pi 5 的硬件平台绑定已准备就绪，等待最终的精化工作。",
     "created_with": "在 Claude 和 Codex 的协助下精心打造。"
   },
   "architecture": {
@@ -65,7 +66,8 @@
     "information_flow": "信息流",
     "hw_abstraction": "硬件抽象",
     "foundations": "基础层",
-    "platform_bindings": "平台绑定"
+    "platform_bindings": "平台绑定",
+    "diagram_aria": "seLe4n 架构图，展示 Rust 用户空间封装、内核 API 表面以及从子系统到平台绑定的分层结构"
   },
   "comparison": {
     "title": "seLe4n 与传统验证内核的对比",
@@ -149,7 +151,11 @@
     "proof_quality_title": "证明质量分类",
     "high_assurance": "高保证",
     "low_assurance": "低保证",
-    "resolved_findings": "已解决的发现"
+    "resolved_findings": "已解决的发现",
+    "use_fast": "CI——仅卫生检查和构建",
+    "use_smoke": "PR 提交的最低要求",
+    "use_full": "完整验证——不变量/定理变更",
+    "use_nightly": "夜间 CI——确定性 + 实验性"
   },
   "api": {
     "title": "API 表面",
@@ -162,7 +168,7 @@
   },
   "structure": {
     "title": "项目结构",
-    "lead": "{{modules}} 个内核模块采用一致的 Operations/Invariant 模式组织，{{scripts}} 个测试和 CI 脚本，以及 {{docs}} 个文档文件包含规范、ADR 和路线图。"
+    "lead": "<span data-live=\"modules\">{{modules}}</span> 个内核模块采用一致的 Operations/Invariant 模式组织，<span data-live=\"scripts\">{{scripts}}</span> 个测试和 CI 脚本，以及 <span data-live=\"docs\">{{docs}}</span> 个文档文件包含规范、ADR 和路线图。"
   },
   "getting_started": {
     "title": "快速开始",
@@ -172,8 +178,11 @@
     "step3_title": "构建与验证",
     "step4_title": "运行测试",
     "step5_title": "构建 Rust 系统调用封装",
+    "step4_text": "先运行冒烟测试（PR 提交的最低要求），然后运行完整测试套件以进行不变量相关工作。",
     "contributing_title": "参与贡献",
-    "documentation_title": "文档"
+    "contributing_intro": "seLe4n 欢迎贡献者。在提交 PR 之前：",
+    "documentation_title": "文档",
+    "documentation_intro": "完整文档位于 <a href=\"https://github.com/hatter6822/seLe4n/tree/main/docs\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>docs/</code></a> 目录中："
   },
   "roadmap": {
     "title": "路线图",
@@ -275,6 +284,13 @@
     "legend_called_by": "被调用（入方向）",
     "legend_border_kind": "边框 = 声明类型",
     "legend_dashed_cross": "虚线 = 跨模块",
+    "assurance_linked": "已链接（Ops\u2194Inv 证明链）",
+    "assurance_partial": "部分（配对不完整/未连接）",
+    "assurance_local": "本地（独立定理）",
+    "assurance_none": "无（无证明覆盖）",
+    "kind_object": "对象",
+    "kind_extension": "扩展",
+    "kind_contextInit": "上下文/初始化",
     "decl_in_module": "{{declaration}}——{{module}} 中的声明",
     "module_desc": "{{name}}——{{description}}"
   }

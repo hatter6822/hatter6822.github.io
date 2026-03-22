@@ -25,7 +25,8 @@
     "toggle_theme": "Toggle light/dark theme",
     "pause_bg": "Pause background animation",
     "resume_bg": "Resume background animation",
-    "language": "Language"
+    "language": "Language",
+    "select_language": "Select language"
   },
   "hero": {
     "label": "Microkernel \u00b7 Lean 4 \u00b7 Rust \u00b7 Formally Verified",
@@ -53,7 +54,7 @@
     "what_different_title": "What Makes It Different?",
     "what_different_text": "seLe4n <strong>unifies implementation and proof in a single language</strong> \u2014 no separate proof assistant, no translation layer, no semantic gap. Each subsystem follows an Operations/Invariant split: executable transitions live in <code>Operations.lean</code>, and their machine-checked proofs live alongside in <code>Invariant.lean</code>. The type-checker enforces that every invariant holds across every operation.",
     "status_title": "Project Status",
-    "status_text": "seLe4n is an active research project at version <strong>{{version}}</strong>. The kernel model is feature-complete with IPC, scheduling, capabilities, memory management, information-flow control, and service orchestration. The performance optimization is complete \u2014 all hot paths now use O(1) hash-based structures. A companion Rust workspace provides safe, <code>no_std</code> syscall wrappers for user-space programs targeting the kernel. Hardware platform bindings for the Raspberry Pi 5 are prepared and awaiting final refinement work.",
+    "status_text": "seLe4n is an active research project at version <strong data-live=\"version\">{{version}}</strong>. The kernel model is feature-complete with IPC, scheduling, capabilities, memory management, information-flow control, and service orchestration. The performance optimization is complete \u2014 all hot paths now use O(1) hash-based structures. A companion Rust workspace provides safe, <code>no_std</code> syscall wrappers for user-space programs targeting the kernel. Hardware platform bindings for the Raspberry Pi 5 are prepared and awaiting final refinement work.",
     "created_with": "Created thoughtfully with the help of Claude and Codex."
   },
   "architecture": {
@@ -65,7 +66,8 @@
     "information_flow": "Information Flow",
     "hw_abstraction": "Hardware Abstraction",
     "foundations": "Foundations",
-    "platform_bindings": "Platform Bindings"
+    "platform_bindings": "Platform Bindings",
+    "diagram_aria": "seLe4n architecture diagram showing Rust user-space wrappers, kernel API surface, and layered subsystems down to platform bindings"
   },
   "comparison": {
     "title": "seLe4n vs Traditional Verified Kernels",
@@ -149,7 +151,11 @@
     "proof_quality_title": "Proof Quality Classification",
     "high_assurance": "High Assurance",
     "low_assurance": "Low Assurance",
-    "resolved_findings": "Resolved Findings"
+    "resolved_findings": "Resolved Findings",
+    "use_fast": "CI \u2014 hygiene and build only",
+    "use_smoke": "Minimum PR requirement",
+    "use_full": "Full verification \u2014 invariant/theorem changes",
+    "use_nightly": "Nightly CI \u2014 determinism + experimental"
   },
   "api": {
     "title": "API Surface",
@@ -162,7 +168,7 @@
   },
   "structure": {
     "title": "Project Structure",
-    "lead": "{{modules}} kernel modules organized with a consistent Operations/Invariant pattern, {{scripts}} test and CI scripts, and {{docs}} documentation files with specifications, ADRs, and roadmaps."
+    "lead": "<span data-live=\"modules\">{{modules}}</span> kernel modules organized with a consistent Operations/Invariant pattern, <span data-live=\"scripts\">{{scripts}}</span> test and CI scripts, and <span data-live=\"docs\">{{docs}}</span> documentation files with specifications, ADRs, and roadmaps."
   },
   "getting_started": {
     "title": "Getting Started",
@@ -172,8 +178,11 @@
     "step3_title": "Build & Verify",
     "step4_title": "Run Tests",
     "step5_title": "Build Rust Syscall Wrappers",
+    "step4_text": "Start with the smoke test (minimum for PRs), then run the full suite for invariant work.",
     "contributing_title": "Contributing",
-    "documentation_title": "Documentation"
+    "contributing_intro": "seLe4n welcomes contributors. Before submitting a PR:",
+    "documentation_title": "Documentation",
+    "documentation_intro": "Comprehensive docs live in the <a href=\"https://github.com/hatter6822/seLe4n/tree/main/docs\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>docs/</code></a> directory:"
   },
   "roadmap": {
     "title": "Roadmap",
@@ -275,6 +284,13 @@
     "legend_called_by": "Called by (incoming)",
     "legend_border_kind": "Border = declaration kind",
     "legend_dashed_cross": "Dashed = cross-module",
+    "assurance_linked": "Linked (Ops\u2194Inv proof chain)",
+    "assurance_partial": "Partial (pair incomplete/disconnected)",
+    "assurance_local": "Local (standalone theorems)",
+    "assurance_none": "None (no proof coverage)",
+    "kind_object": "Objects",
+    "kind_extension": "Extensions",
+    "kind_contextInit": "Contexts/Inits",
     "decl_in_module": "{{declaration}} \u2014 declaration in {{module}}",
     "module_desc": "{{name}} \u2014 {{description}}"
   }
