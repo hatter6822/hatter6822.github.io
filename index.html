@@ -527,7 +527,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           </div>
           <h3 data-i18n="features.o1_title">O(1) Everywhere</h3>
-          <p>
+          <p data-i18n-html="features.o1_text">
             Every hot-path data structure uses hash-based collections, backed by a
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer" class="code-link">verified Robin Hood hash map</a>
             with 139 theorems: object stores, run queues, CNode slots, VSpace mappings, IPC queues, ASID tables,
@@ -543,7 +543,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.robin_hood_title">Verified Robin Hood Hash Map</a></h3>
-          <p>
+          <p data-i18n-html="features.robin_hood_text">
             A ground-up verified Robin Hood hash table across 7 modules. Open addressing with linear
             probing, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/RobinHood/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>RHTable</code></a>
             provides O(1) amortized insert, lookup, erase, and resize with capacity preservation.
@@ -561,7 +561,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.scheduler_title">Priority-Bucketed Scheduler</a></h3>
-          <p>
+          <p data-i18n-html="features.scheduler_text">
             133 theorems across 6 files. The <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>RunQueue</code></a> is backed by <code>HashMap Priority (List ThreadId)</code>
             with a <code>HashSet ThreadId</code> membership index. Domain-aware EDF scheduling
             ensures threads only run in their assigned security domain. Operations decomposed into
@@ -578,7 +578,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.ipc_title">Intrusive Dual-Queue IPC</a></h3>
-          <p>
+          <p data-i18n-html="features.ipc_text">
             223 theorems across 14 deeply modularized files. Endpoints maintain separate
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>sendQ</code></a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>receiveQ</code></a> lists. Each TCB carries intrusive
             <code>prev</code>/<code>next</code> links enabling O(1) mid-queue removal.
@@ -594,7 +594,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.cdt_title">Capability Derivation Tree</a></h3>
-          <p>
+          <p data-i18n-html="features.cdt_text">
             Node-stable CDT with <code>childMap : HashMap CdtNodeId (List CdtNodeId)</code>
             for O(1) slot transfer and revocation. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>descendantsOf</code></a> runs in O(N+E).
             Strict revocation via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>cspaceRevokeCdtStrict</code></a> reports the first failure
@@ -609,7 +609,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.info_flow_title">N-Domain Information Flow</a></h3>
-          <p>
+          <p data-i18n-html="features.info_flow_text">
             182 theorems across 9 deeply modularized files. Parameterized security framework with two-dimensional labels (confidentiality +
             integrity). <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a> supports arbitrary domain counts and
             flow topologies with proven reflexivity and transitivity. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>GenericLabelingContext</code></a>
@@ -629,7 +629,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.service_title">Service Orchestration</a></h3>
-          <p>
+          <p data-i18n-html="features.service_text">
             90 theorems across 4 files. First-class kernel service concept with graph-based lifecycle management and O(n+e) DFS cycle detection
             using <code>HashSet ServiceId</code>. Invariant proofs split into
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Invariant/Acyclicity.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Acyclicity</code></a> and
@@ -644,7 +644,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.arch_title">Architecture &amp; Memory</a></h3>
-          <p>
+          <p data-i18n-html="features.arch_text">
             123 theorems across 9 modules. Virtual address space with <code>HashMap VAddr PAddr</code> mappings
             and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpaceBackend.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>VSpaceBackend</code></a> adapter pattern.
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/TlbModel.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>TlbModel</code></a> with flush-consistency proofs.
@@ -660,7 +660,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.rust_title">Safe Rust Syscall Wrappers</a></h3>
-          <p>
+          <p data-i18n-html="features.rust_text">
             Three <code>no_std</code> Rust crates wrap all 14 seLe4n syscalls with ergonomic, fully safe APIs.
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-types</code></a>
             mirrors the Lean kernel&rsquo;s typed identifiers and 34-variant error model with <code>#![deny(unsafe_code)]</code>.
@@ -678,7 +678,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.invariant_title">Composable Invariant Bundles</a></h3>
-          <p>
+          <p data-i18n-html="features.invariant_text">
             Each subsystem proves its own invariant bundle. Bundles compose upward:
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Invariant.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>coreIpcInvariantBundle</code></a>,
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Invariant.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>ipcSchedulerCouplingInvariantBundle</code></a>,
@@ -706,36 +706,36 @@
       <div class="grid grid-2">
         <div class="card">
           <h3 data-i18n="security.ifc_title">Information Flow Control</h3>
-          <p>
+          <p data-i18n-html="security.ifc_text">
             182 theorems across 9 deeply modularized files. seLe4n implements a parameterized N-domain information-flow framework
             supporting both the legacy 2&times;2 confidentiality/integrity lattice and arbitrary
             domain topologies via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a>:
           </p>
           <ul>
-            <li><strong>15 non-interference theorems</strong> &mdash; 12 standalone + 3 enforcement bridges</li>
-            <li><strong>7-field <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>ObservableState</code></a></strong> projection covering full kernel state</li>
-            <li><strong>Enforcement</strong> split into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Soundness.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Soundness</code></a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Wrappers</code></a></li>
-            <li><strong>Invariant proofs</strong> decomposed into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Composition.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Composition</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Helpers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Helpers</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Operations</code></a></li>
-            <li><strong>Precomputed observability</strong> via <code>HashSet</code> for O(1) projection lookups</li>
-            <li><strong>17 operations classified</strong> by enforcement level</li>
-            <li><strong>Per-endpoint flow policies</strong> for fine-grained overrides</li>
-            <li><strong>Legacy embedding theorem</strong> proves the generic system subsumes the original</li>
+            <li data-i18n-html="security.ifc_item1"><strong>15 non-interference theorems</strong> &mdash; 12 standalone + 3 enforcement bridges</li>
+            <li data-i18n-html="security.ifc_item2"><strong>7-field <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>ObservableState</code></a></strong> projection covering full kernel state</li>
+            <li data-i18n-html="security.ifc_item3"><strong>Enforcement</strong> split into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Soundness.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Soundness</code></a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Wrappers</code></a></li>
+            <li data-i18n-html="security.ifc_item4"><strong>Invariant proofs</strong> decomposed into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Composition.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Composition</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Helpers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Helpers</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Operations</code></a></li>
+            <li data-i18n-html="security.ifc_item5"><strong>Precomputed observability</strong> via <code>HashSet</code> for O(1) projection lookups</li>
+            <li data-i18n-html="security.ifc_item6"><strong>17 operations classified</strong> by enforcement level</li>
+            <li data-i18n-html="security.ifc_item7"><strong>Per-endpoint flow policies</strong> for fine-grained overrides</li>
+            <li data-i18n-html="security.ifc_item8"><strong>Legacy embedding theorem</strong> proves the generic system subsumes the original</li>
           </ul>
         </div>
         <div class="card">
           <h3 data-i18n="security.cap_title">Capability-Based Access</h3>
-          <p>
+          <p data-i18n="security.cap_text">
             All resource access is mediated through capabilities stored in CNode slots.
             The capability derivation tree tracks all parent-child relationships:
           </p>
           <ul>
-            <li><strong>O(1) slot operations</strong> via HashMap-backed CNodes</li>
-            <li><strong>Strict revocation</strong> with explicit error reporting and context</li>
-            <li><strong>Node-stable CDT</strong> with <code>childMap</code> HashMap index</li>
-            <li><strong>Slot-reuse safety</strong> checks preventing dangling capabilities</li>
-            <li><strong>Policy-checked wrappers:</strong> <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>endpointSendDualChecked</code></a>,
+            <li data-i18n-html="security.cap_item1"><strong>O(1) slot operations</strong> via HashMap-backed CNodes</li>
+            <li data-i18n-html="security.cap_item2"><strong>Strict revocation</strong> with explicit error reporting and context</li>
+            <li data-i18n-html="security.cap_item3"><strong>Node-stable CDT</strong> with <code>childMap</code> HashMap index</li>
+            <li data-i18n-html="security.cap_item4"><strong>Slot-reuse safety</strong> checks preventing dangling capabilities</li>
+            <li data-i18n-html="security.cap_item5"><strong>Policy-checked wrappers:</strong> <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>endpointSendDualChecked</code></a>,
               <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>cspaceMintChecked</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>serviceRestartChecked</code></a></li>
-            <li><strong>Sentinel ID rejection</strong> at IPC boundaries prevents ghost queue entries</li>
+            <li data-i18n-html="security.cap_item6"><strong>Sentinel ID rejection</strong> at IPC boundaries prevents ghost queue entries</li>
           </ul>
         </div>
       </div>
@@ -746,28 +746,28 @@
           <div class="threat-card">
             <h4 data-i18n="security.protected_assets">Protected Assets</h4>
             <ul>
-              <li>Formal semantics and proof artifacts</li>
-              <li>Executable evidence (traces and tier scripts)</li>
-              <li>Supply-chain bootstrap infrastructure</li>
-              <li>Lean toolchain integrity</li>
+              <li data-i18n="security.protected_item1">Formal semantics and proof artifacts</li>
+              <li data-i18n="security.protected_item2">Executable evidence (traces and tier scripts)</li>
+              <li data-i18n="security.protected_item3">Supply-chain bootstrap infrastructure</li>
+              <li data-i18n="security.protected_item4">Lean toolchain integrity</li>
             </ul>
           </div>
           <div class="threat-card">
             <h4 data-i18n="security.threat_actors">Threat Actors</h4>
             <ul>
-              <li><strong>External attacker:</strong> Public repo access, dependency injection</li>
-              <li><strong>Upstream compromise:</strong> Altered installer delivery</li>
-              <li><strong>Accidental insider:</strong> Secret commits, stale docs</li>
-              <li><strong>Fork CI:</strong> Limited upload permissions</li>
+              <li data-i18n-html="security.threat_item1"><strong>External attacker:</strong> Public repo access, dependency injection</li>
+              <li data-i18n-html="security.threat_item2"><strong>Upstream compromise:</strong> Altered installer delivery</li>
+              <li data-i18n-html="security.threat_item3"><strong>Accidental insider:</strong> Secret commits, stale docs</li>
+              <li data-i18n-html="security.threat_item4"><strong>Fork CI:</strong> Limited upload permissions</li>
             </ul>
           </div>
           <div class="threat-card">
             <h4 data-i18n="security.security_controls">Security Controls</h4>
             <ul>
-              <li>Expanded <a href="https://github.com/hatter6822/seLe4n/blob/main/.gitignore" target="_blank" rel="noopener noreferrer" class="code-link"><code>.gitignore</code></a> secret/artifact denylist</li>
-              <li>SHA-256 verified <a href="https://github.com/leanprover/elan" target="_blank" rel="noopener noreferrer" class="code-link"><code>elan</code></a> installer downloads</li>
-              <li>Tier-3 anchor checks against CI workflow semantics</li>
-              <li>Non-blocking CodeQL security baseline</li>
+              <li data-i18n-html="security.control_item1">Expanded <a href="https://github.com/hatter6822/seLe4n/blob/main/.gitignore" target="_blank" rel="noopener noreferrer" class="code-link"><code>.gitignore</code></a> secret/artifact denylist</li>
+              <li data-i18n-html="security.control_item2">SHA-256 verified <a href="https://github.com/leanprover/elan" target="_blank" rel="noopener noreferrer" class="code-link"><code>elan</code></a> installer downloads</li>
+              <li data-i18n="security.control_item3">Tier-3 anchor checks against CI workflow semantics</li>
+              <li data-i18n="security.control_item4">Non-blocking CodeQL security baseline</li>
             </ul>
           </div>
         </div>
@@ -790,7 +790,7 @@
             <span class="tier-badge">Tier 0</span>
             <h3 data-i18n="verification.tier0_name">Hygiene</h3>
           </div>
-          <p>
+          <p data-i18n-html="verification.tier0_text">
             Forbidden-marker scans ensure zero <code>sorry</code> and zero <code>axiom</code>
             across all production code. Documentation link validation, sync checks, and
             formatting enforcement. The first line of defense.
@@ -803,7 +803,7 @@
             <span class="tier-badge">Tier 1</span>
             <h3 data-i18n="verification.tier1_name">Build</h3>
           </div>
-          <p>
+          <p data-i18n-html="verification.tier1_text">
             Full Lean compilation across <span data-live="build-jobs">114</span> parallel build jobs. All <span data-live="theorems">1421</span> theorems are
             type-checked. Every invariant proof, every bridge lemma, every preservation
             theorem is verified by the Lean type-checker. If it compiles, the proofs hold.
@@ -816,7 +816,7 @@
             <span class="tier-badge">Tier 2</span>
             <h3 data-i18n="verification.tier2_name">Runtime</h3>
           </div>
-          <p>
+          <p data-i18n="verification.tier2_text">
             Trace sequence probes validate executable behavior against formal semantics.
             The negative-state suite tests malformed input rejection across IPC, capabilities,
             endpoints, and CSpace mutations. Information-flow runtime checks verify
@@ -830,7 +830,7 @@
             <span class="tier-badge">Tier 3</span>
             <h3 data-i18n="verification.tier3_name">Invariant Surface</h3>
           </div>
-          <p>
+          <p data-i18n-html="verification.tier3_text">
             Anchors every named theorem and invariant to the proof surface. Verifies that
             all documented claims in the <a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener noreferrer">Claim &amp; Evidence Index</a>
             are backed by actual code. Ensures no proof regressions across refactoring.
@@ -844,7 +844,7 @@
             <span class="tier-badge">Tier 4</span>
             <h3 data-i18n="verification.tier4_name">Nightly</h3>
           </div>
-          <p>
+          <p data-i18n="verification.tier4_text">
             Determinism checks, experimental feature validation, and long-running
             invariant probes. Fixture-backed oracle testing. Catches subtle regressions
             that slip through faster tiers.
@@ -876,26 +876,26 @@
           <div class="quality-card quality-high">
             <h4 data-i18n="verification.high_assurance">High Assurance</h4>
             <ul>
-              <li>Substantive preservation</li>
-              <li>Compositional preservation</li>
-              <li>Structural invariants</li>
-              <li>End-to-end chains</li>
-              <li>Non-interference proofs</li>
+              <li data-i18n="verification.high_item1">Substantive preservation</li>
+              <li data-i18n="verification.high_item2">Compositional preservation</li>
+              <li data-i18n="verification.high_item3">Structural invariants</li>
+              <li data-i18n="verification.high_item4">End-to-end chains</li>
+              <li data-i18n="verification.high_item5">Non-interference proofs</li>
             </ul>
           </div>
           <div class="quality-card quality-low">
             <h4 data-i18n="verification.low_assurance">Low Assurance</h4>
             <ul>
-              <li>Error-case preservation</li>
-              <li>Trivially true for unchanged state returns</li>
+              <li data-i18n="verification.low_item1">Error-case preservation</li>
+              <li data-i18n="verification.low_item2">Trivially true for unchanged state returns</li>
             </ul>
           </div>
           <div class="quality-card quality-resolved">
             <h4 data-i18n="verification.resolved_findings">Resolved Findings</h4>
             <ul>
-              <li>C-01: Tautological proofs &rarr; refactored</li>
-              <li>H-01: Non-compositional proofs &rarr; refactored</li>
-              <li>H-03: Badge safety gap &rarr; closed</li>
+              <li data-i18n="verification.resolved_item1">C-01: Tautological proofs &rarr; refactored</li>
+              <li data-i18n="verification.resolved_item2">H-01: Non-compositional proofs &rarr; refactored</li>
+              <li data-i18n="verification.resolved_item3">H-03: Badge safety gap &rarr; closed</li>
             </ul>
           </div>
         </div>
@@ -1010,7 +1010,7 @@ cd seLe4n</code></pre>
           <div class="step-number" aria-hidden="true">2</div>
           <div class="step-content">
             <h3 data-i18n="getting_started.step2_title">Set Up the Lean Environment</h3>
-            <p>
+            <p data-i18n-html="getting_started.step2_text">
               The setup script installs <a href="https://github.com/leanprover/elan" target="_blank" rel="noopener noreferrer" class="code-link"><code>elan</code></a> (the Lean version manager) with
               <strong>SHA-256 checksum verification</strong> and the pinned Lean <span data-live="lean-version">4.28.0</span> toolchain.
             </p>
@@ -1022,7 +1022,7 @@ cd seLe4n</code></pre>
           <div class="step-number" aria-hidden="true">3</div>
           <div class="step-content">
             <h3 data-i18n="getting_started.step3_title">Build &amp; Verify</h3>
-            <p>
+            <p data-i18n-html="getting_started.step3_text">
               Build the entire kernel. All <span data-live="theorems">1421</span> theorems are checked during compilation
               across <span data-live="build-jobs">114</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
             </p>
@@ -1050,7 +1050,7 @@ cd seLe4n</code></pre>
           <div class="step-number" aria-hidden="true">5</div>
           <div class="step-content">
             <h3 data-i18n="getting_started.step5_title">Build Rust Syscall Wrappers</h3>
-            <p>
+            <p data-i18n-html="getting_started.step5_text">
               The <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link"><code>rust/</code></a> workspace
               provides safe, <code>no_std</code> wrappers around all 14 seLe4n syscalls. Builds on both ARM64 (real trap) and x86_64 (mock trap for host-based testing).
             </p>
@@ -1066,26 +1066,26 @@ cargo test</code></pre>
           <h3 data-i18n="getting_started.contributing_title">Contributing</h3>
           <p data-i18n="getting_started.contributing_intro">seLe4n welcomes contributors. Before submitting a PR:</p>
           <ul>
-            <li>Read the <a href="https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contributing Guide</a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener noreferrer">Development Docs</a></li>
-            <li>Identify which area of the project your change addresses</li>
-            <li>Run <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_smoke.sh" target="_blank" rel="noopener noreferrer" class="code-link"><code>./scripts/test_smoke.sh</code></a> at minimum; <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_full.sh" target="_blank" rel="noopener noreferrer" class="code-link"><code>test_full.sh</code></a> for theorem changes</li>
-            <li>Update invariants and theorems together with code changes</li>
-            <li>Keep PRs focused on one coherent unit of work</li>
-            <li>State transitions must have explicit success or failure outcomes</li>
+            <li data-i18n-html="getting_started.contributing_item1">Read the <a href="https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contributing Guide</a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener noreferrer">Development Docs</a></li>
+            <li data-i18n="getting_started.contributing_item2">Identify which area of the project your change addresses</li>
+            <li data-i18n-html="getting_started.contributing_item3">Run <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_smoke.sh" target="_blank" rel="noopener noreferrer" class="code-link"><code>./scripts/test_smoke.sh</code></a> at minimum; <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_full.sh" target="_blank" rel="noopener noreferrer" class="code-link"><code>test_full.sh</code></a> for theorem changes</li>
+            <li data-i18n="getting_started.contributing_item4">Update invariants and theorems together with code changes</li>
+            <li data-i18n="getting_started.contributing_item5">Keep PRs focused on one coherent unit of work</li>
+            <li data-i18n="getting_started.contributing_item6">State transitions must have explicit success or failure outcomes</li>
           </ul>
         </div>
         <div class="card">
           <h3 data-i18n="getting_started.documentation_title">Documentation</h3>
           <p data-i18n-html="getting_started.documentation_intro">Comprehensive docs live in the <a href="https://github.com/hatter6822/seLe4n/tree/main/docs" target="_blank" rel="noopener noreferrer" class="code-link"><code>docs/</code></a> directory:</p>
           <ul>
-            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/spec/SELE4N_SPEC.md" target="_blank" rel="noopener noreferrer">Master Specification</a> &mdash; Complete kernel design</li>
-            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener noreferrer">Development Guide</a> &mdash; Workflow and standards</li>
-            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/TESTING_FRAMEWORK_PLAN.md" target="_blank" rel="noopener noreferrer">Testing Framework</a> &mdash; Tier organization</li>
-            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener noreferrer">Threat Model</a> &mdash; Security boundaries</li>
-            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/INFORMATION_FLOW_ROADMAP.md" target="_blank" rel="noopener noreferrer">IF Roadmap</a> &mdash; Non-interference proof status</li>
-            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener noreferrer">Claim &amp; Evidence Index</a> &mdash; Verification traceability</li>
-            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/PLATFORM_BINDING_ADR.md" target="_blank" rel="noopener noreferrer">Platform Binding ADR</a> &mdash; Hardware abstraction design</li>
-            <li><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/VSPACE_MEMORY_MODEL_ADR.md" target="_blank" rel="noopener noreferrer">VSpace ADR</a> &mdash; Memory model decisions</li>
+            <li data-i18n-html="getting_started.doc_item1"><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/spec/SELE4N_SPEC.md" target="_blank" rel="noopener noreferrer">Master Specification</a> &mdash; Complete kernel design</li>
+            <li data-i18n-html="getting_started.doc_item2"><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md" target="_blank" rel="noopener noreferrer">Development Guide</a> &mdash; Workflow and standards</li>
+            <li data-i18n-html="getting_started.doc_item3"><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/TESTING_FRAMEWORK_PLAN.md" target="_blank" rel="noopener noreferrer">Testing Framework</a> &mdash; Tier organization</li>
+            <li data-i18n-html="getting_started.doc_item4"><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener noreferrer">Threat Model</a> &mdash; Security boundaries</li>
+            <li data-i18n-html="getting_started.doc_item5"><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/INFORMATION_FLOW_ROADMAP.md" target="_blank" rel="noopener noreferrer">IF Roadmap</a> &mdash; Non-interference proof status</li>
+            <li data-i18n-html="getting_started.doc_item6"><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md" target="_blank" rel="noopener noreferrer">Claim &amp; Evidence Index</a> &mdash; Verification traceability</li>
+            <li data-i18n-html="getting_started.doc_item7"><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/PLATFORM_BINDING_ADR.md" target="_blank" rel="noopener noreferrer">Platform Binding ADR</a> &mdash; Hardware abstraction design</li>
+            <li data-i18n-html="getting_started.doc_item8"><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/VSPACE_MEMORY_MODEL_ADR.md" target="_blank" rel="noopener noreferrer">VSpace ADR</a> &mdash; Memory model decisions</li>
           </ul>
         </div>
       </div>
@@ -1106,7 +1106,7 @@ cargo test</code></pre>
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.semantic_title">M1&ndash;M7: Semantic Foundations</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
-            <p>Scheduler semantics, capability/CSpace operations, IPC seeds, waiting handshake,
+            <p data-i18n="roadmap.semantic_text">Scheduler semantics, capability/CSpace operations, IPC seeds, waiting handshake,
             lifecycle/retype, capability composition, service graphs, architecture boundary
             assumptions, and initial audit remediation.</p>
           </div>
@@ -1115,7 +1115,7 @@ cargo test</code></pre>
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.audit_title">Audit Portfolios</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
-            <p>Four complete audit portfolios: comprehensive audit,
+            <p data-i18n="roadmap.audit_text">Four complete audit portfolios: comprehensive audit,
             model/docs/maintainability, test validity and
             proof gaps, and test/CI and kernel hardening.
             All findings closed.</p>
@@ -1125,7 +1125,7 @@ cargo test</code></pre>
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.remediation_title">Critical Audit Remediation</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
-            <p>
+            <p data-i18n-html="roadmap.remediation_text">
               Intrusive dual-queue IPC with message transfer verification.
               Untyped memory retype with watermark tracking.
               Information-flow completeness &mdash; 7-field <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>ObservableState</code></a> projection.
@@ -1137,7 +1137,7 @@ cargo test</code></pre>
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.perf_title">Performance Optimization</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
-            <p>
+            <p data-i18n="roadmap.perf_text">
               Migrated all hot paths to O(1) hash-based structures.
               14 performance audit findings eliminated. Typed identifier Hashable instances,
               object store HashMap, ASID resolution table, RunQueue restructure, CNode slot HashMap,
@@ -1150,7 +1150,7 @@ cargo test</code></pre>
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.rust_title">Rust Syscall Wrappers</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
-            <p>
+            <p data-i18n-html="roadmap.rust_desc">
               Three <code>no_std</code> Rust crates (<a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-types</a>,
               <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-abi</a>,
               <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-sys</a>)
@@ -1164,7 +1164,7 @@ cargo test</code></pre>
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.refinement_title">Refinement</span> <span class="timeline-tag tag-active" data-i18n="roadmap.in_progress">In Progress</span></h3>
-            <p>
+            <p data-i18n-html="roadmap.refinement_text">
               Model fidelity &mdash; badge bitmask, per-thread registers, multi-level CSpace.<br>
               Invariant quality &mdash; tautology reclassification, adapter proof hooks.<br>
               Testing expansion &mdash; oracle, probe, and fixture coverage.<br>
@@ -1176,7 +1176,7 @@ cargo test</code></pre>
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.rpi5_title">H3: Raspberry Pi 5 Platform Binding</span> <span class="timeline-tag tag-future" data-i18n="roadmap.upcoming">Upcoming</span></h3>
-            <p>
+            <p data-i18n-html="roadmap.rpi5_text">
               Structural foundation is in place: <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Platform/Contract.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>PlatformBinding</code></a> typeclass,
               <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Machine.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>MachineConfig</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpaceBackend.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>VSpaceBackend</code></a>, RPi5 stubs with BCM2712
               memory map and GIC-400 constants. 48-bit VA / 44-bit PA address space.
@@ -1188,7 +1188,7 @@ cargo test</code></pre>
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.convergence_title">H4 &amp; IF-M5: Evidence Convergence</span> <span class="timeline-tag tag-future" data-i18n="roadmap.planned">Planned</span></h3>
-            <p>
+            <p data-i18n="roadmap.convergence_text">
               Proof-to-platform convergence. Map model observability assumptions to RPi5
               adapter obligations. Document unresolved security debt for side-channel follow-up.
             </p>
