@@ -151,7 +151,11 @@
     "proof_quality_title": "证明质量分类",
     "high_assurance": "高保证",
     "low_assurance": "低保证",
-    "resolved_findings": "已解决的发现"
+    "resolved_findings": "已解决的发现",
+    "use_fast": "CI——仅卫生检查和构建",
+    "use_smoke": "PR 提交的最低要求",
+    "use_full": "完整验证——不变量/定理变更",
+    "use_nightly": "夜间 CI——确定性 + 实验性"
   },
   "api": {
     "title": "API 表面",
@@ -164,7 +168,7 @@
   },
   "structure": {
     "title": "项目结构",
-    "lead": "{{modules}} 个内核模块采用一致的 Operations/Invariant 模式组织，{{scripts}} 个测试和 CI 脚本，以及 {{docs}} 个文档文件包含规范、ADR 和路线图。"
+    "lead": "<span data-live=\"modules\">{{modules}}</span> 个内核模块采用一致的 Operations/Invariant 模式组织，<span data-live=\"scripts\">{{scripts}}</span> 个测试和 CI 脚本，以及 <span data-live=\"docs\">{{docs}}</span> 个文档文件包含规范、ADR 和路线图。"
   },
   "getting_started": {
     "title": "快速开始",
@@ -280,6 +284,13 @@
     "legend_called_by": "被调用（入方向）",
     "legend_border_kind": "边框 = 声明类型",
     "legend_dashed_cross": "虚线 = 跨模块",
+    "assurance_linked": "已链接（Ops\u2194Inv 证明链）",
+    "assurance_partial": "部分（配对不完整/未连接）",
+    "assurance_local": "本地（独立定理）",
+    "assurance_none": "无（无证明覆盖）",
+    "kind_object": "对象",
+    "kind_extension": "扩展",
+    "kind_contextInit": "上下文/初始化",
     "decl_in_module": "{{declaration}}——{{module}} 中的声明",
     "module_desc": "{{name}}——{{description}}"
   }

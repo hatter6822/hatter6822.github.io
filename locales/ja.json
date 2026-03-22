@@ -151,7 +151,11 @@
     "proof_quality_title": "証明品質分類",
     "high_assurance": "高保証",
     "low_assurance": "低保証",
-    "resolved_findings": "解決済み指摘"
+    "resolved_findings": "解決済み指摘",
+    "use_fast": "CI — ハイジーンとビルドのみ",
+    "use_smoke": "PR提出の最低要件",
+    "use_full": "完全検証 — インバリアント/定理の変更",
+    "use_nightly": "ナイトリーCI — 決定性 + 実験的"
   },
   "api": {
     "title": "API表面",
@@ -164,7 +168,7 @@
   },
   "structure": {
     "title": "プロジェクト構成",
-    "lead": "一貫したOperations/Invariantパターンで構成された{{modules}}のカーネルモジュール、{{scripts}}のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む{{docs}}のドキュメントファイル。"
+    "lead": "一貫したOperations/Invariantパターンで構成された<span data-live=\"modules\">{{modules}}</span>のカーネルモジュール、<span data-live=\"scripts\">{{scripts}}</span>のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む<span data-live=\"docs\">{{docs}}</span>のドキュメントファイル。"
   },
   "getting_started": {
     "title": "はじめに",
@@ -280,6 +284,13 @@
     "legend_called_by": "呼び出し元（着信）",
     "legend_border_kind": "ボーダー = 宣言の種類",
     "legend_dashed_cross": "破線 = クロスモジュール",
+    "assurance_linked": "リンク済み (Ops\u2194Inv証明チェーン)",
+    "assurance_partial": "部分的 (ペア不完全/未接続)",
+    "assurance_local": "ローカル (独立した定理)",
+    "assurance_none": "なし (証明カバレッジなし)",
+    "kind_object": "オブジェクト",
+    "kind_extension": "拡張",
+    "kind_contextInit": "コンテキスト/初期化",
     "decl_in_module": "{{declaration}} — {{module}}の宣言",
     "module_desc": "{{name}} — {{description}}"
   }

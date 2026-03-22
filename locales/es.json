@@ -151,7 +151,11 @@
     "proof_quality_title": "Clasificación de Calidad de Pruebas",
     "high_assurance": "Alta Confianza",
     "low_assurance": "Baja Confianza",
-    "resolved_findings": "Hallazgos Resueltos"
+    "resolved_findings": "Hallazgos Resueltos",
+    "use_fast": "CI \u2014 solo higiene y compilación",
+    "use_smoke": "Requisito mínimo para PRs",
+    "use_full": "Verificación completa \u2014 cambios en invariantes/teoremas",
+    "use_nightly": "CI nocturno \u2014 determinismo + experimental"
   },
   "api": {
     "title": "Superficie de la API",
@@ -164,7 +168,7 @@
   },
   "structure": {
     "title": "Estructura del Proyecto",
-    "lead": "{{modules}} módulos de kernel organizados con un patrón consistente Operations/Invariant, {{scripts}} scripts de pruebas y CI, y {{docs}} archivos de documentación con especificaciones, ADRs y hojas de ruta."
+    "lead": "<span data-live=\"modules\">{{modules}}</span> módulos de kernel organizados con un patrón consistente Operations/Invariant, <span data-live=\"scripts\">{{scripts}}</span> scripts de pruebas y CI, y <span data-live=\"docs\">{{docs}}</span> archivos de documentación con especificaciones, ADRs y hojas de ruta."
   },
   "getting_started": {
     "title": "Primeros Pasos",
@@ -280,6 +284,13 @@
     "legend_called_by": "Llamado por (entrantes)",
     "legend_border_kind": "Borde = tipo de declaración",
     "legend_dashed_cross": "Discontinuo = entre módulos",
+    "assurance_linked": "Vinculado (cadena de prueba Ops\u2194Inv)",
+    "assurance_partial": "Parcial (par incompleto/desconectado)",
+    "assurance_local": "Local (teoremas independientes)",
+    "assurance_none": "Ninguno (sin cobertura de pruebas)",
+    "kind_object": "Objetos",
+    "kind_extension": "Extensiones",
+    "kind_contextInit": "Contextos/Inits",
     "decl_in_module": "{{declaration}} \u2014 declaración en {{module}}",
     "module_desc": "{{name}} \u2014 {{description}}"
   }

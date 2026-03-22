@@ -151,7 +151,11 @@
     "proof_quality_title": "Classification de la qualité des preuves",
     "high_assurance": "Assurance élevée",
     "low_assurance": "Assurance faible",
-    "resolved_findings": "Constats résolus"
+    "resolved_findings": "Constats résolus",
+    "use_fast": "CI \u2014 hygiène et compilation uniquement",
+    "use_smoke": "Exigence minimale pour les PRs",
+    "use_full": "Vérification complète \u2014 changements d'invariants/théorèmes",
+    "use_nightly": "CI nocturne \u2014 déterminisme + expérimental"
   },
   "api": {
     "title": "Surface API",
@@ -164,7 +168,7 @@
   },
   "structure": {
     "title": "Structure du projet",
-    "lead": "{{modules}} modules noyau organisés selon un schéma cohérent Operations/Invariant, {{scripts}} scripts de test et d'intégration continue, et {{docs}} fichiers de documentation avec spécifications, ADR et feuilles de route."
+    "lead": "<span data-live=\"modules\">{{modules}}</span> modules noyau organisés selon un schéma cohérent Operations/Invariant, <span data-live=\"scripts\">{{scripts}}</span> scripts de test et d'intégration continue, et <span data-live=\"docs\">{{docs}}</span> fichiers de documentation avec spécifications, ADR et feuilles de route."
   },
   "getting_started": {
     "title": "Démarrage",
@@ -280,6 +284,13 @@
     "legend_called_by": "Appelé par (entrants)",
     "legend_border_kind": "Bordure = type de déclaration",
     "legend_dashed_cross": "Pointillé = inter-module",
+    "assurance_linked": "Lié (chaîne de preuves Ops\u2194Inv)",
+    "assurance_partial": "Partiel (paire incomplète/déconnectée)",
+    "assurance_local": "Local (théorèmes autonomes)",
+    "assurance_none": "Aucun (pas de couverture de preuves)",
+    "kind_object": "Objets",
+    "kind_extension": "Extensions",
+    "kind_contextInit": "Contextes/Inits",
     "decl_in_module": "{{declaration}} \u2014 déclaration dans {{module}}",
     "module_desc": "{{name}} \u2014 {{description}}"
   }

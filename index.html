@@ -741,7 +741,7 @@
       </div>
 
       <div class="threat-model">
-        <h3><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener noreferrer" class="code-link">Threat Model</a> &amp; Security Boundaries</h3>
+        <h3 data-i18n="security.threat_model_title"><a href="https://github.com/hatter6822/seLe4n/blob/main/docs/THREAT_MODEL.md" target="_blank" rel="noopener noreferrer" class="code-link">Threat Model</a> &amp; Security Boundaries</h3>
         <div class="grid grid-3">
           <div class="threat-card">
             <h4 data-i18n="security.protected_assets">Protected Assets</h4>
@@ -861,10 +861,10 @@
               <tr><th scope="col" data-i18n="verification.col_command">Command</th><th scope="col" data-i18n="verification.col_tiers">Tiers</th><th scope="col" data-i18n="verification.col_use_case">Use Case</th></tr>
             </thead>
             <tbody>
-              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_fast.sh" target="_blank" rel="noopener noreferrer"><code>./scripts/test_fast.sh</code></a></td><td>0 + 1</td><td>CI &mdash; hygiene and build only</td></tr>
-              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_smoke.sh" target="_blank" rel="noopener noreferrer"><code>./scripts/test_smoke.sh</code></a></td><td>0 + 1 + 2</td><td>Minimum PR requirement</td></tr>
-              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_full.sh" target="_blank" rel="noopener noreferrer"><code>./scripts/test_full.sh</code></a></td><td>0 + 1 + 2 + 3</td><td>Full verification &mdash; invariant/theorem changes</td></tr>
-              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_nightly.sh" target="_blank" rel="noopener noreferrer"><code>./scripts/test_nightly.sh</code></a></td><td>0 + 1 + 2 + 3 + 4</td><td>Nightly CI &mdash; determinism + experimental</td></tr>
+              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_fast.sh" target="_blank" rel="noopener noreferrer"><code>./scripts/test_fast.sh</code></a></td><td>0 + 1</td><td data-i18n="verification.use_fast">CI &mdash; hygiene and build only</td></tr>
+              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_smoke.sh" target="_blank" rel="noopener noreferrer"><code>./scripts/test_smoke.sh</code></a></td><td>0 + 1 + 2</td><td data-i18n="verification.use_smoke">Minimum PR requirement</td></tr>
+              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_full.sh" target="_blank" rel="noopener noreferrer"><code>./scripts/test_full.sh</code></a></td><td>0 + 1 + 2 + 3</td><td data-i18n="verification.use_full">Full verification &mdash; invariant/theorem changes</td></tr>
+              <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_nightly.sh" target="_blank" rel="noopener noreferrer"><code>./scripts/test_nightly.sh</code></a></td><td>0 + 1 + 2 + 3 + 4</td><td data-i18n="verification.use_nightly">Nightly CI &mdash; determinism + experimental</td></tr>
             </tbody>
           </table>
         </div>
@@ -907,7 +907,7 @@
   <section class="section section-alt" id="api">
     <div class="container">
       <h2 class="section-title" data-i18n="api.title">API Surface</h2>
-      <p class="section-lead">
+      <p class="section-lead" data-i18n-html="api.lead">
         The kernel exposes a stable public API through <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>SeLe4n/Kernel/API.lean</code></a>.
         All entry points are classified by subsystem and stability.
         The 14 syscall-facing operations have corresponding safe Rust wrappers in <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-sys</code></a>.
@@ -919,20 +919,20 @@
             <tr><th scope="col" data-i18n="api.col_entry_point">Entry Point</th><th scope="col" data-i18n="api.col_subsystem">Subsystem</th><th scope="col" data-i18n="api.col_status">Status</th></tr>
           </thead>
           <tbody>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>schedule</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>handleYield</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>timerTick</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>scheduleDomain</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>switchDomain</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceLookupSlot</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceLookupPath</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Capability</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceMint</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceCopy</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceMove</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Capability</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceMutate</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceInsertSlot</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceDeleteSlot</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Capability</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointSendDual</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointReceiveDual</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointReply</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointCall</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointReplyRecv</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Lifecycle/Operations.lean" target="_blank" rel="noopener noreferrer"><code>retypeFromUntyped</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer">Lifecycle</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer"><code>serviceStart</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer"><code>serviceStop</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer"><code>serviceRestart</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer">Service</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener noreferrer"><code>vspaceMapPage</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener noreferrer"><code>vspaceUnmapPage</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener noreferrer"><code>vspaceLookup</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer">VSpace</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer"><code>endpointSendDualChecked</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer">Info-flow</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer"><code>cspaceMintChecked</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer"><code>serviceRestartChecked</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer">Info-flow</a></td><td><span class="badge-stable">Stable</span></td></tr>
-            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointSend</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointReceive</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC (legacy)</a></td><td><span class="badge-deprecated">Deprecated</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>schedule</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>handleYield</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>timerTick</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>scheduleDomain</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer"><code>switchDomain</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceLookupSlot</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceLookupPath</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Capability</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceMint</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceCopy</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceMove</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Capability</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceMutate</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceInsertSlot</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceDeleteSlot</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Capability</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointSendDual</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointReceiveDual</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointReply</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointCall</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointReplyRecv</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Lifecycle/Operations.lean" target="_blank" rel="noopener noreferrer"><code>retypeFromUntyped</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer">Lifecycle</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer"><code>serviceStart</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer"><code>serviceStop</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer"><code>serviceRestart</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer">Service</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener noreferrer"><code>vspaceMapPage</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener noreferrer"><code>vspaceUnmapPage</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener noreferrer"><code>vspaceLookup</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer">VSpace</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer"><code>endpointSendDualChecked</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer">Info-flow</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer"><code>cspaceMintChecked</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement.lean" target="_blank" rel="noopener noreferrer"><code>serviceRestartChecked</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer">Info-flow</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointSend</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations.lean" target="_blank" rel="noopener noreferrer"><code>endpointReceive</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC (legacy)</a></td><td><span class="badge-deprecated" data-i18n="api.deprecated">Deprecated</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -943,7 +943,7 @@
   <section class="section" id="structure">
     <div class="container">
       <h2 class="section-title" data-i18n="structure.title">Project Structure</h2>
-      <p class="section-lead">
+      <p class="section-lead" data-i18n-html="structure.lead">
         <span data-live="modules">57</span> kernel modules organized with a consistent Operations/Invariant pattern,
         <span data-live="scripts">19</span> test and CI scripts, and <span data-live="docs">108</span> documentation files with specifications, ADRs, and roadmaps.
       </p>
@@ -1105,7 +1105,7 @@ cargo test</code></pre>
         <div class="timeline-item done">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
-            <h3>M1&ndash;M7: Semantic Foundations <span class="timeline-tag">Complete</span></h3>
+            <h3><span data-i18n="roadmap.semantic_title">M1&ndash;M7: Semantic Foundations</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
             <p>Scheduler semantics, capability/CSpace operations, IPC seeds, waiting handshake,
             lifecycle/retype, capability composition, service graphs, architecture boundary
             assumptions, and initial audit remediation.</p>
@@ -1114,7 +1114,7 @@ cargo test</code></pre>
         <div class="timeline-item done">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
-            <h3>Audit Portfolios <span class="timeline-tag">Complete</span></h3>
+            <h3><span data-i18n="roadmap.audit_title">Audit Portfolios</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
             <p>Four complete audit portfolios: comprehensive audit,
             model/docs/maintainability, test validity and
             proof gaps, and test/CI and kernel hardening.
@@ -1124,7 +1124,7 @@ cargo test</code></pre>
         <div class="timeline-item done">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
-            <h3>Critical Audit Remediation <span class="timeline-tag">Complete</span></h3>
+            <h3><span data-i18n="roadmap.remediation_title">Critical Audit Remediation</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
             <p>
               Intrusive dual-queue IPC with message transfer verification.
               Untyped memory retype with watermark tracking.
@@ -1136,7 +1136,7 @@ cargo test</code></pre>
         <div class="timeline-item done">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
-            <h3>Performance Optimization <span class="timeline-tag">Complete</span></h3>
+            <h3><span data-i18n="roadmap.perf_title">Performance Optimization</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
             <p>
               Migrated all hot paths to O(1) hash-based structures.
               14 performance audit findings eliminated. Typed identifier Hashable instances,
@@ -1149,7 +1149,7 @@ cargo test</code></pre>
         <div class="timeline-item done">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
-            <h3>Rust Syscall Wrappers <span class="timeline-tag">Complete</span></h3>
+            <h3><span data-i18n="roadmap.rust_title">Rust Syscall Wrappers</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
             <p>
               Three <code>no_std</code> Rust crates (<a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-types</a>,
               <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-abi</a>,
@@ -1163,7 +1163,7 @@ cargo test</code></pre>
         <div class="timeline-item active">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
-            <h3>Refinement <span class="timeline-tag tag-active">In Progress</span></h3>
+            <h3><span data-i18n="roadmap.refinement_title">Refinement</span> <span class="timeline-tag tag-active" data-i18n="roadmap.in_progress">In Progress</span></h3>
             <p>
               Model fidelity &mdash; badge bitmask, per-thread registers, multi-level CSpace.<br>
               Invariant quality &mdash; tautology reclassification, adapter proof hooks.<br>
@@ -1175,7 +1175,7 @@ cargo test</code></pre>
         <div class="timeline-item future">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
-            <h3>H3: Raspberry Pi 5 Platform Binding <span class="timeline-tag tag-future">Upcoming</span></h3>
+            <h3><span data-i18n="roadmap.rpi5_title">H3: Raspberry Pi 5 Platform Binding</span> <span class="timeline-tag tag-future" data-i18n="roadmap.upcoming">Upcoming</span></h3>
             <p>
               Structural foundation is in place: <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Platform/Contract.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>PlatformBinding</code></a> typeclass,
               <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Machine.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>MachineConfig</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpaceBackend.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>VSpaceBackend</code></a>, RPi5 stubs with BCM2712
@@ -1187,7 +1187,7 @@ cargo test</code></pre>
         <div class="timeline-item future">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
-            <h3>H4 &amp; IF-M5: Evidence Convergence <span class="timeline-tag tag-future">Planned</span></h3>
+            <h3><span data-i18n="roadmap.convergence_title">H4 &amp; IF-M5: Evidence Convergence</span> <span class="timeline-tag tag-future" data-i18n="roadmap.planned">Planned</span></h3>
             <p>
               Proof-to-platform convergence. Map model observability assumptions to RPi5
               adapter obligations. Document unresolved security debt for side-channel follow-up.

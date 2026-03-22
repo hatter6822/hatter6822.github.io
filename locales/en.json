@@ -151,7 +151,11 @@
     "proof_quality_title": "Proof Quality Classification",
     "high_assurance": "High Assurance",
     "low_assurance": "Low Assurance",
-    "resolved_findings": "Resolved Findings"
+    "resolved_findings": "Resolved Findings",
+    "use_fast": "CI \u2014 hygiene and build only",
+    "use_smoke": "Minimum PR requirement",
+    "use_full": "Full verification \u2014 invariant/theorem changes",
+    "use_nightly": "Nightly CI \u2014 determinism + experimental"
   },
   "api": {
     "title": "API Surface",
@@ -164,7 +168,7 @@
   },
   "structure": {
     "title": "Project Structure",
-    "lead": "{{modules}} kernel modules organized with a consistent Operations/Invariant pattern, {{scripts}} test and CI scripts, and {{docs}} documentation files with specifications, ADRs, and roadmaps."
+    "lead": "<span data-live=\"modules\">{{modules}}</span> kernel modules organized with a consistent Operations/Invariant pattern, <span data-live=\"scripts\">{{scripts}}</span> test and CI scripts, and <span data-live=\"docs\">{{docs}}</span> documentation files with specifications, ADRs, and roadmaps."
   },
   "getting_started": {
     "title": "Getting Started",
@@ -280,6 +284,13 @@
     "legend_called_by": "Called by (incoming)",
     "legend_border_kind": "Border = declaration kind",
     "legend_dashed_cross": "Dashed = cross-module",
+    "assurance_linked": "Linked (Ops\u2194Inv proof chain)",
+    "assurance_partial": "Partial (pair incomplete/disconnected)",
+    "assurance_local": "Local (standalone theorems)",
+    "assurance_none": "None (no proof coverage)",
+    "kind_object": "Objects",
+    "kind_extension": "Extensions",
+    "kind_contextInit": "Contexts/Inits",
     "decl_in_module": "{{declaration}} \u2014 declaration in {{module}}",
     "module_desc": "{{name}} \u2014 {{description}}"
   }
