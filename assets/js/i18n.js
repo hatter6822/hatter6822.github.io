@@ -105,60 +105,58 @@
 
   /* ── DOM translation ──────────────────────────────────── */
 
+  function applyTranslation(el, key, setter) {
+    var translated = t(key);
+    if (translated && translated !== key) setter(el, translated);
+  }
+
   function translateDOM() {
-    // Translate elements with data-i18n (sets textContent)
+    // data-i18n → textContent (plain text elements)
     var elements = document.querySelectorAll("[data-i18n]");
     for (var i = 0; i < elements.length; i++) {
-      var el = elements[i];
-      var key = el.getAttribute("data-i18n");
-      var translated = t(key);
-      if (translated && translated !== key) {
-        el.textContent = translated;
-      }
+      applyTranslation(elements[i], elements[i].getAttribute("data-i18n"), function (el, v) {
+        el.textContent = v;
+      });
     }
 
-    // Translate data-i18n-placeholder
+    // data-i18n-html → innerHTML (elements containing inline markup)
+    var htmlEls = document.querySelectorAll("[data-i18n-html]");
+    for (var h = 0; h < htmlEls.length; h++) {
+      applyTranslation(htmlEls[h], htmlEls[h].getAttribute("data-i18n-html"), function (el, v) {
+        el.innerHTML = v;
+      });
+    }
+
+    // data-i18n-placeholder
     var placeholders = document.querySelectorAll("[data-i18n-placeholder]");
     for (var j = 0; j < placeholders.length; j++) {
-      var ph = placeholders[j];
-      var phKey = ph.getAttribute("data-i18n-placeholder");
-      var phVal = t(phKey);
-      if (phVal && phVal !== phKey) {
-        ph.setAttribute("placeholder", phVal);
-      }
+      applyTranslation(placeholders[j], placeholders[j].getAttribute("data-i18n-placeholder"), function (el, v) {
+        el.setAttribute("placeholder", v);
+      });
     }
 
-    // Translate data-i18n-aria-label
+    // data-i18n-aria-label
     var ariaLabels = document.querySelectorAll("[data-i18n-aria-label]");
     for (var k = 0; k < ariaLabels.length; k++) {
-      var al = ariaLabels[k];
-      var alKey = al.getAttribute("data-i18n-aria-label");
-      var alVal = t(alKey);
-      if (alVal && alVal !== alKey) {
-        al.setAttribute("aria-label", alVal);
-      }
+      applyTranslation(ariaLabels[k], ariaLabels[k].getAttribute("data-i18n-aria-label"), function (el, v) {
+        el.setAttribute("aria-label", v);
+      });
     }
 
-    // Translate data-i18n-title
+    // data-i18n-title
     var titles = document.querySelectorAll("[data-i18n-title]");
     for (var m = 0; m < titles.length; m++) {
-      var ti = titles[m];
-      var tiKey = ti.getAttribute("data-i18n-title");
-      var tiVal = t(tiKey);
-      if (tiVal && tiVal !== tiKey) {
-        ti.title = tiVal;
-      }
+      applyTranslation(titles[m], titles[m].getAttribute("data-i18n-title"), function (el, v) {
+        el.title = v;
+      });
     }
 
-    // Translate data-i18n-content (for meta tags)
+    // data-i18n-content (meta tags)
     var metaTags = document.querySelectorAll("[data-i18n-content]");
     for (var n = 0; n < metaTags.length; n++) {
-      var mt = metaTags[n];
-      var mtKey = mt.getAttribute("data-i18n-content");
-      var mtVal = t(mtKey);
-      if (mtVal && mtVal !== mtKey) {
-        mt.setAttribute("content", mtVal);
-      }
+      applyTranslation(metaTags[n], metaTags[n].getAttribute("data-i18n-content"), function (el, v) {
+        el.setAttribute("content", v);
+      });
     }
 
     // Update html lang attribute
@@ -166,17 +164,12 @@
     if (htmlLang === "zh-CN") htmlLang = "zh-Hans";
     document.documentElement.setAttribute("lang", htmlLang);
 
-    // Update page title
-    var titleKey = document.querySelector("title[data-i18n]");
-    // If title has a data-i18n attr it's already been translated above.
-    // Otherwise, check if there's a special meta key
-    if (!titleKey) {
-      var pageTitleKey = document.documentElement.getAttribute("data-i18n-title");
-      if (pageTitleKey) {
-        var pageTitleVal = t(pageTitleKey);
-        if (pageTitleVal && pageTitleVal !== pageTitleKey) {
-          document.title = pageTitleVal;
-        }
+    // Update page title from <html data-i18n-title>
+    var pageTitleKey = document.documentElement.getAttribute("data-i18n-title");
+    if (pageTitleKey) {
+      var pageTitleVal = t(pageTitleKey);
+      if (pageTitleVal && pageTitleVal !== pageTitleKey) {
+        document.title = pageTitleVal;
       }
     }
   }
@@ -302,6 +295,7 @@
         var loc = SUPPORTED_LOCALES[i];
         var li = document.createElement("li");
         li.setAttribute("role", "option");
+        li.setAttribute("tabindex", "-1");
         li.setAttribute("data-locale", loc);
         li.textContent = LOCALE_LABELS[loc] || loc;
         if (loc === currentLocale) {
@@ -340,6 +334,14 @@
       toggleMenu();
     });
 
+    btn.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        openMenu();
+        focusItem(0);
+      }
+    });
+
     document.addEventListener("click", function (e) {
       if (!menu.hidden && !menu.contains(e.target) && !btn.contains(e.target)) {
         closeMenu();
@@ -347,8 +349,34 @@
     });
 
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && !menu.hidden) closeMenu();
+      if (e.key === "Escape" && !menu.hidden) {
+        closeMenu();
+        btn.focus();
+      }
     });
+
+    menu.addEventListener("keydown", function (e) {
+      var items = menu.querySelectorAll("li[role='option']");
+      if (!items.length) return;
+      var idx = Array.prototype.indexOf.call(items, document.activeElement);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        focusItem(idx < items.length - 1 ? idx + 1 : 0);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        focusItem(idx > 0 ? idx - 1 : items.length - 1);
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        if (idx >= 0) items[idx].click();
+      } else if (e.key === "Tab") {
+        closeMenu();
+      }
+    });
+
+    function focusItem(idx) {
+      var items = menu.querySelectorAll("li[role='option']");
+      if (items[idx]) items[idx].focus();
+    }
 
     window.addEventListener("sele4n:locale-changed", function () {
       updateLabel();
@@ -363,9 +391,7 @@
 
   currentLocale = resolveLocale();
   loadLocale(currentLocale, function (err) {
-    if (!err && currentLocale !== DEFAULT_LOCALE) {
-      translateDOM();
-    }
+    if (!err) translateDOM();
     firePendingCallbacks();
   });
 

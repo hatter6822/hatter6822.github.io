@@ -1,13 +1,13 @@
 (function () {
   "use strict";
 
-  /* i18n helper — falls back to the key if i18n is not loaded */
+  /* i18n helper — returns translated string or empty string for fallback chaining */
   function t(key, vars) {
     if (window.sele4nI18n && typeof window.sele4nI18n.t === "function") {
       var result = window.sele4nI18n.t(key, vars);
       if (result && result !== key) return result;
     }
-    return "";
+    return ""; // callers use: t("key") || "English fallback"
   }
 
   var REPO = "hatter6822/seLe4n";

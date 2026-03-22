@@ -1936,7 +1936,8 @@ a.tier-script:hover {
     background: #fff;
     border-color: #ccc;
   }
-  .lang-switcher-menu li:hover {
+  .lang-switcher-menu li:hover,
+  .lang-switcher-menu li:focus {
     background: #f0f0f0;
   }
   .lang-switcher-menu li.active {
@@ -2011,8 +2012,10 @@ a.tier-script:hover {
   white-space: nowrap;
 }
 
-.lang-switcher-menu li:hover {
+.lang-switcher-menu li:hover,
+.lang-switcher-menu li:focus {
   background: var(--accent-glow, rgba(99, 102, 241, 0.1));
+  outline: none;
 }
 
 .lang-switcher-menu li.active {
