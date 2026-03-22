@@ -32,6 +32,7 @@ node scripts/validate-data.mjs
 node --check assets/js/map.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
+node --check assets/js/i18n.js
 node --check assets/js/background-pattern.js
 node --check assets/js/theme-init.js
 ```
@@ -112,6 +113,7 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Landing page metrics | `assets/js/site.js`, `index.html` |
 | Navigation behavior | `assets/js/header-nav.js` |
 | Theme switching | `assets/js/theme-init.js` |
+| Internationalization | `assets/js/i18n.js`, `locales/*.json` |
 | Background animation | `assets/js/background-pattern.js` |
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |
 | Data validation | `scripts/lib/data-validation.mjs` |

@@ -15,7 +15,7 @@ assert(/aria-label="Dependency and proof flow chart"/.test(html), "flow chart re
 
 assert(/<form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">/.test(html), "toolbar should use compact styling and explicitly control the flowchart");
 assert(!/class="map-toolbar\s+card"/.test(html), "toolbar should not use the generic card shell");
-assert(/<label for="module-search">Context search<\/label>/.test(html), "toolbar should include context search label");
+assert(/<label for="module-search"[^>]*>Context search<\/label>/.test(html), "toolbar should include context search label");
 assert(/id="module-search"[^>]*enterkeyhint="search"/.test(html), "module search should provide search enter key hint");
 assert(/id="module-search"[^>]*role="combobox"[^>]*aria-controls="module-search-options"/.test(html), "module search should expose combobox semantics for cross-browser suggestion support");
 assert(/id="module-search-options"[^>]*role="listbox"/.test(html), "module search should include an explicit listbox suggestion container");
@@ -50,7 +50,7 @@ assert(/createElement\("nav"\)/.test(mapJs), "declaration breadcrumb should use 
 assert(/aria-label.*Declaration breadcrumb/.test(mapJs), "declaration breadcrumb should have an aria-label");
 
 // JS: renderContextChooser should update label text for declaration and module context
-assert(/label\.textContent\s*=\s*"Context search/.test(mapJs), "renderContextChooser should set context search label");
+assert(/label\.textContent\s*=.*[Cc]ontext search/.test(mapJs), "renderContextChooser should set context search label");
 assert(/declaration/.test(mapJs) && /module/.test(mapJs), "renderContextChooser should distinguish declaration and module context");
 
 // JS: renderAll should update flowchart-wrap aria-label dynamically
@@ -196,7 +196,7 @@ assert(/searchDeclSuggestions/.test(mapJs), "search state should track declarati
 assert(/data-declaration/.test(mapJs), "option list should support data-declaration attribute for declaration suggestions");
 
 // HTML: context search label should use "Context search" (generalized from module-only)
-assert(/<label for="module-search">Context search<\/label>/.test(html), "context search label should say 'Context search'");
+assert(/<label for="module-search"[^>]*>Context search<\/label>/.test(html), "context search label should say 'Context search'");
 
 // HTML: context search placeholder should mention dot-append declaration format
 assert(/Module or Module\.declaration/.test(html), "context search placeholder should indicate Module.declaration format");

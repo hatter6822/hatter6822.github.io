@@ -72,7 +72,8 @@
   function updateMetadata(data) {
     if (!data.theorems) return;
 
-    var summary = "Formally verified microkernel with " + data.theorems + " machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.";
+    var i18nSummary = window.sele4nI18n && window.sele4nI18n.t("meta.index_description");
+    var summary = (i18nSummary && i18nSummary !== "meta.index_description") ? i18nSummary : ("Formally verified microkernel with " + data.theorems + " machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.");
     var selectors = [
       'meta[name="description"]',
       'meta[property="og:description"]',
@@ -102,7 +103,8 @@
       var updatedDate = new Date(data.updatedAt);
       if (!Number.isNaN(updatedDate.getTime())) {
         var updatedNodes = document.querySelectorAll('[data-live="updated-at"]');
-        var displayDate = updatedDate.toLocaleDateString(undefined, {
+        var localeHint = (window.sele4nI18n && window.sele4nI18n.locale()) || undefined;
+        var displayDate = updatedDate.toLocaleDateString(localeHint, {
           year: "numeric",
           month: "short",
           day: "numeric"
@@ -178,8 +180,12 @@
     function applyState(paused) {
       button.classList.toggle("is-paused", paused);
       button.setAttribute("aria-pressed", paused ? "true" : "false");
-      button.setAttribute("aria-label", paused ? "Resume background animation" : "Pause background animation");
-      button.title = paused ? "Resume background animation" : "Pause background animation";
+      var resumeLabel = (window.sele4nI18n && window.sele4nI18n.t("nav.resume_bg")) || "Resume background animation";
+      var pauseLabel = (window.sele4nI18n && window.sele4nI18n.t("nav.pause_bg")) || "Pause background animation";
+      if (resumeLabel === "nav.resume_bg") resumeLabel = "Resume background animation";
+      if (pauseLabel === "nav.pause_bg") pauseLabel = "Pause background animation";
+      button.setAttribute("aria-label", paused ? resumeLabel : pauseLabel);
+      button.title = paused ? resumeLabel : pauseLabel;
       document.documentElement.setAttribute("data-bg-animation", paused ? "paused" : "running");
       window.dispatchEvent(new CustomEvent("sele4n:bg-animation-toggle", { detail: { paused: paused } }));
     }

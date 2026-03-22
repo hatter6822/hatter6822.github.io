@@ -51,7 +51,8 @@ Owns:
 - placeholders marked with `data-live="..."` that runtime JS updates from `data/site-data.json`.
 - script load order:
   1. `theme-init.js` (early, in `<head>`) to avoid theme flash.
-  2. `header-nav.js`, `background-pattern.js`, `site.js` (deferred in body).
+  2. `i18n.js` (early, in `<head>`) for locale detection and DOM translation.
+  3. `header-nav.js`, `background-pattern.js`, `site.js` (deferred in body).
 
 The landing page includes documentation of the upstream seLe4n Rust syscall wrapper crates (`sele4n-types`, `sele4n-abi`, `sele4n-sys`) in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap sections.
 
@@ -66,7 +67,8 @@ Owns:
 - map status and stat placeholders (`data-map="..."`).
 - script load order:
   1. `theme-init.js` in head.
-  2. `header-nav.js`, `background-pattern.js`, `map.js` deferred.
+  2. `i18n.js` in head for locale detection and DOM translation.
+  3. `header-nav.js`, `background-pattern.js`, `map.js` deferred.
 
 Edit this file when adding map controls or changing semantic structure of map UI regions.
 
@@ -80,6 +82,21 @@ Very small boot script executed before first paint. Responsibilities:
 - set `data-theme` on `<html>` as early as possible.
 
 Design goal: avoid a dark/light flash while keeping failure-safe behavior if storage is unavailable.
+
+### `assets/js/i18n.js`
+Internationalization runtime for multi-language support. Responsibilities:
+
+- detects preferred locale from URL param (`?lang=`), `localStorage`, or browser `navigator.languages`.
+- fetches the appropriate locale JSON bundle from `/locales/<code>.json`.
+- walks the DOM translating elements with `data-i18n`, `data-i18n-placeholder`, `data-i18n-aria-label`, `data-i18n-title`, and `data-i18n-content` attributes.
+- exposes `window.sele4nI18n` API for JS-side translations: `t(key, vars)`, `setLocale(locale)`, `locale()`, `onReady(cb)`, `translateDOM()`.
+- supports interpolation via `{{variable}}` placeholders in locale strings.
+- initializes and manages the language switcher dropdown UI in the navigation bar.
+- fires `sele4n:locale-changed` CustomEvent when the locale changes.
+- supported locales: `en`, `es`, `fr`, `ja`, `zh-CN`.
+
+### `locales/*.json`
+Locale string bundles organized by page section. Structure mirrors the site's section hierarchy (`nav`, `hero`, `about`, `architecture`, `comparison`, `features`, `security`, `verification`, `api`, `structure`, `getting_started`, `roadmap`, `footer`, `map`). Each key maps to a translated string with optional `{{variable}}` interpolation.
 
 ### `assets/js/site.js`
 Main runtime for `index.html`. Responsibilities:

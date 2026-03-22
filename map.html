@@ -1,18 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-i18n-title="meta.map_title">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark light">
   <title>seLe4n Codebase Map</title>
-  <meta name="description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and guided traversal context.">
-  <meta property="og:title" content="seLe4n Codebase Map">
-  <meta property="og:description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and guided traversal context.">
+  <meta name="description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and guided traversal context." data-i18n-content="meta.map_description">
+  <meta property="og:title" content="seLe4n Codebase Map" data-i18n-content="meta.map_og_title">
+  <meta property="og:description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and guided traversal context." data-i18n-content="meta.map_og_description">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sele4n.org/map.html">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="seLe4n Codebase Map">
-  <meta name="twitter:description" content="Interactive architecture map for seLe4n. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and declaration context.">
+  <meta name="twitter:title" content="seLe4n Codebase Map" data-i18n-content="meta.map_og_title">
+  <meta name="twitter:description" content="Interactive architecture map for seLe4n. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and declaration context." data-i18n-content="meta.map_og_description">
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
@@ -26,6 +26,7 @@
   <link rel="stylesheet" href="assets/css/style.css">
   <link rel="stylesheet" href="assets/css/map.css">
   <script src="assets/js/theme-init.js"></script>
+  <script src="assets/js/i18n.js"></script>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -45,29 +46,29 @@
     </div>
   </div>
 
-  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <a href="#main-content" class="skip-link" data-i18n="nav.skip_to_main">Skip to main content</a>
 
   <nav class="nav scrolled" id="nav" aria-label="Main navigation" data-force-scrolled="true">
     <div class="nav-inner">
-      <a href="/#hero" class="nav-logo" aria-label="seLe4n home">
+      <a href="/#hero" class="nav-logo" aria-label="seLe4n home" data-i18n-aria-label="nav.home_label">
         <img src="assets/images/favicon.png" alt="seLe4n" class="logo-img logo-img-favicon" width="40" height="40" decoding="async" fetchpriority="high">
       </a>
       <ul class="nav-links" id="nav-links" role="list">
-        <li><a href="/#about">About</a></li>
-        <li><a href="/#architecture">Architecture</a></li>
-        <li><a href="/#comparison">Comparison</a></li>
-        <li><a href="/#features">Features</a></li>
-        <li><a href="/map.html" aria-current="page">Code Map</a></li>
-        <li><a href="/#security">Security</a></li>
-        <li><a href="/#verification">Verification</a></li>
-        <li><a href="/#getting-started">Get Started</a></li>
-        <li><a href="https://github.com/hatter6822/seLe4n" target="_blank" rel="noopener noreferrer" class="nav-cta">GitHub</a></li>
+        <li><a href="/#about" data-i18n="nav.about">About</a></li>
+        <li><a href="/#architecture" data-i18n="nav.architecture">Architecture</a></li>
+        <li><a href="/#comparison" data-i18n="nav.comparison">Comparison</a></li>
+        <li><a href="/#features" data-i18n="nav.features">Features</a></li>
+        <li><a href="/map.html" aria-current="page" data-i18n="nav.code_map">Code Map</a></li>
+        <li><a href="/#security" data-i18n="nav.security">Security</a></li>
+        <li><a href="/#verification" data-i18n="nav.verification">Verification</a></li>
+        <li><a href="/#getting-started" data-i18n="nav.get_started">Get Started</a></li>
+        <li><a href="https://github.com/hatter6822/seLe4n" target="_blank" rel="noopener noreferrer" class="nav-cta" data-i18n="nav.github">GitHub</a></li>
       </ul>
       <div class="nav-controls">
-        <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links" aria-haspopup="true">
+        <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links" aria-haspopup="true" data-i18n-aria-label="nav.toggle_nav">
           <span></span><span></span><span></span>
         </button>
-        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme">
+        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme" data-i18n-aria-label="nav.toggle_theme">
           <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
@@ -75,6 +76,13 @@
           <svg class="icon-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
           <svg class="icon-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 5v14l11-7z"/></svg>
         </button>
+        <div class="lang-switcher" id="lang-switcher">
+          <button class="lang-switcher-btn" id="lang-switcher-btn" aria-label="Language" aria-expanded="false" aria-haspopup="listbox" data-i18n-aria-label="nav.language">
+            <svg class="icon-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <span class="lang-switcher-label" id="lang-switcher-label">EN</span>
+          </button>
+          <ul class="lang-switcher-menu" id="lang-switcher-menu" role="listbox" aria-label="Select language" hidden></ul>
+        </div>
       </div>
     </div>
   </nav>
@@ -83,23 +91,23 @@
     <header class="section code-map-hero" id="map-overview">
       <div class="container code-map-hero-shell">
         <div class="code-map-hero-main section-lead">
-          <p class="hero-label">seLe4n Architecture Intelligence</p>
-          <h1>Adaptive Codebase Navigator</h1>
-          <p class="section-lead">Navigate module-by-module with one integrated flow map: dependencies, impact edges, proof links, and external boundaries are shown in one canonical graph.</p>
+          <p class="hero-label" data-i18n="map.hero_label">seLe4n Architecture Intelligence</p>
+          <h1 data-i18n="map.hero_title">Adaptive Codebase Navigator</h1>
+          <p class="section-lead" data-i18n="map.hero_lead">Navigate module-by-module with one integrated flow map: dependencies, impact edges, proof links, and external boundaries are shown in one canonical graph.</p>
         </div>
         <div class="code-map-header-meta" role="status" aria-live="polite">
-          <p id="map-status" class="map-status">Loading codebase map…</p>
-          <p id="module-results" class="results-note">0 modules shown</p>
+          <p id="map-status" class="map-status" data-i18n="map.loading">Loading codebase map…</p>
+          <p id="module-results" class="results-note" data-i18n="map.modules_shown_zero">0 modules shown</p>
         </div>
         <div class="map-stats" aria-live="polite">
-          <article class="stat-card"><span class="stat-title">Files</span><strong data-map="files">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Lean Modules</span><strong data-map="leanModules">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Import Edges</span><strong data-map="importEdges">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Theorems</span><strong data-map="theorems">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Ops/Inv Pairs</span><strong data-map="proofPairs">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Linked Pairs</span><strong data-map="linkedPairs">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Synced Commit</span><strong data-map="commit">-</strong></article>
-          <article class="stat-card"><span class="stat-title">Generated</span><strong data-map="generatedAt">-</strong></article>
+          <article class="stat-card"><span class="stat-title" data-i18n="map.stat_files">Files</span><strong data-map="files">-</strong></article>
+          <article class="stat-card"><span class="stat-title" data-i18n="map.stat_lean_modules">Lean Modules</span><strong data-map="leanModules">-</strong></article>
+          <article class="stat-card"><span class="stat-title" data-i18n="map.stat_import_edges">Import Edges</span><strong data-map="importEdges">-</strong></article>
+          <article class="stat-card"><span class="stat-title" data-i18n="map.stat_theorems">Theorems</span><strong data-map="theorems">-</strong></article>
+          <article class="stat-card"><span class="stat-title" data-i18n="map.stat_ops_inv_pairs">Ops/Inv Pairs</span><strong data-map="proofPairs">-</strong></article>
+          <article class="stat-card"><span class="stat-title" data-i18n="map.stat_linked_pairs">Linked Pairs</span><strong data-map="linkedPairs">-</strong></article>
+          <article class="stat-card"><span class="stat-title" data-i18n="map.stat_synced_commit">Synced Commit</span><strong data-map="commit">-</strong></article>
+          <article class="stat-card"><span class="stat-title" data-i18n="map.stat_generated">Generated</span><strong data-map="generatedAt">-</strong></article>
         </div>
       </div>
     </header>
@@ -110,24 +118,24 @@
           <article class="card constellation-panel">
             <form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">
               <div class="control-group control-group-wide">
-                <label for="module-search">Context search</label>
-                <input id="module-search" type="text" placeholder="Module or Module.declaration" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="module-search-options" aria-describedby="module-search-feedback">
+                <label for="module-search" data-i18n="map.context_search">Context search</label>
+                <input id="module-search" type="text" placeholder="Module or Module.declaration" data-i18n-placeholder="map.search_placeholder" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="module-search-options" aria-describedby="module-search-feedback">
                 <ul id="module-search-options" class="module-search-options" role="listbox" hidden></ul>
                 <p id="module-search-feedback" class="search-feedback" aria-live="polite"></p>
               </div>
               <div class="toolbar-actions">
-                <button id="reset-view" class="btn btn-secondary" type="button">Reset</button>
+                <button id="reset-view" class="btn btn-secondary" type="button" data-i18n="map.reset">Reset</button>
               </div>
             </form>
             <div id="flow-node-interior-menu" class="flow-node-interior-menu" aria-live="polite"></div>
             <div class="flowchart-shell">
-              <p class="flowchart-mobile-hint" aria-hidden="true">Tip: On mobile, drag to pan, pinch to zoom, and tap a node to inspect details.</p>
+              <p class="flowchart-mobile-hint" aria-hidden="true" data-i18n="map.mobile_hint">Tip: On mobile, drag to pan, pinch to zoom, and tap a node to inspect details.</p>
               <details class="keyboard-shortcuts-hint">
-                <summary>Keyboard shortcuts</summary>
+                <summary data-i18n="map.keyboard_shortcuts">Keyboard shortcuts</summary>
                 <dl class="shortcut-list">
-                  <div><dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd>Navigate modules</dd></div>
-                  <div><dt><kbd>/</kbd></dt><dd>Focus search</dd></div>
-                  <div><dt><kbd>Esc</kbd></dt><dd>Close search</dd></div>
+                  <div><dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd data-i18n="map.shortcut_navigate">Navigate modules</dd></div>
+                  <div><dt><kbd>/</kbd></dt><dd data-i18n="map.shortcut_search">Focus search</dd></div>
+                  <div><dt><kbd>Esc</kbd></dt><dd data-i18n="map.shortcut_close">Close search</dd></div>
                 </dl>
               </details>
               <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite" role="region" aria-label="Dependency and proof flow chart" tabindex="0"></div>

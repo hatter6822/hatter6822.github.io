@@ -1,6 +1,15 @@
 (function () {
   "use strict";
 
+  /* i18n helper — returns translated string or empty string for fallback chaining */
+  function t(key, vars) {
+    if (window.sele4nI18n && typeof window.sele4nI18n.t === "function") {
+      var result = window.sele4nI18n.t(key, vars);
+      if (result && result !== key) return result;
+    }
+    return ""; // callers use: t("key") || "English fallback"
+  }
+
   var REPO = "hatter6822/seLe4n";
   var REF = "main";
   var API = "https://api.github.com/repos/" + REPO;
@@ -249,7 +258,8 @@
     var node = DOM.moduleResults || document.getElementById("module-results");
     if (!node) return;
     var total = state.modules.length;
-    node.textContent = String(count) + " modules shown" + (total ? " (" + total + " total)" : "");
+    var msg = t("map.modules_shown", { count: count, total: total });
+    node.textContent = msg || (String(count) + " modules shown" + (total ? " (" + total + " total)" : ""));
   }
 
   function setStatus(text, isError) {
@@ -1321,21 +1331,21 @@
 
     if (!list.length) {
       picker.value = "";
-      picker.placeholder = "No modules matched current filters";
-      if (label) label.textContent = "Context search";
+      picker.placeholder = t("map.no_modules_matched") || "No modules matched current filters";
+      if (label) label.textContent = t("map.context_search") || "Context search";
       closeModuleSearchOptions();
       return;
     }
 
     if (inDeclContext) {
-      picker.placeholder = "Module or Module.declaration";
-      if (label) label.textContent = "Context search \u2014 declaration";
+      picker.placeholder = t("map.search_placeholder") || "Module or Module.declaration";
+      if (label) label.textContent = t("map.search_declaration") || "Context search \u2014 declaration";
       if (document.activeElement !== picker) {
         picker.value = state.selectedDeclarationModule + "." + state.selectedDeclaration;
       }
     } else {
-      picker.placeholder = "Module or Module.declaration";
-      if (label) label.textContent = "Context search \u2014 module";
+      picker.placeholder = t("map.search_placeholder") || "Module or Module.declaration";
+      if (label) label.textContent = t("map.search_module") || "Context search \u2014 module";
       if (state.selectedModule && document.activeElement !== picker) picker.value = state.selectedModule;
     }
   }
@@ -1397,7 +1407,7 @@
     if (!menu) return;
     menu.innerHTML = "";
     if (!selected) {
-      menu.textContent = "Select a module to inspect interior declarations.";
+      menu.textContent = t("map.select_module") || "Select a module to inspect interior declarations.";
       return;
     }
 
@@ -1425,12 +1435,12 @@
     var queryLabel = document.createElement("label");
     queryLabel.className = "sr-only";
     queryLabel.setAttribute("for", "interior-symbol-filter");
-    queryLabel.textContent = "Filter interior declarations";
+    queryLabel.textContent = t("map.filter_interior") || "Filter interior declarations";
     var queryInput = document.createElement("input");
     queryInput.id = "interior-symbol-filter";
     queryInput.className = "interior-menu-search";
     queryInput.type = "search";
-    queryInput.placeholder = "Filter declarations across all kinds…";
+    queryInput.placeholder = t("map.filter_placeholder") || "Filter declarations across all kinds\u2026";
     queryInput.autocomplete = "off";
     queryInput.spellcheck = false;
     queryInput.value = state.interiorMenuQuery || "";
@@ -2052,7 +2062,7 @@
     var selected = state.selectedModule;
     if (!selected) {
       renderFlowNodeInteriorMenu("");
-      wrap.textContent = "Select a module to render interaction and proof flow.";
+      wrap.textContent = t("map.select_module_flow") || "Select a module to render interaction and proof flow.";
       return;
     }
 
@@ -2464,7 +2474,7 @@
     moduleLabel.className = "btn btn-secondary declaration-breadcrumb-module";
     moduleLabel.type = "button";
     moduleLabel.textContent = moduleName;
-    moduleLabel.title = "Return to module context for " + moduleName;
+    moduleLabel.title = t("map.return_to_module", { module: moduleName }) || ("Return to module context for " + moduleName);
     moduleLabel.addEventListener("click", returnToModuleContext);
     breadcrumb.appendChild(moduleLabel);
     var separator = document.createElement("span");
@@ -2677,7 +2687,7 @@
       emptyHint.textContent = hintMsg;
       labelLayer.appendChild(emptyHint);
       var returnHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 46, fill: "#6e7a91", "font-size": "11", "class": "flow-lane-label" });
-      returnHint.textContent = "Use the breadcrumb above to return to module context.";
+      returnHint.textContent = t("map.breadcrumb_to_module") || "Use the breadcrumb above to return to module context.";
       labelLayer.appendChild(returnHint);
     }
 
@@ -3549,7 +3559,7 @@
     if (totalEdges > 0) return Promise.resolve(data);
 
     var opts = options && typeof options === "object" ? options : {};
-    if (!opts.silent) setStatus("Canonical map missing import edges; deriving imports from Lean source files…", false);
+    if (!opts.silent) setStatus(t("map.status_missing_edges") || "Canonical map missing import edges; deriving imports from Lean source files\u2026", false);
 
     return runInPool(modules, function (moduleName) {
       var path = String((data.moduleMap && data.moduleMap[moduleName]) || "").trim();
@@ -3809,19 +3819,19 @@
   }
 
   function fetchAndBuildData(cachedCommitSha) {
-    setStatus("Checking latest repository commit…", false);
+    setStatus(t("map.status_checking_commit") || "Checking latest repository commit\u2026", false);
 
     return fetchLatestCommitSha().then(function (latestCommitSha) {
       var knownCommit = state.commitSha || cachedCommitSha || "";
       setLiveSyncMeta(latestCommitSha || knownCommit);
 
       if (knownCommit && latestCommitSha && knownCommit === latestCommitSha) {
-        setStatus("Map is already synced to " + latestCommitSha.slice(0, 7) + ".", false);
+        setStatus(t("map.status_already_synced", { commit: latestCommitSha.slice(0, 7) }) || ("Map is already synced to " + latestCommitSha.slice(0, 7) + "."), false);
         return;
       }
 
       var treeRef = latestCommitSha || REF;
-      setStatus("Loading repository tree…", false);
+      setStatus(t("map.status_loading_tree") || "Loading repository tree\u2026", false);
 
       return safeFetch(API + "/git/trees/" + treeRef + "?recursive=1", false).then(function (payload) {
         var tree = payload && payload.tree ? payload.tree : [];
@@ -3839,7 +3849,7 @@
           state.contextList = [];
           buildSearchIndex();
 
-          setStatus("Analyzing Lean modules and theorem declarations…", false);
+          setStatus(t("map.status_analyzing") || "Analyzing Lean modules and theorem declarations\u2026", false);
           return runInPool(inventory.leanFiles, function (path) {
             var moduleName = moduleFromPath(path);
             var blobSha = inventory.leanShasByPath[path];
@@ -3898,7 +3908,7 @@
           scheduleRender();
           syncUrlState();
           var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
-          setStatus("Map ready. Integrated dependency/proof flow graph loaded." + statusSuffix, false);
+          setStatus((t("map.status_ready_integrated") || "Map ready. Integrated dependency/proof flow graph loaded.") + statusSuffix, false);
           persistCurrentMapCache();
       });
     });
