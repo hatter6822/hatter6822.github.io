@@ -320,7 +320,6 @@
     "stat_theorems": "定理",
     "stat_ops_inv_pairs": "Ops/Invペア",
     "stat_linked_pairs": "リンク済みペア",
-    "stat_synced_commit": "同期コミット",
     "stat_generated": "生成日時",
     "context_search": "コンテキスト検索",
     "search_placeholder": "モジュールまたはModule.declaration",

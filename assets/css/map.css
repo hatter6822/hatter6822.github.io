@@ -27,13 +27,6 @@
   max-width: min(104rem, 100%);
   min-width: 0;
 }
-.map-workspace-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.85rem 0.95rem;
-}
 .results-note {
   margin: 0;
   color: var(--text-muted);
@@ -196,15 +189,6 @@
   grid-area: flow;
   padding: clamp(1rem, 1.8vw, 1.45rem);
 }
-.section-title-sm { font-size: 1.03rem; margin-bottom: 0.42rem; }
-.panel-note {
-  color: var(--text-muted);
-  margin-bottom: 0.6rem;
-  font-size: 0.88rem;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-.panel-header { margin-bottom: 0.65rem; }
 .flowchart-shell { display: grid; gap: 0.35rem; min-width: 0; }
 
 .flowchart-legend {
@@ -466,7 +450,6 @@
 .flow-node.assurance-partial .assurance-icon { fill: #c47adb; }
 .flow-node.assurance-local .assurance-icon { fill: #5ba8d4; }
 .flow-node.assurance-none .assurance-icon { fill: #8e8e9a; }
-.pill-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 
 @media (max-width: 1320px) {
   .map-toolbar { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
@@ -504,7 +487,6 @@
     align-items: flex-start;
     gap: 0.24rem;
   }
-  .map-workspace-header { flex-direction: column; align-items: flex-start; }
   .detail-preset-options { width: 100%; }
   .detail-pill { flex: 1 1 0; text-align: center; }
 }
@@ -556,7 +538,7 @@
   }
   .map-stats {
     margin-top: 0.8rem;
-    grid-template-columns: repeat(8, minmax(7.2rem, 76vw));
+    grid-template-columns: repeat(7, minmax(7.2rem, 76vw));
     overflow-x: auto;
     padding-bottom: 0.25rem;
     scroll-snap-type: x proximity;
@@ -734,7 +716,7 @@
     border-radius: 0.7rem;
   }
   .map-stats {
-    grid-template-columns: repeat(8, minmax(6.8rem, 82vw));
+    grid-template-columns: repeat(7, minmax(6.8rem, 82vw));
   }
   /* On very small phones the flowchart legend can obscure content when
      sticky-positioned.  Switch to a compact inline layout at the top
@@ -778,6 +760,7 @@
   padding: 0.2rem 0;
 }
 .keyboard-shortcuts-hint summary:hover { color: var(--text); }
+.keyboard-shortcuts-hint summary:focus-visible { outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent); outline-offset: 2px; border-radius: 2px; }
 .keyboard-shortcuts-hint[open] summary { margin-bottom: 0.3rem; }
 .shortcut-list {
   display: grid;
@@ -838,7 +821,6 @@
 .stat-card:nth-child(5) { animation-delay: 120ms; }
 .stat-card:nth-child(6) { animation-delay: 150ms; }
 .stat-card:nth-child(7) { animation-delay: 180ms; }
-.stat-card:nth-child(8) { animation-delay: 210ms; }
 
 @media (max-width: 640px) {
   .keyboard-shortcuts-hint { display: none; }
@@ -882,3 +864,11 @@
   background: color-mix(in oklab, var(--bg-alt) 90%, transparent);
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
+[data-theme="light"] .flow-node.assurance-linked .assurance-bar { fill: #0d8c5b; }
+[data-theme="light"] .flow-node.assurance-partial .assurance-bar { fill: #9b4eb8; }
+[data-theme="light"] .flow-node.assurance-local .assurance-bar { fill: #2b7fb0; }
+[data-theme="light"] .flow-node.assurance-none .assurance-bar { fill: #6b6b78; }
+[data-theme="light"] .flow-node.assurance-linked .assurance-icon { fill: #0d8c5b; }
+[data-theme="light"] .flow-node.assurance-partial .assurance-icon { fill: #9b4eb8; }
+[data-theme="light"] .flow-node.assurance-local .assurance-icon { fill: #2b7fb0; }
+[data-theme="light"] .flow-node.assurance-none .assurance-icon { fill: #6b6b78; }

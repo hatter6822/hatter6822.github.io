@@ -320,7 +320,6 @@
     "stat_theorems": "Teoremas",
     "stat_ops_inv_pairs": "Pares Ops/Inv",
     "stat_linked_pairs": "Pares Vinculados",
-    "stat_synced_commit": "Commit Sincronizado",
     "stat_generated": "Generado",
     "context_search": "Búsqueda contextual",
     "search_placeholder": "Módulo o Módulo.declaración",

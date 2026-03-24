@@ -320,7 +320,6 @@
     "stat_theorems": "定理",
     "stat_ops_inv_pairs": "Ops/Inv 对",
     "stat_linked_pairs": "已链接的对",
-    "stat_synced_commit": "同步提交",
     "stat_generated": "生成时间",
     "context_search": "上下文搜索",
     "search_placeholder": "模块或 Module.declaration",
