@@ -2827,7 +2827,6 @@
     updateMetric("theorems", totals.theorems);
     updateMetric("proofPairs", totals.pairs);
     updateMetric("linkedPairs", totals.linked);
-    updateMetric("commit", state.commitSha ? state.commitSha.slice(0, 7) : "-");
     updateMetric("generatedAt", formatGeneratedAt(state.generatedAt));
 
     /* Pre-warm assurance cache for all visible modules so the first render
