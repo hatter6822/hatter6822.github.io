@@ -361,7 +361,7 @@
         <div class="card card-compact">
           <h4><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="code-link">IPC &amp; Dual-Queue</a></h4>
           <p data-i18n-html="architecture.ipc_desc">
-            Deeply modularized across 14 files with 223 theorems. Intrusive dual-queue endpoints
+            Deeply modularized across 11 files with 223 theorems. Intrusive dual-queue endpoints
             split into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Core</code></a>,
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Transport.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Transport</code></a>, and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/WithCaps.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>WithCaps</code></a>.
@@ -387,7 +387,7 @@
         <div class="card card-compact">
           <h4><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer" class="code-link">Information Flow</a></h4>
           <p data-i18n-html="architecture.info_flow_desc">
-            182 theorems across 9 deeply modularized files. Enforcement split into
+            182 theorems across 8 deeply modularized files. Enforcement split into
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Soundness.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Soundness</code></a> and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Wrappers</code></a>.
             Invariant proofs decomposed into
@@ -400,7 +400,9 @@
         <div class="card card-compact">
           <h4><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="code-link">Service Orchestration</a></h4>
           <p data-i18n-html="architecture.service_desc">
-            90 theorems across 4 files. Graph-based lifecycle with O(n+e) DFS cycle detection.
+            90 theorems across 6 files. Graph-based lifecycle with O(n+e) DFS cycle detection.
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Registry.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Registry</code></a> and
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Interface.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Interface</code></a> modules.
             Invariant proofs split into
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Invariant/Acyclicity.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Acyclicity</code></a> and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Invariant/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Policy</code></a>
@@ -626,7 +628,7 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.info_flow_title">N-Domain Information Flow</a></h3>
           <p data-i18n-html="features.info_flow_text">
-            182 theorems across 9 deeply modularized files. Parameterized security framework with two-dimensional labels (confidentiality +
+            182 theorems across 8 deeply modularized files. Parameterized security framework with two-dimensional labels (confidentiality +
             integrity). <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a> supports arbitrary domain counts and
             flow topologies with proven reflexivity and transitivity. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>GenericLabelingContext</code></a>
             assigns domains to objects, threads, endpoints, and services. Enforcement split into
@@ -723,7 +725,7 @@
         <div class="card">
           <h3 data-i18n="security.ifc_title">Information Flow Control</h3>
           <p data-i18n-html="security.ifc_text">
-            182 theorems across 9 deeply modularized files. seLe4n implements a parameterized N-domain information-flow framework
+            182 theorems across 8 deeply modularized files. seLe4n implements a parameterized N-domain information-flow framework
             supporting both the legacy 2&times;2 confidentiality/integrity lattice and arbitrary
             domain topologies via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a>:
           </p>
@@ -1179,7 +1181,7 @@ cargo test</code></pre>
             </p>
           </div>
         </div>
-        <div class="timeline-item">
+        <div class="timeline-item done">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.freeze_title">Build &rarr; Freeze &rarr; Execute Pipeline</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
@@ -1192,7 +1194,7 @@ cargo test</code></pre>
             </p>
           </div>
         </div>
-        <div class="timeline-item">
+        <div class="timeline-item done">
           <div class="timeline-marker"></div>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.syscall_expansion_title">Syscall Surface Expansion</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
