@@ -262,9 +262,9 @@
           <div class="arch-blocks">
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer" class="arch-block">Scheduler <span class="arch-stat">6 files &middot; 133 thms</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer" class="arch-block">Capability <span class="arch-stat">5 files &middot; 118 thms</span></a>
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="arch-block">IPC <span class="arch-stat">11 files &middot; 223 thms</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="arch-block">IPC <span class="arch-stat">14 files &middot; 223 thms</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer" class="arch-block">Lifecycle <span class="arch-stat">2 files &middot; 59 thms</span></a>
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="arch-block">Service <span class="arch-stat">6 files &middot; 90 thms</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="arch-block">Service <span class="arch-stat">4 files &middot; 90 thms</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/FrozenOps" target="_blank" rel="noopener noreferrer" class="arch-block">FrozenOps <span class="arch-stat">5 files &middot; 18 commutativity thms</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RadixTree" target="_blank" rel="noopener noreferrer" class="arch-block">RadixTree <span class="arch-stat">4 files &middot; CNodeRadix</span></a>
           </div>
@@ -361,7 +361,7 @@
         <div class="card card-compact">
           <h4><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="code-link">IPC &amp; Dual-Queue</a></h4>
           <p data-i18n-html="architecture.ipc_desc">
-            Deeply modularized across 11 files with 223 theorems. Intrusive dual-queue endpoints
+            Deeply modularized across 14 files with 223 theorems. Intrusive dual-queue endpoints
             split into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Core</code></a>,
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Transport.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Transport</code></a>, and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/WithCaps.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>WithCaps</code></a>.
@@ -387,7 +387,7 @@
         <div class="card card-compact">
           <h4><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer" class="code-link">Information Flow</a></h4>
           <p data-i18n-html="architecture.info_flow_desc">
-            182 theorems across 8 deeply modularized files. Enforcement split into
+            182 theorems across 9 deeply modularized files. Enforcement split into
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Soundness.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Soundness</code></a> and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Wrappers</code></a>.
             Invariant proofs decomposed into
@@ -400,9 +400,9 @@
         <div class="card card-compact">
           <h4><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="code-link">Service Orchestration</a></h4>
           <p data-i18n-html="architecture.service_desc">
-            90 theorems across 6 files. Graph-based lifecycle with O(n+e) DFS cycle detection.
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Registry.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Registry</code></a> and
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Interface.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Interface</code></a> modules.
+            90 theorems across 4 files. Graph-based lifecycle with O(n+e) DFS cycle detection.
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Operations</code></a> handles
+            registry, interface, and dependency management.
             Invariant proofs split into
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Invariant/Acyclicity.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Acyclicity</code></a> and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Invariant/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Policy</code></a>
@@ -628,7 +628,7 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.info_flow_title">N-Domain Information Flow</a></h3>
           <p data-i18n-html="features.info_flow_text">
-            182 theorems across 8 deeply modularized files. Parameterized security framework with two-dimensional labels (confidentiality +
+            182 theorems across 9 deeply modularized files. Parameterized security framework with two-dimensional labels (confidentiality +
             integrity). <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a> supports arbitrary domain counts and
             flow topologies with proven reflexivity and transitivity. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>GenericLabelingContext</code></a>
             assigns domains to objects, threads, endpoints, and services. Enforcement split into
@@ -725,7 +725,7 @@
         <div class="card">
           <h3 data-i18n="security.ifc_title">Information Flow Control</h3>
           <p data-i18n-html="security.ifc_text">
-            182 theorems across 8 deeply modularized files. seLe4n implements a parameterized N-domain information-flow framework
+            182 theorems across 9 deeply modularized files. seLe4n implements a parameterized N-domain information-flow framework
             supporting both the legacy 2&times;2 confidentiality/integrity lattice and arbitrary
             domain topologies via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a>:
           </p>
@@ -980,13 +980,13 @@
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer">Architecture/</a> <span class="tree-desc">&mdash; VSpace, VSpaceBackend, Adapter, TlbModel, RegisterDecode, SyscallArgDecode, Assumptions, Invariant, VSpaceInvariant (9 files)</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Capability/</a> <span class="tree-desc">&mdash; Operations, Invariant/{Authority, Defs, Preservation} (5 files)</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/FrozenOps" target="_blank" rel="noopener noreferrer">FrozenOps/</a> <span class="tree-desc">&mdash; Core, Operations, Invariant, Commutativity (5 files) &mdash; execution-phase typed lookups, value-only mutations, 18 commutativity theorems</span></div>
-              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC/</a> <span class="tree-desc">&mdash; DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Endpoint, SchedulerLemmas}, Invariant/{Structural, EndpointPreservation, NotificationPreservation, ...} (11 files)</span></div>
-              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer">InformationFlow/</a> <span class="tree-desc">&mdash; Policy, Projection, Enforcement/{Soundness, Wrappers}, Invariant/{Composition, Helpers, Operations} (8 files)</span></div>
+              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC/</a> <span class="tree-desc">&mdash; DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Endpoint, SchedulerLemmas}, Invariant/{Structural, EndpointPreservation, NotificationPreservation, CallReplyRecv, Defs} (14 files)</span></div>
+              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer">InformationFlow/</a> <span class="tree-desc">&mdash; Policy, Projection, Enforcement/{Soundness, Wrappers}, Invariant/{Composition, Helpers, Operations} (9 files)</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer">Lifecycle/</a> <span class="tree-desc">&mdash; Object creation, destruction, retype operations (2 files)</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RadixTree" target="_blank" rel="noopener noreferrer">RadixTree/</a> <span class="tree-desc">&mdash; Core, Bridge, Invariant (4 files) &mdash; CNodeRadix flat radix array for zero-hash slot lookup in frozen state</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer">RobinHood/</a> <span class="tree-desc">&mdash; Core, Bridge, Set, Invariant/{Defs, Lookup, Preservation} (7 files, 139 theorems)</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler/</a> <span class="tree-desc">&mdash; RunQueue, Operations/{Core, Preservation, Selection}, Invariant (6 files)</span></div>
-              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer">Service/</a> <span class="tree-desc">&mdash; Operations, Registry, Interface, Invariant/{Acyclicity, Policy} (6 files)</span></div>
+              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer">Service/</a> <span class="tree-desc">&mdash; Operations, Invariant/{Acyclicity, Policy} (4 files)</span></div>
             </div>
             <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Model" target="_blank" rel="noopener noreferrer">Model/</a> <span class="tree-desc">&mdash; Object/{Types, Structures}, State, Builder, FrozenState, FreezeProofs, IntermediateState (7 files) &mdash; three-phase state model</span></div>
             <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Platform" target="_blank" rel="noopener noreferrer">Platform/</a> <span class="tree-desc">&mdash; Contract.lean, Sim/, RPi5/</span></div>

@@ -678,7 +678,7 @@
         if (commit.commit && commit.commit.author && commit.commit.author.date) {
           data.updatedAt = commit.commit.author.date;
         }
-      }).catch(function () {}),
+      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] commit fetch:", e.message || e); }),
       fetchJSON(API + "/git/trees/" + REF + "?recursive=1").then(function (treePayload) {
         var tree = treePayload && treePayload.tree;
         if (!Array.isArray(tree)) return;
@@ -698,17 +698,19 @@
         data.modules = modules;
         data.scripts = scripts;
         data.docs = docs;
-      }).catch(function () {}),
+      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] tree fetch:", e.message || e); }),
       fetchJSON(API + "/languages").then(function (langs) {
         if (!langs || typeof langs.Lean !== "number") return;
+        // GitHub Languages API reports bytes; ~38 bytes/line is the empirical
+        // average for the seLe4n Lean codebase (measured across snapshots).
         data.lines = formatNumber(Math.round(langs.Lean / 38));
-      }).catch(function () {}),
+      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] languages fetch:", e.message || e); }),
       fetchText(RAW + REF + "/README.md").then(function (readmeText) {
         var metrics = parseCurrentStateMetrics(readmeText);
         if (metrics.version) data.version = metrics.version;
         if (metrics.lines) data.lines = metrics.lines;
         if (typeof metrics.buildJobs === "number" && metrics.buildJobs > 0) data.buildJobs = metrics.buildJobs;
-      }).catch(function () {}),
+      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] README fetch:", e.message || e); }),
       fetchJSON(API + "/contents/" + CODEBASE_MAP_PATH + "?ref=" + encodeURIComponent(REF)).then(function (payload) {
         if (!payload || payload.encoding !== "base64" || !payload.content) return;
         var decoded = "";
@@ -725,16 +727,16 @@
         }
         var theoremTotal = theoremCountFromCodebaseMap(parsed);
         if (theoremTotal > 0) data.theorems = theoremTotal;
-      }).catch(function () {}),
+      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] codebase-map fetch:", e.message || e); }),
       fetchText(RAW + REF + "/lean-toolchain").then(function (toolchainText) {
         var toolchainMatch = toolchainText && toolchainText.match(/(\d+\.\d+\.\d+)/);
         if (toolchainMatch) data.leanVersion = toolchainMatch[1];
-      }).catch(function () {}),
+      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] toolchain fetch:", e.message || e); }),
       fetchText(RAW + REF + "/lakefile.toml").then(function (lakefileText) {
         if (data.version) return;
         var versionMatch = lakefileText && lakefileText.match(/version\s*=\s*"([^"]+)"/);
         if (versionMatch) data.version = versionMatch[1];
-      }).catch(function () {})
+      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] lakefile fetch:", e.message || e); })
     ];
 
     return Promise.all(tasks).then(function () { return data; });
