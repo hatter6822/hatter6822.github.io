@@ -2,7 +2,7 @@
 
 Thanks for improving the seLe4n website.
 
-> Current release target: **0.17.5**
+> Current release target: **0.22.0**
 
 ## Repository principles
 
@@ -33,6 +33,7 @@ node scripts/validate-data.mjs
 node --check assets/js/map.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
+node --check assets/js/i18n.js
 node --check assets/js/background-pattern.js
 node --check assets/js/theme-init.js
 ```

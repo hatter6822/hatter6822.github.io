@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.17.5**.
+> Documentation baseline: website release **0.22.0**.
 
 ## Automated checks
 
@@ -57,6 +57,7 @@ Validates:
 node --check assets/js/map.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
+node --check assets/js/i18n.js
 node --check assets/js/background-pattern.js
 node --check assets/js/theme-init.js
 ```
