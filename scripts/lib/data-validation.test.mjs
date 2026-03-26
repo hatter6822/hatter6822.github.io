@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateMapDataObject, validateSiteDataObject } from './data-validation.mjs';
+import { validateMapDataObject, validateSiteDataObject, validateCrossFile } from './data-validation.mjs';
 
 test('validateSiteDataObject accepts valid payload', () => {
   const errors = validateSiteDataObject({
@@ -200,4 +200,56 @@ test('validateMapDataObject detects duplicate modules', () => {
   });
 
   assert.ok(errors.some((msg) => msg.includes('duplicate')));
+});
+
+test('validateMapDataObject detects orphaned moduleMeta entries', () => {
+  const errors = validateMapDataObject({
+    files: [],
+    modules: ['A.Core'],
+    moduleMap: { 'A.Core': 'A/Core.lean' },
+    moduleMeta: {
+      'A.Core': { symbols: { theorems: [], functions: [] } },
+      'A.Ghost': { symbols: { theorems: [], functions: [] } }
+    },
+    importsTo: {},
+    importsFrom: {},
+    externalImportsFrom: {},
+    commitSha: 'abc',
+    generatedAt: '2026-03-03T00:00:00Z'
+  });
+
+  assert.ok(errors.some((msg) => msg.includes('orphaned entry A.Ghost')));
+});
+
+test('validateCrossFile warns on stale data gap', () => {
+  const errors = validateCrossFile(
+    { generatedAt: '2026-03-26T00:00:00Z' },
+    { generatedAt: '2026-02-01T00:00:00Z' }
+  );
+  assert.ok(errors.some((msg) => msg.includes('differ by')));
+});
+
+test('validateCrossFile passes for close timestamps', () => {
+  const errors = validateCrossFile(
+    { generatedAt: '2026-03-26T00:00:00Z' },
+    { generatedAt: '2026-03-20T00:00:00Z' }
+  );
+  assert.deepEqual(errors, []);
+});
+
+test('validateSiteDataObject rejects float values in numeric fields', () => {
+  const errors = validateSiteDataObject({
+    version: '0.1.0',
+    leanVersion: '4.28.0',
+    modules: 23.5,
+    lines: '25,648',
+    theorems: 734,
+    scripts: 17,
+    docs: 97,
+    buildJobs: 84,
+    admitted: 0,
+    commitSha: 'abc1234',
+    generatedAt: '2026-03-03T00:00:00Z'
+  });
+  assert.ok(errors.some((msg) => msg.includes('integer')));
 });

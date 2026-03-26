@@ -761,11 +761,16 @@
       setCache(baseline);
       applyData(baseline);
     }).catch(function () {}).then(function () {
+      if (cachedRecord && cachedRecord.isFresh) return;
       return fetchLiveData().then(function (data) {
         baseline = mergeData(baseline, data);
         setCache(baseline);
         applyData(baseline);
-      }).catch(function () {});
+      }).catch(function (err) {
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn("[seLe4n] live data refresh failed, using bundled data");
+        }
+      });
     });
   }
 
