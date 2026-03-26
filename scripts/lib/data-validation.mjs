@@ -28,7 +28,13 @@ export function validateSiteDataObject(data) {
     if (typeof data[key] !== 'string') errors.push(`site-data.json: expected string at ${key}`);
   }
   for (const key of requiredNumber) {
-    if (typeof data[key] !== 'number' || Number.isNaN(data[key])) errors.push(`site-data.json: expected number at ${key}`);
+    if (typeof data[key] !== 'number' || Number.isNaN(data[key])) {
+      errors.push(`site-data.json: expected number at ${key}`);
+    } else if (!Number.isInteger(data[key])) {
+      errors.push(`site-data.json: expected integer at ${key}, got ${data[key]}`);
+    } else if (data[key] < 0) {
+      errors.push(`site-data.json: ${key} must be non-negative`);
+    }
   }
 
   if (typeof data.generatedAt === 'string' && !isIsoDateString(data.generatedAt)) {
@@ -139,6 +145,32 @@ export function validateMapDataObject(data) {
             }
           }
         }
+      }
+    }
+  }
+
+  if (isObject(data.moduleMeta)) {
+    for (const key of Object.keys(data.moduleMeta)) {
+      if (!modulesSet.has(key)) {
+        errors.push(`map-data.json: moduleMeta contains orphaned entry ${key} not in modules array`);
+      }
+    }
+  }
+
+  return errors;
+}
+
+export function validateCrossFile(siteData, mapData) {
+  const errors = [];
+  if (!isObject(siteData) || !isObject(mapData)) return errors;
+
+  if (typeof siteData.generatedAt === 'string' && typeof mapData.generatedAt === 'string') {
+    const siteDt = Date.parse(siteData.generatedAt);
+    const mapDt = Date.parse(mapData.generatedAt);
+    if (!Number.isNaN(siteDt) && !Number.isNaN(mapDt)) {
+      const staleDays = Math.abs(siteDt - mapDt) / (1000 * 60 * 60 * 24);
+      if (staleDays > 14) {
+        errors.push(`cross-file: site-data and map-data generatedAt differ by ${Math.round(staleDays)} days — consider re-syncing`);
       }
     }
   }
