@@ -533,9 +533,12 @@
   <section class="section section-alt" id="features">
     <div class="container">
       <h2 class="section-title" data-i18n="features.title">Key Innovations</h2>
-      <p class="section-lead" data-i18n="features.lead">
+      <p class="section-lead" data-i18n-html="features.lead">
         seLe4n introduces architectural improvements across every subsystem,
-        with a focus on O(1) data structures and machine-checked correctness.
+        with a three-phase Build &rarr; Freeze &rarr; Execute pipeline, O(1) data structures,
+        and machine-checked correctness. The performance optimization portfolio eliminated
+        all 14 audit findings, and the frozen execution phase adds
+        <code>FrozenMap</code> + <code>CNodeRadix</code> for deterministic runtime performance.
       </p>
 
       <div class="features-grid">
