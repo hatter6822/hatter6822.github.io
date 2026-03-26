@@ -23,6 +23,9 @@
     "zh-CN": "\u4e2d\u6587"
   };
 
+  /* Allowed HTML tags for data-i18n-html translations (defense-in-depth). */
+  var SAFE_TAGS = /^(a|br|code|em|span|strong)$/i;
+
   var currentLocale = DEFAULT_LOCALE;
   var strings = {};
   var pendingCallbacks = [];
@@ -105,58 +108,69 @@
 
   /* ── DOM translation ──────────────────────────────────── */
 
+  /**
+   * Sanitize an HTML string by stripping tags not in the SAFE_TAGS allowlist.
+   * Attributes on allowed tags are preserved only for <a> (href, rel, target)
+   * and <span>/<code> (class, data-live, data-i18n). All others are removed.
+   */
+  function sanitizeHTML(raw) {
+    var tmp = document.createElement("div");
+    tmp.innerHTML = raw;
+    var walk = document.createTreeWalker(tmp, NodeFilter.SHOW_ELEMENT);
+    var toRemove = [];
+    while (walk.nextNode()) {
+      var node = walk.currentNode;
+      if (!SAFE_TAGS.test(node.localName)) {
+        toRemove.push(node);
+        continue;
+      }
+      var attrs = node.attributes;
+      for (var a = attrs.length - 1; a >= 0; a--) {
+        var name = attrs[a].name;
+        var keep =
+          (node.localName === "a" && (name === "href" || name === "rel" || name === "target")) ||
+          (name === "class" || name === "data-live" || name === "data-i18n");
+        if (!keep) node.removeAttribute(name);
+      }
+      if (node.localName === "a") {
+        node.setAttribute("rel", "noopener noreferrer");
+      }
+    }
+    for (var r = 0; r < toRemove.length; r++) {
+      var parent = toRemove[r].parentNode;
+      if (parent) {
+        while (toRemove[r].firstChild) parent.insertBefore(toRemove[r].firstChild, toRemove[r]);
+        parent.removeChild(toRemove[r]);
+      }
+    }
+    return tmp.innerHTML;
+  }
+
   function applyTranslation(el, key, setter) {
     var translated = t(key);
     if (translated && translated !== key) setter(el, translated);
   }
 
+  /* Attribute → setter mapping for single-pass DOM translation. */
+  var I18N_ATTRS = [
+    { attr: "data-i18n",            setter: function (el, v) { el.textContent = v; } },
+    { attr: "data-i18n-html",       setter: function (el, v) { el.innerHTML = sanitizeHTML(v); } },
+    { attr: "data-i18n-placeholder", setter: function (el, v) { el.setAttribute("placeholder", v); } },
+    { attr: "data-i18n-aria-label", setter: function (el, v) { el.setAttribute("aria-label", v); } },
+    { attr: "data-i18n-title",      setter: function (el, v) { el.title = v; } },
+    { attr: "data-i18n-content",    setter: function (el, v) { el.setAttribute("content", v); } }
+  ];
+
   function translateDOM() {
-    // data-i18n → textContent (plain text elements)
-    var elements = document.querySelectorAll("[data-i18n]");
-    for (var i = 0; i < elements.length; i++) {
-      applyTranslation(elements[i], elements[i].getAttribute("data-i18n"), function (el, v) {
-        el.textContent = v;
-      });
-    }
-
-    // data-i18n-html → innerHTML (elements containing inline markup)
-    var htmlEls = document.querySelectorAll("[data-i18n-html]");
-    for (var h = 0; h < htmlEls.length; h++) {
-      applyTranslation(htmlEls[h], htmlEls[h].getAttribute("data-i18n-html"), function (el, v) {
-        el.innerHTML = v;
-      });
-    }
-
-    // data-i18n-placeholder
-    var placeholders = document.querySelectorAll("[data-i18n-placeholder]");
-    for (var j = 0; j < placeholders.length; j++) {
-      applyTranslation(placeholders[j], placeholders[j].getAttribute("data-i18n-placeholder"), function (el, v) {
-        el.setAttribute("placeholder", v);
-      });
-    }
-
-    // data-i18n-aria-label
-    var ariaLabels = document.querySelectorAll("[data-i18n-aria-label]");
-    for (var k = 0; k < ariaLabels.length; k++) {
-      applyTranslation(ariaLabels[k], ariaLabels[k].getAttribute("data-i18n-aria-label"), function (el, v) {
-        el.setAttribute("aria-label", v);
-      });
-    }
-
-    // data-i18n-title
-    var titles = document.querySelectorAll("[data-i18n-title]");
-    for (var m = 0; m < titles.length; m++) {
-      applyTranslation(titles[m], titles[m].getAttribute("data-i18n-title"), function (el, v) {
-        el.title = v;
-      });
-    }
-
-    // data-i18n-content (meta tags)
-    var metaTags = document.querySelectorAll("[data-i18n-content]");
-    for (var n = 0; n < metaTags.length; n++) {
-      applyTranslation(metaTags[n], metaTags[n].getAttribute("data-i18n-content"), function (el, v) {
-        el.setAttribute("content", v);
-      });
+    // Single selector batches all i18n attributes in one querySelectorAll call
+    var selector = I18N_ATTRS.map(function (d) { return "[" + d.attr + "]"; }).join(",");
+    var all = document.querySelectorAll(selector);
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      for (var j = 0; j < I18N_ATTRS.length; j++) {
+        var key = el.getAttribute(I18N_ATTRS[j].attr);
+        if (key) applyTranslation(el, key, I18N_ATTRS[j].setter);
+      }
     }
 
     // Update html lang attribute
