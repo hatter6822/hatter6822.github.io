@@ -147,14 +147,11 @@
 }
 .detail-pill:hover,
 .detail-pill:focus-visible {
-  border-color: var(--accent);
   border-color: color-mix(in oklab, var(--accent) 58%, var(--border));
-  outline: none;
 }
 .detail-pill.is-active {
   border-color: var(--accent);
   color: var(--heading);
-  box-shadow: 0 0 0 2px rgba(91, 160, 245, 0.24);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 24%, transparent);
 }
 .toolbar-actions {
@@ -264,7 +261,7 @@
   font-size: 0.68rem;
   padding: 0.28rem 0.62rem;
 }
-.interior-menu-search:focus-visible { outline: 2px solid rgba(91, 160, 245, 0.35); outline: 2px solid color-mix(in oklab, var(--accent) 65%, transparent); outline-offset: 1px; }
+.interior-menu-search:focus-visible { outline: 2px solid color-mix(in oklab, var(--accent) 65%, transparent); outline-offset: 1px; }
 .interior-menu-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
@@ -438,18 +435,18 @@
 .flow-node:not(.static):focus-visible rect { stroke: var(--accent); stroke-width: 2; filter: brightness(1.05); }
 .flow-node:not(.static):focus-visible { outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent); outline-offset: 3px; border-radius: 12px; }
 .flow-node.active rect { stroke-width: 2; }
-.flow-node.assurance-linked .assurance-bar { fill: #22b573; }
-.flow-node.assurance-partial .assurance-bar { fill: #c47adb; }
-.flow-node.assurance-local .assurance-bar { fill: #5ba8d4; }
-.flow-node.assurance-none .assurance-bar { fill: #8e8e9a; }
+.flow-node.assurance-linked .assurance-bar { fill: var(--assurance-linked); }
+.flow-node.assurance-partial .assurance-bar { fill: var(--assurance-partial); }
+.flow-node.assurance-local .assurance-bar { fill: var(--assurance-local); }
+.flow-node.assurance-none .assurance-bar { fill: var(--assurance-none); }
 /* Use a subtle box-shadow-equivalent via opacity rather than the expensive
    SVG drop-shadow filter which triggers per-node compositing on large graphs. */
 .flow-node .assurance-bar { transition: fill 0.15s ease-out; opacity: 0.92; }
 .flow-node .assurance-icon { font-family: var(--font-mono); font-size: 11px; transition: fill 0.15s ease-out; opacity: 0.88; }
-.flow-node.assurance-linked .assurance-icon { fill: #22b573; }
-.flow-node.assurance-partial .assurance-icon { fill: #c47adb; }
-.flow-node.assurance-local .assurance-icon { fill: #5ba8d4; }
-.flow-node.assurance-none .assurance-icon { fill: #8e8e9a; }
+.flow-node.assurance-linked .assurance-icon { fill: var(--assurance-linked); }
+.flow-node.assurance-partial .assurance-icon { fill: var(--assurance-partial); }
+.flow-node.assurance-local .assurance-icon { fill: var(--assurance-local); }
+.flow-node.assurance-none .assurance-icon { fill: var(--assurance-none); }
 
 @media (max-width: 1320px) {
   .map-toolbar { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
@@ -864,11 +861,4 @@
   background: color-mix(in oklab, var(--bg-alt) 90%, transparent);
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
-[data-theme="light"] .flow-node.assurance-linked .assurance-bar { fill: #0d8c5b; }
-[data-theme="light"] .flow-node.assurance-partial .assurance-bar { fill: #9b4eb8; }
-[data-theme="light"] .flow-node.assurance-local .assurance-bar { fill: #2b7fb0; }
-[data-theme="light"] .flow-node.assurance-none .assurance-bar { fill: #6b6b78; }
-[data-theme="light"] .flow-node.assurance-linked .assurance-icon { fill: #0d8c5b; }
-[data-theme="light"] .flow-node.assurance-partial .assurance-icon { fill: #9b4eb8; }
-[data-theme="light"] .flow-node.assurance-local .assurance-icon { fill: #2b7fb0; }
-[data-theme="light"] .flow-node.assurance-none .assurance-icon { fill: #6b6b78; }
+/* Light-theme assurance colors now handled via --assurance-* variables in style.css */

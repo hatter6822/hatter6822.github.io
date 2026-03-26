@@ -37,6 +37,12 @@
     radial-gradient(ellipse 60% 40% at 30% 72%, rgba(78, 201, 137, 0.08), transparent 65%),
     linear-gradient(180deg, rgba(8, 12, 21, 0.55), rgba(8, 12, 21, 0.3));
 
+  /* Assurance colors (map proof-pair indicators) */
+  --assurance-linked:  #22b573;
+  --assurance-partial: #c47adb;
+  --assurance-local:   #5ba8d4;
+  --assurance-none:    #8e8e9a;
+
   /* Typography */
   --font-sans:  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono:  "SFMono-Regular", "Cascadia Code", "Fira Code", Consolas, "Liberation Mono", Menlo, monospace;
@@ -81,6 +87,11 @@
     radial-gradient(ellipse 80% 60% at 50% 40%, rgba(43, 111, 208, 0.14), transparent 72%),
     radial-gradient(ellipse 60% 40% at 30% 72%, rgba(22, 128, 75, 0.1), transparent 65%),
     linear-gradient(180deg, rgba(248, 249, 252, 0.2), rgba(240, 242, 247, 0.15));
+
+  --assurance-linked:  #0d8c5b;
+  --assurance-partial: #9b4eb8;
+  --assurance-local:   #2b7fb0;
+  --assurance-none:    #6b6b78;
 
   --section-bg:     rgba(248, 249, 252, 0.88);
   --section-alt-bg: rgba(240, 242, 247, 0.92);
@@ -2017,8 +2028,11 @@ a.tier-script:hover {
 
 .lang-switcher-menu li:hover,
 .lang-switcher-menu li:focus {
-  background: var(--accent-glow, rgba(99, 102, 241, 0.1));
-  outline: none;
+  background: var(--accent-glow);
+}
+.lang-switcher-menu li:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .lang-switcher-menu li.active {

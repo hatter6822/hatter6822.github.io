@@ -186,6 +186,15 @@
     var xhr = new XMLHttpRequest();
     xhr.open("GET", url, true);
     xhr.responseType = "json";
+    xhr.timeout = 8000;
+
+    xhr.ontimeout = function () {
+      if (locale !== DEFAULT_LOCALE) {
+        loadLocale(DEFAULT_LOCALE, callback);
+        return;
+      }
+      callback(new Error("Timeout loading locale: " + locale));
+    };
 
     xhr.onload = function () {
       if (xhr.status >= 200 && xhr.status < 300) {
