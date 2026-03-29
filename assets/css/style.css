@@ -1556,6 +1556,20 @@ html:not([data-theme="light"]) .hero-subtitle {
   color: var(--text-muted);
 }
 
+.footer-compact {
+  padding: 1.5rem 0;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+.footer-compact a {
+  color: var(--text);
+  transition: color 0.2s;
+}
+.footer-compact a:hover {
+  color: var(--accent);
+}
+
 /* ============================================================
    Responsive
    ============================================================ */
