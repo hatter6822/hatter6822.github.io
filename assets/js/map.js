@@ -3000,12 +3000,12 @@
             event.preventDefault();
             scrollToHash(targetInfo.hash, "smooth");
             focusHashTarget(targetInfo.hash);
-            if (window.location.hash !== targetInfo.hash) history.pushState(null, "", targetInfo.hash);
+            if (window.location.hash !== targetInfo.hash) { try { history.pushState(null, "", targetInfo.hash); } catch (e) {} }
           } else if (target && target.samePath && !target.hash) {
             event.preventDefault();
             safeScrollTo(0, "smooth");
             if (window.location.pathname !== target.path || window.location.search || window.location.hash) {
-              history.replaceState(null, "", target.path);
+              try { history.replaceState(null, "", target.path); } catch (e) {}
             }
           } else if (target && target.sameOrigin && !target.samePath && target.hash) {
             event.preventDefault();
@@ -4715,7 +4715,7 @@
     var next = params.toString();
     var target = window.location.pathname + (next ? "?" + next : "");
     if (target === window.location.pathname + window.location.search) return;
-    window.history.replaceState(null, "", target);
+    try { window.history.replaceState(null, "", target); } catch (e) {}
   }
 
   function hydrateFilterControls() {

@@ -654,7 +654,7 @@
             scheduleHashScroll(target.hash, "smooth", { includeGap: false, navEpoch: selectionEpoch });
             settleHashNavigation(target.hash, selectionEpoch);
             focusHashTarget(target.hash);
-            if (window.location.hash !== target.hash) history.pushState(null, "", target.hash);
+            if (window.location.hash !== target.hash) { try { history.pushState(null, "", target.hash); } catch (e) {} }
             refreshCurrentPageAria();
           });
         } else if (target.samePath && !target.hash) {
@@ -662,7 +662,7 @@
           beginHashNavigation();
           runPostCloseNavigation(function () {
             safeScrollTo(0, "smooth");
-            if (window.location.pathname !== target.path || window.location.search || window.location.hash) history.replaceState(null, "", target.path);
+            if (window.location.pathname !== target.path || window.location.search || window.location.hash) { try { history.replaceState(null, "", target.path); } catch (e) {} }
           });
         } else if (!target.samePath && target.hash) {
           event.preventDefault();

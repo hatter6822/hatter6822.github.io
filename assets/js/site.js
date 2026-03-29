@@ -344,7 +344,7 @@
           focusHashTarget(href);
 
           if (window.location.hash !== href) {
-            history.pushState(null, "", href);
+            try { history.pushState(null, "", href); } catch (e) {}
           }
         });
       }
