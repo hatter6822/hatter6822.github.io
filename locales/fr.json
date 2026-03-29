@@ -35,7 +35,7 @@
     "tagline": "Zéro <code>sorry</code>. Zéro <code>axiom</code>.",
     "stat_theorems": "Théorèmes prouvés",
     "stat_lines": "Lignes de Lean 4",
-    "stat_modules": "Modules noyau",
+    "stat_modules": "Modules Lean",
     "stat_admitted": "Preuves admises",
     "learn_more": "En savoir plus",
     "view_source": "Voir le code source",
@@ -234,7 +234,7 @@
   },
   "structure": {
     "title": "Structure du projet",
-    "lead": "<span data-live=\"modules\">{{modules}}</span> modules noyau organisés selon un schéma cohérent Operations/Invariant, <span data-live=\"scripts\">{{scripts}}</span> scripts de test et d'intégration continue, et <span data-live=\"docs\">{{docs}}</span> fichiers de documentation avec spécifications, ADR et feuilles de route."
+    "lead": "<span data-live=\"modules\">{{modules}}</span> modules Lean organisés selon un schéma cohérent Operations/Invariant, <span data-live=\"scripts\">{{scripts}}</span> scripts de test et d'intégration continue, et <span data-live=\"docs\">{{docs}}</span> fichiers de documentation avec spécifications, ADR et feuilles de route."
   },
   "getting_started": {
     "title": "Démarrage",

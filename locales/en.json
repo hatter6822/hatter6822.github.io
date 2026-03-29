@@ -35,7 +35,7 @@
     "tagline": "Zero <code>sorry</code>. Zero <code>axiom</code>.",
     "stat_theorems": "Proven Theorems",
     "stat_lines": "Lines of Lean 4",
-    "stat_modules": "Kernel Modules",
+    "stat_modules": "Lean Modules",
     "stat_admitted": "Admitted Proofs",
     "learn_more": "Learn More",
     "view_source": "View Source",
@@ -234,7 +234,7 @@
   },
   "structure": {
     "title": "Project Structure",
-    "lead": "<span data-live=\"modules\">{{modules}}</span> kernel modules organized with a consistent Operations/Invariant pattern, <span data-live=\"scripts\">{{scripts}}</span> test and CI scripts, and <span data-live=\"docs\">{{docs}}</span> documentation files with specifications, ADRs, and roadmaps."
+    "lead": "<span data-live=\"modules\">{{modules}}</span> Lean modules organized with a consistent Operations/Invariant pattern, <span data-live=\"scripts\">{{scripts}}</span> test and CI scripts, and <span data-live=\"docs\">{{docs}}</span> documentation files with specifications, ADRs, and roadmaps."
   },
   "getting_started": {
     "title": "Getting Started",

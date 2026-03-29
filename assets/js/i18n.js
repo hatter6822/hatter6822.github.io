@@ -133,6 +133,10 @@
         if (!keep) node.removeAttribute(name);
       }
       if (node.localName === "a") {
+        var href = node.getAttribute("href") || "";
+        if (href && !/^https?:\/\//.test(href) && !/^\//.test(href) && !/^#/.test(href) && !/^mailto:/.test(href)) {
+          node.removeAttribute("href");
+        }
         node.setAttribute("rel", "noopener noreferrer");
       }
     }

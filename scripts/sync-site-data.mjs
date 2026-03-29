@@ -62,7 +62,7 @@ let docs = 0;
 for (const item of tree.tree ?? []) {
   if (item.type !== 'blob') continue;
   const p = item.path;
-  if (/^SeLe4n\/Kernel\/.*\.lean$/.test(p)) modules += 1;
+  if (/^SeLe4n\/.*\.lean$/.test(p)) modules += 1;
   if (/^scripts\/.*\.sh$/.test(p)) scripts += 1;
   if (/^docs\/.*\.(md|txt)$/.test(p)) docs += 1;
 }
