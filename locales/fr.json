@@ -43,7 +43,7 @@
   },
   "about": {
     "title": "Qu'est-ce que seLe4n ?",
-    "lead": "seLe4n est un micro-noyau à capacités dont le modèle noyau est entièrement écrit en <strong>Lean 4</strong> avec des preuves vérifiées par machine, complété par des wrappers d'appels système sûrs en <strong>Rust</strong> pour les programmes en espace utilisateur. Il cible le <strong>Raspberry Pi 5</strong> (ARM64 / BCM2712) comme première plateforme matérielle.",
+    "lead": "seLe4n est un micro-noyau à capacités dont le modèle noyau est entièrement écrit en <strong>Lean 4</strong> avec des preuves vérifiées par machine, complété par des wrappers d'appels système sûrs en <strong>Rust</strong> pour les programmes en espace utilisateur. Il utilise une architecture <strong>en trois phases Construire → Geler → Exécuter</strong> et cible le <strong>Raspberry Pi 5</strong> (ARM64 / BCM2712) comme première plateforme matérielle.",
     "why_microkernel_title": "Pourquoi un micro-noyau ?",
     "why_microkernel_text": "Les micro-noyaux minimisent la base de calcul de confiance en n'exécutant que les services essentiels en espace noyau — ordonnancement, IPC, gestion des capacités et contrôle de la mémoire. Tout le reste (pilotes, systèmes de fichiers, réseau) s'exécute en espace utilisateur. Cela réduit la surface d'attaque et rend la vérification formelle praticable : chaque ligne de code noyau peut être analysée mathématiquement.",
     "why_lean_title": "Pourquoi Lean 4 ?",

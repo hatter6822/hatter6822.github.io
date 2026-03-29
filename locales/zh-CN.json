@@ -43,7 +43,7 @@
   },
   "about": {
     "title": "什么是 seLe4n？",
-    "lead": "seLe4n 是一个基于能力的微内核，其内核模型完全使用 <strong>Lean 4</strong> 编写并具有机器检查的证明，同时配备安全的 <strong>Rust</strong> 系统调用封装供用户空间程序使用。其首个硬件目标平台为 <strong>Raspberry Pi 5</strong>（ARM64 / BCM2712）。",
+    "lead": "seLe4n 是一个基于能力的微内核，其内核模型完全使用 <strong>Lean 4</strong> 编写并具有机器检查的证明，同时配备安全的 <strong>Rust</strong> 系统调用封装供用户空间程序使用。它采用 <strong>三阶段 构建 → 冻结 → 执行</strong> 架构，首个硬件目标平台为 <strong>Raspberry Pi 5</strong>（ARM64 / BCM2712）。",
     "why_microkernel_title": "为什么选择微内核？",
     "why_microkernel_text": "微内核通过仅在内核空间运行必要服务——调度、IPC、能力管理和内存控制——来最小化可信计算基。其他所有服务（驱动程序、文件系统、网络）都运行在用户空间。这减少了攻击面，并使形式化验证切实可行：内核代码的每一行都可以进行数学推理。",
     "why_lean_title": "为什么选择 Lean 4？",
