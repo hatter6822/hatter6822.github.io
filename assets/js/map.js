@@ -1156,28 +1156,6 @@
     ];
   }
 
-  function collectNeighborhood(name, radius) {
-    var maxRadius = Math.max(1, Math.min(3, radius || 1));
-    var visited = Object.create(null);
-    var queue = [{ name: name, depth: 0 }];
-    var out = [];
-    visited[name] = true;
-
-    for (var cursor = 0; cursor < queue.length; cursor++) {
-      var node = queue[cursor];
-      out.push(node);
-      if (node.depth >= maxRadius) continue;
-      var neighbors = (state.importsFrom[node.name] || []).concat(state.importsTo[node.name] || []);
-      for (var i = 0; i < neighbors.length; i++) {
-        var next = neighbors[i];
-        if (!next || next === node.name || visited[next]) continue;
-        visited[next] = true;
-        queue.push({ name: next, depth: node.depth + 1 });
-      }
-    }
-    return out;
-  }
-
   function findNearestLinkedPath(start, radius) {
     if (!start) return [];
     if (assuranceForModule(start).level === "linked") return [start];
@@ -3000,12 +2978,12 @@
             event.preventDefault();
             scrollToHash(targetInfo.hash, "smooth");
             focusHashTarget(targetInfo.hash);
-            if (window.location.hash !== targetInfo.hash) history.pushState(null, "", targetInfo.hash);
+            if (window.location.hash !== targetInfo.hash) { try { history.pushState(null, "", targetInfo.hash); } catch (e) {} }
           } else if (target && target.samePath && !target.hash) {
             event.preventDefault();
             safeScrollTo(0, "smooth");
             if (window.location.pathname !== target.path || window.location.search || window.location.hash) {
-              history.replaceState(null, "", target.path);
+              try { history.replaceState(null, "", target.path); } catch (e) {}
             }
           } else if (target && target.sameOrigin && !target.samePath && target.hash) {
             event.preventDefault();
@@ -4715,7 +4693,7 @@
     var next = params.toString();
     var target = window.location.pathname + (next ? "?" + next : "");
     if (target === window.location.pathname + window.location.search) return;
-    window.history.replaceState(null, "", target);
+    try { window.history.replaceState(null, "", target); } catch (e) {}
   }
 
   function hydrateFilterControls() {

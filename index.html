@@ -471,57 +471,57 @@
             <tr>
               <td><strong data-i18n="comparison.data_structures">Data structures</strong></td>
               <td data-i18n="comparison.data_structures_trad">Linked lists, sequential lookups</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer">Verified Robin Hood hash map</a> &mdash; O(1) hot paths, 139 proofs</td>
+              <td data-i18n-html="comparison.data_structures_sele4n"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer">Verified Robin Hood hash map</a> &mdash; O(1) hot paths, 139 proofs</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.ipc_queuing">IPC queuing</strong></td>
               <td data-i18n="comparison.ipc_queuing_trad">Intrusive singly-linked list</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener noreferrer">Dual-queue (sendQ/receiveQ)</a> with O(1) mid-queue removal</td>
+              <td data-i18n-html="comparison.ipc_queuing_sele4n"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue.lean" target="_blank" rel="noopener noreferrer">Dual-queue (sendQ/receiveQ)</a> with O(1) mid-queue removal</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.scheduling">Scheduling</strong></td>
               <td data-i18n="comparison.scheduling_trad">Priority-based round-robin</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer">Priority + EDF</a> with domain-aware partitioning</td>
+              <td data-i18n-html="comparison.scheduling_sele4n"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations.lean" target="_blank" rel="noopener noreferrer">Priority + EDF</a> with domain-aware partitioning</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.cdt">CDT</strong></td>
               <td data-i18n="comparison.cdt_trad">Mutable doubly-linked list</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Node-stable with HashMap childMap</a>, O(1) slot transfer</td>
+              <td data-i18n-html="comparison.cdt_sele4n"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Node-stable with HashMap childMap</a>, O(1) slot transfer</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.info_flow">Information flow</strong></td>
               <td data-i18n="comparison.info_flow_trad">Binary high/low partition</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer">N-domain two-dimensional labels</a> with per-endpoint policies</td>
+              <td data-i18n-html="comparison.info_flow_sele4n"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean" target="_blank" rel="noopener noreferrer">N-domain two-dimensional labels</a> with per-endpoint policies</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.service_mgmt">Service management</strong></td>
               <td data-i18n="comparison.service_mgmt_trad">No kernel-level concept</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer">Dependency graph</a> with DFS cycle detection</td>
+              <td data-i18n-html="comparison.service_mgmt_sele4n"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer">Dependency graph</a> with DFS cycle detection</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.revocation">Revocation</strong></td>
               <td data-i18n="comparison.revocation_trad">Silent error handling</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer">Strict variant</a> reporting first failure with context</td>
+              <td data-i18n-html="comparison.revocation_sele4n"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer">Strict variant</a> reporting first failure with context</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.syscall_boundary">Syscall boundary</strong></td>
               <td data-i18n="comparison.syscall_boundary_trad">Unverified register parsing</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/SyscallArgDecode.lean" target="_blank" rel="noopener noreferrer">Verified decode</a> with roundtrip + determinism proofs</td>
+              <td data-i18n-html="comparison.syscall_boundary_sele4n"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/SyscallArgDecode.lean" target="_blank" rel="noopener noreferrer">Verified decode</a> with roundtrip + determinism proofs</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.user_space_bindings">User-space bindings</strong></td>
               <td data-i18n="comparison.user_space_bindings_trad">C headers with manual register marshalling</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer">Safe Rust wrappers</a> &mdash; 17 syscalls, typed capabilities, zero <code>unsafe</code> in sele4n-sys</td>
+              <td data-i18n-html="comparison.user_space_bindings_sele4n"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer">Safe Rust wrappers</a> &mdash; 17 syscalls, typed capabilities, zero <code>unsafe</code> in sele4n-sys</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.state_model">State model</strong></td>
               <td data-i18n="comparison.state_model_trad">Mutable C structures</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/State.lean" target="_blank" rel="noopener noreferrer">Immutable records</a>, pure functional transitions</td>
+              <td data-i18n-html="comparison.state_model_sele4n"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/State.lean" target="_blank" rel="noopener noreferrer">Immutable records</a>, pure functional transitions</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.execution_model">Execution model</strong></td>
               <td data-i18n="comparison.execution_model_trad">Direct mutable state manipulation</td>
-              <td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/FrozenState.lean" target="_blank" rel="noopener noreferrer">Three-phase Build &rarr; Freeze &rarr; Execute</a> with FrozenMap + CNodeRadix</td>
+              <td data-i18n-html="comparison.execution_model_sele4n"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/FrozenState.lean" target="_blank" rel="noopener noreferrer">Three-phase Build &rarr; Freeze &rarr; Execute</a> with FrozenMap + CNodeRadix</td>
             </tr>
           </tbody>
         </table>
