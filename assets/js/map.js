@@ -1156,28 +1156,6 @@
     ];
   }
 
-  function collectNeighborhood(name, radius) {
-    var maxRadius = Math.max(1, Math.min(3, radius || 1));
-    var visited = Object.create(null);
-    var queue = [{ name: name, depth: 0 }];
-    var out = [];
-    visited[name] = true;
-
-    for (var cursor = 0; cursor < queue.length; cursor++) {
-      var node = queue[cursor];
-      out.push(node);
-      if (node.depth >= maxRadius) continue;
-      var neighbors = (state.importsFrom[node.name] || []).concat(state.importsTo[node.name] || []);
-      for (var i = 0; i < neighbors.length; i++) {
-        var next = neighbors[i];
-        if (!next || next === node.name || visited[next]) continue;
-        visited[next] = true;
-        queue.push({ name: next, depth: node.depth + 1 });
-      }
-    }
-    return out;
-  }
-
   function findNearestLinkedPath(start, radius) {
     if (!start) return [];
     if (assuranceForModule(start).level === "linked") return [start];
