@@ -35,7 +35,7 @@
     "tagline": "Cero <code>sorry</code>. Cero <code>axiom</code>.",
     "stat_theorems": "Teoremas Demostrados",
     "stat_lines": "Líneas de Lean 4",
-    "stat_modules": "Módulos del Kernel",
+    "stat_modules": "Módulos Lean",
     "stat_admitted": "Pruebas Admitidas",
     "learn_more": "Más Información",
     "view_source": "Ver Código Fuente",
@@ -234,7 +234,7 @@
   },
   "structure": {
     "title": "Estructura del Proyecto",
-    "lead": "<span data-live=\"modules\">{{modules}}</span> módulos de kernel organizados con un patrón consistente Operations/Invariant, <span data-live=\"scripts\">{{scripts}}</span> scripts de pruebas y CI, y <span data-live=\"docs\">{{docs}}</span> archivos de documentación con especificaciones, ADRs y hojas de ruta."
+    "lead": "<span data-live=\"modules\">{{modules}}</span> módulos Lean organizados con un patrón consistente Operations/Invariant, <span data-live=\"scripts\">{{scripts}}</span> scripts de pruebas y CI, y <span data-live=\"docs\">{{docs}}</span> archivos de documentación con especificaciones, ADRs y hojas de ruta."
   },
   "getting_started": {
     "title": "Primeros Pasos",

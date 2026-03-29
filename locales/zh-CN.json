@@ -35,7 +35,7 @@
     "tagline": "零 <code>sorry</code>。零 <code>axiom</code>。",
     "stat_theorems": "已证明定理",
     "stat_lines": "Lean 4 代码行数",
-    "stat_modules": "内核模块",
+    "stat_modules": "Lean 模块",
     "stat_admitted": "已承认证明",
     "learn_more": "了解更多",
     "view_source": "查看源码",
@@ -234,7 +234,7 @@
   },
   "structure": {
     "title": "项目结构",
-    "lead": "<span data-live=\"modules\">{{modules}}</span> 个内核模块采用一致的 Operations/Invariant 模式组织，<span data-live=\"scripts\">{{scripts}}</span> 个测试和 CI 脚本，以及 <span data-live=\"docs\">{{docs}}</span> 个文档文件包含规范、ADR 和路线图。"
+    "lead": "<span data-live=\"modules\">{{modules}}</span> 个 Lean 模块采用一致的 Operations/Invariant 模式组织，<span data-live=\"scripts\">{{scripts}}</span> 个测试和 CI 脚本，以及 <span data-live=\"docs\">{{docs}}</span> 个文档文件包含规范、ADR 和路线图。"
   },
   "getting_started": {
     "title": "快速开始",

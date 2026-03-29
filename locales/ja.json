@@ -35,7 +35,7 @@
     "tagline": "<code>sorry</code>ゼロ。<code>axiom</code>ゼロ。",
     "stat_theorems": "証明済み定理",
     "stat_lines": "Lean 4コード行数",
-    "stat_modules": "カーネルモジュール",
+    "stat_modules": "Leanモジュール",
     "stat_admitted": "未証明の証明",
     "learn_more": "詳細を見る",
     "view_source": "ソースを見る",
@@ -234,7 +234,7 @@
   },
   "structure": {
     "title": "プロジェクト構成",
-    "lead": "一貫したOperations/Invariantパターンで構成された<span data-live=\"modules\">{{modules}}</span>のカーネルモジュール、<span data-live=\"scripts\">{{scripts}}</span>のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む<span data-live=\"docs\">{{docs}}</span>のドキュメントファイル。"
+    "lead": "一貫したOperations/Invariantパターンで構成された<span data-live=\"modules\">{{modules}}</span>のLeanモジュール、<span data-live=\"scripts\">{{scripts}}</span>のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む<span data-live=\"docs\">{{docs}}</span>のドキュメントファイル。"
   },
   "getting_started": {
     "title": "はじめに",
