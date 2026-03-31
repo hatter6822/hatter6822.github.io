@@ -760,7 +760,11 @@
       baseline = mergeData(baseline, bundled);
       setCache(baseline);
       applyData(baseline);
-    }).catch(function () {}).then(function () {
+    }).catch(function (err) {
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("[seLe4n] bundled data fetch failed:", err);
+      }
+    }).then(function () {
       if (cachedRecord && cachedRecord.isFresh) return;
       return fetchLiveData().then(function (data) {
         baseline = mergeData(baseline, data);
