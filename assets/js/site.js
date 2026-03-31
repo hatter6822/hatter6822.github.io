@@ -514,10 +514,12 @@
   }
 
   function getDataTimestamp(data) {
-    var value = data && (data.generatedAt || data.updatedAt);
-    if (!value) return 0;
-    var ts = new Date(value).getTime();
-    return Number.isNaN(ts) ? 0 : ts;
+    if (!data) return 0;
+    var gen = data.generatedAt ? new Date(data.generatedAt).getTime() : 0;
+    var upd = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+    if (Number.isNaN(gen)) gen = 0;
+    if (Number.isNaN(upd)) upd = 0;
+    return Math.max(gen, upd);
   }
 
   function fetchBundledData() {
@@ -753,7 +755,7 @@
     fetchBundledData().then(function (bundled) {
       var bundledTs = getDataTimestamp(bundled);
       var cachedTs = getDataTimestamp(cachedRecord && cachedRecord.data);
-      if (cachedTs && bundledTs && bundledTs < cachedTs) {
+      if (cachedTs && bundledTs && bundledTs <= cachedTs) {
         return;
       }
 
@@ -765,7 +767,6 @@
         console.warn("[seLe4n] bundled data fetch failed:", err);
       }
     }).then(function () {
-      if (cachedRecord && cachedRecord.isFresh) return;
       return fetchLiveData().then(function (data) {
         baseline = mergeData(baseline, data);
         setCache(baseline);

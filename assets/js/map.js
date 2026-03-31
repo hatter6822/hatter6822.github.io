@@ -29,6 +29,7 @@
   var CACHE_KEY = "sele4n-code-map-v9";
   var CACHE_SCHEMA_VERSION = 3;
   var CACHE_TTL_MS = 60 * 60 * 1000;
+  var CACHE_MAX_STALE_MS = 30 * 24 * 60 * 60 * 1000;
   var LIVE_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
   var LIVE_SYNC_JITTER_MAX_MS = 45 * 1000;
   var LIVE_SYNC_POLL_INTERVAL_MS = 90 * 1000;
@@ -3131,6 +3132,7 @@
       var parsed = JSON.parse(raw);
       if (parsed.schema !== CACHE_SCHEMA_VERSION) return null;
       var ageMs = Math.max(0, Date.now() - Number(parsed.ts || 0));
+      if (ageMs > CACHE_MAX_STALE_MS) return null;
       parsed.isFresh = ageMs <= CACHE_TTL_MS;
       parsed.ageMs = ageMs;
       return parsed;
