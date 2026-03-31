@@ -749,14 +749,21 @@
   /* ═══════════════════════════════════════════════════════════
      Theme change
      ═══════════════════════════════════════════════════════════ */
-  new MutationObserver(function (mutations) {
+  var themeObserver = new MutationObserver(function (mutations) {
     for (var i = 0; i < mutations.length; i++) {
       if (mutations[i].attributeName === 'data-theme') {
         if (prefersReduced || userPaused) renderStatic();
         return;
       }
     }
-  }).observe(document.documentElement, { attributes: true });
+  });
+  themeObserver.observe(document.documentElement, { attributes: true });
+
+  window.addEventListener('pagehide', function () {
+    clearTimeout(resizeTimer);
+    themeObserver.disconnect();
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  });
 
   /* ═══════════════════════════════════════════════════════════
      Page visibility — pause rendering when tab is hidden

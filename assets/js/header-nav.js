@@ -582,8 +582,11 @@
         }, { passive: true });
       }
 
+      var navMutationObserver = null;
+      var navResizeObserver = null;
+
       if (typeof MutationObserver === "function") {
-        var mutationObserver = new MutationObserver(function () {
+        navMutationObserver = new MutationObserver(function () {
           if (geometryRefreshTimeoutId) window.clearTimeout(geometryRefreshTimeoutId);
           geometryRefreshTimeoutId = window.setTimeout(function () {
             geometryRefreshTimeoutId = 0;
@@ -591,7 +594,7 @@
           }, 50);
         });
 
-        mutationObserver.observe(document.body, {
+        navMutationObserver.observe(document.body, {
           childList: true,
           subtree: true,
           characterData: true,
@@ -601,13 +604,18 @@
       }
 
       if (typeof ResizeObserver === "function") {
-        var sectionResizeObserver = new ResizeObserver(function () {
+        navResizeObserver = new ResizeObserver(function () {
           scheduleGeometryRefresh();
         });
         for (var sectionIndex = 0; sectionIndex < sectionEntries.length; sectionIndex++) {
-          sectionResizeObserver.observe(sectionEntries[sectionIndex].section);
+          navResizeObserver.observe(sectionEntries[sectionIndex].section);
         }
       }
+
+      window.addEventListener("pagehide", function () {
+        if (navMutationObserver) navMutationObserver.disconnect();
+        if (navResizeObserver) navResizeObserver.disconnect();
+      });
 
       updateSectionTops();
       detectActiveHash();
