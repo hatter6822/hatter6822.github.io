@@ -43,7 +43,7 @@
     "codeRepository": "https://github.com/hatter6822/seLe4n",
     "programmingLanguage": ["Lean 4", "Rust"],
     "license": "https://www.gnu.org/licenses/gpl-3.0.html",
-    "version": "0.22.23",
+    "version": "0.25.13",
     "author": {
       "@type": "Person",
       "name": "hatter6822",
@@ -119,15 +119,15 @@
 
       <div class="hero-stats">
         <div class="stat">
-          <span class="stat-value" data-live="theorems">532</span>
+          <span class="stat-value" data-live="theorems">562</span>
           <span class="stat-label" data-i18n="hero.stat_theorems">Proven Theorems</span>
         </div>
         <div class="stat">
-          <span class="stat-value" data-live="lines">111307</span>
+          <span class="stat-value" data-live="lines">127243</span>
           <span class="stat-label" data-i18n="hero.stat_lines">Lines of Lean 4</span>
         </div>
         <div class="stat">
-          <span class="stat-value" data-live="modules">97</span>
+          <span class="stat-value" data-live="modules">127</span>
           <span class="stat-label" data-i18n="hero.stat_modules">Lean Modules</span>
         </div>
         <div class="stat">
@@ -142,7 +142,7 @@
         <a href="map.html" class="btn btn-secondary" data-i18n="hero.explore_map">Explore Code Map</a>
       </div>
 
-      <p class="hero-version">v<span data-live="version">0.22.23</span> &middot; Lean <span data-live="lean-version">4.28.0</span> &middot; GPLv3</p>
+      <p class="hero-version">v<span data-live="version">0.25.13</span> &middot; Lean <span data-live="lean-version">4.28.0</span> &middot; GPLv3</p>
     </div>
   </header>
 
@@ -219,7 +219,7 @@
         <div class="card">
           <h3 data-i18n="about.status_title">Project Status</h3>
           <p data-i18n-html="about.status_text">
-            seLe4n is an active research project at version <strong data-live="version">0.22.23</strong>. The kernel
+            seLe4n is an active research project at version <strong data-live="version">0.25.13</strong>. The kernel
             model is feature-complete with 17 syscalls spanning IPC, scheduling, capabilities, memory management,
             notifications, information-flow control, and service orchestration. The three-phase
             Build &rarr; Freeze &rarr; Execute architecture is implemented with <code>FrozenSystemState</code>,
@@ -865,7 +865,7 @@
             <h3 data-i18n="verification.tier1_name">Build</h3>
           </div>
           <p data-i18n-html="verification.tier1_text">
-            Full Lean compilation across <span data-live="build-jobs">194</span> parallel build jobs. All <span data-live="theorems">532</span> theorems are
+            Full Lean compilation across <span data-live="build-jobs">254</span> parallel build jobs. All <span data-live="theorems">562</span> theorems are
             type-checked. Every invariant proof, every bridge lemma, every preservation
             theorem is verified by the Lean type-checker. If it compiles, the proofs hold.
           </p>
@@ -1006,8 +1006,8 @@
     <div class="container">
       <h2 class="section-title" data-i18n="structure.title">Project Structure</h2>
       <p class="section-lead" data-i18n-html="structure.lead">
-        <span data-live="modules">97</span> Lean modules organized with a consistent Operations/Invariant pattern,
-        <span data-live="scripts">21</span> test and CI scripts, and <span data-live="docs">175</span> documentation files with specifications, ADRs, and roadmaps.
+        <span data-live="modules">127</span> Lean modules organized with a consistent Operations/Invariant pattern,
+        <span data-live="scripts">21</span> test and CI scripts, and <span data-live="docs">184</span> documentation files with specifications, ADRs, and roadmaps.
       </p>
 
       <div class="file-tree">
@@ -1087,8 +1087,8 @@ cd seLe4n</code></pre>
           <div class="step-content">
             <h3 data-i18n="getting_started.step3_title">Build &amp; Verify</h3>
             <p data-i18n-html="getting_started.step3_text">
-              Build the entire kernel. All <span data-live="theorems">532</span> theorems are checked during compilation
-              across <span data-live="build-jobs">194</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
+              Build the entire kernel. All <span data-live="theorems">562</span> theorems are checked during compilation
+              across <span data-live="build-jobs">254</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
             </p>
             <pre><code>lake build</code></pre>
           </div>
@@ -1298,7 +1298,7 @@ cargo test</code></pre>
             <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark" loading="lazy" width="160" height="64">
           </a>
           <p data-i18n="footer.brand_text">A microkernel written in Lean 4 with machine-checked proofs.</p>
-          <p class="footer-meta">v<span data-live="version">0.22.23</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
+          <p class="footer-meta">v<span data-live="version">0.25.13</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
           <p class="footer-license">Licensed under <a href="https://github.com/hatter6822/seLe4n/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">GPLv3</a></p>
         </div>
         <div class="footer-links">
