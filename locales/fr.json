@@ -39,7 +39,8 @@
     "stat_admitted": "Preuves admises",
     "learn_more": "En savoir plus",
     "view_source": "Voir le code source",
-    "explore_map": "Explorer la carte du code"
+    "explore_map": "Explorer la carte du code",
+    "h1": "seLe4n — Un micro-noyau formellement vérifié écrit en Lean 4"
   },
   "about": {
     "title": "Qu'est-ce que seLe4n ?",

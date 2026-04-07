@@ -39,7 +39,8 @@
     "stat_admitted": "Admitted Proofs",
     "learn_more": "Learn More",
     "view_source": "View Source",
-    "explore_map": "Explore Code Map"
+    "explore_map": "Explore Code Map",
+    "h1": "seLe4n — A Formally Verified Microkernel Written in Lean 4"
   },
   "about": {
     "title": "What is seLe4n?",

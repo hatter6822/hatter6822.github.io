@@ -628,8 +628,11 @@
   function resize() {
     var viewport = getViewportSize();
     var dpr = Math.min(window.devicePixelRatio || 1, 2);
-    cw = Math.max(1, Math.floor(viewport.width  * dpr * RES_SCALE));
-    ch = Math.max(1, Math.floor(viewport.height * dpr * RES_SCALE));
+    var nw = Math.max(1, Math.floor(viewport.width  * dpr * RES_SCALE));
+    var nh = Math.max(1, Math.floor(viewport.height * dpr * RES_SCALE));
+    if (nw === cw && nh === ch) return;
+    cw = nw;
+    ch = nh;
     canvasA.width  = cw;
     canvasA.height = ch;
     gl.viewport(0, 0, cw, ch);
@@ -763,6 +766,8 @@
     clearTimeout(resizeTimer);
     themeObserver.disconnect();
     if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    gl.deleteBuffer(buf);
+    gl.deleteProgram(prog);
   });
 
   /* ═══════════════════════════════════════════════════════════
