@@ -189,7 +189,7 @@
           <code>freeze</code> function converts the builder state into a <code>FrozenSystemState</code> where all
           <code>RHTable</code> fields become <code>FrozenMap</code> structures and CNode slots become
           <code>CNodeRadix</code> flat radix arrays with zero-hash O(1) lookup. During the <strong>Execute phase</strong>,
-          the frozen state serves all 17 syscalls with value-only mutations &mdash; the index map is never
+          the frozen state serves all 25 syscalls with value-only mutations &mdash; the index map is never
           modified, all <code>Fin</code> accesses are within bounds by construction, and no fuel or dynamic
           resizing is needed.
         </p>
@@ -220,12 +220,12 @@
           <h3 data-i18n="about.status_title">Project Status</h3>
           <p data-i18n-html="about.status_text">
             seLe4n is an active research project at version <strong data-live="version">0.25.13</strong>. The kernel
-            model is feature-complete with 17 syscalls spanning IPC, scheduling, capabilities, memory management,
-            notifications, information-flow control, and service orchestration. The three-phase
+            model is feature-complete with 25 syscalls spanning IPC, scheduling, capabilities, memory management,
+            notifications, information-flow control, service orchestration, scheduling contexts, and TCB management. The three-phase
             Build &rarr; Freeze &rarr; Execute architecture is implemented with <code>FrozenSystemState</code>,
             <code>CNodeRadix</code> radix arrays, and <code>FrozenMap</code> structures.
             A companion <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust workspace</a>
-            provides safe, <code>no_std</code> wrappers for all 17 syscalls.
+            provides safe, <code>no_std</code> wrappers for all 25 syscalls.
             Hardware platform bindings for the Raspberry Pi 5 are prepared and awaiting final
             refinement work.
           </p>
@@ -251,11 +251,11 @@
 
       <div class="arch-diagram" aria-label="seLe4n architecture diagram showing Rust user-space wrappers, kernel API surface, and layered subsystems down to platform bindings" data-i18n-aria-label="architecture.diagram_aria">
         <div class="arch-layer arch-rust">
-          <div class="arch-layer-label"><span data-i18n="architecture.rust_layer">Rust User-Space Wrappers</span> <span class="arch-layer-stat">3 crates &middot; 17 syscalls &middot; zero unsafe in sele4n-sys</span></div>
+          <div class="arch-layer-label"><span data-i18n="architecture.rust_layer">Rust User-Space Wrappers</span> <span class="arch-layer-stat">3 crates &middot; 25 syscalls &middot; zero unsafe in sele4n-sys</span></div>
           <div class="arch-blocks">
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-types <span class="arch-stat">Core types &middot; no_std &middot; zero unsafe</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-abi <span class="arch-stat">ARM64 ABI &middot; svc #0 trap</span></a>
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-sys <span class="arch-stat">Safe wrappers &middot; 17 syscalls</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="arch-block">sele4n-sys <span class="arch-stat">Safe wrappers &middot; 25 syscalls</span></a>
           </div>
         </div>
         <div class="arch-layer arch-api">
@@ -265,13 +265,14 @@
         <div class="arch-layer arch-core">
           <div class="arch-layer-label" data-i18n="architecture.core_subsystems">Core Subsystems</div>
           <div class="arch-blocks">
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer" class="arch-block">Scheduler <span class="arch-stat">6 files &middot; 133 thms</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer" class="arch-block">Scheduler <span class="arch-stat">20 files &middot; priority inheritance &middot; liveness</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer" class="arch-block">Capability <span class="arch-stat">5 files &middot; 118 thms</span></a>
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="arch-block">IPC <span class="arch-stat">14 files &middot; 223 thms</span></a>
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer" class="arch-block">Lifecycle <span class="arch-stat">2 files &middot; 59 thms</span></a>
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="arch-block">Service <span class="arch-stat">4 files &middot; 90 thms</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="arch-block">IPC <span class="arch-stat">20 files &middot; donation &middot; timeout</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer" class="arch-block">Lifecycle <span class="arch-stat">4 files &middot; suspend/resume</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="arch-block">Service <span class="arch-stat">7 files &middot; registry &middot; interface</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/FrozenOps" target="_blank" rel="noopener noreferrer" class="arch-block">FrozenOps <span class="arch-stat">5 files &middot; 18 commutativity thms</span></a>
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RadixTree" target="_blank" rel="noopener noreferrer" class="arch-block">RadixTree <span class="arch-stat">4 files &middot; CNodeRadix</span></a>
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/SchedContext" target="_blank" rel="noopener noreferrer" class="arch-block">SchedContext <span class="arch-stat">10 files &middot; CBS scheduling</span></a>
           </div>
         </div>
         <div class="arch-layer arch-security">
@@ -284,7 +285,7 @@
           </div>
         </div>
         <div class="arch-layer arch-hw">
-          <div class="arch-layer-label"><span data-i18n="architecture.hw_abstraction">Hardware Abstraction</span> <span class="arch-layer-stat">9 files &middot; 123 theorems</span></div>
+          <div class="arch-layer-label"><span data-i18n="architecture.hw_abstraction">Hardware Abstraction</span> <span class="arch-layer-stat">10 files &middot; IPC buffer validation</span></div>
           <div class="arch-blocks">
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpace.lean" target="_blank" rel="noopener noreferrer" class="arch-block">VSpace</a>
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpaceBackend.lean" target="_blank" rel="noopener noreferrer" class="arch-block">VSpaceBackend</a>
@@ -331,9 +332,10 @@
         <div class="card card-compact">
           <h3><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener noreferrer" class="code-link">Object Model</a> &amp; <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/State.lean" target="_blank" rel="noopener noreferrer" class="code-link">State</a></h3>
           <p data-i18n-html="architecture.object_model_desc">
-            8 composable kernel object types: <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Structures.lean#L1272" target="_blank" rel="noopener noreferrer" class="code-link"><code>Untyped</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L341" target="_blank" rel="noopener noreferrer" class="code-link"><code>CNode</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Structures.lean#L85" target="_blank" rel="noopener noreferrer" class="code-link"><code>VSpaceRoot</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L246" target="_blank" rel="noopener noreferrer" class="code-link"><code>TCB</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L310" target="_blank" rel="noopener noreferrer" class="code-link"><code>Endpoint</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L324" target="_blank" rel="noopener noreferrer" class="code-link"><code>Notification</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>IrqHandler</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Service</code></a>.
+            7 composable kernel object types: <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L246" target="_blank" rel="noopener noreferrer" class="code-link"><code>TCB</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L310" target="_blank" rel="noopener noreferrer" class="code-link"><code>Endpoint</code></a>,
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L324" target="_blank" rel="noopener noreferrer" class="code-link"><code>Notification</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L341" target="_blank" rel="noopener noreferrer" class="code-link"><code>CNode</code></a>,
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Structures.lean#L85" target="_blank" rel="noopener noreferrer" class="code-link"><code>VSpaceRoot</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Structures.lean#L1272" target="_blank" rel="noopener noreferrer" class="code-link"><code>Untyped</code></a>,
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/SchedContext" target="_blank" rel="noopener noreferrer" class="code-link"><code>SchedContext</code></a>.
             129 theorems across <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Model/Object" target="_blank" rel="noopener noreferrer" class="code-link">Object</a> (76) and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/State.lean" target="_blank" rel="noopener noreferrer" class="code-link">State</a> (53).
             Objects compose through typed <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L138" target="_blank" rel="noopener noreferrer" class="code-link"><code>Capability</code></a> references with bitmask
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L72" target="_blank" rel="noopener noreferrer" class="code-link"><code>AccessRightSet</code></a>.
@@ -344,13 +346,15 @@
         <div class="card card-compact">
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer" class="code-link">Scheduler</a></h3>
           <p data-i18n-html="architecture.scheduler_desc">
-            133 theorems across 6 files. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean#L14" target="_blank" rel="noopener noreferrer" class="code-link"><code>RunQueue</code></a> backed by <code>HashMap Priority (List ThreadId)</code>
+            20 files spanning core operations, priority inheritance, and liveness proofs. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean#L14" target="_blank" rel="noopener noreferrer" class="code-link"><code>RunQueue</code></a> backed by <code>HashMap Priority (List ThreadId)</code>
             with <code>HashSet ThreadId</code> membership index. Priority + EDF scheduling
             with domain-aware partitioning. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Invariant.lean#L49" target="_blank" rel="noopener noreferrer" class="code-link"><code>schedulerWellFormed</code></a> structural invariant.
             Operations split into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Core</code></a>,
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Preservation.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Preservation</code></a>, and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Selection.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Selection</code></a>.
             O(1) insert, remove, contains, and priority-bucketed candidate selection.
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler/PriorityInheritance" target="_blank" rel="noopener noreferrer" class="code-link"><code>PriorityInheritance</code></a> with blocking graph analysis and bounded inversion.
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler/Liveness" target="_blank" rel="noopener noreferrer" class="code-link"><code>Liveness</code></a> proofs including WCRT bounds and domain-rotation guarantees.
           </p>
         </div>
         <div class="card card-compact">
@@ -369,15 +373,17 @@
         <div class="card card-compact">
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="code-link">IPC &amp; Dual-Queue</a></h3>
           <p data-i18n-html="architecture.ipc_desc">
-            Deeply modularized across 14 files with 223 theorems. Intrusive dual-queue endpoints
+            Deeply modularized across 20 files. Intrusive dual-queue endpoints
             split into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Core</code></a>,
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Transport.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Transport</code></a>, and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/WithCaps.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>WithCaps</code></a>.
             76 structural invariant proofs, 27 endpoint preservation theorems,
             and 16 capability transfer proofs. Operations decomposed into
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/CapTransfer.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>CapTransfer</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/Endpoint.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Endpoint</code></a>, and
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/SchedulerLemmas.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>SchedulerLemmas</code></a>.
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/Endpoint.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Endpoint</code></a>,
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/SchedulerLemmas.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>SchedulerLemmas</code></a>,
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/Donation.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Donation</code></a>, and
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/Timeout.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Timeout</code></a>.
           </p>
         </div>
         <div class="card card-compact">
@@ -408,9 +414,10 @@
         <div class="card card-compact">
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="code-link">Service Orchestration</a></h3>
           <p data-i18n-html="architecture.service_desc">
-            90 theorems across 4 files. Graph-based lifecycle with O(n+e) DFS cycle detection.
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Operations</code></a> handles
-            registry, interface, and dependency management.
+            7 files. Graph-based lifecycle with O(n+e) DFS cycle detection.
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Operations</code></a> handles dependency management,
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Interface.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Interface</code></a> defines service contracts, and
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service/Registry" target="_blank" rel="noopener noreferrer" class="code-link"><code>Registry</code></a> manages service registration with its own invariants.
             Invariant proofs split into
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Invariant/Acyclicity.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Acyclicity</code></a> and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Invariant/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Policy</code></a>
@@ -429,18 +436,18 @@
         <div class="card card-compact">
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust Syscall Wrappers</a></h3>
           <p data-i18n-html="architecture.rust_desc">
-            Three <code>no_std</code> Rust crates provide ergonomic, fully safe wrappers around all 17 seLe4n syscalls.
+            Three <code>no_std</code> Rust crates provide ergonomic, fully safe wrappers around all 25 seLe4n syscalls.
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-types</code></a> defines
-            14 <code>#[repr(transparent)]</code> newtype identifiers, a 34-variant <code>KernelError</code> enum, and bitmask-based
+            15 <code>#[repr(transparent)]</code> newtype identifiers, a 44-variant <code>KernelError</code> enum, and bitmask-based
             <code>AccessRights</code> &mdash; all with <code>#![deny(unsafe_code)]</code>.
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-abi</code></a> handles
             ARM64 register encoding/decoding, IPC buffer overflow, and <code>MessageInfo</code> bitfield packing &mdash;
             with exactly <strong>one</strong> <code>unsafe</code> block: the inline <code>svc #0</code> instruction in
             <a href="https://github.com/hatter6822/seLe4n/blob/main/rust/sele4n-abi/src/trap.rs" target="_blank" rel="noopener noreferrer" class="code-link"><code>trap.rs</code></a>.
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-sys</code></a> exposes
-            typed wrappers for IPC (send/receive/call/reply), CSpace (mint/copy/move/delete),
-            lifecycle (retype), VSpace (map/unmap with W^X enforcement), and service registry
-            (register/revoke/query) &mdash; zero <code>unsafe</code> code.
+            typed wrappers for IPC (send/receive/call/reply/replyRecv), CSpace (mint/copy/move/delete),
+            lifecycle (retype), VSpace (map/unmap with W^X enforcement), service registry
+            (register/revoke/query), TCB management (suspend/resume/setPriority), and notification (signal/wait) &mdash; zero <code>unsafe</code> code.
           </p>
         </div>
       </div>
@@ -519,7 +526,7 @@
             <tr>
               <td><strong data-i18n="comparison.user_space_bindings">User-space bindings</strong></td>
               <td data-i18n="comparison.user_space_bindings_trad">C headers with manual register marshalling</td>
-              <td data-i18n-html="comparison.user_space_bindings_sele4n"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer">Safe Rust wrappers</a> &mdash; 17 syscalls, typed capabilities, zero <code>unsafe</code> in sele4n-sys</td>
+              <td data-i18n-html="comparison.user_space_bindings_sele4n"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer">Safe Rust wrappers</a> &mdash; 25 syscalls, typed capabilities, zero <code>unsafe</code> in sele4n-sys</td>
             </tr>
             <tr>
               <td><strong data-i18n="comparison.state_model">State model</strong></td>
@@ -596,7 +603,9 @@
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean#L14" target="_blank" rel="noopener noreferrer" class="code-link"><code>RunQueue</code></a>
             uses HashMap-backed priority buckets, reducing candidate selection from O(t) to O(k).
             The <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Invariant.lean#L49" target="_blank" rel="noopener noreferrer" class="code-link"><code>schedulerWellFormed</code></a>
-            structural invariant is machine-checked across all 133 theorems.
+            structural invariant is machine-checked across 20 files including
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler/PriorityInheritance" target="_blank" rel="noopener noreferrer" class="code-link">priority inheritance</a> and
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler/Liveness" target="_blank" rel="noopener noreferrer" class="code-link">liveness proofs</a> with WCRT bounds.
           </p>
         </div>
 
@@ -682,7 +691,7 @@
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.rust_title">Safe Rust Syscall Wrappers</a></h3>
           <p data-i18n-html="features.rust_text">
             Where traditional kernels expose C headers with manual register marshalling,
-            seLe4n provides three <code>no_std</code> Rust crates with fully safe, typed APIs for all 17 syscalls.
+            seLe4n provides three <code>no_std</code> Rust crates with fully safe, typed APIs for all 25 syscalls.
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-sys</code></a>
             introduces phantom-typed <a href="https://github.com/hatter6822/seLe4n/blob/main/rust/sele4n-sys/src/cap.rs" target="_blank" rel="noopener noreferrer" class="code-link"><code>Cap&lt;Obj,&nbsp;Rts&gt;</code></a>
             capabilities with compile-time rights tracking and W^X enforcement.
@@ -716,7 +725,7 @@
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Model/Object" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.composable_objects_title">Composable Performance Objects</a></h3>
           <p data-i18n-html="features.composable_objects_text">
             Where traditional kernels use static object tables with manual pointer management,
-            seLe4n&rsquo;s 8 kernel object types compose through typed
+            seLe4n&rsquo;s 7 kernel object types compose through typed
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L138" target="_blank" rel="noopener noreferrer" class="code-link"><code>Capability</code></a> references
             with bitmask-based <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L72" target="_blank" rel="noopener noreferrer" class="code-link"><code>AccessRightSet</code></a>.
             All stores in
@@ -750,7 +759,7 @@
           </p>
           <ul>
             <li data-i18n-html="security.ifc_item1"><strong>15 non-interference theorems</strong> &mdash; 12 standalone + 3 enforcement bridges</li>
-            <li data-i18n-html="security.ifc_item6"><strong>17 operations classified</strong> by enforcement level</li>
+            <li data-i18n-html="security.ifc_item6"><strong>25 operations classified</strong> by enforcement level</li>
             <li data-i18n-html="security.ifc_item7"><strong>Per-endpoint flow policies</strong> for fine-grained overrides</li>
             <li data-i18n-html="security.ifc_item8"><strong>Legacy embedding theorem</strong> proves the generic system subsumes the original</li>
           </ul>
@@ -943,9 +952,9 @@
       <p class="section-lead" data-i18n-html="api.lead">
         The kernel exposes a stable public API through <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>SeLe4n/Kernel/API.lean</code></a>
         via the unified <code>syscallEntry</code> / <code>syscallEntryChecked</code> dispatch path.
-        All 17 syscall-facing operations are routed through capability-gated dispatch with information-flow enforcement.
+        All 25 syscall-facing operations are routed through capability-gated dispatch with information-flow enforcement.
         The production entry point <code>syscallEntryChecked</code> enforces flow policies; the unchecked <code>syscallEntry</code> is retained for backward compatibility with existing proofs.
-        All 17 syscalls have corresponding safe Rust wrappers in <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-sys</code></a>.
+        All 25 syscalls have corresponding safe Rust wrappers in <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-sys</code></a>.
       </p>
 
       <div class="table-wrap">
@@ -963,6 +972,9 @@
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer"><code>ServiceRegister</code></a> (ID 11), <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer"><code>ServiceRevoke</code></a> (ID 12), <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Operations.lean" target="_blank" rel="noopener noreferrer"><code>ServiceQuery</code></a> (ID 13)</td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer">Service</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/Endpoint.lean" target="_blank" rel="noopener noreferrer"><code>NotificationSignal</code></a> (ID 14), <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/Endpoint.lean" target="_blank" rel="noopener noreferrer"><code>NotificationWait</code></a> (ID 15)</td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">Notification</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Operations/Endpoint.lean" target="_blank" rel="noopener noreferrer"><code>ReplyRecv</code></a> (ID 16)</td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC (compound)</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/SchedContext/Operations.lean" target="_blank" rel="noopener noreferrer"><code>SchedContextConfigure</code></a> (ID 17), <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/SchedContext/Operations.lean" target="_blank" rel="noopener noreferrer"><code>SchedContextBind</code></a> (ID 18), <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/SchedContext/Operations.lean" target="_blank" rel="noopener noreferrer"><code>SchedContextUnbind</code></a> (ID 19)</td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/SchedContext" target="_blank" rel="noopener noreferrer">SchedContext</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Lifecycle/Suspend.lean" target="_blank" rel="noopener noreferrer"><code>TcbSuspend</code></a> (ID 20), <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Lifecycle/Suspend.lean" target="_blank" rel="noopener noreferrer"><code>TcbResume</code></a> (ID 21)</td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer">TCB</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
+            <tr><td><code>TcbSetPriority</code> (ID 22), <code>TcbSetMCPriority</code> (ID 23), <code>TcbSetIPCBuffer</code> (ID 24)</td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer">TCB</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceLookupSlot</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer"><code>cspaceLookupPath</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Capability</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Core.lean#L265" target="_blank" rel="noopener noreferrer"><code>schedule</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Core.lean#L301" target="_blank" rel="noopener noreferrer"><code>handleYield</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Core.lean#L339" target="_blank" rel="noopener noreferrer"><code>timerTick</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
             <tr><td><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean" target="_blank" rel="noopener noreferrer"><code>syscallEntryChecked</code></a></td><td><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer">Info-flow dispatch</a></td><td><span class="badge-stable" data-i18n="api.stable">Stable</span></td></tr>
@@ -991,17 +1003,18 @@
             <div class="tree-file"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Machine.lean" target="_blank" rel="noopener noreferrer">Machine.lean</a> <span class="tree-desc">&mdash; Register file, memory regions, MachineConfig</span></div>
             <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel" target="_blank" rel="noopener noreferrer">Kernel/</a></div>
             <div class="tree-children">
-              <div class="tree-file"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer">API.lean</a> <span class="tree-desc">&mdash; Unified syscallEntry/syscallEntryChecked dispatch, apiInvariantBundle, 17 syscalls</span></div>
-              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer">Architecture/</a> <span class="tree-desc">&mdash; VSpace, VSpaceBackend, Adapter, TlbModel, RegisterDecode, SyscallArgDecode, Assumptions, Invariant, VSpaceInvariant (9 files)</span></div>
+              <div class="tree-file"><a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean" target="_blank" rel="noopener noreferrer">API.lean</a> <span class="tree-desc">&mdash; Unified syscallEntry/syscallEntryChecked dispatch, apiInvariantBundle, 25 syscalls</span></div>
+              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer">Architecture/</a> <span class="tree-desc">&mdash; VSpace, VSpaceBackend, Adapter, TlbModel, RegisterDecode, SyscallArgDecode, IpcBufferValidation, Assumptions, Invariant, VSpaceInvariant (10 files)</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer">Capability/</a> <span class="tree-desc">&mdash; Operations, Invariant/{Authority, Defs, Preservation} (5 files)</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/FrozenOps" target="_blank" rel="noopener noreferrer">FrozenOps/</a> <span class="tree-desc">&mdash; Core, Operations, Invariant, Commutativity (5 files) &mdash; execution-phase typed lookups, value-only mutations, 18 commutativity theorems</span></div>
-              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC/</a> <span class="tree-desc">&mdash; DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Endpoint, SchedulerLemmas}, Invariant/{Structural, EndpointPreservation, NotificationPreservation, CallReplyRecv, Defs} (14 files)</span></div>
+              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer">IPC/</a> <span class="tree-desc">&mdash; DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Donation, Endpoint, SchedulerLemmas, Timeout}, Invariant/{Structural, EndpointPreservation, NotificationPreservation, CallReplyRecv, Defs, QueueMembership, QueueNextBlocking, QueueNoDup, WaitingThreadHelpers} (20 files)</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer">InformationFlow/</a> <span class="tree-desc">&mdash; Policy, Projection, Enforcement/{Soundness, Wrappers}, Invariant/{Composition, Helpers, Operations} (9 files)</span></div>
-              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer">Lifecycle/</a> <span class="tree-desc">&mdash; Object creation, destruction, retype operations (2 files)</span></div>
+              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Lifecycle" target="_blank" rel="noopener noreferrer">Lifecycle/</a> <span class="tree-desc">&mdash; Operations, Suspend, Invariant/{SuspendPreservation} (4 files) &mdash; retype, suspend/resume, TCB management</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RadixTree" target="_blank" rel="noopener noreferrer">RadixTree/</a> <span class="tree-desc">&mdash; Core, Bridge, Invariant (4 files) &mdash; CNodeRadix flat radix array for zero-hash slot lookup in frozen state</span></div>
               <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer">RobinHood/</a> <span class="tree-desc">&mdash; Core, Bridge, Set, Invariant/{Defs, Lookup, Preservation} (7 files, 139 theorems)</span></div>
-              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler/</a> <span class="tree-desc">&mdash; RunQueue, Operations/{Core, Preservation, Selection}, Invariant (6 files)</span></div>
-              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer">Service/</a> <span class="tree-desc">&mdash; Operations, Invariant/{Acyclicity, Policy} (4 files)</span></div>
+              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/SchedContext" target="_blank" rel="noopener noreferrer">SchedContext/</a> <span class="tree-desc">&mdash; Types, Budget, Operations, PriorityManagement, ReplenishQueue, Invariant/{Defs, Preservation, PriorityPreservation} (10 files) &mdash; CBS scheduling contexts</span></div>
+              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer">Scheduler/</a> <span class="tree-desc">&mdash; RunQueue, Operations/{Core, Preservation, Selection}, Invariant, PriorityInheritance/{BlockingGraph, BoundedInversion, Compute, Preservation, Propagate}, Liveness/{BandExhaustion, DomainRotation, Replenishment, TimerTick, TraceModel, WCRT, Yield} (20 files)</span></div>
+              <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer">Service/</a> <span class="tree-desc">&mdash; Operations, Interface, Registry, Registry/Invariant, Invariant/{Acyclicity, Policy} (7 files)</span></div>
             </div>
             <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Model" target="_blank" rel="noopener noreferrer">Model/</a> <span class="tree-desc">&mdash; Object/{Types, Structures}, State, Builder, FrozenState, FreezeProofs, IntermediateState (7 files) &mdash; three-phase state model</span></div>
             <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Platform" target="_blank" rel="noopener noreferrer">Platform/</a> <span class="tree-desc">&mdash; Contract.lean, Sim/, RPi5/</span></div>
@@ -1012,11 +1025,11 @@
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/docs" target="_blank" rel="noopener noreferrer">docs/</a> <span class="tree-desc">&mdash; Living specifications, ADRs, threat model, IF roadmap, and claim index evidence.</span></div>
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/scripts" target="_blank" rel="noopener noreferrer">scripts/</a> <span class="tree-desc">&mdash; <span data-live="scripts">21</span> test, CI, and documentation scripts</span></div>
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/tests" target="_blank" rel="noopener noreferrer">tests/</a> <span class="tree-desc">&mdash; InformationFlowSuite, NegativeStateSuite, TraceSequenceProbe, RobinHoodSuite, RadixTreeSuite, FrozenStateSuite, FreezeProofSuite, FrozenOpsSuite, TwoPhaseArchSuite, OperationChainSuite</span></div>
-          <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer">rust/</a> <span class="tree-desc">&mdash; Rust workspace (3 crates, 17 syscall wrappers)</span></div>
+          <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer">rust/</a> <span class="tree-desc">&mdash; Rust workspace (3 crates, 25 syscall wrappers)</span></div>
           <div class="tree-children">
-            <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer">sele4n-types/</a> <span class="tree-desc">&mdash; 17-variant SyscallId, 14 newtypes, 34-variant KernelError, AccessRights &middot; no_std &middot; zero unsafe</span></div>
+            <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer">sele4n-types/</a> <span class="tree-desc">&mdash; 25-variant SyscallId, 15 newtypes, 44-variant KernelError, AccessRights &middot; no_std &middot; zero unsafe</span></div>
             <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer">sele4n-abi/</a> <span class="tree-desc">&mdash; ARM64 register ABI, MessageInfo, trap (sole unsafe: svc #0)</span></div>
-            <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer">sele4n-sys/</a> <span class="tree-desc">&mdash; Safe syscall wrappers: IPC, CSpace, lifecycle, VSpace, notification, service &middot; zero unsafe</span></div>
+            <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer">sele4n-sys/</a> <span class="tree-desc">&mdash; Safe syscall wrappers: IPC, CSpace, lifecycle, VSpace, notification, service, TCB &middot; zero unsafe</span></div>
           </div>
         </div>
       </div>
@@ -1088,7 +1101,7 @@ cd seLe4n</code></pre>
             <h3 data-i18n="getting_started.step5_title">Build Rust Syscall Wrappers</h3>
             <p data-i18n-html="getting_started.step5_text">
               The <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link"><code>rust/</code></a> workspace
-              provides safe, <code>no_std</code> wrappers around all 17 seLe4n syscalls. Builds on both ARM64 (real trap) and x86_64 (mock trap for host-based testing).
+              provides safe, <code>no_std</code> wrappers around all 25 seLe4n syscalls. Builds on both ARM64 (real trap) and x86_64 (mock trap for host-based testing).
             </p>
             <pre><code>cd rust
 cargo build
@@ -1190,7 +1203,7 @@ cargo test</code></pre>
               Three <code>no_std</code> Rust crates (<a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-types</a>,
               <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-abi</a>,
               <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link">sele4n-sys</a>)
-              providing safe wrappers around all 17 syscalls including notification signal/wait and reply-receive. Phantom-typed capabilities,
+              providing safe wrappers around all 25 syscalls including notification, compound IPC, scheduling contexts, and TCB management. Phantom-typed capabilities,
               ARM64 register ABI layer, W^X enforcement, IPC buffer overflow handling.
               Single <code>unsafe</code> block isolated to the <code>svc&nbsp;#0</code> trap instruction.
             </p>
@@ -1214,10 +1227,10 @@ cargo test</code></pre>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.syscall_expansion_title">Syscall Surface Expansion</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
             <p data-i18n-html="roadmap.syscall_expansion_text">
-              Expanded from 14 to 17 syscalls: added <code>NotificationSignal</code> (ID 14),
-              <code>NotificationWait</code> (ID 15), and <code>ReplyRecv</code> (ID 16) compound IPC.
+              Expanded from 14 to 25 syscalls: added notification (Signal/Wait), compound IPC (ReplyRecv),
+              scheduling context (Configure/Bind/Unbind), and TCB management (Suspend/Resume/SetPriority/SetMCPriority/SetIPCBuffer).
               Unified <code>syscallEntry</code> / <code>syscallEntryChecked</code> dispatch path with capability-gated routing.
-              Rust ABI hardening with 17-variant <code>SyscallId</code> enum.
+              Rust ABI hardening with 25-variant <code>SyscallId</code> enum.
             </p>
           </div>
         </div>
