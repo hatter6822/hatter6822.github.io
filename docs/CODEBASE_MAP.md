@@ -135,7 +135,7 @@ The seLe4n codebase now comprises 77 total modules across 4 layers:
 
 Key structural features visible in the map:
 
-- **Robin Hood** (`SeLe4n.Kernel.RobinHood.*`): 7 modules, 139 theorems — verified hash map foundation imported by `Model.Object.Types`.
+- **Robin Hood** (`SeLe4n.Kernel.RobinHood.*`): 7 modules, 179 theorems — verified hash map foundation imported by `Model.Object.Types`.
 - **Deep IPC modularization**: 14 files covering DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Endpoint, SchedulerLemmas}, Invariant/{Structural, EndpointPreservation, NotificationPreservation, CallReplyRecv, Defs}.
 - **Architecture expansion**: 9 files including RegisterDecode, SyscallArgDecode, TlbModel, VSpaceInvariant alongside the existing VSpace/VSpaceBackend/Adapter triad.
 - **Capability invariant decomposition**: Authority, Defs, and Preservation sub-modules with 118 total theorems.

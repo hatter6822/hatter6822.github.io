@@ -376,7 +376,7 @@ The upstream seLe4n codebase has undergone significant architectural changes now
 
 ### Robin Hood hash map subsystem
 
-A fully verified Robin Hood hash table implementation (`SeLe4n/Kernel/RobinHood/`) serves as the algebraic foundation for all kernel hash-based data structures. 7 modules, 139 theorems:
+A fully verified Robin Hood hash table implementation (`SeLe4n/Kernel/RobinHood/`) serves as the algebraic foundation for all kernel hash-based data structures. 7 modules, 179 theorems:
 
 - **Core** (`Core.lean`): `RHTable` data type with O(1) amortized insert, lookup, erase, and resize. 9 theorems including `insertLoop_preserves_len` and `RHTable.empty_wf`.
 - **Bridge** (`Bridge.lean`): 30 theorems connecting the implementation to `HashMap`-compatible semantics (`getElem?_insert_self`, `getElem?_erase_self`, `mem_iff_isSome_getElem?`).
