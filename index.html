@@ -127,7 +127,7 @@
           <span class="stat-label" data-i18n="hero.stat_lines">Lines of Lean 4</span>
         </div>
         <div class="stat">
-          <span class="stat-value" data-live="modules">127</span>
+          <span class="stat-value" data-live="modules">132</span>
           <span class="stat-label" data-i18n="hero.stat_modules">Lean Modules</span>
         </div>
         <div class="stat">
@@ -225,8 +225,8 @@
             notifications, information-flow control, and service orchestration.
             A companion <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust workspace</a>
             provides safe, <code>no_std</code> wrappers for all 25 syscalls.
-            Hardware platform bindings for the Raspberry Pi 5 are prepared and awaiting final
-            refinement work.
+            Hardware platform bindings for the Raspberry Pi 5 are structurally in place,
+            pending refinement phase closure.
           </p>
           <p class="card-note" data-i18n="about.created_with">
             Created thoughtfully with the help of Claude and Codex.
@@ -599,7 +599,7 @@
             Where traditional kernels use priority-based round-robin, seLe4n combines
             Priority + EDF with domain-aware partitioning. The
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean#L14" target="_blank" rel="noopener noreferrer" class="code-link"><code>RunQueue</code></a>
-            uses HashMap-backed priority buckets, reducing candidate selection from O(t) to O(k).
+            uses HashMap-backed priority buckets, reducing candidate selection from O(t) total threads to O(k) priority levels.
             The <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Invariant.lean#L49" target="_blank" rel="noopener noreferrer" class="code-link"><code>schedulerWellFormed</code></a>
             structural invariant is machine-checked across 20 files including
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler/PriorityInheritance" target="_blank" rel="noopener noreferrer" class="code-link">priority inheritance</a> and
@@ -988,7 +988,7 @@
     <div class="container">
       <h2 class="section-title" data-i18n="structure.title">Project Structure</h2>
       <p class="section-lead" data-i18n-html="structure.lead">
-        <span data-live="modules">127</span> Lean modules,
+        <span data-live="modules">132</span> Lean modules,
         <span data-live="scripts">21</span> test and CI scripts, and <span data-live="docs">184</span> documentation files with specifications, ADRs, and roadmaps.
       </p>
 
