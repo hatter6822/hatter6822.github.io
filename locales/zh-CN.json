@@ -43,7 +43,7 @@
   },
   "about": {
     "title": "什么是 seLe4n？",
-    "lead": "seLe4n 是一个基于能力的微内核，其内核模型完全使用 <strong>Lean 4</strong> 编写并具有机器检查的证明，同时配备安全的 <strong>Rust</strong> 系统调用封装供用户空间程序使用。它采用 <strong>三阶段 构建 → 冻结 → 执行</strong> 架构，首个硬件目标平台为 <strong>Raspberry Pi 5</strong>（ARM64 / BCM2712）。",
+    "lead": "seLe4n 是一个基于能力的微内核，其内核模型完全使用 <strong>Lean 4</strong> 编写并具有机器检查的证明，同时配备安全的 <strong>Rust</strong> 系统调用封装供用户空间程序使用。首个硬件目标平台为 <strong>Raspberry Pi 5</strong>（ARM64 / BCM2712）。",
     "why_microkernel_title": "为什么选择微内核？",
     "why_microkernel_text": "微内核通过仅在内核空间运行必要服务——调度、IPC、能力管理和内存控制——来最小化可信计算基。其他所有服务（驱动程序、文件系统、网络）都运行在用户空间。这减少了攻击面，并使形式化验证切实可行：内核代码的每一行都可以进行数学推理。",
     "why_lean_title": "为什么选择 Lean 4？",
@@ -54,12 +54,12 @@
     "what_different_title": "有何独特之处？",
     "what_different_text": "seLe4n <strong>将实现和证明统一在同一种语言中</strong>——没有单独的证明助手，没有翻译层，没有语义鸿沟。每个子系统遵循 Operations/Invariant 分离模式：可执行状态转换位于 <code>Operations.lean</code> 中，对应的机器检查证明则在 <code>Invariant.lean</code> 中。类型检查器确保每个不变量在每个操作中都成立。",
     "status_title": "项目状态",
-    "status_text": "seLe4n 是一个活跃的研究项目，当前版本为 <strong data-live=\"version\">{{version}}</strong>。内核模型功能完备，包含 17 个系统调用，涵盖 IPC、调度、能力、内存管理、通知、信息流控制和服务编排。三阶段构建 → 冻结 → 执行架构已实现，配备 <code>FrozenSystemState</code>、<code>CNodeRadix</code> 基数数组和 <code>FrozenMap</code> 结构。配套的 Rust 工作区为全部 17 个系统调用提供安全的 <code>no_std</code> 封装。Raspberry Pi 5 的硬件平台绑定已准备就绪，等待最终的精化工作。",
+    "status_text": "seLe4n 是一个活跃的研究项目，当前版本为 <strong data-live=\"version\">{{version}}</strong>。内核模型功能完备，包含 17 个系统调用，涵盖 IPC、调度、能力、内存管理、通知、信息流控制和服务编排。配套的 Rust 工作区为全部 17 个系统调用提供安全的 <code>no_std</code> 封装。Raspberry Pi 5 的硬件平台绑定已准备就绪，等待最终的精化工作。",
     "created_with": "在 Claude 和 Codex 的协助下精心打造。"
   },
   "architecture": {
     "title": "架构",
-    "lead": "seLe4n 采用<strong>分层契约模型</strong>和<strong>三阶段构建 → 冻结 → 执行</strong>流水线。每个子系统将可执行逻辑（<code>Operations.lean</code>）与机器检查的证明（<code>Invariant.lean</code>）分离。在构建阶段，通过不变量见证构造 <code>IntermediateState</code>；在冻结阶段，所有哈希表转换为 <code>FrozenMap</code> 结构，CNode 槽位转换为 <code>CNodeRadix</code> 基数数组；在执行阶段，冻结状态服务全部 17 个系统调用。各层向上组合成统一的 <code>apiInvariantBundle</code>。配套的 Rust 工作区在 API 表面之上为用户空间程序提供安全的 <code>no_std</code> 系统调用封装。",
+    "lead": "seLe4n 采用<strong>分层契约模型</strong>。每个子系统的不变量证明向上组合成统一的 <a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean#L105\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>apiInvariantBundle</code></a>，覆盖整个内核。配套的 <a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">Rust</a> 工作区在 API 表面之上提供安全的 <code>no_std</code> 系统调用封装。",
     "rust_layer": "Rust 用户空间封装",
     "api_surface": "API 表面",
     "core_subsystems": "核心子系统",
@@ -130,7 +130,7 @@
   },
   "features": {
     "title": "关键创新",
-    "lead": "seLe4n 在每个子系统中引入了架构改进，采用三阶段构建 → 冻结 → 执行流水线、O(1) 数据结构和机器检查的正确性。性能优化组合消除了全部 14 项审计发现，冻结执行阶段添加了 <code>FrozenMap</code> + <code>CNodeRadix</code> 以实现确定性运行时性能。",
+    "lead": "seLe4n 在每个子系统中引入了架构改进，具有 O(1) 数据结构和各层机器检查的正确性。",
     "o1_title": "全面 O(1)",
     "robin_hood_title": "验证过的 Robin Hood 哈希表",
     "scheduler_title": "优先级分桶调度器",
@@ -141,7 +141,7 @@
     "arch_title": "架构与内存",
     "rust_title": "安全的 Rust 系统调用封装",
     "invariant_title": "可组合不变量束",
-    "o1_text": "每个热路径数据结构均使用基于哈希的集合，在构建阶段底层依托<a href=\"https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">验证过的 Robin Hood 哈希表</a>，包含 139 个定理，在执行阶段则冻结为 <code>FrozenMap</code>（哈希 → 索引 + 连续数组）和 <code>CNodeRadix</code>（零哈希扁平基数数组）：对象存储、运行队列、CNode 槽位、VSpace 映射、IPC 队列、ASID 表、CDT 子节点查找、通知等待者和服务依赖图。全部 16 个类型化标识符均具有 <code>Hashable</code> + <code>LawfulHashable</code> 实例。14 项性能审计发现全部消除。数据结构迁移后重新验证了 400+ 个定理。",
+    "o1_text": "每个热路径数据结构均使用基于哈希的集合，底层依托包含 139 个定理的<a href=\"https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">验证过的 Robin Hood 哈希表</a>：对象存储、运行队列、CNode 槽位、VSpace 映射、IPC 队列、ASID 表、CDT 子节点查找、通知等待者和服务依赖图。冻结时，这些结构转换为 <code>FrozenMap</code> 和 <code>CNodeRadix</code>，实现确定性 O(1) 访问。全部 16 个类型化标识符均具有 <code>Hashable</code> + <code>LawfulHashable</code> 实例。数据结构迁移后重新验证了 400+ 个定理。",
     "robin_hood_text": "从零开始验证的 Robin Hood 哈希表，横跨 7 个模块。采用线性探测的开放寻址法，<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/RobinHood/Core.lean#L26\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>RHTable</code></a> 提供 O(1) 摊还插入、查找、删除和容量保持的调整大小。40 个查找正确性定理、56 个保持性证明和 30 个<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/RobinHood/Bridge.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">桥接定理</a>将实现连接到 <code>HashMap</code> 兼容语义（<code>getElem?_insert_self</code>、<code>getElem?_erase_self</code> 等）。被 <a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Model.Object.Types</code></a> 导入——每个内核数据结构的验证代数基础。",
     "scheduler_text": "133 个定理横跨 6 个文件。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean#L14\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>RunQueue</code></a> 底层使用 <code>HashMap Priority (List ThreadId)</code> 并配备 <code>HashSet ThreadId</code> 成员索引。域感知 EDF 调度确保线程仅在其分配的安全域中运行。操作分解为 <a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Core.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Core</code></a>、<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Preservation.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Preservation</code></a> 和 <a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Selection.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Selection</code></a>。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Invariant.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>schedulerWellFormed</code></a> 结构不变量在所有操作中得到维护。优先级分桶候选选择将复杂度从 O(t) 降低到 O(k)，其中 k 为桶大小。",
     "ipc_text": "223 个定理横跨 14 个深度模块化文件。端点维护独立的 <a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>sendQ</code></a> 和 <a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>receiveQ</code></a> 列表。每个 TCB 携带侵入式 <code>prev</code>/<code>next</code> 链接，实现 O(1) 中间队列移除。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Transport.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Transport</code></a> 处理消息传输，包含 24 个定理。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/WithCaps.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>WithCaps</code></a> 添加跨 IPC 边界的能力传输。76 个结构不变量、27 个端点保持定理和 <a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Invariant/CallReplyRecv.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">call-reply-recv</a> 组合证明。",
@@ -238,7 +238,7 @@
   },
   "structure": {
     "title": "项目结构",
-    "lead": "<span data-live=\"modules\">{{modules}}</span> 个 Lean 模块采用一致的 Operations/Invariant 模式组织，<span data-live=\"scripts\">{{scripts}}</span> 个测试和 CI 脚本，以及 <span data-live=\"docs\">{{docs}}</span> 个文档文件包含规范、ADR 和路线图。"
+    "lead": "<span data-live=\"modules\">{{modules}}</span> 个 Lean 模块，<span data-live=\"scripts\">{{scripts}}</span> 个测试和 CI 脚本，以及 <span data-live=\"docs\">{{docs}}</span> 个文档文件包含规范、ADR 和路线图。"
   },
   "getting_started": {
     "title": "快速开始",
@@ -291,7 +291,7 @@
     "remediation_text": "侵入式双队列 IPC 及消息传输验证。带水印追踪的无类型内存重新类型化。信息流完备性——7 字段 <a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean#L44\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>ObservableState</code></a> 投影。所有操作的证明缺口关闭。",
     "perf_text": "所有热路径迁移至 O(1) 基于哈希的结构。14 项性能审计发现全部消除。类型化标识符 Hashable 实例、对象存储 HashMap、ASID 解析表、RunQueue 重构、CNode 槽位 HashMap、VSpace 映射 HashMap、IPC 双队列 + 通知、图遍历优化和信息流投影优化。400+ 个定理重新验证。",
     "freeze_title": "构建 → 冻结 → 执行流水线",
-    "freeze_text": "三阶段架构：<code>IntermediateState</code> 构建器带有不变量见证，单向 <code>freeze</code> 将所有 <code>RHTable</code> 字段转换为 <code>FrozenMap</code>（哈希 → 索引 + 连续数组），CNode 槽位转换为 <code>CNodeRadix</code>（经验证的扁平基数数组）。18 个交换性定理证明冻结阶段的语义等价性。<code>FrozenOps</code> 子系统提供类型化查找、仅值变更和队列操作——全部附带隔离和保持性证明。",
+    "freeze_text": "实现了构建 → 冻结 → 执行流水线，18 个交换性定理证明冻结阶段的语义等价性。<code>FrozenOps</code> 子系统提供类型化查找、仅值变更和队列操作——全部附带隔离和保持性证明。",
     "syscall_expansion_title": "系统调用表面扩展",
     "syscall_expansion_text": "从 14 个扩展到 17 个系统调用：新增 <code>NotificationSignal</code>（ID 14）、<code>NotificationWait</code>（ID 15）和 <code>ReplyRecv</code>（ID 16）复合 IPC。统一的 <code>syscallEntry</code> / <code>syscallEntryChecked</code> 分发路径，配备基于能力的路由。Rust ABI 加固为 17 变体 <code>SyscallId</code> 枚举。",
     "rust_desc": "三个 <code>no_std</code> Rust crate（<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">sele4n-types</a>、<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">sele4n-abi</a>、<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">sele4n-sys</a>）为全部 17 个系统调用提供安全封装，包括通知信号/等待和回复接收。幻影类型能力、ARM64 寄存器 ABI 层、W^X 强制执行、IPC 缓冲区溢出处理。仅一个 <code>unsafe</code> 块隔离在 <code>svc #0</code> 陷入指令中。",

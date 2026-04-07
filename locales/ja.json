@@ -43,7 +43,7 @@
   },
   "about": {
     "title": "seLe4nとは？",
-    "lead": "seLe4nは、カーネルモデルが完全に<strong>Lean 4</strong>で記述され機械検査済み証明を持つ、ケイパビリティベースのマイクロカーネルです。ユーザースペースプログラム向けの安全な<strong>Rust</strong> syscallラッパーを備えています。<strong>三相ビルド → フリーズ → 実行</strong>アーキテクチャを採用し、最初のハードウェアプラットフォームとして<strong>Raspberry Pi 5</strong>（ARM64 / BCM2712）を対象としています。",
+    "lead": "seLe4nは、カーネルモデルが完全に<strong>Lean 4</strong>で記述され機械検査済み証明を持つ、ケイパビリティベースのマイクロカーネルです。ユーザースペースプログラム向けの安全な<strong>Rust</strong> syscallラッパーを備えています。最初のハードウェアプラットフォームとして<strong>Raspberry Pi 5</strong>（ARM64 / BCM2712）を対象としています。",
     "why_microkernel_title": "なぜマイクロカーネルか？",
     "why_microkernel_text": "マイクロカーネルは、カーネル空間で実行するサービスをスケジューリング、IPC、ケイパビリティ管理、メモリ制御など必要最小限に抑え、信頼コンピューティングベースを最小化します。ドライバ、ファイルシステム、ネットワークなど他のすべてはユーザースペースで実行されます。これにより攻撃面が縮小し、形式検証が実現可能になります。カーネルコードのすべての行を数学的に推論できます。",
     "why_lean_title": "なぜLean 4か？",
@@ -54,12 +54,12 @@
     "what_different_title": "何が違うのか？",
     "what_different_text": "seLe4nは<strong>実装と証明を単一言語で統合</strong>しています — 別の証明アシスタントも、変換層も、セマンティックギャップもありません。各サブシステムはOperations/Invariant分離パターンに従います。実行可能な遷移は<code>Operations.lean</code>に、機械検査済み証明は<code>Invariant.lean</code>に並んで配置されます。型チェッカーがすべての操作にわたるすべての不変条件の成立を保証します。",
     "status_title": "プロジェクト状況",
-    "status_text": "seLe4nはバージョン<strong data-live=\"version\">{{version}}</strong>の活発な研究プロジェクトです。カーネルモデルはIPC、スケジューリング、ケイパビリティ、メモリ管理、通知、情報フロー制御、サービスオーケストレーションにわたる17のsyscallで機能完成しています。三相ビルド → フリーズ → 実行アーキテクチャが<code>FrozenSystemState</code>、<code>CNodeRadix</code>ラディックス配列、<code>FrozenMap</code>構造で実装されています。コンパニオンRustワークスペースが、17のsyscallすべてに安全な<code>no_std</code>ラッパーを提供しています。Raspberry Pi 5のハードウェアプラットフォームバインディングは準備済みで、最終調整作業を待っています。",
+    "status_text": "seLe4nはバージョン<strong data-live=\"version\">{{version}}</strong>の活発な研究プロジェクトです。カーネルモデルはIPC、スケジューリング、ケイパビリティ、メモリ管理、通知、情報フロー制御、サービスオーケストレーションにわたる17のsyscallで機能完成しています。コンパニオンRustワークスペースが、17のsyscallすべてに安全な<code>no_std</code>ラッパーを提供しています。Raspberry Pi 5のハードウェアプラットフォームバインディングは準備済みで、最終調整作業を待っています。",
     "created_with": "ClaudeとCodexの助けを借りて丁寧に作成されました。"
   },
   "architecture": {
     "title": "アーキテクチャ",
-    "lead": "seLe4nは<strong>階層型コントラクトモデル</strong>と<strong>三相ビルド → フリーズ → 実行</strong>パイプラインに従います。各サブシステムは実行可能ロジック（<code>Operations.lean</code>）と機械検査済み証明（<code>Invariant.lean</code>）を分離します。ビルド中に<code>IntermediateState</code>が不変条件ウィットネスで構築され、フリーズ中にすべてのハッシュテーブルが<code>FrozenMap</code>構造に、CNodeスロットが<code>CNodeRadix</code>ラディックス配列に変換され、実行中にフリーズ状態が17のsyscallすべてを処理します。層は上方に合成され、統一された<code>apiInvariantBundle</code>を形成します。コンパニオンRustワークスペースが、API表面の上にユーザースペースプログラム向けの安全な<code>no_std</code> syscallラッパーを提供します。",
+    "lead": "seLe4nは<strong>階層型コントラクトモデル</strong>に従います。各サブシステムの不変条件証明が上方に合成され、カーネル全体をカバーする統一された<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean#L105\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>apiInvariantBundle</code></a>を形成します。コンパニオン<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">Rust</a>ワークスペースが、API表面の上に安全な<code>no_std</code> syscallラッパーを提供します。",
     "rust_layer": "Rustユーザースペースラッパー",
     "api_surface": "API表面",
     "core_subsystems": "コアサブシステム",
@@ -130,7 +130,7 @@
   },
   "features": {
     "title": "主要イノベーション",
-    "lead": "seLe4nはすべてのサブシステムにわたるアーキテクチャ改善を導入し、三相ビルド → フリーズ → 実行パイプライン、O(1)データ構造、機械検査済み正当性に焦点を当てています。パフォーマンス最適化ポートフォリオは14件すべての監査指摘を解消し、フリーズ実行フェーズが決定的ランタイムパフォーマンスのための<code>FrozenMap</code> + <code>CNodeRadix</code>を追加しました。",
+    "lead": "seLe4nはすべてのサブシステムにわたるアーキテクチャ改善を導入し、O(1)データ構造と各層における機械検査済み正当性を実現しています。",
     "o1_title": "すべてにO(1)を",
     "robin_hood_title": "検証済みRobin Hoodハッシュマップ",
     "scheduler_title": "優先度バケット型スケジューラ",
@@ -141,7 +141,7 @@
     "arch_title": "アーキテクチャとメモリ",
     "rust_title": "安全なRust Syscallラッパー",
     "invariant_title": "合成可能な不変条件バンドル",
-    "o1_text": "すべてのホットパスデータ構造はハッシュベースのコレクションを使用し、ビルドフェーズでは139件の定理を持つ<a href=\"https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">検証済みRobin Hoodハッシュマップ</a>に裏打ちされ、実行フェーズでは<code>FrozenMap</code>（ハッシュ → インデックス + 連続配列）と<code>CNodeRadix</code>（ゼロハッシュフラットラディックス配列）にフリーズされます：オブジェクトストア、ランキュー、CNodeスロット、VSpaceマッピング、IPCキュー、ASIDテーブル、CDT子ルックアップ、通知ウェイター、サービス依存関係グラフ。16の型付き識別子すべてが<code>Hashable</code> + <code>LawfulHashable</code>インスタンスを備えています。14件のパフォーマンス監査指摘すべてを解消。データ構造移行後に400以上の定理を再検証。",
+    "o1_text": "すべてのホットパスデータ構造はハッシュベースのコレクションを使用し、139件の定理を持つ<a href=\"https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">検証済みRobin Hoodハッシュマップ</a>に裏打ちされています：オブジェクトストア、ランキュー、CNodeスロット、VSpaceマッピング、IPCキュー、ASIDテーブル、CDT子ルックアップ、通知ウェイター、サービス依存関係グラフ。フリーズ時にこれらは<code>FrozenMap</code>および<code>CNodeRadix</code>構造に変換され、決定的なO(1)アクセスを実現します。16の型付き識別子すべてが<code>Hashable</code> + <code>LawfulHashable</code>インスタンスを備えています。データ構造移行後に400以上の定理を再検証。",
     "robin_hood_text": "7モジュールにわたるゼロからの検証済みRobin Hoodハッシュテーブル。線形プロービングによるオープンアドレッシング。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/RobinHood/Core.lean#L26\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>RHTable</code></a>はO(1)償却のinsert、lookup、erase、resizeを容量保存付きで提供します。40件のlookup正当性定理、56件の保存証明、そして実装を<code>HashMap</code>互換セマンティクス（<code>getElem?_insert_self</code>、<code>getElem?_erase_self</code>など）に接続する30件の<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/RobinHood/Bridge.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">ブリッジ定理</a>。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Model.Object.Types</code></a>によりインポート — すべてのカーネルデータ構造の検証済み代数的基盤。",
     "scheduler_text": "6ファイルにわたる133件の定理。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean#L14\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>RunQueue</code></a>は<code>HashMap Priority (List ThreadId)</code>と<code>HashSet ThreadId</code>メンバーシップインデックスに裏打ちされています。ドメイン対応EDFスケジューリングにより、スレッドは割り当てられたセキュリティドメインでのみ実行されます。操作は<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Core.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Core</code></a>、<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Preservation.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Preservation</code></a>、<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Selection.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Selection</code></a>に分解されています。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Invariant.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>schedulerWellFormed</code></a>構造不変条件はすべての操作にわたって維持されます。優先度バケット型候補選択により複雑性がO(t)からO(k)に削減されます（kはバケットサイズ）。",
     "ipc_text": "14の高度にモジュール化されたファイルにわたる223件の定理。エンドポイントは独立した<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>sendQ</code></a>と<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>receiveQ</code></a>リストを保持します。各TCBは侵入型<code>prev</code>/<code>next</code>リンクを持ちO(1)中間キュー削除を実現します。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Transport.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>Transport</code></a>は24件の定理でメッセージ転送を処理します。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/WithCaps.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>WithCaps</code></a>はIPC境界を越えたケイパビリティ転送を追加します。76件の構造不変条件、27件のエンドポイント保存定理、<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Invariant/CallReplyRecv.lean\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">call-reply-recv</a>合成証明。",
@@ -238,7 +238,7 @@
   },
   "structure": {
     "title": "プロジェクト構成",
-    "lead": "一貫したOperations/Invariantパターンで構成された<span data-live=\"modules\">{{modules}}</span>のLeanモジュール、<span data-live=\"scripts\">{{scripts}}</span>のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む<span data-live=\"docs\">{{docs}}</span>のドキュメントファイル。"
+    "lead": "<span data-live=\"modules\">{{modules}}</span>のLeanモジュール、<span data-live=\"scripts\">{{scripts}}</span>のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む<span data-live=\"docs\">{{docs}}</span>のドキュメントファイル。"
   },
   "getting_started": {
     "title": "はじめに",
@@ -291,7 +291,7 @@
     "remediation_text": "メッセージ転送検証付き侵入型デュアルキューIPC。ウォーターマークトラッキング付きUntyped Memoryのretype。情報フロー完全性 — 7フィールド<a href=\"https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean#L44\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>ObservableState</code></a>プロジェクション。すべての操作にわたる証明ギャップ解消。",
     "perf_text": "すべてのホットパスをO(1)ハッシュベース構造に移行。14件のパフォーマンス監査指摘を解消。型付き識別子Hashableインスタンス、オブジェクトストアHashMap、ASID解決テーブル、RunQueue再構築、CNodeスロットHashMap、VSpaceマッピングHashMap、IPCデュアルキュー + 通知、グラフトラバーサル最適化、情報フロープロジェクション最適化。400以上の定理を再検証。",
     "freeze_title": "ビルド → フリーズ → 実行パイプライン",
-    "freeze_text": "三相アーキテクチャ：不変条件ウィットネス付き<code>IntermediateState</code>ビルダー、一方向<code>freeze</code>がすべての<code>RHTable</code>フィールドを<code>FrozenMap</code>（ハッシュ → インデックス + 連続配列）に、CNodeスロットを<code>CNodeRadix</code>（検証済みフラットラディックス配列）に変換。18件の可換性定理がフリーズフェーズの意味的等価性を証明。<code>FrozenOps</code>サブシステムが型付きルックアップ、値のみの変更、キュー操作を提供 — すべて分離と保存の証明付き。",
+    "freeze_text": "ビルド → フリーズ → 実行パイプラインを実装し、18件の可換性定理がフリーズフェーズの意味的等価性を証明。<code>FrozenOps</code>サブシステムが型付きルックアップ、値のみの変更、キュー操作を提供 — すべて分離と保存の証明付き。",
     "syscall_expansion_title": "Syscall表面拡張",
     "syscall_expansion_text": "14から17のsyscallに拡張：<code>NotificationSignal</code>（ID 14）、<code>NotificationWait</code>（ID 15）、<code>ReplyRecv</code>（ID 16）複合IPCを追加。統一された<code>syscallEntry</code> / <code>syscallEntryChecked</code>ディスパッチパスとケイパビリティゲート付きルーティング。17バリアント<code>SyscallId</code>列挙型によるRust ABIハードニング。",
     "rust_desc": "3つの<code>no_std</code> Rustクレート（<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">sele4n-types</a>、<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">sele4n-abi</a>、<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">sele4n-sys</a>）が通知signal/waitとreply-receiveを含む17のsyscallすべてに安全なラッパーを提供。ファントム型ケイパビリティ、ARM64レジスタABI層、W^Xエンフォースメント、IPCバッファオーバーフロー処理。単一の<code>unsafe</code>ブロックは<code>svc #0</code>トラップ命令に限定。",

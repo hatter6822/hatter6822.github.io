@@ -155,6 +155,7 @@
         seLe4n is a capability-based microkernel whose kernel model is written entirely in <strong>Lean 4</strong> with machine-checked proofs,
         complemented by safe <strong>Rust</strong> syscall wrappers for user-space programs.
         It targets the <strong>Raspberry Pi 5</strong> (ARM64 / BCM2712) as its first hardware platform.
+
       </p>
 
       <div class="grid grid-2">
@@ -221,9 +222,7 @@
           <p data-i18n-html="about.status_text">
             seLe4n is an active research project at version <strong data-live="version">0.25.13</strong>. The kernel
             model is feature-complete with 25 syscalls spanning IPC, scheduling, capabilities, memory management,
-            notifications, information-flow control, service orchestration, scheduling contexts, and TCB management. The three-phase
-            Build &rarr; Freeze &rarr; Execute architecture is implemented with <code>FrozenSystemState</code>,
-            <code>CNodeRadix</code> radix arrays, and <code>FrozenMap</code> structures.
+            notifications, information-flow control, and service orchestration.
             A companion <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust workspace</a>
             provides safe, <code>no_std</code> wrappers for all 25 syscalls.
             Hardware platform bindings for the Raspberry Pi 5 are prepared and awaiting final
@@ -242,11 +241,10 @@
     <div class="container">
       <h2 class="section-title" data-i18n="architecture.title">Architecture</h2>
       <p class="section-lead" data-i18n-html="architecture.lead">
-        seLe4n follows a <strong>layered contract model</strong>. Each subsystem separates
-        executable logic (<code>Operations.lean</code>) from machine-checked proofs
-        (<code>Invariant.lean</code>). Layers compose upward into a unified
+        seLe4n follows a <strong>layered contract model</strong>.
+        Each subsystem's invariant proofs compose upward into a unified
         <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean#L105" target="_blank" rel="noopener noreferrer" class="code-link"><code>apiInvariantBundle</code></a> that covers the entire kernel.
-        A companion <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust workspace</a> provides safe, <code>no_std</code> syscall wrappers above the API surface for user-space programs.
+        A companion <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust workspace</a> provides safe, <code>no_std</code> syscall wrappers above the API surface.
       </p>
 
       <div class="arch-diagram" aria-label="seLe4n architecture diagram showing Rust user-space wrappers, kernel API surface, and layered subsystems down to platform bindings" data-i18n-aria-label="architecture.diagram_aria">
@@ -555,8 +553,7 @@
       <h2 class="section-title" data-i18n="features.title">Key Innovations</h2>
       <p class="section-lead" data-i18n-html="features.lead">
         seLe4n introduces architectural improvements across every subsystem,
-        with a three-phase Build &rarr; Freeze &rarr; Execute pipeline, O(1) data structures,
-        and machine-checked correctness at every layer.
+        with O(1) data structures and machine-checked correctness at every layer.
       </p>
 
       <div class="features-grid">
@@ -567,13 +564,14 @@
           </div>
           <h3 data-i18n="features.o1_title">O(1) Everywhere</h3>
           <p data-i18n-html="features.o1_text">
-            Every hot-path data structure uses hash-based collections, backed by a
+            Every hot-path data structure uses hash-based collections backed by a
             <a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer" class="code-link">verified Robin Hood hash map</a>
             with 139 theorems: object stores, run queues, CNode slots, VSpace mappings, IPC queues, ASID tables,
             CDT child lookups, notification waiters, and service dependency graphs.
+            At freeze time, these become <code>FrozenMap</code> and <code>CNodeRadix</code> structures
+            for deterministic O(1) access.
             All 16 typed identifiers have <code>Hashable</code> + <code>LawfulHashable</code>
-            instances. All 14 performance audit findings eliminated.
-            400+ theorems re-verified after the data structure migration.
+            instances. 400+ theorems re-verified after the data structure migration.
           </p>
         </div>
 
@@ -990,7 +988,7 @@
     <div class="container">
       <h2 class="section-title" data-i18n="structure.title">Project Structure</h2>
       <p class="section-lead" data-i18n-html="structure.lead">
-        <span data-live="modules">127</span> Lean modules organized with a consistent Operations/Invariant pattern,
+        <span data-live="modules">127</span> Lean modules,
         <span data-live="scripts">21</span> test and CI scripts, and <span data-live="docs">184</span> documentation files with specifications, ADRs, and roadmaps.
       </p>
 
@@ -1214,9 +1212,7 @@ cargo test</code></pre>
           <div class="timeline-content">
             <h3><span data-i18n="roadmap.freeze_title">Build &rarr; Freeze &rarr; Execute Pipeline</span> <span class="timeline-tag" data-i18n="roadmap.complete">Complete</span></h3>
             <p data-i18n-html="roadmap.freeze_text">
-              Three-phase architecture: <code>IntermediateState</code> builder with invariant witnesses,
-              one-way <code>freeze</code> converting all <code>RHTable</code> fields to <code>FrozenMap</code> (hash &rarr; index + contiguous array)
-              and CNode slots to <code>CNodeRadix</code> (verified flat radix arrays). 18 commutativity theorems proving
+              Implemented the Build &rarr; Freeze &rarr; Execute pipeline with 18 commutativity theorems proving
               frozen-phase semantic equivalence. <code>FrozenOps</code> subsystem with typed lookups, value-only mutations,
               and queue operations &mdash; all with isolation and preservation proofs.
             </p>
