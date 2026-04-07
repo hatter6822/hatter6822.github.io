@@ -58,38 +58,11 @@ jobs:
             echo "lines=" >> "$GITHUB_OUTPUT"
           fi
 
-          # 5. Count theorems across all proof files
-          PROOF_FILES=(
-            SeLe4n/Kernel/Capability/Invariant.lean
-            SeLe4n/Kernel/IPC/Invariant.lean
-            SeLe4n/Kernel/Scheduler/Invariant.lean
-            SeLe4n/Kernel/Lifecycle/Invariant.lean
-            SeLe4n/Kernel/Service/Invariant.lean
-            SeLe4n/Kernel/InformationFlow/Invariant.lean
-            SeLe4n/Kernel/InformationFlow/Policy.lean
-            SeLe4n/Kernel/InformationFlow/Projection.lean
-            SeLe4n/Kernel/InformationFlow/Enforcement.lean
-            SeLe4n/Kernel/Architecture/VSpace.lean
-            SeLe4n/Kernel/Architecture/Assumptions.lean
-            SeLe4n/Kernel/Architecture/Adapter.lean
-            SeLe4n/Kernel/Architecture/Invariant.lean
-            SeLe4n/Kernel/Architecture/VSpaceInvariant.lean
-            SeLe4n/Kernel/API.lean
-            SeLe4n/Prelude.lean
-            SeLe4n/Machine.lean
-            SeLe4n/Model/Object.lean
-            SeLe4n/Model/State.lean
-            SeLe4n/Kernel/Capability/Operations.lean
-            SeLe4n/Kernel/IPC/Operations.lean
-            SeLe4n/Kernel/IPC/DualQueue.lean
-            SeLe4n/Kernel/Scheduler/Operations.lean
-            SeLe4n/Kernel/Scheduler/RunQueue.lean
-            SeLe4n/Kernel/Lifecycle/Operations.lean
-            SeLe4n/Kernel/Service/Operations.lean
-          )
+          # 5. Count theorems across ALL Lean source files (dynamic enumeration)
+          LEAN_FILES=$(echo "$TREE" | grep -P '^SeLe4n/.*\.lean$')
           THEOREMS=0
-          for f in "${PROOF_FILES[@]}"; do
-            COUNT=$(curl -sf "${RAW}/${f}" | grep -cP '^\s*(?:@\[.*?\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s' || true)
+          for f in $LEAN_FILES; do
+            COUNT=$(curl -sf "${RAW}/${f}" | grep -cP '^\s*(?:@\[.*?\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:theorem|lemma)\s' || true)
             THEOREMS=$((THEOREMS + COUNT))
           done
           echo "theorems=${THEOREMS}" >> "$GITHUB_OUTPUT"
@@ -151,9 +124,36 @@ jobs:
           # Update JSON-LD version
           sed -i "s|\"version\": \"[^\"]*\"|\"version\": \"${VERSION}\"|g" "$FILE"
 
+      - name: Update site-data.json
+        env:
+          VERSION: ${{ steps.fetch.outputs.version }}
+          LEAN_VERSION: ${{ steps.fetch.outputs.lean_version }}
+          THEOREMS: ${{ steps.fetch.outputs.theorems }}
+          MODULES: ${{ steps.fetch.outputs.modules }}
+          SCRIPTS: ${{ steps.fetch.outputs.scripts }}
+          DOCS: ${{ steps.fetch.outputs.docs }}
+          BUILD_JOBS: ${{ steps.fetch.outputs.build_jobs }}
+          LINES: ${{ steps.fetch.outputs.lines }}
+        run: |
+          set -euo pipefail
+          node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('data/site-data.json', 'utf8'));
+            if (process.env.VERSION) data.version = process.env.VERSION;
+            if (process.env.LEAN_VERSION) data.leanVersion = process.env.LEAN_VERSION;
+            if (process.env.THEOREMS) data.theorems = Number(process.env.THEOREMS);
+            if (process.env.MODULES) data.modules = Number(process.env.MODULES);
+            if (process.env.SCRIPTS) data.scripts = Number(process.env.SCRIPTS);
+            if (process.env.DOCS) data.docs = Number(process.env.DOCS);
+            if (process.env.BUILD_JOBS) data.buildJobs = Number(process.env.BUILD_JOBS);
+            if (process.env.LINES) data.lines = process.env.LINES;
+            data.generatedAt = new Date().toISOString();
+            fs.writeFileSync('data/site-data.json', JSON.stringify(data, null, 2) + '\n');
+          "
+
       - name: Check for changes and commit
         run: |
-          if git diff --quiet index.html; then
+          if git diff --quiet index.html data/site-data.json; then
             echo "No changes detected — website is already in sync."
             exit 0
           fi
@@ -165,7 +165,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
+          git add index.html data/site-data.json
           git commit -m "sync: update static values from seLe4n v${{ steps.fetch.outputs.version }}
 
           Automated sync from GitHub Actions.

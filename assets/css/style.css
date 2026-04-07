@@ -574,19 +574,6 @@ html:not([data-theme="light"]) .hero-label {
   text-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
 }
 
-.hero-title {
-  font-size: clamp(3rem, 8vw, 6rem);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
-  margin-bottom: 1.5rem;
-}
-.hero-title .logo-se {
-  color: var(--text-muted);
-}
-.hero-title .logo-le4n {
-  color: var(--heading);
-}
 
 .hero-subtitle {
   font-size: clamp(1rem, 2.5vw, 1.25rem);
@@ -983,7 +970,6 @@ html:not([data-theme="light"]) .hero-subtitle {
 /* --- Comparison & Data Tables --- */
 .table-wrap {
   overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
   margin: 0 -0.5rem;
   padding: 0 0.5rem;
 }
@@ -1077,57 +1063,6 @@ html:not([data-theme="light"]) .hero-subtitle {
 .badge-stable {
   background: var(--green-dim);
   color: var(--green);
-}
-.badge-deprecated {
-  background: var(--yellow-dim);
-  color: var(--yellow);
-}
-
-/* --- Code Examples --- */
-.code-examples {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-.code-example {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.code-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 1rem 1.5rem;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-}
-.code-header h3 {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--heading);
-}
-.code-file {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  background: var(--bg);
-  padding: 0.2rem 0.6rem;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-}
-
-.code-example pre {
-  margin: 0;
-  border: none;
-  border-radius: 0;
-  padding: 1.5rem;
-  background: var(--surface);
 }
 
 /* Lean 4 Syntax Highlighting */
@@ -1940,9 +1875,6 @@ button:focus-visible {
 /* --- Live Data Transitions --- */
 [data-live] {
   transition: opacity 0.3s;
-}
-[data-live].updating {
-  opacity: 0.4;
 }
 
 /* Tier scripts as links */

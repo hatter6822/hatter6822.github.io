@@ -549,9 +549,7 @@
       <p class="section-lead" data-i18n-html="features.lead">
         seLe4n introduces architectural improvements across every subsystem,
         with a three-phase Build &rarr; Freeze &rarr; Execute pipeline, O(1) data structures,
-        and machine-checked correctness. The performance optimization portfolio eliminated
-        all 14 audit findings, and the frozen execution phase adds
-        <code>FrozenMap</code> + <code>CNodeRadix</code> for deterministic runtime performance.
+        and machine-checked correctness at every layer.
       </p>
 
       <div class="features-grid">
@@ -578,15 +576,12 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/RobinHood" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.robin_hood_title">Verified Robin Hood Hash Map</a></h3>
           <p data-i18n-html="features.robin_hood_text">
-            A ground-up verified Robin Hood hash table across 7 modules. Open addressing with linear
-            probing, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/RobinHood/Core.lean#L26" target="_blank" rel="noopener noreferrer" class="code-link"><code>RHTable</code></a>
-            provides O(1) amortized insert, lookup, erase, and resize with capacity preservation.
-            40 lookup correctness theorems, 56 preservation proofs, and 30
+            Traditional verified kernels rely on linked lists with O(n) traversal.
+            seLe4n builds on a ground-up verified Robin Hood hash table &mdash; 139 theorems
+            across 7 modules, with 30
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/RobinHood/Bridge.lean" target="_blank" rel="noopener noreferrer" class="code-link">bridge theorems</a>
-            connecting the implementation to <code>HashMap</code>-compatible semantics
-            (<code>getElem?_insert_self</code>, <code>getElem?_erase_self</code>, etc.).
-            Imported by <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Model.Object.Types</code></a> &mdash;
-            the verified algebraic foundation for every kernel data structure.
+            connecting the implementation to <code>HashMap</code>-compatible semantics.
+            This is the verified algebraic foundation for every kernel data structure.
           </p>
         </div>
 
@@ -596,14 +591,12 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Scheduler" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.scheduler_title">Priority-Bucketed Scheduler</a></h3>
           <p data-i18n-html="features.scheduler_text">
-            133 theorems across 6 files. The <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean#L14" target="_blank" rel="noopener noreferrer" class="code-link"><code>RunQueue</code></a> is backed by <code>HashMap Priority (List ThreadId)</code>
-            with a <code>HashSet ThreadId</code> membership index. Domain-aware EDF scheduling
-            ensures threads only run in their assigned security domain. Operations decomposed into
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Core</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Preservation.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Preservation</code></a>, and
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Operations/Selection.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Selection</code></a>. The <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Invariant.lean#L49" target="_blank" rel="noopener noreferrer" class="code-link"><code>schedulerWellFormed</code></a>
-            structural invariant is maintained across all operations. Priority-bucketed candidate selection
-            reduces complexity from O(t) to O(k) where k is the bucket size.
+            Where traditional kernels use priority-based round-robin, seLe4n combines
+            Priority + EDF with domain-aware partitioning. The
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/RunQueue.lean#L14" target="_blank" rel="noopener noreferrer" class="code-link"><code>RunQueue</code></a>
+            uses HashMap-backed priority buckets, reducing candidate selection from O(t) to O(k).
+            The <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Scheduler/Invariant.lean#L49" target="_blank" rel="noopener noreferrer" class="code-link"><code>schedulerWellFormed</code></a>
+            structural invariant is machine-checked across all 133 theorems.
           </p>
         </div>
 
@@ -613,12 +606,11 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/IPC" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.ipc_title">Intrusive Dual-Queue IPC</a></h3>
           <p data-i18n-html="features.ipc_text">
-            223 theorems across 14 deeply modularized files. Endpoints maintain separate
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>sendQ</code></a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>receiveQ</code></a> lists. Each TCB carries intrusive
-            <code>prev</code>/<code>next</code> links enabling O(1) mid-queue removal.
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Transport.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Transport</code></a> handles message transfer with 24 theorems.
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/WithCaps.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>WithCaps</code></a> adds capability transfer across IPC boundaries.
-            76 structural invariants, 27 endpoint preservation theorems, and
+            Traditional kernels use intrusive singly-linked lists for IPC queuing.
+            seLe4n endpoints maintain separate
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/Core.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>sendQ</code>/<code>receiveQ</code></a> with intrusive links for O(1) mid-queue removal.
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/DualQueue/WithCaps.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>WithCaps</code></a> adds verified capability transfer across IPC boundaries &mdash;
+            223 theorems including
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/IPC/Invariant/CallReplyRecv.lean" target="_blank" rel="noopener noreferrer" class="code-link">call-reply-recv</a> composition proofs.
           </p>
         </div>
@@ -629,12 +621,12 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Capability" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.cdt_title">Capability Derivation Tree</a></h3>
           <p data-i18n-html="features.cdt_text">
-            Node-stable CDT with <code>childMap : HashMap CdtNodeId (List CdtNodeId)</code>
-            for O(1) slot transfer and revocation. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>descendantsOf</code></a> runs in O(N+E).
-            Strict revocation via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>cspaceRevokeCdtStrict</code></a> reports the first failure
-            with full context rather than silently swallowing errors. Bidirectional
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Invariant.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>childMapConsistent</code></a> invariant with preservation proofs ensures the
-            index stays synchronized with the underlying edge set.
+            Traditional kernels use mutable doubly-linked lists for capability tracking.
+            seLe4n uses a node-stable CDT with <code>HashMap</code>-backed <code>childMap</code>
+            for O(1) slot transfer. Unlike silent error handling in seL4,
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>cspaceRevokeCdtStrict</code></a>
+            reports the first failure with full context. Bidirectional
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Capability/Invariant.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>childMapConsistent</code></a> invariant ensures the index stays synchronized.
           </p>
         </div>
 
@@ -644,17 +636,12 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/InformationFlow" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.info_flow_title">N-Domain Information Flow</a></h3>
           <p data-i18n-html="features.info_flow_text">
-            182 theorems across 9 deeply modularized files. Parameterized security framework with two-dimensional labels (confidentiality +
-            integrity). <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean#L289" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a> supports arbitrary domain counts and
-            flow topologies with proven reflexivity and transitivity. <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean#L375" target="_blank" rel="noopener noreferrer" class="code-link"><code>GenericLabelingContext</code></a>
-            assigns domains to objects, threads, endpoints, and services. Enforcement split into
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Soundness.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Soundness</code></a> and
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Wrappers</code></a>; invariants into
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Composition.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Composition</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Helpers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Helpers</code></a>, and
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Operations</code></a>.
-            15 non-interference theorems, 7-field <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean#L44" target="_blank" rel="noopener noreferrer" class="code-link"><code>ObservableState</code></a> projection,
-            precomputed <code>HashSet</code>-based observability for O(1) lookups.
+            Where traditional kernels use a binary high/low partition, seLe4n implements a
+            parameterized N-domain framework with two-dimensional labels (confidentiality + integrity).
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean#L289" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a> supports arbitrary flow topologies with
+            proven reflexivity and transitivity. 15 non-interference theorems,
+            7-field <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean#L44" target="_blank" rel="noopener noreferrer" class="code-link"><code>ObservableState</code></a> projection,
+            and precomputed <code>HashSet</code>-based observability for O(1) lookups.
           </p>
         </div>
 
@@ -664,12 +651,12 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Service" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.service_title">Service Orchestration</a></h3>
           <p data-i18n-html="features.service_text">
-            90 theorems across 4 files. First-class kernel service concept with graph-based lifecycle management and O(n+e) DFS cycle detection
-            using <code>HashSet ServiceId</code>. Invariant proofs split into
+            Traditional microkernels have no kernel-level service concept. seLe4n introduces
+            first-class service orchestration with graph-based lifecycle, O(n+e) DFS cycle detection,
+            and dependency-aware startup/shutdown. Invariant proofs split into
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Invariant/Acyclicity.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Acyclicity</code></a> and
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Service/Invariant/Policy.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Policy</code></a>
-            enforcement. Dependency-aware startup, shutdown,
-            and restart with service health tracking.
+            enforcement across 90 theorems.
           </p>
         </div>
 
@@ -677,15 +664,14 @@
           <div class="feature-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           </div>
-          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.arch_title">Architecture &amp; Memory</a></h3>
+          <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Kernel/Architecture" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.arch_title">Verified Hardware Boundary</a></h3>
           <p data-i18n-html="features.arch_text">
-            123 theorems across 9 modules. Virtual address space with <code>HashMap VAddr PAddr</code> mappings
-            and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/VSpaceBackend.lean#L84" target="_blank" rel="noopener noreferrer" class="code-link"><code>VSpaceBackend</code></a> adapter pattern.
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/TlbModel.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>TlbModel</code></a> with flush-consistency proofs.
+            Where traditional kernels leave register parsing unverified, seLe4n verifies
+            the hardware-software boundary end-to-end.
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/RegisterDecode.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>RegisterDecode</code></a> (18 roundtrip proofs) and
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/SyscallArgDecode.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>SyscallArgDecode</code></a> (28 determinism proofs)
-            verify the hardware-software boundary end-to-end.
-            48-bit VA / 44-bit PA address space for RPi5.
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/SyscallArgDecode.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>SyscallArgDecode</code></a> (28 determinism proofs) ensure no data
+            is misinterpreted at the trap boundary.
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/Architecture/TlbModel.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>TlbModel</code></a> adds flush-consistency proofs for the memory subsystem.
           </p>
         </div>
 
@@ -695,15 +681,14 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.rust_title">Safe Rust Syscall Wrappers</a></h3>
           <p data-i18n-html="features.rust_text">
-            Three <code>no_std</code> Rust crates wrap all 17 seLe4n syscalls with ergonomic, fully safe APIs.
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-types" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-types</code></a>
-            mirrors the Lean kernel&rsquo;s typed identifiers and 34-variant error model with <code>#![deny(unsafe_code)]</code>.
-            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-abi</code></a>
-            handles ARM64 register marshalling with exactly one <code>unsafe</code> block &mdash; the <code>svc&nbsp;#0</code> trap.
+            Where traditional kernels expose C headers with manual register marshalling,
+            seLe4n provides three <code>no_std</code> Rust crates with fully safe, typed APIs for all 17 syscalls.
             <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-sys" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-sys</code></a>
-            provides phantom-typed <a href="https://github.com/hatter6822/seLe4n/blob/main/rust/sele4n-sys/src/cap.rs" target="_blank" rel="noopener noreferrer" class="code-link"><code>Cap&lt;Obj,&nbsp;Rts&gt;</code></a>
-            capabilities with compile-time rights tracking, W^X enforcement on VSpace mappings, and IPC buffer
-            overflow handling for ARM64&rsquo;s 4-register inline limit. Mock trap on non-AArch64 enables host-based testing.
+            introduces phantom-typed <a href="https://github.com/hatter6822/seLe4n/blob/main/rust/sele4n-sys/src/cap.rs" target="_blank" rel="noopener noreferrer" class="code-link"><code>Cap&lt;Obj,&nbsp;Rts&gt;</code></a>
+            capabilities with compile-time rights tracking and W^X enforcement.
+            The entire crate stack has zero <code>unsafe</code> except the single <code>svc&nbsp;#0</code>
+            trap instruction in
+            <a href="https://github.com/hatter6822/seLe4n/tree/main/rust/sele4n-abi" target="_blank" rel="noopener noreferrer" class="code-link"><code>sele4n-abi</code></a>.
           </p>
         </div>
 
@@ -730,24 +715,15 @@
           </div>
           <h3><a href="https://github.com/hatter6822/seLe4n/tree/main/SeLe4n/Model/Object" target="_blank" rel="noopener noreferrer" class="code-link" data-i18n="features.composable_objects_title">Composable Performance Objects</a></h3>
           <p data-i18n-html="features.composable_objects_text">
-            129 theorems across the Object model and State modules. 8 kernel object types
-            (<a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Structures.lean#L1272" target="_blank" rel="noopener noreferrer" class="code-link"><code>Untyped</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L341" target="_blank" rel="noopener noreferrer" class="code-link"><code>CNode</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Structures.lean#L85" target="_blank" rel="noopener noreferrer" class="code-link"><code>VSpaceRoot</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L246" target="_blank" rel="noopener noreferrer" class="code-link"><code>TCB</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L310" target="_blank" rel="noopener noreferrer" class="code-link"><code>Endpoint</code></a>,
-            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L324" target="_blank" rel="noopener noreferrer" class="code-link"><code>Notification</code></a>,
-            <code>IrqHandler</code>,
-            <code>Service</code>)
-            compose through typed <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L138" target="_blank" rel="noopener noreferrer" class="code-link"><code>Capability</code></a> references
-            with bitmask-based <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L72" target="_blank" rel="noopener noreferrer" class="code-link"><code>AccessRightSet</code></a> controlling per-capability permissions.
-            All object stores in
+            Where traditional kernels use static object tables with manual pointer management,
+            seLe4n&rsquo;s 8 kernel object types compose through typed
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L138" target="_blank" rel="noopener noreferrer" class="code-link"><code>Capability</code></a> references
+            with bitmask-based <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Types.lean#L72" target="_blank" rel="noopener noreferrer" class="code-link"><code>AccessRightSet</code></a>.
+            All stores in
             <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/State.lean#L124" target="_blank" rel="noopener noreferrer" class="code-link"><code>SystemState</code></a>
-            are <code>HashMap</code>-backed for O(1) lookup, store, and revocation.
-            16 typed identifiers with <code>LawfulHashable</code> instances ensure collision-free hashing.
-            The <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Structures.lean#L771" target="_blank" rel="noopener noreferrer" class="code-link"><code>CapDerivationTree</code></a>
-            tracks hierarchical object derivation with <code>childMap</code>/<code>parentMap</code> consistency proofs,
-            enabling composable revocation and lifecycle management across the entire object graph.
+            are <code>HashMap</code>-backed for O(1) access, and the
+            <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Model/Object/Structures.lean#L771" target="_blank" rel="noopener noreferrer" class="code-link"><code>CapDerivationTree</code></a>
+            enables composable revocation across the entire object graph &mdash; 129 theorems total.
           </p>
         </div>
 
@@ -768,16 +744,12 @@
         <div class="card">
           <h3 data-i18n="security.ifc_title">Information Flow Control</h3>
           <p data-i18n-html="security.ifc_text">
-            182 theorems across 9 deeply modularized files. seLe4n implements a parameterized N-domain information-flow framework
-            supporting both the legacy 2&times;2 confidentiality/integrity lattice and arbitrary
-            domain topologies via <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean#L289" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a>:
+            seLe4n enforces information-flow security at the kernel level through 182 theorems
+            across 9 modules. The <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Policy.lean#L289" target="_blank" rel="noopener noreferrer" class="code-link"><code>DomainFlowPolicy</code></a>
+            framework provides security guarantees that go beyond traditional binary high/low models:
           </p>
           <ul>
             <li data-i18n-html="security.ifc_item1"><strong>15 non-interference theorems</strong> &mdash; 12 standalone + 3 enforcement bridges</li>
-            <li data-i18n-html="security.ifc_item2"><strong>7-field <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Projection.lean#L44" target="_blank" rel="noopener noreferrer" class="code-link"><code>ObservableState</code></a></strong> projection covering full kernel state</li>
-            <li data-i18n-html="security.ifc_item3"><strong>Enforcement</strong> split into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Soundness.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Soundness</code></a> and <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Wrappers</code></a></li>
-            <li data-i18n-html="security.ifc_item4"><strong>Invariant proofs</strong> decomposed into <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Composition.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Composition</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Helpers.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Helpers</code></a>, <a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/InformationFlow/Invariant/Operations.lean" target="_blank" rel="noopener noreferrer" class="code-link"><code>Operations</code></a></li>
-            <li data-i18n-html="security.ifc_item5"><strong>Precomputed observability</strong> via <code>HashSet</code> for O(1) projection lookups</li>
             <li data-i18n-html="security.ifc_item6"><strong>17 operations classified</strong> by enforcement level</li>
             <li data-i18n-html="security.ifc_item7"><strong>Per-endpoint flow policies</strong> for fine-grained overrides</li>
             <li data-i18n-html="security.ifc_item8"><strong>Legacy embedding theorem</strong> proves the generic system subsumes the original</li>
