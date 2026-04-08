@@ -39,7 +39,8 @@
     "stat_admitted": "未証明の証明",
     "learn_more": "詳細を見る",
     "view_source": "ソースを見る",
-    "explore_map": "コードマップを探索"
+    "explore_map": "コードマップを探索",
+    "h1": "seLe4n — Lean 4で記述された形式検証済みマイクロカーネル"
   },
   "about": {
     "title": "seLe4nとは？",

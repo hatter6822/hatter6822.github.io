@@ -39,7 +39,8 @@
     "stat_admitted": "已承认证明",
     "learn_more": "了解更多",
     "view_source": "查看源码",
-    "explore_map": "探索代码地图"
+    "explore_map": "探索代码地图",
+    "h1": "seLe4n — 用Lean 4编写的形式化验证微内核"
   },
   "about": {
     "title": "什么是 seLe4n？",

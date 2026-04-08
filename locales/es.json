@@ -39,7 +39,8 @@
     "stat_admitted": "Pruebas Admitidas",
     "learn_more": "Más Información",
     "view_source": "Ver Código Fuente",
-    "explore_map": "Explorar Mapa del Código"
+    "explore_map": "Explorar Mapa del Código",
+    "h1": "seLe4n — Un microkernel formalmente verificado escrito en Lean 4"
   },
   "about": {
     "title": "¿Qué es seLe4n?",
