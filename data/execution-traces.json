@@ -18,7 +18,7 @@
     { "id": "runQueueThreadPriorityConsistent", "label": "Run-queue order respects priority", "check": "runQueueThreadPriorityConsistentB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Scheduler.Invariant", "subsystem": "scheduler" },
     { "id": "schedulerQueueCurrentConsistent", "label": "Scheduler / current-thread consistency", "check": "schedulerQueueCurrentConsistentB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Scheduler.Invariant", "subsystem": "scheduler" },
     { "id": "capDerivationConsistent", "label": "Capability derivation tree consistent", "check": "cdtChildMapConsistentCheck", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Defs", "subsystem": "capability" },
-    { "id": "cbsBudgetBounded", "label": "CBS budget bandwidth bounded", "check": "cbs_bandwidth_bounded", "module": "SeLe4n.Kernel.SchedContext", "mapModule": "SeLe4n.Kernel.SchedContext", "subsystem": "scheduler" },
+    { "id": "cbsBudgetBounded", "label": "CBS budget bandwidth bounded", "check": "cbs_bandwidth_bounded", "module": "SeLe4n.Kernel.Scheduler.Invariant", "mapModule": "SeLe4n.Kernel.Scheduler.Invariant", "subsystem": "scheduler" },
     { "id": "cdtAcyclic", "label": "Capability derivation tree is acyclic", "check": "edgeWellFounded", "module": "SeLe4n.Model.Object.Structures", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Defs", "subsystem": "capability" },
     { "id": "capRightsMonotone", "label": "Derived rights never exceed the parent", "check": "capabilityRightsStructuralChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Authority", "subsystem": "capability" },
     { "id": "untypedWatermarkBounded", "label": "Untyped watermark within its region", "check": "untypedWatermarkChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Lifecycle.Invariant", "subsystem": "memory" },
@@ -171,8 +171,8 @@
           "actor": "th.client",
           "narrative": "A timer interrupt charges the running thread's scheduling-context budget and decrements its time slice. Budget remains, so the Constant-Bandwidth-Server admits the thread to keep running with no preemption.",
           "sourceRefs": [
-            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" },
-            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Scheduler.Operations.Core" },
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.Scheduler.Invariant" }
           ],
           "delta": { "ops": [
             { "op": "threadPatch", "id": "th.client", "set": { "timeSlice": 4 } }
@@ -313,8 +313,8 @@
           "actor": "th.a",
           "narrative": "A timer interrupt charges alpha's Constant-Bandwidth-Server budget to zero. With no budget left, alpha must yield: it is returned to the priority-180 bucket and the core awaits a reschedule.",
           "sourceRefs": [
-            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" },
-            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Scheduler.Operations.Core" },
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.Scheduler.Invariant" }
           ],
           "delta": { "ops": [
             { "op": "threadPatch", "id": "th.a", "set": { "timeSlice": 0, "threadState": "Ready", "ipcState": "ready" } },
@@ -350,7 +350,7 @@
           "actor": "th.b",
           "narrative": "Beta executes; a timer tick charges one unit of its budget. Budget remains, so the Constant-Bandwidth-Server keeps beta running with no preemption.",
           "sourceRefs": [
-            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.Scheduler.Invariant" }
           ],
           "delta": { "ops": [
             { "op": "threadPatch", "id": "th.b", "set": { "timeSlice": 3 } }
@@ -935,7 +935,7 @@
           "narrative": "w0 exhausts its budget on core 0 and yields. Core 0 selects w2 — independently of core 1, which keeps running w1.",
           "sourceRefs": [
             { "label": "chooseThread", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
-            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" }
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Scheduler.Operations.Core" }
           ],
           "delta": { "ops": [
             { "op": "threadPatch", "id": "th.w0", "set": { "threadState": "Ready", "timeSlice": 0 } },
@@ -954,7 +954,7 @@
           "actor": "scheduler",
           "narrative": "Load balancing migrates w3 from core 1's run queue to core 0's. Its CPU affinity updates and both run queues remain duplicate-free.",
           "sourceRefs": [
-            { "label": "CrossSubsystemPerCore", "module": "SeLe4n.Kernel.CrossSubsystemPerCore" },
+            { "label": "CrossSubsystemPerCore", "module": "SeLe4n.Kernel.Scheduler.Invariant" },
             { "label": "cpuAffinity", "module": "SeLe4n.Model.Object.Types" }
           ],
           "delta": { "ops": [
@@ -972,8 +972,8 @@
           "actor": "th.w1",
           "narrative": "A per-core timer on core 1 charges w1's budget. Budget remains, so w1 keeps running — independently of core 0.",
           "sourceRefs": [
-            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" },
-            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Scheduler.Operations.Core" },
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.Scheduler.Invariant" }
           ],
           "delta": { "ops": [
             { "op": "threadPatch", "id": "th.w1", "set": { "timeSlice": 2 } }

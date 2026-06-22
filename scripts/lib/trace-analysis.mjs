@@ -330,19 +330,23 @@ function isNonNegInt(v) { return Number.isInteger(v) && v >= 0; }
 
 function validateState(state, path, errors) {
   if (!isObject(state)) { errors.push(`${path} must be an object`); return; }
-  if (!isObject(state.current) || !('thread' in state.current)) {
-    errors.push(`${path}.current must have a thread field`);
-  }
+  const threadIds = new Set();
   if (!Array.isArray(state.threads)) errors.push(`${path}.threads must be an array`);
   else {
-    const seen = new Set();
     state.threads.forEach((t, i) => {
       if (!isObject(t)) { errors.push(`${path}.threads[${i}] must be an object`); return; }
       if (!isString(t.id)) errors.push(`${path}.threads[${i}].id must be a string`);
-      else if (seen.has(t.id)) errors.push(`${path}.threads[${i}].id duplicate ${t.id}`);
-      else seen.add(t.id);
+      else if (threadIds.has(t.id)) errors.push(`${path}.threads[${i}].id duplicate ${t.id}`);
+      else threadIds.add(t.id);
       if (typeof t.priority !== 'number') errors.push(`${path}.threads[${i}].priority must be a number`);
     });
+  }
+  // The current thread must be either idle (null) or a declared TCB — a dangling
+  // current.thread would render an invalid CPU while claiming currentThreadValid holds.
+  if (!isObject(state.current) || !('thread' in state.current)) {
+    errors.push(`${path}.current must have a thread field`);
+  } else if (state.current.thread != null && !threadIds.has(state.current.thread)) {
+    errors.push(`${path}.current.thread ${state.current.thread} is not a declared thread`);
   }
   if (state.endpoints !== undefined && !Array.isArray(state.endpoints)) errors.push(`${path}.endpoints must be an array`);
   if (state.notifications !== undefined && !Array.isArray(state.notifications)) errors.push(`${path}.notifications must be an array`);
@@ -431,23 +435,43 @@ function checkUntyped(state, path, errors) {
   });
 }
 
-/** Every CDT edge must reference existing nodes (a structural echo of childMapConsistent). */
+/** Every CDT edge must reference existing nodes (a structural echo of
+ *  childMapConsistent), and the parent→child graph must be acyclic — the
+ *  catalog advertises capability-derivation-tree acyclicity and the renderer
+ *  relies on tree roots, so a cycle would publish an invariant that does not hold. */
 function checkCdtRefs(state, path, errors) {
   if (!state.cdt) return;
   const ids = new Set((state.cdt.nodes || []).map((n) => n.id));
+  const adj = {};
+  (state.cdt.nodes || []).forEach((n) => { adj[n.id] = []; });
   (state.cdt.edges || []).forEach((e, i) => {
     if (!ids.has(e[0])) errors.push(`${path}: cdt edge[${i}] parent ${e[0]} is not a node`);
     if (!ids.has(e[1])) errors.push(`${path}: cdt edge[${i}] child ${e[1]} is not a node`);
+    if (ids.has(e[0]) && ids.has(e[1])) (adj[e[0]] = adj[e[0]] || []).push(e[1]);
   });
+  // DFS cycle detection over the parent→child graph (0 white, 1 gray, 2 black).
+  const color = {};
+  Object.keys(adj).forEach((k) => { color[k] = 0; });
+  let cyclic = false;
+  function dfs(u) {
+    color[u] = 1;
+    for (const v of adj[u] || []) { if (color[v] === 1) { cyclic = true; return; } if (color[v] === 0) dfs(v); }
+    color[u] = 2;
+  }
+  Object.keys(adj).forEach((u) => { if (color[u] === 0) dfs(u); });
+  if (cyclic) errors.push(`${path}: cdt parent→child edges form a cycle (violates derivation-tree acyclicity)`);
 }
 
-/** Run queues should never contain a duplicate thread id (mirrors schedulerRunQueueUniqueB). */
+/** A thread may be enqueued at most once across ALL per-core run queues
+ *  (mirrors schedulerRunQueueUniqueB): one TCB cannot be runnable on two CPUs.
+ *  `seen` is shared across cores so a thread left in the source queue after a
+ *  migration is also flagged, not just same-core duplicates. */
 function checkRunQueueUnique(state, path, errors) {
   const rq = state.runQueue || {};
+  const seen = new Set();
   for (const core of Object.keys(rq)) {
-    const seen = new Set();
     for (const id of rq[core] || []) {
-      if (seen.has(id)) errors.push(`${path}: run queue core ${core} contains duplicate ${id}`);
+      if (seen.has(id)) errors.push(`${path}: thread ${id} appears in more than one run-queue slot (core ${core}) — not unique across cores`);
       seen.add(id);
     }
   }

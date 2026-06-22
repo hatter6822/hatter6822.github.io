@@ -100,7 +100,48 @@ test('validateTraceDataObject detects duplicate run-queue entries', () => {
   const data = minimalData();
   data.scenarios[0].initialState.runQueue['0'] = ['a', 'a'];
   const errors = validateTraceDataObject(data);
-  assert.ok(errors.some((m) => m.includes('duplicate a')));
+  assert.ok(errors.some((m) => m.includes('a appears in more than one run-queue')));
+});
+
+test('validateTraceDataObject rejects a thread enqueued on two cores', () => {
+  const data = minimalData();
+  // remove-before-insert across cores must keep run queues globally unique;
+  // a thread left in the source core and inserted into the destination must fail.
+  data.scenarios[0].initialState.runQueue = { '0': ['a'], '1': ['a'] };
+  const errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('a appears in more than one run-queue')), 'cross-core duplicate is rejected');
+});
+
+test('validateTraceDataObject rejects a dangling initial current thread', () => {
+  const data = minimalData();
+  data.scenarios[0].initialState.current.thread = 'ghost'; // not in threads[]
+  const errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('current.thread ghost is not a declared thread')));
+});
+
+test('validateTraceDataObject accepts a null (idle) current thread', () => {
+  const data = minimalData();
+  data.scenarios[0].initialState.current.thread = null;
+  assert.deepEqual(validateTraceDataObject(data), []);
+});
+
+test('validateTraceDataObject rejects a cyclic CDT', () => {
+  const data = minimalData();
+  data.scenarios[0].initialState.cdt = {
+    nodes: [{ id: 'cap.root' }, { id: 'cap.app' }],
+    edges: [['cap.root', 'cap.app'], ['cap.app', 'cap.root']]
+  };
+  const errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('cycle')), 'cyclic CDT is rejected');
+});
+
+test('validateTraceDataObject accepts an acyclic CDT', () => {
+  const data = minimalData();
+  data.scenarios[0].initialState.cdt = {
+    nodes: [{ id: 'cap.root' }, { id: 'cap.app' }, { id: 'cap.log' }],
+    edges: [['cap.root', 'cap.app'], ['cap.root', 'cap.log']]
+  };
+  assert.deepEqual(validateTraceDataObject(data), []);
 });
 
 /* ── Fold engine ────────────────────────────────────────────── */
