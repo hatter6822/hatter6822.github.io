@@ -453,13 +453,22 @@
     });
     (state.notifications || []).forEach(function (n) { (n.waiters || []).forEach(function (id) { placedInQueue[id] = 1; }); });
 
-    var current = state.current && state.current.thread;
-    var core = (state.current && state.current.core) || 0;
-    var rq = (state.runQueue && state.runQueue[String(core)]) || [];
-    var rqSet = {}; rq.forEach(function (id) { rqSet[id] = 1; });
+    var rqObj = state.runQueue || {};
+    var runningById = {};
+    (state.threads || []).forEach(function (th) { if (th.threadState === "Running") runningById[th.id] = 1; });
+    var inAnyRq = {};
+    Object.keys(rqObj).forEach(function (k) { (rqObj[k] || []).forEach(function (id) { inAnyRq[id] = 1; }); });
+
+    // Cores present = run-queue cores ∪ cores of running threads (SMP-aware).
+    var coreSet = {};
+    Object.keys(rqObj).forEach(function (k) { coreSet[k] = 1; });
+    (state.threads || []).forEach(function (th) { if (th.threadState === "Running") coreSet[String(Number(th.core || 0))] = 1; });
+    var cores = Object.keys(coreSet).sort(function (a, b) { return Number(a) - Number(b); });
+    if (!cores.length) cores = ["0"];
+    var multiCore = cores.length > 1;
 
     var offQueue = (state.threads || []).filter(function (th) {
-      return isBlocked(th) && !placedInQueue[th.id] && th.id !== current && !rqSet[th.id];
+      return isBlocked(th) && !placedInQueue[th.id] && !runningById[th.id] && !inAnyRq[th.id];
     });
 
     /* ── Left column: CPU, run queue, off-queue blocked ── */
@@ -483,7 +492,7 @@
       members.forEach(function (th) {
         var chip = buildChip(th, 0, cy, {
           touched: !!touched.threads[th.id],
-          current: th.id === current,
+          current: !!runningById[th.id],
           selected: th.id === app.selectedObject
         });
         chip.setAttribute("transform", "translate(0," + cy + ")");
@@ -496,10 +505,12 @@
       return startY + bodyH + 2 * BOX_PAD + BOX_HEADER + ZONE_GAP;
     }
 
-    var curThread = current ? findThread(state, current) : null;
-    y = placeBox(leftX, y, tt("run.cpu", "CPU · core " + core), "running", curThread ? [curThread] : [], tt("run.cpu_idle", "— no current —"));
-    var rqThreads = rq.map(function (id) { return findThread(state, id) || { id: id, label: id, threadState: "Ready", priority: "?", ipcState: "ready" }; });
-    y = placeBox(leftX, y, tt("run.runqueue", "Run queue"), "ready", rqThreads, tt("run.runqueue_empty", "— no ready threads —"));
+    cores.forEach(function (core) {
+      var running = (state.threads || []).filter(function (th) { return th.threadState === "Running" && Number(th.core || 0) === Number(core); });
+      y = placeBox(leftX, y, "CPU · core " + core, "running", running, tt("run.cpu_idle", "— no current —"));
+      var rqThreads = (rqObj[String(core)] || []).map(function (id) { return findThread(state, id) || { id: id, label: id, threadState: "Ready", priority: "?", ipcState: "ready" }; });
+      y = placeBox(leftX, y, multiCore ? ("Run queue · core " + core) : tt("run.runqueue", "Run queue"), "ready", rqThreads, tt("run.runqueue_empty", "— no ready threads —"));
+    });
     if (offQueue.length) {
       y = placeBox(leftX, y, tt("run.blocked", "Blocked (awaiting reply)"), "blocked", offQueue);
     }
@@ -625,8 +636,6 @@
   function renderSchedulerScene(root, state, step, touched) {
     var positions = {};
     var SBW = 248, SPAD = BOX_PAD, SW = SBW - 2 * SPAD, SCH = 58, SGAP = 9;
-    var current = state.current && state.current.thread;
-    var core = (state.current && state.current.core) || 0;
 
     function buildSchedChip(th, opts) {
       opts = opts || {};
@@ -662,9 +671,9 @@
       return g;
     }
 
-    function placeSchedBox(startY, title, accent, members, dim) {
+    function placeSchedBox(x, startY, title, accent, members, dim) {
       var box = buildBox(title, accent);
-      box.setAttribute("transform", "translate(" + MARGIN + "," + startY + ")");
+      box.setAttribute("transform", "translate(" + x + "," + startY + ")");
       var bodyH = Math.max(SCH, members.length * (SCH + SGAP) - (members.length ? SGAP : 0));
       var frame = svg("rect", { x: -SPAD, y: -2, width: SBW, height: bodyH + 2 * SPAD, rx: 9, "class": "box-frame" });
       if (accent) frame.setAttribute("data-accent", accent);
@@ -676,9 +685,9 @@
         box.appendChild(empty);
       }
       members.forEach(function (th) {
-        var chip = buildSchedChip(th, { touched: !!touched.threads[th.id], current: th.id === current, selected: th.id === app.selectedObject, dim: dim });
+        var chip = buildSchedChip(th, { touched: !!touched.threads[th.id], current: th.threadState === "Running", selected: th.id === app.selectedObject, dim: dim });
         chip.setAttribute("transform", "translate(0," + cy + ")");
-        positions[th.id] = { x: MARGIN + SW / 2, y: startY + cy + SCH / 2 };
+        positions[th.id] = { x: x + SW / 2, y: startY + cy + SCH / 2 };
         box.appendChild(chip);
         cy += SCH + SGAP;
       });
@@ -686,31 +695,40 @@
       return startY + bodyH + 2 * SPAD + BOX_HEADER + ZONE_GAP;
     }
 
-    var y = MARGIN + BOX_HEADER;
-    var cur = current ? findThread(state, current) : null;
-    y = placeSchedBox(y, tt("run.cpu", "CPU · core " + core), "running", cur ? [cur] : [], false);
+    // SMP-aware: one column per core (CPU + priority buckets), then a shared lane.
+    var rqObj = state.runQueue || {};
+    var coreSet = {};
+    Object.keys(rqObj).forEach(function (k) { coreSet[k] = 1; });
+    (state.threads || []).forEach(function (th) { if (th.threadState === "Running") coreSet[String(Number(th.core || 0))] = 1; });
+    var cores = Object.keys(coreSet).sort(function (a, b) { return Number(a) - Number(b); });
+    if (!cores.length) cores = ["0"];
+    var COLGAP = 28, topY = MARGIN + BOX_HEADER, maxColBottom = topY;
 
-    // Ready threads grouped into priority buckets (descending) — the RunQueue structure.
-    var rq = (state.runQueue && state.runQueue[String(core)]) || [];
-    var buckets = {}, order = [];
-    rq.forEach(function (id) {
-      var th = findThread(state, id) || { id: id, label: id, priority: "?", threadState: "Ready" };
-      var p = th.priority;
-      if (!(p in buckets)) { buckets[p] = []; order.push(p); }
-      buckets[p].push(th);
+    cores.forEach(function (coreKey, ci) {
+      var x = MARGIN + ci * (SBW + COLGAP);
+      var y = topY;
+      var running = (state.threads || []).filter(function (th) { return th.threadState === "Running" && Number(th.core || 0) === Number(coreKey); });
+      y = placeSchedBox(x, y, "CPU · core " + coreKey, "running", running, false);
+      var rq = rqObj[String(coreKey)] || [];
+      var buckets = {}, order = [];
+      rq.forEach(function (id) {
+        var th = findThread(state, id) || { id: id, label: id, priority: "?", threadState: "Ready" };
+        var p = th.priority;
+        if (!(p in buckets)) { buckets[p] = []; order.push(p); }
+        buckets[p].push(th);
+      });
+      order.sort(function (a, b) { return Number(b) - Number(a); });
+      if (!order.length) y = placeSchedBox(x, y, tt("run.runqueue", "Run queue"), "ready", [], false);
+      else order.forEach(function (p) { y = placeSchedBox(x, y, tt("run.priority", "Priority") + " " + p, "ready", buckets[p], false); });
+      maxColBottom = Math.max(maxColBottom, y);
     });
-    order.sort(function (a, b) { return Number(b) - Number(a); });
-    if (!order.length) {
-      y = placeSchedBox(y, tt("run.runqueue", "Run queue"), "ready", [], false);
-    } else {
-      order.forEach(function (p) { y = placeSchedBox(y, tt("run.priority", "Priority") + " " + p, "ready", buckets[p], false); });
-    }
 
-    // Threads the scheduler ignores (blocked / not runnable), shown dimmed.
+    // Threads the scheduler ignores (blocked / not runnable), shown dimmed below the columns.
     var blocked = (state.threads || []).filter(isBlocked);
-    if (blocked.length) y = placeSchedBox(y, tt("run.not_runnable", "Not runnable (blocked)"), "blocked", blocked, true);
+    var bottom = maxColBottom;
+    if (blocked.length) bottom = placeSchedBox(MARGIN, maxColBottom, tt("run.not_runnable", "Not runnable (blocked)"), "blocked", blocked, true);
 
-    return { width: SBW + 2 * MARGIN, height: Math.max(y, 220) + MARGIN - ZONE_GAP, positions: positions, aria: tt("run.scheduler_aria", "Kernel scheduler view: CPU, priority buckets, and budgets") };
+    return { width: MARGIN + cores.length * (SBW + COLGAP) - COLGAP + MARGIN, height: Math.max(bottom, 220) + MARGIN - ZONE_GAP, positions: positions, aria: tt("run.scheduler_aria", "Kernel scheduler view: per-core CPU, priority buckets, and budgets") };
   }
 
   function renderCapabilityScene(root, state, step, touched) {

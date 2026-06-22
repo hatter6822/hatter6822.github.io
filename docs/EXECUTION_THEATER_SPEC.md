@@ -149,7 +149,10 @@ shape), and threads the scheduler ignores fall into a dimmed **not-runnable** la
 Each chip carries its **domain**, its **EDF deadline**, and a **CBS budget bar**
 (`timeSlice / budgetMax`, turning red at zero) — so a viewer can *see* why
 Earliest-Deadline-First breaks a priority tie, and watch a budget deplete until the
-thread yields. The bundled `edf-budget-preempt` scenario drives exactly this.
+thread yields. The bundled `edf-budget-preempt` scenario drives exactly this. The scene
+is **SMP-aware**: it renders one column (CPU + priority buckets) per core, so the
+`smp-schedule` scenario shows two cores scheduling independently and a thread migrating
+between them — and the System scene likewise renders one CPU box per core.
 
 **Motion communicates causality.** Between steps:
 
@@ -363,7 +366,7 @@ scenes are focused lenses over the same fold engine and (extended) state project
 | Scene | Shows | Backing kernel concepts |
 |-------|-------|------------------------|
 | **System** *(shipped)* | CPU, run queue, blocked lane, endpoints, notifications, message flow. | `SchedulerState`, `Endpoint`, `Notification`, `ThreadIpcState`. |
-| **Scheduler** *(shipped)* | Per-core priority buckets, EDF deadlines, CBS budget bars, dimmed not-runnable lane. *(Per-domain partitioning and PIP boost chains are future depth.)* | `RunQueue`, `chooseThread`, `cbs_bandwidth_bounded`, `blockingChainAcyclic`. |
+| **Scheduler** *(shipped)* | **SMP**: one column per core (CPU + priority buckets), EDF deadlines, CBS budget bars, thread migration, dimmed not-runnable lane. *(Per-domain partitioning and PIP boost chains are future depth.)* | `RunQueue`, `chooseThread`, `cbs_bandwidth_bounded`, `CrossSubsystemPerCore`. |
 | **IPC** | Endpoints with dual queues, call/reply pairing, reply objects, donation chains, badge/notification signalling. | `IPC.DualQueue.*`, `donationChainAcyclic`, `notificationSignal/Wait`. |
 | **Capabilities / CDT** *(shipped)* | The capability derivation tree as a tidy tree — minting/copying derive child capabilities, a strict revoke prunes a node and all its descendants — with target, rights, badge, and slot per node. *(A dedicated CNode-slot grid is future depth.)* | `CapDerivationTree` (`childMap`/`parentMap`), `cspaceRevokeCdtStrict`. |
 | **Memory** *(untyped shipped)* | Untyped regions as watermarked bars with typed objects carved out (retype advances the watermark; revoke reclaims the region). | `UntypedObject`, `retypeFromUntyped`, `untypedWatermarkChecks`. |
@@ -443,7 +446,7 @@ malformed remote data can never corrupt the view.
 | `run.html` | Page skeleton (mirrors `map.html`: CSP, theme-init, i18n, nav, bg, footer). |
 | `assets/js/run.js` | Runtime: fold engine, SVG stage, rail, inspector, log, transport, sandbox, data load. |
 | `assets/css/run.css` | Page styles (reuses `style.css` tokens). |
-| `data/execution-traces.json` | Bundled reference fixture (8 scenarios, 41 steps). |
+| `data/execution-traces.json` | Bundled reference fixture (9 scenarios, 45 steps). |
 | `scripts/sync-trace-data.mjs` | Fetches + validates upstream `docs/execution-traces.json`; 404s gracefully to the bundled fixture. |
 | `scripts/lib/trace-analysis.mjs` | Canonical fold engine + validator (Node). |
 | `scripts/lib/trace-analysis.test.mjs` | Unit tests (14 tests, `node:test`). |
@@ -518,23 +521,23 @@ perturbation breaking a structural check — all without a browser.
   Capability, Memory, VSpace, Information-flow, Services) covering every headline
   subsystem, with tab switching, the invariant rail, inspector, event log, transport,
   deep-link URL state (incl. `scene`), the clearly-labeled sandbox, full
-  chrome/i18n/theming, and an 8-scenario reference fixture (IPC call/reply, notification
-  signal/wait, EDF budget preemption, capability mint/revoke, untyped retype/reclaim,
-  information-flow non-interference, service lifecycle, VSpace W^X). Honest provenance via
-  the source badge + disclaimer.
+  chrome/i18n/theming, a per-step state-diff ribbon, SMP-aware Scheduler/System scenes,
+  and a 9-scenario reference fixture (IPC call/reply, notification signal/wait, EDF budget
+  preemption, capability mint/revoke, untyped retype/reclaim, information-flow
+  non-interference, service lifecycle, VSpace W^X, multi-core scheduling). Honest
+  provenance via the source badge + disclaimer.
 - **Phase 2 — Upstream truth.** Add `SeLe4n/Testing/TraceExport.lean` + a CI artifact in
   the kernel repo, then flip the bundled snapshot to `source: "kernel"` — the
   website-side `sync-trace-data.mjs` and the headless runtime test are already in place.
   Add a Playwright transport probe.
-- **Phase 3 — More scenes.** IPC and Memory/VSpace scenes (the scene-tab infrastructure
-  plus the Scheduler and Capability scenes already shipped in Phase 1); a dedicated
-  CNode-slot grid; per-domain scheduler partitioning and PIP boost chains.
-- **Phase 4 — Depth.** TLB-shootdown detail in the VSpace scene; a multi-core SMP
-  scheduler view. (All seven headline subsystem scenes — including VSpace/W^X — and the
-  per-step state-diff ribbon already ship in Phase 1.)
-- **Phase 5 — Depth.** State diff ribbon between arbitrary steps; per-step causality
-  graph ("why did this happen"); richer sandbox (more structural checks, guided
-  challenges); trace search/filter; multi-core SMP scenes.
+- **Phase 3 — Scene depth.** A dedicated IPC scene (call/reply pairing, donation chains)
+  beyond the System scene's structure; a CNode-slot grid alongside the CDT; per-domain
+  scheduler partitioning and PIP boost chains. *(All seven subsystem scenes, the scene-tab
+  infrastructure, SMP scheduling, and the state-diff ribbon already ship in Phase 1.)*
+- **Phase 4 — Hardware depth.** TLB-shootdown detail in the VSpace scene; richer
+  multi-core visuals (per-core timers, IPI). 
+- **Phase 5 — Exploration.** A per-step causality graph ("why did this happen"); a richer
+  sandbox (more structural checks, guided challenges); trace search/filter.
 
 ## 13. Documentation sync
 

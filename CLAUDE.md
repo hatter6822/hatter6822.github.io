@@ -69,7 +69,7 @@ Several files exceed 500 lines:
 |------|-------|-------|
 | `assets/js/map.js` | ~4,850 | Largest runtime; read in chunks of ≤500 lines |
 | `assets/css/style.css` | ~1,833 | Global design system |
-| `assets/js/run.js` | ~1,670 | Execution Theater runtime (fold engine + SVG scenes) |
+| `assets/js/run.js` | ~1,760 | Execution Theater runtime (fold engine + SVG scenes) |
 | `assets/css/map.css` | ~874 | Map-specific styles |
 | `assets/js/background-pattern.js` | ~846 | WebGL shader; contains third-party noise code |
 | `assets/js/site.js` | ~788 | Landing page runtime |

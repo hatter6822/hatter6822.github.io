@@ -73,6 +73,12 @@ function makeDom() {
 function klass(n) { return ((n._class || '') + ' ' + ((n.attrs && n.attrs.class) || '')).trim(); }
 function countClass(node, cls, acc = { n: 0 }) { if (klass(node).split(/\s+/).includes(cls)) acc.n++; (node.childNodes || []).forEach((c) => countClass(c, cls, acc)); return acc.n; }
 function countStatus(node, val, acc = { n: 0 }) { if (node.dataset && node.dataset.status === val) acc.n++; (node.childNodes || []).forEach((c) => countStatus(c, val, acc)); return acc.n; }
+// Count CPU boxes (box-frame rects with data-accent="running"), one per core.
+function countCpuBoxes(node, acc = { n: 0 }) {
+  if (node.attrs && node.attrs['data-accent'] === 'running' && (node.attrs.class || '').split(/\s+/).includes('box-frame')) acc.n++;
+  (node.childNodes || []).forEach((c) => countCpuBoxes(c, acc));
+  return acc.n;
+}
 
 async function bootRunJs(search) {
   const { byId, document } = makeDom();
@@ -266,4 +272,18 @@ test('run.js shows the VSpace tab only for scenarios with an address space', asy
   const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
   const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
   assert.ok(!ipcTabs.includes('vspace'), 'ipc scenario hides the VSpace tab');
+});
+
+test('run.js Scheduler scene renders one CPU column per core (SMP)', async () => {
+  const smp = await bootRunJs('?scenario=smp-schedule&scene=scheduler&step=0');
+  assert.equal(countCpuBoxes(smp.byId['theater-stage']), 2, 'two CPU columns for two cores');
+  const single = await bootRunJs('?scenario=edf-budget-preempt&scene=scheduler&step=0');
+  assert.equal(countCpuBoxes(single.byId['theater-stage']), 1, 'single-core scenario → one CPU box');
+});
+
+test('run.js System scene is SMP-aware (one CPU box per core)', async () => {
+  const smp = await bootRunJs('?scenario=smp-schedule&scene=system&step=0');
+  assert.equal(countCpuBoxes(smp.byId['theater-stage']), 2, 'two CPU boxes in the System scene too');
+  const ipc = await bootRunJs('?scenario=ipc-call-reply&scene=system&step=0');
+  assert.equal(countCpuBoxes(ipc.byId['theater-stage']), 1, 'single-core System scene → one CPU box');
 });

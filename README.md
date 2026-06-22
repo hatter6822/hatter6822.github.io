@@ -85,7 +85,7 @@ The code map interior panel supports declaration-first navigation:
 deterministic pure function with machine-checked invariants, the page can **replay**
 real kernel execution traces step by step and show the proven invariants holding at
 every transition. It offers seven switchable **scenes** — **System** (CPU, run queue,
-IPC wait queues), **Scheduler** (priority buckets, EDF deadlines, CBS budget bars),
+IPC wait queues), **Scheduler** (per-core SMP columns, priority buckets, EDF deadlines, CBS budget bars),
 **Capabilities** (the capability derivation tree, where minting derives children and a
 strict revoke prunes a whole subtree), **Memory** (untyped regions with a watermark,
 carving typed objects out of memory and reclaiming them on revoke), **VSpace** (page

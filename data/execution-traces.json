@@ -889,6 +889,97 @@
           "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique"], "failed": [] }
         }
       ]
+    },
+    {
+      "id": "smp-schedule",
+      "title": "Multi-core scheduling with thread migration",
+      "summary": "Two cores each run and schedule independently; a context switch happens on core 0, then the kernel migrates a thread from core 1 to core 0 for load balancing — with the run queues staying duplicate-free across both cores.",
+      "tags": ["scheduler", "smp"],
+      "primaryScene": "scheduler",
+      "objects": {
+        "th.w0": { "label": "w0", "kind": "TCB" },
+        "th.w1": { "label": "w1", "kind": "TCB" },
+        "th.w2": { "label": "w2", "kind": "TCB" },
+        "th.w3": { "label": "w3", "kind": "TCB" }
+      },
+      "initialState": {
+        "current": { "thread": "th.w0", "core": 0 },
+        "threads": [
+          { "id": "th.w0", "label": "w0", "priority": 200, "domain": 0, "core": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 1, "budgetMax": 4, "deadline": 30, "cspaceRoot": "cn.w0", "vspaceRoot": "vs.w0", "schedContext": "sc.w0", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.w1", "label": "w1", "priority": 190, "domain": 0, "core": 1, "ipcState": "ready", "threadState": "Running", "timeSlice": 3, "budgetMax": 4, "deadline": 40, "cspaceRoot": "cn.w1", "vspaceRoot": "vs.w1", "schedContext": "sc.w1", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.w2", "label": "w2", "priority": 180, "domain": 0, "core": 0, "ipcState": "ready", "threadState": "Ready", "timeSlice": 4, "budgetMax": 4, "deadline": 25, "cspaceRoot": "cn.w2", "vspaceRoot": "vs.w2", "schedContext": "sc.w2", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.w3", "label": "w3", "priority": 170, "domain": 0, "core": 1, "ipcState": "ready", "threadState": "Ready", "timeSlice": 4, "budgetMax": 4, "deadline": 50, "cspaceRoot": "cn.w3", "vspaceRoot": "vs.w3", "schedContext": "sc.w3", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": ["th.w2"], "1": ["th.w3"] }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "SMP-000",
+          "actor": null,
+          "narrative": "Core 0 runs w0 (with w2 ready behind it); core 1 runs w1 (with w3 ready). Each core schedules from its own run queue.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "schedule",
+          "title": "core 0 reschedule → w2",
+          "traceTag": "SMP-001",
+          "actor": "scheduler",
+          "narrative": "w0 exhausts its budget on core 0 and yields. Core 0 selects w2 — independently of core 1, which keeps running w1.",
+          "sourceRefs": [
+            { "label": "chooseThread", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.w0", "set": { "threadState": "Ready", "timeSlice": 0 } },
+            { "op": "rqInsert", "core": 0, "thread": "th.w0" },
+            { "op": "rqRemove", "core": 0, "thread": "th.w2" },
+            { "op": "threadPatch", "id": "th.w2", "set": { "threadState": "Running", "core": 0 } },
+            { "op": "setCurrent", "thread": "th.w2", "core": 0 }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "schedulerQueueCurrentConsistent"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "schedule",
+          "title": "migrate w3: core 1 → core 0",
+          "traceTag": "SMP-002",
+          "actor": "scheduler",
+          "narrative": "Load balancing migrates w3 from core 1's run queue to core 0's. Its CPU affinity updates and both run queues remain duplicate-free.",
+          "sourceRefs": [
+            { "label": "CrossSubsystemPerCore", "module": "SeLe4n.Kernel.CrossSubsystemPerCore" },
+            { "label": "cpuAffinity", "module": "SeLe4n.Model.Object.Types" }
+          ],
+          "delta": { "ops": [
+            { "op": "rqRemove", "core": 1, "thread": "th.w3" },
+            { "op": "threadPatch", "id": "th.w3", "set": { "core": 0 } },
+            { "op": "rqInsert", "core": 0, "thread": "th.w3" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["schedulerRunQueueUnique", "runQueueThreadPriorityConsistent"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "timer",
+          "title": "core 1 timer — w1 budget",
+          "traceTag": "SMP-003",
+          "actor": "th.w1",
+          "narrative": "A per-core timer on core 1 charges w1's budget. Budget remains, so w1 keeps running — independently of core 0.",
+          "sourceRefs": [
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" },
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.w1", "set": { "timeSlice": 2 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "cbsBudgetBounded"], "failed": [] }
+        }
+      ]
     }
   ]
 }
