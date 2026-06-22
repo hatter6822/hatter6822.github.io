@@ -171,6 +171,12 @@
 .if-flow-label-allow { fill: var(--green); font: 600 0.74rem var(--font-sans); }
 .if-flow-label-block { fill: var(--red); font: 600 0.74rem var(--font-sans); }
 
+/* ── Services scene (dependency DAG) ───────────────────────── */
+.svc-edge { fill: none; stroke: color-mix(in oklab, var(--accent) 45%, var(--border)); stroke-width: 1.4; }
+.svc-head { fill: color-mix(in oklab, var(--accent) 55%, var(--border)); }
+.svc-rect { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke-width: 1.6; }
+.svc-node:hover .svc-rect { fill: color-mix(in oklab, var(--surface-2) 96%, transparent); }
+
 /* ── Invariant rail ────────────────────────────────────────── */
 .invariant-card #rail-summary { font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.4rem 0.55rem; border-radius: var(--radius); }
 #rail-summary[data-tone="good"] { color: var(--green); background: var(--green-dim); }

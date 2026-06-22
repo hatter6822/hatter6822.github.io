@@ -35,6 +35,7 @@ export const ALLOWED_OPS = [
   'flowCheck',
   'ifPolicyAdd',
   'ifPolicyRemove',
+  'servicePatch',
   'message',
   'note'
 ];
@@ -77,6 +78,10 @@ function cdtDescendants(cdt, rootId) {
 
 function findUntyped(state, id) {
   return (state.untyped || []).find((u) => u.id === id) || null;
+}
+
+function findService(state, id) {
+  return (state.services || []).find((s) => s.id === id) || null;
 }
 
 function rqInsertOrdered(state, core, threadId) {
@@ -215,6 +220,12 @@ export function applyOp(state, op) {
       }
       return state;
     }
+    case 'servicePatch': {
+      const sv = findService(state, op.id);
+      if (!sv) throw new Error(`servicePatch: unknown service ${op.id}`);
+      Object.assign(sv, op.set || {});
+      return state;
+    }
     case 'flowCheck':
     case 'message':
     case 'note':
@@ -258,6 +269,7 @@ export function touchedEntities(delta) {
   const notifications = new Set();
   const cdt = new Set();
   const untyped = new Set();
+  const services = new Set();
   const ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
   for (const op of ops) {
     switch (op.op) {
@@ -273,11 +285,12 @@ export function touchedEntities(delta) {
       case 'cdtPatch': if (op.id) cdt.add(op.id); break;
       case 'untypedRetype':
       case 'untypedRevoke': if (op.untyped) untyped.add(op.untyped); break;
+      case 'servicePatch': if (op.id) services.add(op.id); break;
       case 'message': if (op.from) threads.add(op.from); if (op.to) threads.add(op.to); if (op.endpoint) endpoints.add(op.endpoint); break;
       default: break;
     }
   }
-  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications], cdt: [...cdt], untyped: [...untyped] };
+  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications], cdt: [...cdt], untyped: [...untyped], services: [...services] };
 }
 
 /* ── Validation ─────────────────────────────────────────────── */
@@ -320,6 +333,28 @@ function validateState(state, path, errors) {
       if (state.infoflow.policy !== undefined && !Array.isArray(state.infoflow.policy)) errors.push(`${path}.infoflow.policy must be an array`);
     }
   }
+  if (state.services !== undefined && !Array.isArray(state.services)) errors.push(`${path}.services must be an array`);
+}
+
+/** Service dependencies must reference existing services and the graph must be acyclic. */
+function checkServices(state, path, errors) {
+  const svcs = state.services;
+  if (!Array.isArray(svcs)) return;
+  const ids = new Set(svcs.map((s) => s.id));
+  svcs.forEach((s, i) => {
+    (s.deps || []).forEach((d) => { if (!ids.has(d)) errors.push(`${path}: service[${i}] (${s.id}) depends on unknown ${d}`); });
+  });
+  const color = {}; // 0 white, 1 gray, 2 black
+  const depMap = {};
+  svcs.forEach((s) => { color[s.id] = 0; depMap[s.id] = (s.deps || []).filter((d) => ids.has(d)); });
+  let cyclic = false;
+  function dfs(u) {
+    color[u] = 1;
+    for (const v of depMap[u] || []) { if (color[v] === 1) { cyclic = true; return; } if (color[v] === 0) dfs(v); }
+    color[u] = 2;
+  }
+  svcs.forEach((s) => { if (color[s.id] === 0) dfs(s.id); });
+  if (cyclic) errors.push(`${path}: service dependency graph has a cycle`);
 }
 
 /** Every information-flow policy edge must reference existing security domains. */
@@ -449,6 +484,7 @@ export function validateTraceDataObject(data) {
       checkCdtRefs(state, `${sp}.initialState`, errors);
       checkUntyped(state, `${sp}.initialState`, errors);
       checkInfoflow(state, `${sp}.initialState`, errors);
+      checkServices(state, `${sp}.initialState`, errors);
       sc.steps.forEach((step, idx) => {
         try {
           applyDelta(state, step.delta);
@@ -459,6 +495,7 @@ export function validateTraceDataObject(data) {
         checkCdtRefs(state, `${sp}.steps[${idx}]`, errors);
         checkUntyped(state, `${sp}.steps[${idx}]`, errors);
         checkInfoflow(state, `${sp}.steps[${idx}]`, errors);
+        checkServices(state, `${sp}.steps[${idx}]`, errors);
       });
     } catch (e) {
       errors.push(`${sp}: failed to fold — ${e.message}`);

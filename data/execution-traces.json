@@ -24,7 +24,9 @@
     { "id": "untypedWatermarkBounded", "label": "Untyped watermark within its region", "check": "untypedWatermarkChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Lifecycle.Invariant", "subsystem": "memory" },
     { "id": "memoryNonOverlap", "label": "Allocated objects do not overlap", "check": "childrenNonOverlap", "module": "SeLe4n.Model.Object.Types", "mapModule": "SeLe4n.Model.Object.Types", "subsystem": "memory" },
     { "id": "nonInterference", "label": "Non-interference preserved", "check": "noninterferenceStep", "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Soundness", "mapModule": "SeLe4n.Kernel.InformationFlow.Invariant.Composition", "subsystem": "infoflow" },
-    { "id": "flowPolicyWellFormed", "label": "Flow policy reflexive & transitive", "check": "endpointFlowPolicyWellFormed", "module": "SeLe4n.Kernel.InformationFlow.Policy", "mapModule": "SeLe4n.Kernel.InformationFlow.Policy", "subsystem": "infoflow" }
+    { "id": "flowPolicyWellFormed", "label": "Flow policy reflexive & transitive", "check": "endpointFlowPolicyWellFormed", "module": "SeLe4n.Kernel.InformationFlow.Policy", "mapModule": "SeLe4n.Kernel.InformationFlow.Policy", "subsystem": "infoflow" },
+    { "id": "serviceGraphAcyclic", "label": "Service dependency graph acyclic", "check": "serviceGraphAcyclicityChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Service.Invariant.Acyclicity", "subsystem": "services" },
+    { "id": "servicePolicyEnforced", "label": "Service isolation policy enforced", "check": "hasIsolationEdge", "module": "SeLe4n.Model.State", "mapModule": "SeLe4n.Kernel.Service.Invariant.Policy", "subsystem": "services" }
   ],
   "scenarios": [
     {
@@ -660,6 +662,126 @@
             { "op": "flowCheck", "from": "d.secret", "to": "d.public", "allowed": true }
           ] },
           "invariants": { "allHold": true, "checked": ["nonInterference", "flowPolicyWellFormed"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "service-lifecycle",
+      "title": "Service orchestration: dependency-ordered start, fault, restart",
+      "summary": "The kernel's first-class service registry starts components in dependency order, survives a fault in a mid-tier service, and restarts it — all while the dependency graph stays provably acyclic.",
+      "tags": ["services", "lifecycle"],
+      "primaryScene": "services",
+      "objects": {
+        "th.sup": { "label": "init", "kind": "TCB" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "init", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.sup", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "services": [
+          { "id": "svc.store", "label": "store", "status": "stopped", "deps": [] },
+          { "id": "svc.cache", "label": "cache", "status": "stopped", "deps": [] },
+          { "id": "svc.db", "label": "database", "status": "stopped", "deps": ["svc.store"] },
+          { "id": "svc.api", "label": "api", "status": "stopped", "deps": ["svc.db", "svc.cache"] }
+        ]
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "SVC-000",
+          "actor": null,
+          "narrative": "Four services are registered but stopped. The dependency graph (api → database → store, and api → cache) is acyclic, which the kernel proves.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "init → start(store, cache)",
+          "traceTag": "SVC-001",
+          "actor": "th.sup",
+          "syscall": { "id": "serviceStart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.store", "svc.cache"] } },
+          "narrative": "The leaf services — store and cache — have no dependencies, so dependency-ordered startup brings them up first.",
+          "sourceRefs": [
+            { "label": "apiServiceStart", "module": "SeLe4n.Kernel.API" },
+            { "label": "serviceStart", "module": "SeLe4n.Kernel.Service.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.store", "set": { "status": "running" } },
+            { "op": "servicePatch", "id": "svc.cache", "set": { "status": "running" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "syscall",
+          "title": "init → start(database)",
+          "traceTag": "SVC-002",
+          "actor": "th.sup",
+          "syscall": { "id": "serviceStart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.db"] } },
+          "narrative": "The database depends on store, which is now running, so its dependency is satisfied and it starts.",
+          "sourceRefs": [
+            { "label": "serviceStart", "module": "SeLe4n.Kernel.Service.Operations" },
+            { "label": "dependenciesSatisfied", "module": "SeLe4n.Model.State" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.db", "set": { "status": "running" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "init → start(api)",
+          "traceTag": "SVC-003",
+          "actor": "th.sup",
+          "syscall": { "id": "serviceStart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.api"] } },
+          "narrative": "The api depends on both database and cache; both are running, so the final tier comes up and the whole stack is live.",
+          "sourceRefs": [
+            { "label": "serviceStart", "module": "SeLe4n.Kernel.Service.Operations" },
+            { "label": "serviceHasPathTo", "module": "SeLe4n.Kernel.Service.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.api", "set": { "status": "running" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "fault",
+          "title": "database faults",
+          "traceTag": "SVC-004",
+          "actor": "svc.db",
+          "narrative": "The database service faults and is marked broken. Its dependents (api) now have a broken dependency, but the registry's graph structure is unchanged and still acyclic.",
+          "sourceRefs": [
+            { "label": "setServiceStatusState", "module": "SeLe4n.Model.State" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.db", "set": { "status": "broken" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 5,
+          "kind": "syscall",
+          "title": "init → restart(database)",
+          "traceTag": "SVC-005",
+          "actor": "th.sup",
+          "syscall": { "id": "serviceRestart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "service": "svc.db" } },
+          "narrative": "A dependency-aware restart brings the database back to running. With its dependency healthy again, api is fully operational once more.",
+          "sourceRefs": [
+            { "label": "serviceRestart", "module": "SeLe4n.Kernel.Service.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.db", "set": { "status": "running" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
         }
       ]
     }

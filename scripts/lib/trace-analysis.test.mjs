@@ -252,6 +252,23 @@ test('ifPolicyAdd throws on an unknown domain; validator flags dangling policy e
   assert.ok(errors.some((m) => m.includes('infoflow policy[0] to ghost is not a domain')));
 });
 
+/* ── Service orchestration ops ──────────────────────────────── */
+
+test('servicePatch updates a service and throws on an unknown id', () => {
+  const state = { services: [{ id: 'a', status: 'stopped', deps: ['b'] }, { id: 'b', status: 'stopped', deps: [] }] };
+  applyOp(state, { op: 'servicePatch', id: 'b', set: { status: 'running' } });
+  assert.equal(state.services[1].status, 'running');
+  assert.throws(() => applyOp(state, { op: 'servicePatch', id: 'ghost', set: {} }), /unknown service ghost/);
+});
+
+test('validateTraceDataObject detects a service dependency cycle and dangling deps', () => {
+  const data = minimalData();
+  data.scenarios[0].initialState.services = [{ id: 'a', deps: ['b'] }, { id: 'b', deps: ['a'] }];
+  assert.ok(validateTraceDataObject(data).some((m) => m.includes('cycle')));
+  data.scenarios[0].initialState.services = [{ id: 'a', deps: ['ghost'] }];
+  assert.ok(validateTraceDataObject(data).some((m) => m.includes('depends on unknown ghost')));
+});
+
 /* ── Bundled fixture ────────────────────────────────────────── */
 
 test('bundled data/execution-traces.json is valid and folds cleanly', async () => {

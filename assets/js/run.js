@@ -50,7 +50,7 @@
   var SCHEMA_VERSION = 1;
 
   var PLAY_INTERVAL_MS = 1100;
-  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "untypedRetype", "untypedRevoke", "flowCheck", "ifPolicyAdd", "ifPolicyRemove", "message", "note"];
+  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "untypedRetype", "untypedRevoke", "flowCheck", "ifPolicyAdd", "ifPolicyRemove", "servicePatch", "message", "note"];
 
   /* Layout geometry for the SVG stage. */
   var BOX_W = 188;
@@ -117,6 +117,7 @@
   function cdtDescendants(cdt, rootId) { var out = {}; var stack = [rootId]; while (stack.length) { var id = stack.pop(); (cdt.edges || []).forEach(function (e) { if (e[0] === id && !out[e[1]]) { out[e[1]] = 1; stack.push(e[1]); } }); } return out; }
   function findUntyped(s, id) { for (var i = 0; i < (s.untyped || []).length; i++) if (s.untyped[i].id === id) return s.untyped[i]; return null; }
   function findDomain(s, id) { var ds = (s.infoflow && s.infoflow.domains) || []; for (var i = 0; i < ds.length; i++) if (ds[i].id === id) return ds[i]; return null; }
+  function findService(s, id) { for (var i = 0; i < (s.services || []).length; i++) if (s.services[i].id === id) return s.services[i]; return null; }
 
   function rqInsertOrdered(state, core, threadId) {
     var key = String(core);
@@ -224,6 +225,11 @@
         if (state.infoflow && Array.isArray(state.infoflow.policy)) state.infoflow.policy = state.infoflow.policy.filter(function (e) { return !(e[0] === op.from && e[1] === op.to); });
         return state;
       }
+      case "servicePatch": {
+        var sv = findService(state, op.id);
+        if (sv) for (var k4 in op.set) if (Object.prototype.hasOwnProperty.call(op.set, k4)) sv[k4] = op.set[k4];
+        return state;
+      }
       default:
         return state; // message / note / flowCheck are event-only
     }
@@ -244,7 +250,7 @@
   }
 
   function touchedEntities(delta) {
-    var threads = {}, endpoints = {}, notifications = {}, cdt = {}, untyped = {};
+    var threads = {}, endpoints = {}, notifications = {}, cdt = {}, untyped = {}, services = {};
     var ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
     for (var i = 0; i < ops.length; i++) {
       var op = ops[i];
@@ -257,9 +263,10 @@
       else if (op.op === "cdtRemove") { if (op.node) cdt[op.node] = 1; }
       else if (op.op === "cdtPatch") { if (op.id) cdt[op.id] = 1; }
       else if (op.op === "untypedRetype" || op.op === "untypedRevoke") { if (op.untyped) untyped[op.untyped] = 1; }
+      else if (op.op === "servicePatch") { if (op.id) services[op.id] = 1; }
       else if (op.op === "message") { if (op.from) threads[op.from] = 1; if (op.to) threads[op.to] = 1; if (op.endpoint) endpoints[op.endpoint] = 1; }
     }
-    return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt, untyped: untyped };
+    return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt, untyped: untyped, services: services };
   }
 
   /* Lightweight client-side validation — guard against malformed remote data. */
@@ -408,6 +415,7 @@
       : app.scene === "capability" ? renderCapabilityScene(root, state, step, touched)
       : app.scene === "memory" ? renderMemoryScene(root, state, step, touched)
       : app.scene === "infoflow" ? renderInfoflowScene(root, state, step, touched)
+      : app.scene === "services" ? renderServicesScene(root, state, step, touched)
       : renderSystemScene(root, state, step, touched);
     root.setAttribute("aria-label", dims.aria || tt("run.stage_aria", "Kernel system state visualization"));
     root.setAttribute("viewBox", "0 0 " + dims.width + " " + dims.height);
@@ -564,23 +572,24 @@
      Scene switching + Scheduler scene
      ════════════════════════════════════════════════════════════ */
 
-  var SCENES = ["system", "scheduler", "capability", "memory", "infoflow"];
+  var SCENES = ["system", "scheduler", "capability", "memory", "infoflow", "services"];
 
   // Scenes available for a scenario: System/Scheduler always; the rest only when the
-  // scenario carries the matching state (a CDT / an untyped region / a flow policy).
+  // scenario carries the matching state (CDT / untyped / flow policy / service graph).
   function availableScenes(scenario) {
     var out = ["system", "scheduler"];
     var init = scenario && scenario.initialState;
     if (init && init.cdt) out.push("capability");
     if (init && init.untyped) out.push("memory");
     if (init && init.infoflow) out.push("infoflow");
+    if (init && init.services) out.push("services");
     return out;
   }
 
   function renderSceneTabs() {
     if (!DOM.sceneTabs) return;
     clear(DOM.sceneTabs);
-    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities"), memory: tt("run.scene_memory", "Memory"), infoflow: tt("run.scene_infoflow", "Information flow") };
+    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities"), memory: tt("run.scene_memory", "Memory"), infoflow: tt("run.scene_infoflow", "Information flow"), services: tt("run.scene_services", "Services") };
     availableScenes(app.scenario).forEach(function (id) {
       var active = app.scene === id;
       var b = el("button", { "class": "scene-tab", type: "button", role: "tab", dataset: { scene: id, active: active ? "true" : "false" }, text: labels[id], onclick: function () { setScene(id); } });
@@ -893,6 +902,81 @@
     return { width: Math.max(width, 320), height: domainY + DOMH + 64 + MARGIN, positions: positions, aria: tt("run.infoflow_aria", "Security-domain flow policy and the current flow check") };
   }
 
+  var SVC_STATUS_COLORS = { running: "var(--green)", stopped: "var(--text-muted)", broken: "var(--red)", restarting: "var(--yellow)", restart: "var(--yellow)" };
+
+  function renderServicesScene(root, state, step, touched) {
+    var positions = {};
+    var svcs = state.services || [];
+    var NODEW = 134, NODEH = 54, HGAP = 30, VGAP = 58;
+    var byId = {}; svcs.forEach(function (s) { byId[s.id] = s; });
+
+    // Topological level = longest dependency depth (leaves at level 0).
+    var level = {}, computing = {};
+    function lvl(id) {
+      if (level[id] !== undefined) return level[id];
+      if (computing[id]) return 0; // cycle guard (validated out, but be safe)
+      computing[id] = 1;
+      var s = byId[id], deps = (s && s.deps) || [], m = 0;
+      deps.forEach(function (d) { if (byId[d]) m = Math.max(m, lvl(d) + 1); });
+      computing[id] = 0; level[id] = m; return m;
+    }
+    svcs.forEach(function (s) { lvl(s.id); });
+    var maxLevel = 0; svcs.forEach(function (s) { maxLevel = Math.max(maxLevel, level[s.id]); });
+
+    var perLevel = {}; svcs.forEach(function (s) { var L = level[s.id]; (perLevel[L] = perLevel[L] || []).push(s); });
+    var xOf = {}, yOf = {};
+    Object.keys(perLevel).forEach(function (L) {
+      perLevel[L].forEach(function (s, i) {
+        xOf[s.id] = MARGIN + i * (NODEW + HGAP);
+        yOf[s.id] = MARGIN + BOX_HEADER + (maxLevel - Number(L)) * (NODEH + VGAP);
+      });
+    });
+
+    var defs = svg("defs", {});
+    var mk = svg("marker", { id: "svc-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
+    mk.appendChild(svg("path", { d: "M0 0 L10 5 L0 10 z", "class": "svc-head" }));
+    defs.appendChild(mk); root.appendChild(defs);
+
+    var edgeLayer = svg("g", { "class": "svc-edges" }); root.appendChild(edgeLayer);
+    svcs.forEach(function (s) {
+      (s.deps || []).forEach(function (d) {
+        if (xOf[d] === undefined) return;
+        var x1 = xOf[s.id] + NODEW / 2, y1 = yOf[s.id] + NODEH, x2 = xOf[d] + NODEW / 2, y2 = yOf[d];
+        var midY = (y1 + y2) / 2;
+        edgeLayer.appendChild(svg("path", { "class": "svc-edge", "marker-end": "url(#svc-arrow)", d: "M" + x1 + " " + y1 + " C " + x1 + " " + midY + " " + x2 + " " + midY + " " + x2 + " " + y2 }));
+      });
+    });
+
+    var maxX = 0, maxY = 0;
+    svcs.forEach(function (s) {
+      var x = xOf[s.id], y = yOf[s.id];
+      maxX = Math.max(maxX, x + NODEW); maxY = Math.max(maxY, y + NODEH);
+      var color = SVC_STATUS_COLORS[s.status] || "var(--text-muted)";
+      var g = svg("g", { "class": "theater-chip svc-node", transform: "translate(" + x + "," + y + ")", role: "button", tabindex: "0" });
+      g.setAttribute("data-service", s.id);
+      var rect = svg("rect", { width: NODEW, height: NODEH, rx: 8, "class": "chip-rect svc-rect" });
+      rect.setAttribute("stroke", color);
+      if (s.id === app.selectedObject) rect.setAttribute("data-selected", "true");
+      if (touched.services && touched.services[s.id]) rect.setAttribute("data-touched", "true");
+      g.appendChild(rect);
+      var dot = svg("circle", { cx: 14, cy: 19, r: 5, "class": "chip-dot" }); dot.setAttribute("fill", color); g.appendChild(dot);
+      var name = svg("text", { x: 26, y: 23, "class": "chip-name" }); name.textContent = s.label || s.id; g.appendChild(name);
+      var st = svg("text", { x: 26, y: 40, "class": "chip-sub" }); st.textContent = s.status; g.appendChild(st);
+      g.addEventListener("click", function () { selectObject(s.id); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectObject(s.id); } });
+      positions[s.id] = { x: x + NODEW / 2, y: y + NODEH / 2 };
+      root.appendChild(g);
+    });
+
+    if (!svcs.length) {
+      var empty = svg("text", { x: MARGIN, y: MARGIN + BOX_HEADER + 16, "class": "box-empty" });
+      empty.textContent = tt("run.no_services", "— no services —");
+      root.appendChild(empty);
+    }
+
+    return { width: Math.max(maxX, 240) + MARGIN, height: Math.max(maxY, 220) + MARGIN, positions: positions, aria: tt("run.services_aria", "Service dependency graph and lifecycle status") };
+  }
+
   /* ════════════════════════════════════════════════════════════
      Invariant rail
      ════════════════════════════════════════════════════════════ */
@@ -987,6 +1071,7 @@
       case "flowCheck": return "Flow " + flowName(op.from) + " → " + flowName(op.to) + (op.allowed === false ? " — BLOCKED" : " — allowed");
       case "ifPolicyAdd": return "Authorize flow " + flowName(op.from) + " → " + flowName(op.to) + " (declassification)";
       case "ifPolicyRemove": return "Revoke flow " + flowName(op.from) + " → " + flowName(op.to);
+      case "servicePatch": { var sbits = []; for (var sk in op.set) if (Object.prototype.hasOwnProperty.call(op.set, sk)) sbits.push(sk + " → " + op.set[sk]); var snm = (findService(viewState(), op.id) || {}).label || op.id; return "Service " + snm + ": " + sbits.join(", "); }
       case "message": return "Message " + labelOf(op.from) + " → " + labelOf(op.to) + " (" + (op.registers || 0) + " regs" + (op.caps ? ", " + op.caps + " caps" : "") + ")";
       case "note": return op.text || "";
       default: return op.op;
@@ -1093,15 +1178,24 @@
           fields.push(["objects", (ut.children || []).map(function (c) { return c.type + " (" + c.size + ")"; }).join(", ") || "—"]);
         } else {
           var dm = findDomain(state, id);
-          if (!dm) return;
-          title = "Security domain · " + (dm.label || dm.id);
-          fields.push(["confidentiality", dm.confidentiality]);
-          fields.push(["integrity", dm.integrity]);
-          var pol = (state.infoflow && state.infoflow.policy) || [];
-          var to = pol.filter(function (e) { return e[0] === id; }).map(function (e) { return flowName(e[1]); });
-          var from = pol.filter(function (e) { return e[1] === id; }).map(function (e) { return flowName(e[0]); });
-          fields.push(["may flow to", to.length ? to.join(", ") : "—"]);
-          fields.push(["may receive from", from.length ? from.join(", ") : "—"]);
+          if (dm) {
+            title = "Security domain · " + (dm.label || dm.id);
+            fields.push(["confidentiality", dm.confidentiality]);
+            fields.push(["integrity", dm.integrity]);
+            var pol = (state.infoflow && state.infoflow.policy) || [];
+            var to = pol.filter(function (e) { return e[0] === id; }).map(function (e) { return flowName(e[1]); });
+            var from = pol.filter(function (e) { return e[1] === id; }).map(function (e) { return flowName(e[0]); });
+            fields.push(["may flow to", to.length ? to.join(", ") : "—"]);
+            fields.push(["may receive from", from.length ? from.join(", ") : "—"]);
+          } else {
+            var sv = findService(state, id);
+            if (!sv) return;
+            title = "Service · " + (sv.label || sv.id);
+            fields.push(["status", sv.status]);
+            fields.push(["depends on", (sv.deps || []).map(function (d) { var x = findService(state, d); return (x && x.label) || d; }).join(", ") || "—"]);
+            var dependents = (state.services || []).filter(function (x) { return (x.deps || []).indexOf(id) !== -1; }).map(function (x) { return x.label || x.id; });
+            fields.push(["required by", dependents.length ? dependents.join(", ") : "—"]);
+          }
         }
       }
     }

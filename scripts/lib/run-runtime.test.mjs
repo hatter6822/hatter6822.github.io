@@ -223,3 +223,18 @@ test('run.js shows the Information-flow tab only for scenarios with a flow polic
   const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
   assert.ok(!ipcTabs.includes('infoflow'), 'ipc scenario hides the infoflow tab');
 });
+
+test('run.js renders the Services scene (nodes + dependency edges)', async () => {
+  const { byId } = await bootRunJs('?scenario=service-lifecycle&step=3');
+  assert.equal(countClass(byId['theater-stage'], 'svc-node'), 4, 'four services');
+  assert.equal(countClass(byId['theater-stage'], 'svc-edge'), 3, 'three dependency edges (db→store, api→db, api→cache)');
+});
+
+test('run.js shows the Services tab only for scenarios with a service graph', async () => {
+  const svc = await bootRunJs('?scenario=service-lifecycle&step=0');
+  const svcTabs = svc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(svcTabs.includes('services'), 'service scenario shows the Services tab');
+  const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
+  const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(!ipcTabs.includes('services'), 'ipc scenario hides the Services tab');
+});
