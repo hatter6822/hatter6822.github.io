@@ -136,6 +136,7 @@ When making changes, keep these documents in sync:
 - `docs/ARCHITECTURE.md` — System architecture decisions
 - `docs/CODEBASE_MAP.md` — Map pipeline and runtime behavior
 - `docs/EXECUTION_THEATER_SPEC.md` — Execution Theater design + trace schema
+- `docs/UPSTREAM_TRACE_EXPORT.md` — Kernel-side trace export bridge (source: fixture → kernel)
 - `docs/DEVELOPER_GUIDE.md` — File-by-file orientation
 - `docs/TESTING.md` — Testing matrix and manual verification
 

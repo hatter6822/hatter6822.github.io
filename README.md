@@ -108,6 +108,7 @@ directly). The full design — schema, scenes, pipeline, and roadmap — is in
 - [Architecture audit and growth plan](docs/ARCHITECTURE.md)
 - [Codebase map end-to-end guide](docs/CODEBASE_MAP.md)
 - [Execution Theater design + trace schema](docs/EXECUTION_THEATER_SPEC.md)
+- [Upstream trace export (kernel-side bridge)](docs/UPSTREAM_TRACE_EXPORT.md)
 - [Testing and validation matrix](docs/TESTING.md)
 - [Developer guide (file-by-file orientation)](docs/DEVELOPER_GUIDE.md)
 - [Contributing guide](CONTRIBUTING.md)

@@ -398,6 +398,11 @@ Crucially, the **op vocabulary is the contract** between kernel and website. The
 recorder emits ops; the website folds them. Neither side needs to understand the
 other's internals.
 
+A concrete, reference-level implementation plan — the `SystemState`→projection mapping,
+two op-emission strategies (instrumented vs. snapshot-diff), a Lean `TraceExport.lean`
+sketch, and the end-to-end verification loop — lives in
+[UPSTREAM_TRACE_EXPORT.md](UPSTREAM_TRACE_EXPORT.md).
+
 ---
 
 ## 7. Website data pipeline
