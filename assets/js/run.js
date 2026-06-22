@@ -1,5 +1,5 @@
 /**
- * seLe4n Execution Theater — browser runtime.
+ * seLe4n Simulator — browser runtime.
  *
  * Replays deterministic kernel execution traces and renders the kernel "in
  * action": threads moving between the CPU, run queue, and IPC wait queues, with

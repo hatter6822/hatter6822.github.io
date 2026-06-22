@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Sync the Execution Theater trace snapshot from the upstream kernel repo.
+ * Sync the Simulator trace snapshot from the upstream kernel repo.
  *
  * The kernel's trace harness is the source of truth: once it emits a structured
- * `docs/execution-traces.json` (see docs/EXECUTION_THEATER_SPEC.md §6), this
+ * `docs/execution-traces.json` (see docs/SIMULATOR_SPEC.md §6), this
  * script fetches it, validates it against the schema + a full fold dry-run, and
  * writes the bundled `data/execution-traces.json`.
  *

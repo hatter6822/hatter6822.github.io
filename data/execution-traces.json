@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "source": "fixture",
   "generator": "hand-authored-reference-fixture",
-  "disclaimer": "Reference fixture conforming to the Execution Theater trace schema (schemaVersion 1). These steps mirror the deterministic transitions exercised by SeLe4n.Testing.MainTraceHarness, but they are authored by hand for the website until the kernel's trace harness emits this artifact directly. When source == 'kernel', every step is a faithful replay of a machine-checked execution; when source == 'fixture', it is an honest illustration of the same schema.",
+  "disclaimer": "Reference fixture conforming to the Simulator trace schema (schemaVersion 1). These steps mirror the deterministic transitions exercised by SeLe4n.Testing.MainTraceHarness, but they are authored by hand for the website until the kernel's trace harness emits this artifact directly. When source == 'kernel', every step is a faithful replay of a machine-checked execution; when source == 'fixture', it is an honest illustration of the same schema.",
   "kernelVersion": "0.31.151",
   "kernelCommit": "03d0257",
   "leanToolchain": "4.28.0",

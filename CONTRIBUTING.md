@@ -15,7 +15,7 @@ Thanks for improving the seLe4n website.
 
 - `index.html`: landing page
 - `map.html`: interactive codebase map
-- `run.html`: Execution Theater (kernel-in-action replay)
+- `run.html`: Simulator (kernel-in-action replay)
 - `assets/css/`: CSS bundles
 - `assets/js/`: browser runtime logic
 - `scripts/`: snapshot sync and validation tooling
@@ -52,7 +52,7 @@ If you changed UI behavior or layout:
 2. Verify mobile rendering at ~390px width.
 3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills).
 4. Confirm declaration context switching works (click declaration → flowchart shows calls/callers → breadcrumb navigation returns to module).
-5. On the Execution Theater (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
+5. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
 6. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
 
 ## Data/sync change checklist

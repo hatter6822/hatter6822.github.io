@@ -1,7 +1,7 @@
 # Upstream Trace Export — turning fixtures into verified replay
 
 > **Status: reference / design.** This document specifies the upstream (kernel-repo)
-> work that flips the Execution Theater's data `source` from `"fixture"` to `"kernel"`,
+> work that flips the Simulator's data `source` from `"fixture"` to `"kernel"`,
 > so the website replays *real* machine-checked executions instead of hand-authored
 > illustrations. The Lean below is an **uncompiled reference sketch** written against
 > the kernel's known API (`SeLe4n.Model.State`, `SeLe4n.Testing.*`); it is a starting
@@ -29,7 +29,7 @@ kernel export"** with zero website code changes.
 **The op vocabulary is the contract.** The website never re-implements kernel
 semantics — it *folds* the effects a trace records. So the exporter's only job is to
 emit, per step, (a) the structured effect ops and (b) the invariant-check results. As
-long as the JSON matches `docs/EXECUTION_THEATER_SPEC.md` §4, the website renders it.
+long as the JSON matches `docs/SIMULATOR_SPEC.md` §4, the website renders it.
 
 ---
 
@@ -223,7 +223,7 @@ node scripts/lib/run-runtime.test.mjs
 ```
 
 When `validate-traces.mjs` prints `source=kernel` and drops the fixture warning, the
-Theater is replaying verified runs and the badge updates automatically. The bundled
+Simulator is replaying verified runs and the badge updates automatically. The bundled
 fixtures can then be deleted or kept as offline fallbacks.
 
 ## 6. Honest caveats

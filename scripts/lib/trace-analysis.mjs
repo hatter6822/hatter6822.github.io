@@ -1,5 +1,5 @@
 /**
- * seLe4n Execution Theater — trace analysis library.
+ * seLe4n Simulator — trace analysis library.
  *
  * Pure, dependency-free helpers shared by the Node tooling (validator + tests).
  * The browser runtime (assets/js/run.js) carries a faithful re-implementation of

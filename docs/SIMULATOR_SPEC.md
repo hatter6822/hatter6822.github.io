@@ -1,4 +1,4 @@
-# seLe4n Execution Theater — Design Specification
+# seLe4n Simulator — Design Specification
 
 > Status: **living spec**. Phase 1 (vertical slice) is implemented and shipped in this
 > repository (`run.html`, `assets/js/run.js`, `assets/css/run.css`,
@@ -14,7 +14,7 @@
 The codebase map (`map.html`) answers *"what is the kernel made of?"* — modules,
 imports, theorem coupling, declarations. It is a **static structure** view.
 
-The **Execution Theater** (`run.html`) answers a different question:
+The **Simulator** (`run.html`) answers a different question:
 
 > *"What does the kernel **do**, step by step — and can I watch the machine-checked
 > invariants hold while it does it?"*
@@ -48,7 +48,7 @@ honest in a way it would *not* be for a conventional C kernel:
    proved they do, and that the executable checks agree at each replayed state.
 
 This is the difference between a toy "OS animation" and a credible artifact: the
-Theater is a window onto a verified machine, not a re-imagining of one.
+Simulator is a window onto a verified machine, not a re-imagining of one.
 
 ---
 

@@ -70,7 +70,7 @@ Several files exceed 500 lines:
 |------|-------|-------|
 | `assets/js/map.js` | ~4,850 | Largest runtime; read in chunks of ≤500 lines |
 | `assets/css/style.css` | ~1,833 | Global design system |
-| `assets/js/run.js` | ~1,810 | Execution Theater runtime (fold engine + SVG scenes) |
+| `assets/js/run.js` | ~1,810 | Simulator runtime (fold engine + SVG scenes) |
 | `assets/css/map.css` | ~874 | Map-specific styles |
 | `assets/js/background-pattern.js` | ~846 | WebGL shader; contains third-party noise code |
 | `assets/js/site.js` | ~788 | Landing page runtime |
@@ -125,7 +125,7 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |
 | Data validation | `scripts/lib/data-validation.mjs` |
 | Global styles | `assets/css/style.css` |
-| Execution Theater (kernel-in-action) | `run.html`, `assets/js/run.js`, `assets/css/run.css` |
+| Simulator (kernel-in-action) | `run.html`, `assets/js/run.js`, `assets/css/run.css` |
 | Trace data + fold engine | `data/execution-traces.json`, `scripts/lib/trace-analysis.mjs` |
 
 ## Documentation Sync Requirements
@@ -136,7 +136,7 @@ When making changes, keep these documents in sync:
 - `CONTRIBUTING.md` — Required checks and checklists
 - `docs/ARCHITECTURE.md` — System architecture decisions
 - `docs/CODEBASE_MAP.md` — Map pipeline and runtime behavior
-- `docs/EXECUTION_THEATER_SPEC.md` — Execution Theater design + trace schema
+- `docs/SIMULATOR_SPEC.md` — Simulator design + trace schema
 - `docs/UPSTREAM_TRACE_EXPORT.md` — Kernel-side trace export bridge (source: fixture → kernel)
 - `docs/DEVELOPER_GUIDE.md` — File-by-file orientation
 - `docs/TESTING.md` — Testing matrix and manual verification

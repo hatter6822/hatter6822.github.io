@@ -1,5 +1,5 @@
 /**
- * Headless runtime test for the Execution Theater (assets/js/run.js).
+ * Headless runtime test for the Simulator (assets/js/run.js).
  *
  * There is no browser (and no jsdom dependency) in this repo's tooling, so this
  * test stands up a minimal DOM shim and executes the real run.js IIFE inside a
