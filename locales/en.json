@@ -83,6 +83,7 @@
     "empty": "— empty —",
     "actor": "actor",
     "syscall": "Syscall",
+    "changes": "State changes",
     "effects": "Effects",
     "source": "Source",
     "selected": "Selected",

@@ -181,10 +181,12 @@ epistemics.
 Two stacked panels:
 
 1. **Step detail** — kind badge (`boot`/`syscall`/`schedule`/`timer`/…), trace tag,
-   actor; the **syscall decode** (`id`, `gate`, `requiredRight`, `capPath`, `args`)
-   when present; a human-readable **effects** list derived from the delta ops; a
-   plain-language **narrative**; and **source links** into `map.html` for each
-   referenced declaration (`apiEndpointCall`, `chooseThread`, …).
+   actor; a plain-language **narrative**; a **state-changes** ribbon showing field-level
+   before→after for every entity the step touched (diffing the previous and current
+   folded states — e.g. `client · ipcState: ready → blockedOnReply:ep.svc`); the
+   **syscall decode** (`id`, `gate`, `requiredRight`, `capPath`, `args`) when present; a
+   human-readable **effects** list derived from the delta ops; and **source links** into
+   `map.html` for each referenced declaration (`apiEndpointCall`, `chooseThread`, …).
 2. **Selected object** — when a chip/box is selected, a field table projected from the
    current folded state (TCB fields, endpoint queues, notification state, …).
 
@@ -528,8 +530,8 @@ perturbation breaking a structural check — all without a browser.
   plus the Scheduler and Capability scenes already shipped in Phase 1); a dedicated
   CNode-slot grid; per-domain scheduler partitioning and PIP boost chains.
 - **Phase 4 — Depth.** TLB-shootdown detail in the VSpace scene; a multi-core SMP
-  scheduler view; a state-diff ribbon between arbitrary steps. (All seven headline
-  subsystem scenes — including VSpace/W^X — already ship in Phase 1.)
+  scheduler view. (All seven headline subsystem scenes — including VSpace/W^X — and the
+  per-step state-diff ribbon already ship in Phase 1.)
 - **Phase 5 — Depth.** State diff ribbon between arbitrary steps; per-step causality
   graph ("why did this happen"); richer sandbox (more structural checks, guided
   challenges); trace search/filter; multi-core SMP scenes.

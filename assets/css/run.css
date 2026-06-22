@@ -213,6 +213,11 @@
 .insp-actor { font-size: 0.72rem; color: var(--text-muted); }
 .insp-title { font-size: 1rem; color: var(--heading); margin: 0.1rem 0 0.35rem; }
 .insp-narrative { font-size: 0.84rem; color: var(--text); margin-bottom: 0.6rem; }
+.insp-diff { display: grid; gap: 0.2rem; }
+.insp-diff li { display: grid; grid-template-columns: auto auto 1fr; gap: 0.4rem; align-items: baseline; font-size: 0.76rem; padding: 0.18rem 0.42rem; border-radius: var(--radius); background: color-mix(in oklab, var(--surface-2) 55%, transparent); border-left: 2px solid color-mix(in oklab, var(--accent) 45%, var(--border)); }
+.diff-entity { color: var(--text-bright); font-weight: 600; white-space: nowrap; }
+.diff-field { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.68rem; white-space: nowrap; }
+.diff-change { color: var(--accent); font-family: var(--font-mono); font-size: 0.72rem; overflow-wrap: anywhere; }
 .insp-section { margin-top: 0.7rem; }
 .insp-section h4 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 0.3rem; }
 .insp-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.18rem 0.6rem; }

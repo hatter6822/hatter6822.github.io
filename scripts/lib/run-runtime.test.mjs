@@ -123,6 +123,13 @@ test('run.js transport advances the step counter', async () => {
   assert.equal(byId['theater-step-label'].textContent, '4 / 7');
 });
 
+test('run.js inspector shows a state-diff for a transition step but not for boot', async () => {
+  const boot = await bootRunJs('?scenario=ipc-call-reply&step=0');
+  assert.equal(countClass(boot.byId['theater-inspector'], 'insp-diff'), 0, 'no diff at the boot step');
+  const t1 = await bootRunJs('?scenario=ipc-call-reply&step=1');
+  assert.ok(countClass(t1.byId['theater-inspector'], 'insp-diff') >= 1, 'a state-changes section renders for the call step');
+});
+
 test('run.js sandbox perturbation breaks a client-side structural check', async () => {
   const { byId } = await bootRunJs('?scenario=ipc-call-reply&step=3');
   byId['sandbox-toggle']._fire('click'); // enable sandbox

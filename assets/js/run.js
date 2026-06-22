@@ -1155,6 +1155,60 @@
     }
   }
 
+  function diffName(state, id) {
+    var t = findThread(state, id); if (t && t.label) return t.label;
+    var m = objectMeta(id); if (m && m.label) return m.label;
+    return id;
+  }
+  function diffFmt(v) {
+    if (v === null || v === undefined) return "—";
+    if (Array.isArray(v)) return v.length ? "[" + v.map(function (x) { return diffName(viewState(), x); }).join(", ") + "]" : "[]";
+    return String(v);
+  }
+
+  // Field-level before→after changes for entities touched by the current trace step.
+  function computeDiffRows() {
+    if (app.sandbox || app.stepIndex <= 0) return [];
+    var prev = app.states[app.stepIndex - 1], next = app.states[app.stepIndex];
+    if (!prev || !next) return [];
+    var touched = touchedEntities(currentStep().delta);
+    var rows = [];
+    function diff(label, a, b, fields) {
+      fields.forEach(function (f) {
+        if (a[f] === undefined && b[f] === undefined) return;
+        if (JSON.stringify(a[f]) !== JSON.stringify(b[f])) rows.push([label, f, diffFmt(a[f]) + " → " + diffFmt(b[f])]);
+      });
+    }
+    // touchedEntities returns maps (id → 1) in the browser runtime.
+    Object.keys(touched.threads || {}).forEach(function (id) {
+      var a = findThread(prev, id), b = findThread(next, id);
+      if (!a && b) { rows.push([diffName(next, id), "added", ""]); return; }
+      if (a && !b) { rows.push([diffName(prev, id), "removed", ""]); return; }
+      if (a && b) diff(b.label || id, a, b, ["threadState", "ipcState", "priority", "timeSlice", "core", "pipBoost", "replyObject", "pendingReceiveReply"]);
+    });
+    Object.keys(touched.endpoints || {}).forEach(function (id) {
+      var a = findEndpoint(prev, id), b = findEndpoint(next, id);
+      if (a && b) diff(b.label || id, a, b, ["receiveQ", "sendQ"]);
+    });
+    Object.keys(touched.notifications || {}).forEach(function (id) {
+      var a = findNotification(prev, id), b = findNotification(next, id);
+      if (a && b) diff(b.label || id, a, b, ["state", "badge", "waiters"]);
+    });
+    Object.keys(touched.services || {}).forEach(function (id) {
+      var a = findService(prev, id), b = findService(next, id);
+      if (a && b) diff(b.label || id, a, b, ["status"]);
+    });
+    Object.keys(touched.untyped || {}).forEach(function (id) {
+      var a = findUntyped(prev, id), b = findUntyped(next, id);
+      if (a && b) diff(b.label || id, a, b, ["watermark"]);
+    });
+    Object.keys(touched.vspace || {}).forEach(function (id) {
+      var a = findVspace(prev, id), b = findVspace(next, id);
+      if (a && b && (a.mappings || []).length !== (b.mappings || []).length) rows.push([b.label || id, "mappings", (a.mappings || []).length + " → " + (b.mappings || []).length]);
+    });
+    return rows;
+  }
+
   function renderInspector() {
     if (!DOM.inspector) return;
     clear(DOM.inspector);
@@ -1170,6 +1224,19 @@
     DOM.inspector.appendChild(head);
     DOM.inspector.appendChild(el("h3", { "class": "insp-title", text: step.title }));
     if (step.narrative) DOM.inspector.appendChild(el("p", { "class": "insp-narrative", text: step.narrative }));
+
+    var diffRows = computeDiffRows();
+    if (diffRows.length) {
+      var dlist = el("ul", { "class": "insp-diff" });
+      diffRows.forEach(function (r) {
+        dlist.appendChild(el("li", {}, [
+          el("span", { "class": "diff-entity", text: r[0] }),
+          el("span", { "class": "diff-field", text: r[1] }),
+          el("span", { "class": "diff-change", text: r[2] })
+        ]));
+      });
+      DOM.inspector.appendChild(el("div", { "class": "insp-section" }, [el("h4", { text: tt("run.changes", "State changes") }), dlist]));
+    }
 
     if (step.syscall) {
       var sc = step.syscall;
