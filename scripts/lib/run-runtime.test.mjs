@@ -180,3 +180,24 @@ test('run.js shows the Capability tab only for scenarios with a CDT', async () =
   const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
   assert.ok(!ipcTabs.includes('capability'), 'ipc scenario hides the capability tab');
 });
+
+test('run.js renders the Memory scene (watermark bar + carved objects)', async () => {
+  const { byId } = await bootRunJs('?scenario=untyped-retype&step=3');
+  assert.ok(countClass(byId['theater-stage'], 'mem-region') >= 1, 'an untyped region renders');
+  assert.equal(countClass(byId['theater-stage'], 'mem-child'), 3, 'three carved objects before revoke');
+  assert.ok(countClass(byId['theater-stage'], 'mem-watermark') >= 1, 'a watermark marker renders');
+});
+
+test('run.js memory revoke reclaims the region', async () => {
+  const { byId } = await bootRunJs('?scenario=untyped-retype&step=4');
+  assert.equal(countClass(byId['theater-stage'], 'mem-child'), 0, 'no carved objects after revoke');
+});
+
+test('run.js shows the Memory tab only for scenarios with untyped memory', async () => {
+  const mem = await bootRunJs('?scenario=untyped-retype&step=0');
+  const memTabs = mem.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(memTabs.includes('memory'), 'untyped scenario shows the Memory tab');
+  const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
+  const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(!ipcTabs.includes('memory'), 'ipc scenario hides the Memory tab');
+});

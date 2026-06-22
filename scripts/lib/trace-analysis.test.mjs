@@ -207,6 +207,31 @@ test('touchedEntities collects CDT node ids', () => {
   assert.deepEqual(touched.cdt.sort(), ['child', 'old', 'p', 'root'].sort());
 });
 
+/* ── Untyped memory ops ─────────────────────────────────────── */
+
+test('untypedRetype advances the watermark and untypedRevoke reclaims it', () => {
+  const state = { untyped: [{ id: 'ut', label: 'RAM', regionBase: 0, regionSize: 1024, watermark: 0, children: [] }] };
+  applyOp(state, { op: 'untypedRetype', untyped: 'ut', child: { id: 'o1', type: 'TCB', size: 256 } });
+  applyOp(state, { op: 'untypedRetype', untyped: 'ut', child: { id: 'o2', type: 'CNode', size: 128 } });
+  assert.equal(state.untyped[0].watermark, 384);
+  assert.equal(state.untyped[0].children.length, 2);
+  applyOp(state, { op: 'untypedRevoke', untyped: 'ut' });
+  assert.equal(state.untyped[0].watermark, 0);
+  assert.deepEqual(state.untyped[0].children, []);
+});
+
+test('untypedRetype throws on an unknown region', () => {
+  const state = { untyped: [] };
+  assert.throws(() => applyOp(state, { op: 'untypedRetype', untyped: 'ghost', child: { id: 'x', size: 1 } }), /unknown untyped ghost/);
+});
+
+test('validateTraceDataObject flags an untyped watermark exceeding its region', () => {
+  const data = minimalData();
+  data.scenarios[0].initialState.untyped = [{ id: 'ut', regionSize: 100, watermark: 200, children: [] }];
+  const errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('watermark 200 exceeds region size 100')));
+});
+
 /* ── Bundled fixture ────────────────────────────────────────── */
 
 test('bundled data/execution-traces.json is valid and folds cleanly', async () => {

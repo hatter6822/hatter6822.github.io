@@ -30,6 +30,8 @@ export const ALLOWED_OPS = [
   'cdtInsert',
   'cdtRemove',
   'cdtPatch',
+  'untypedRetype',
+  'untypedRevoke',
   'message',
   'note'
 ];
@@ -68,6 +70,10 @@ function cdtDescendants(cdt, rootId) {
     (cdt.edges || []).forEach((e) => { if (e[0] === id && !out.has(e[1])) { out.add(e[1]); stack.push(e[1]); } });
   }
   return out;
+}
+
+function findUntyped(state, id) {
+  return (state.untyped || []).find((u) => u.id === id) || null;
 }
 
 function rqInsertOrdered(state, core, threadId) {
@@ -174,6 +180,23 @@ export function applyOp(state, op) {
       Object.assign(cn, op.set || {});
       return state;
     }
+    case 'untypedRetype': {
+      const ut = findUntyped(state, op.untyped);
+      if (!ut) throw new Error(`untypedRetype: unknown untyped ${op.untyped}`);
+      const child = op.child;
+      if (!child || typeof child.id !== 'string') throw new Error('untypedRetype: child.id required');
+      if (!Array.isArray(ut.children)) ut.children = [];
+      if (!ut.children.some((c) => c.id === child.id)) ut.children.push(child);
+      ut.watermark = (Number(ut.watermark) || 0) + (Number(child.size) || 0);
+      return state;
+    }
+    case 'untypedRevoke': {
+      const utr = findUntyped(state, op.untyped);
+      if (!utr) throw new Error(`untypedRevoke: unknown untyped ${op.untyped}`);
+      utr.children = [];
+      utr.watermark = 0;
+      return state;
+    }
     case 'message':
     case 'note':
       return state; // event-only ops carry no persistent state change
@@ -215,6 +238,7 @@ export function touchedEntities(delta) {
   const endpoints = new Set();
   const notifications = new Set();
   const cdt = new Set();
+  const untyped = new Set();
   const ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
   for (const op of ops) {
     switch (op.op) {
@@ -228,11 +252,13 @@ export function touchedEntities(delta) {
       case 'cdtInsert': if (op.node && op.node.id) cdt.add(op.node.id); if (op.parent) cdt.add(op.parent); break;
       case 'cdtRemove': if (op.node) cdt.add(op.node); break;
       case 'cdtPatch': if (op.id) cdt.add(op.id); break;
+      case 'untypedRetype':
+      case 'untypedRevoke': if (op.untyped) untyped.add(op.untyped); break;
       case 'message': if (op.from) threads.add(op.from); if (op.to) threads.add(op.to); if (op.endpoint) endpoints.add(op.endpoint); break;
       default: break;
     }
   }
-  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications], cdt: [...cdt] };
+  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications], cdt: [...cdt], untyped: [...untyped] };
 }
 
 /* ── Validation ─────────────────────────────────────────────── */
@@ -267,6 +293,18 @@ function validateState(state, path, errors) {
       if (!Array.isArray(state.cdt.edges)) errors.push(`${path}.cdt.edges must be an array`);
     }
   }
+  if (state.untyped !== undefined && !Array.isArray(state.untyped)) errors.push(`${path}.untyped must be an array`);
+}
+
+/** Untyped watermark must stay within the region, and allocations within the watermark. */
+function checkUntyped(state, path, errors) {
+  (state.untyped || []).forEach((u, i) => {
+    const region = Number(u.regionSize) || 0;
+    const wm = Number(u.watermark) || 0;
+    if (wm > region) errors.push(`${path}: untyped[${i}] watermark ${wm} exceeds region size ${region}`);
+    const used = (u.children || []).reduce((a, c) => a + (Number(c.size) || 0), 0);
+    if (used > wm) errors.push(`${path}: untyped[${i}] allocated ${used} exceeds watermark ${wm}`);
+  });
 }
 
 /** Every CDT edge must reference existing nodes (a structural echo of childMapConsistent). */
@@ -373,6 +411,7 @@ export function validateTraceDataObject(data) {
       let state = cloneState(sc.initialState);
       checkRunQueueUnique(state, `${sp}.initialState`, errors);
       checkCdtRefs(state, `${sp}.initialState`, errors);
+      checkUntyped(state, `${sp}.initialState`, errors);
       sc.steps.forEach((step, idx) => {
         try {
           applyDelta(state, step.delta);
@@ -381,6 +420,7 @@ export function validateTraceDataObject(data) {
         }
         checkRunQueueUnique(state, `${sp}.steps[${idx}]`, errors);
         checkCdtRefs(state, `${sp}.steps[${idx}]`, errors);
+        checkUntyped(state, `${sp}.steps[${idx}]`, errors);
       });
     } catch (e) {
       errors.push(`${sp}: failed to fold — ${e.message}`);

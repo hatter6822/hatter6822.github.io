@@ -50,7 +50,7 @@
   var SCHEMA_VERSION = 1;
 
   var PLAY_INTERVAL_MS = 1100;
-  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "message", "note"];
+  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "untypedRetype", "untypedRevoke", "message", "note"];
 
   /* Layout geometry for the SVG stage. */
   var BOX_W = 188;
@@ -115,6 +115,7 @@
   function findNotification(s, id) { for (var i = 0; i < (s.notifications || []).length; i++) if (s.notifications[i].id === id) return s.notifications[i]; return null; }
   function findCdtNode(s, id) { var ns = (s.cdt && s.cdt.nodes) || []; for (var i = 0; i < ns.length; i++) if (ns[i].id === id) return ns[i]; return null; }
   function cdtDescendants(cdt, rootId) { var out = {}; var stack = [rootId]; while (stack.length) { var id = stack.pop(); (cdt.edges || []).forEach(function (e) { if (e[0] === id && !out[e[1]]) { out[e[1]] = 1; stack.push(e[1]); } }); } return out; }
+  function findUntyped(s, id) { for (var i = 0; i < (s.untyped || []).length; i++) if (s.untyped[i].id === id) return s.untyped[i]; return null; }
 
   function rqInsertOrdered(state, core, threadId) {
     var key = String(core);
@@ -194,6 +195,20 @@
         if (cn) for (var k3 in op.set) if (Object.prototype.hasOwnProperty.call(op.set, k3)) cn[k3] = op.set[k3];
         return state;
       }
+      case "untypedRetype": {
+        var ut = findUntyped(state, op.untyped);
+        if (ut && op.child && op.child.id) {
+          if (!Array.isArray(ut.children)) ut.children = [];
+          if (!ut.children.some(function (c) { return c.id === op.child.id; })) ut.children.push(op.child);
+          ut.watermark = (Number(ut.watermark) || 0) + (Number(op.child.size) || 0);
+        }
+        return state;
+      }
+      case "untypedRevoke": {
+        var utr = findUntyped(state, op.untyped);
+        if (utr) { utr.children = []; utr.watermark = 0; }
+        return state;
+      }
       default:
         return state; // message / note are event-only
     }
@@ -214,7 +229,7 @@
   }
 
   function touchedEntities(delta) {
-    var threads = {}, endpoints = {}, notifications = {}, cdt = {};
+    var threads = {}, endpoints = {}, notifications = {}, cdt = {}, untyped = {};
     var ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
     for (var i = 0; i < ops.length; i++) {
       var op = ops[i];
@@ -226,9 +241,10 @@
       else if (op.op === "cdtInsert") { if (op.node && op.node.id) cdt[op.node.id] = 1; if (op.parent) cdt[op.parent] = 1; }
       else if (op.op === "cdtRemove") { if (op.node) cdt[op.node] = 1; }
       else if (op.op === "cdtPatch") { if (op.id) cdt[op.id] = 1; }
+      else if (op.op === "untypedRetype" || op.op === "untypedRevoke") { if (op.untyped) untyped[op.untyped] = 1; }
       else if (op.op === "message") { if (op.from) threads[op.from] = 1; if (op.to) threads[op.to] = 1; if (op.endpoint) endpoints[op.endpoint] = 1; }
     }
-    return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt };
+    return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt, untyped: untyped };
   }
 
   /* Lightweight client-side validation — guard against malformed remote data. */
@@ -374,6 +390,7 @@
     root.setAttribute("role", "img");
     var dims = app.scene === "scheduler" ? renderSchedulerScene(root, state, step, touched)
       : app.scene === "capability" ? renderCapabilityScene(root, state, step, touched)
+      : app.scene === "memory" ? renderMemoryScene(root, state, step, touched)
       : renderSystemScene(root, state, step, touched);
     root.setAttribute("aria-label", dims.aria || tt("run.stage_aria", "Kernel system state visualization"));
     root.setAttribute("viewBox", "0 0 " + dims.width + " " + dims.height);
@@ -530,20 +547,22 @@
      Scene switching + Scheduler scene
      ════════════════════════════════════════════════════════════ */
 
-  var SCENES = ["system", "scheduler", "capability"];
+  var SCENES = ["system", "scheduler", "capability", "memory"];
 
-  // Scenes available for a scenario: System/Scheduler always; Capability only when
-  // the scenario actually carries a capability derivation tree.
+  // Scenes available for a scenario: System/Scheduler always; Capability/Memory only
+  // when the scenario carries the matching state (a CDT / an untyped region).
   function availableScenes(scenario) {
     var out = ["system", "scheduler"];
-    if (scenario && scenario.initialState && scenario.initialState.cdt) out.push("capability");
+    var init = scenario && scenario.initialState;
+    if (init && init.cdt) out.push("capability");
+    if (init && init.untyped) out.push("memory");
     return out;
   }
 
   function renderSceneTabs() {
     if (!DOM.sceneTabs) return;
     clear(DOM.sceneTabs);
-    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities") };
+    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities"), memory: tt("run.scene_memory", "Memory") };
     availableScenes(app.scenario).forEach(function (id) {
       var active = app.scene === id;
       var b = el("button", { "class": "scene-tab", type: "button", role: "tab", dataset: { scene: id, active: active ? "true" : "false" }, text: labels[id], onclick: function () { setScene(id); } });
@@ -721,6 +740,67 @@
     return { width: Math.max(maxX, 240) + MARGIN, height: Math.max(maxY, 220) + MARGIN, positions: positions, aria: tt("run.capability_aria", "Capability derivation tree") };
   }
 
+  var MEM_TYPE_COLORS = { TCB: "var(--green)", CNode: "var(--accent)", Endpoint: "var(--purple)", Notification: "var(--yellow)", VSpace: "var(--accent)", Untyped: "var(--text-muted)" };
+
+  function renderMemoryScene(root, state, step, touched) {
+    var positions = {};
+    var regions = state.untyped || [];
+    var BARW = 520, BARH = 34, PAD = 12, REGION_GAP = 26;
+    var y = MARGIN + BOX_HEADER;
+
+    regions.forEach(function (ut) {
+      var region = Number(ut.regionSize) || 1;
+      var wm = Number(ut.watermark) || 0;
+      var label = (objectMeta(ut.id) && objectMeta(ut.id).label) || ut.label || ut.id;
+      var boxH = BARH + 46;
+      var g = svg("g", { "class": "theater-chip mem-region", transform: "translate(" + MARGIN + "," + y + ")", role: "button", tabindex: "0" });
+      g.setAttribute("data-untyped", ut.id);
+      var frame = svg("rect", { x: -PAD, y: -2, width: BARW + 2 * PAD, height: boxH, rx: 9, "class": "box-frame mem-frame" });
+      frame.setAttribute("data-accent", "memory");
+      if (touched.untyped && touched.untyped[ut.id]) frame.setAttribute("data-touched", "true");
+      if (ut.id === app.selectedObject) frame.setAttribute("data-selected", "true");
+      g.appendChild(frame);
+      var title = svg("text", { x: 0, y: 16, "class": "chip-name" });
+      title.textContent = label + (ut.isDevice ? " (device)" : "");
+      g.appendChild(title);
+      var meta = svg("text", { x: BARW, y: 16, "class": "chip-sub", "text-anchor": "end" });
+      meta.textContent = "watermark " + wm + " / " + region + "  (" + Math.round(wm / region * 100) + "% used)";
+      g.appendChild(meta);
+
+      var barY = 26;
+      g.appendChild(svg("rect", { x: 0, y: barY, width: BARW, height: BARH, rx: 4, "class": "mem-track" }));
+      var cx = 0;
+      (ut.children || []).forEach(function (c) {
+        var w = Math.max(2, (Number(c.size) || 0) / region * BARW);
+        var seg = svg("rect", { x: cx, y: barY, width: w, height: BARH, rx: 3, "class": "mem-child" });
+        seg.setAttribute("fill", MEM_TYPE_COLORS[c.type] || "var(--text-muted)");
+        g.appendChild(seg);
+        if (w > 30) {
+          var lab = svg("text", { x: cx + w / 2, y: barY + BARH / 2 + 4, "class": "mem-child-label", "text-anchor": "middle" });
+          lab.textContent = c.type;
+          g.appendChild(lab);
+        }
+        cx += w;
+      });
+      var wmx = wm / region * BARW;
+      g.appendChild(svg("line", { x1: wmx, y1: barY - 4, x2: wmx, y2: barY + BARH + 4, "class": "mem-watermark" }));
+
+      g.addEventListener("click", function () { selectObject(ut.id); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectObject(ut.id); } });
+      positions[ut.id] = { x: MARGIN + BARW / 2, y: y + barY + BARH / 2 };
+      root.appendChild(g);
+      y += boxH + REGION_GAP;
+    });
+
+    if (!regions.length) {
+      var empty = svg("text", { x: MARGIN, y: MARGIN + BOX_HEADER + 16, "class": "box-empty" });
+      empty.textContent = tt("run.no_untyped", "— no untyped memory —");
+      root.appendChild(empty);
+    }
+
+    return { width: BARW + 2 * MARGIN + 2 * PAD, height: Math.max(y, 200) + MARGIN - REGION_GAP, positions: positions, aria: tt("run.memory_aria", "Untyped memory regions and allocations") };
+  }
+
   /* ════════════════════════════════════════════════════════════
      Invariant rail
      ════════════════════════════════════════════════════════════ */
@@ -810,6 +890,8 @@
       case "cdtInsert": return "Derive capability " + (op.node && (op.node.label || op.node.id)) + (op.parent ? " from " + cdtLabelOf(op.parent) : "");
       case "cdtRemove": return "Revoke capability " + cdtLabelOf(op.node) + " and its descendants";
       case "cdtPatch": return "Update capability " + cdtLabelOf(op.id);
+      case "untypedRetype": return "Retype " + (op.child && op.child.type) + " (" + (op.child && op.child.size) + ") from " + ((objectMeta(op.untyped) && objectMeta(op.untyped).label) || op.untyped);
+      case "untypedRevoke": return "Revoke untyped " + ((objectMeta(op.untyped) && objectMeta(op.untyped).label) || op.untyped) + " — reclaim all objects";
       case "message": return "Message " + labelOf(op.from) + " → " + labelOf(op.to) + " (" + (op.registers || 0) + " regs" + (op.caps ? ", " + op.caps + " caps" : "") + ")";
       case "note": return op.text || "";
       default: return op.op;
@@ -904,7 +986,17 @@
         fields.push(["derived from", par.length ? par.join(", ") : "— (root)"]);
         fields.push(["children", kids.length ? kids.join(", ") : "—"]);
       }
-      else return;
+      else {
+        var ut = findUntyped(state, id);
+        if (!ut) return;
+        title = "Untyped · " + (ut.label || ut.id);
+        var rs = Number(ut.regionSize) || 0, wmv = Number(ut.watermark) || 0;
+        fields.push(["region size", rs]);
+        fields.push(["watermark", wmv]);
+        fields.push(["free", rs - wmv]);
+        fields.push(["device", ut.isDevice ? "yes" : "no"]);
+        fields.push(["objects", (ut.children || []).map(function (c) { return c.type + " (" + c.size + ")"; }).join(", ") || "—"]);
+      }
     }
     var dl = el("dl", { "class": "insp-grid" });
     fields.forEach(function (r) { dl.appendChild(el("dt", { text: r[0] })); dl.appendChild(el("dd", {}, [el("code", { text: String(r[1]) })])); });

@@ -84,10 +84,12 @@ The code map interior panel supports declaration-first navigation:
 `run.html` is a proof-aware execution visualizer. Because every seLe4n transition is a
 deterministic pure function with machine-checked invariants, the page can **replay**
 real kernel execution traces step by step and show the proven invariants holding at
-every transition. It offers three switchable **scenes** — **System** (CPU, run queue,
-IPC wait queues), **Scheduler** (priority buckets, EDF deadlines, CBS budget bars), and
+every transition. It offers four switchable **scenes** — **System** (CPU, run queue,
+IPC wait queues), **Scheduler** (priority buckets, EDF deadlines, CBS budget bars),
 **Capabilities** (the capability derivation tree, where minting derives children and a
-strict revoke prunes a whole subtree). A transport bar (play/step/scrub) drives the
+strict revoke prunes a whole subtree), and **Memory** (untyped regions with a watermark,
+carving typed objects out of memory and reclaiming them on revoke). A transport bar
+(play/step/scrub) drives the
 timeline; an invariant rail links each machine-checked invariant back to its proof
 module on `map.html`; and an opt-in, clearly-labeled **sandbox** lets you perturb the
 state and watch a structural check break — illustrating exactly what the Lean proofs

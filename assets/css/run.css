@@ -150,6 +150,14 @@
 .cdt-node:hover .cdt-rect { fill: color-mix(in oklab, var(--purple) 14%, var(--surface)); }
 .cdt-node .chip-sub { font-family: var(--font-mono); }
 
+/* ── Memory scene (untyped regions) ────────────────────────── */
+.box-frame[data-accent="memory"] { stroke: color-mix(in oklab, var(--green) 45%, var(--border)); }
+.mem-frame[data-selected="true"] { stroke-width: 2.5; filter: drop-shadow(0 0 6px var(--accent-glow)); }
+.mem-track { fill: color-mix(in oklab, var(--bg-alt) 80%, transparent); stroke: var(--border); stroke-width: 1; }
+.mem-child { stroke: rgba(0, 0, 0, 0.28); stroke-width: 0.5; }
+.mem-child-label { fill: #0a0e17; font: 600 0.66rem var(--font-mono); pointer-events: none; }
+.mem-watermark { stroke: var(--red); stroke-width: 1.5; stroke-dasharray: 3 2; }
+
 /* ── Invariant rail ────────────────────────────────────────── */
 .invariant-card #rail-summary { font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.4rem 0.55rem; border-radius: var(--radius); }
 #rail-summary[data-tone="good"] { color: var(--green); background: var(--green-dim); }

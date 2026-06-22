@@ -20,7 +20,9 @@
     { "id": "capDerivationConsistent", "label": "Capability derivation tree consistent", "check": "cdtChildMapConsistentCheck", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Defs", "subsystem": "capability" },
     { "id": "cbsBudgetBounded", "label": "CBS budget bandwidth bounded", "check": "cbs_bandwidth_bounded", "module": "SeLe4n.Kernel.SchedContext", "mapModule": "SeLe4n.Kernel.SchedContext", "subsystem": "scheduler" },
     { "id": "cdtAcyclic", "label": "Capability derivation tree is acyclic", "check": "edgeWellFounded", "module": "SeLe4n.Model.Object.Structures", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Defs", "subsystem": "capability" },
-    { "id": "capRightsMonotone", "label": "Derived rights never exceed the parent", "check": "capabilityRightsStructuralChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Authority", "subsystem": "capability" }
+    { "id": "capRightsMonotone", "label": "Derived rights never exceed the parent", "check": "capabilityRightsStructuralChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Authority", "subsystem": "capability" },
+    { "id": "untypedWatermarkBounded", "label": "Untyped watermark within its region", "check": "untypedWatermarkChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Lifecycle.Invariant", "subsystem": "memory" },
+    { "id": "memoryNonOverlap", "label": "Allocated objects do not overlap", "check": "childrenNonOverlap", "module": "SeLe4n.Model.Object.Types", "mapModule": "SeLe4n.Model.Object.Types", "subsystem": "memory" }
   ],
   "scenarios": [
     {
@@ -451,6 +453,108 @@
             { "op": "cdtRemove", "node": "cap.app" }
           ] },
           "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "untyped-retype",
+      "title": "Untyped memory retype and reclaim",
+      "summary": "A supervisor carves typed kernel objects out of an untyped memory region, advancing a watermark that the kernel proves never exceeds the region; a revoke then reclaims the whole region in one step.",
+      "tags": ["memory", "lifecycle"],
+      "primaryScene": "memory",
+      "objects": {
+        "th.sup": { "label": "supervisor", "kind": "TCB" },
+        "ut.ram": { "label": "RAM untyped", "kind": "Untyped" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "supervisor", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.sup", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "untyped": [
+          { "id": "ut.ram", "label": "RAM untyped", "regionBase": 0, "regionSize": 1024, "watermark": 0, "isDevice": false, "children": [] }
+        ]
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "MEM-000",
+          "actor": null,
+          "narrative": "The supervisor holds a 1024-unit untyped memory region with its watermark at zero — no objects have been allocated yet.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "supervisor → lifecycleRetype(TCB)",
+          "traceTag": "MEM-001",
+          "actor": "th.sup",
+          "syscall": { "id": "lifecycleRetype", "gate": "SyscallGate", "requiredRight": "retype", "capPath": "supervisor CSpace → untyped capability", "args": { "type": "TCB", "size": 256, "dest": "sup/8" } },
+          "narrative": "Retyping carves a 256-unit TCB out of the untyped region. The watermark advances to 256; the allocation lies entirely within the region, which the kernel proves.",
+          "sourceRefs": [
+            { "label": "apiLifecycleRetype", "module": "SeLe4n.Kernel.API" },
+            { "label": "retypeFromUntyped", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "untypedRetype", "untyped": "ut.ram", "child": { "id": "obj.tcb", "type": "TCB", "size": 256 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "syscall",
+          "title": "supervisor → lifecycleRetype(CNode)",
+          "traceTag": "MEM-002",
+          "actor": "th.sup",
+          "syscall": { "id": "lifecycleRetype", "gate": "SyscallGate", "requiredRight": "retype", "capPath": "supervisor CSpace → untyped capability", "args": { "type": "CNode", "size": 256, "dest": "sup/9" } },
+          "narrative": "A 256-unit CNode is carved next, immediately after the TCB. The watermark advances to 512, and the new object does not overlap the previous one.",
+          "sourceRefs": [
+            { "label": "apiLifecycleRetype", "module": "SeLe4n.Kernel.API" },
+            { "label": "retypeFromUntyped", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "untypedRetype", "untyped": "ut.ram", "child": { "id": "obj.cnode", "type": "CNode", "size": 256 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "supervisor → lifecycleRetype(Endpoint)",
+          "traceTag": "MEM-003",
+          "actor": "th.sup",
+          "syscall": { "id": "lifecycleRetype", "gate": "SyscallGate", "requiredRight": "retype", "capPath": "supervisor CSpace → untyped capability", "args": { "type": "Endpoint", "size": 128, "dest": "sup/10" } },
+          "narrative": "A 128-unit Endpoint is carved, taking the watermark to 640 — still well within the 1024-unit region.",
+          "sourceRefs": [
+            { "label": "apiLifecycleRetype", "module": "SeLe4n.Kernel.API" },
+            { "label": "objectTypeAllocSize", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "untypedRetype", "untyped": "ut.ram", "child": { "id": "obj.ep", "type": "Endpoint", "size": 128 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "syscall",
+          "title": "supervisor → revoke(untyped)",
+          "traceTag": "MEM-004",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceDelete", "gate": "SyscallGate", "requiredRight": "write", "capPath": "supervisor CSpace → untyped capability", "args": { "slot": "sup/7", "mode": "revoke-untyped" } },
+          "narrative": "Revoking the untyped capability reclaims every object carved from it. The children are removed and the watermark resets to zero, returning the region to a clean slate.",
+          "sourceRefs": [
+            { "label": "lifecycleRevokeDeleteRetype", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "untypedRevoke", "untyped": "ut.ram" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
         }
       ]
     }
