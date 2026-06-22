@@ -1,0 +1,477 @@
+# seLe4n Execution Theater — Design Specification
+
+> Status: **living spec**. Phase 1 (vertical slice) is implemented and shipped in this
+> repository (`run.html`, `assets/js/run.js`, `assets/css/run.css`,
+> `data/execution-traces.json`, `scripts/lib/trace-analysis.mjs`,
+> `scripts/validate-traces.mjs`). Phases 2+ are specified here and not yet built.
+>
+> Audience: contributors to the seLe4n website and the upstream kernel trace-export tooling.
+
+---
+
+## 1. Vision
+
+The codebase map (`map.html`) answers *"what is the kernel made of?"* — modules,
+imports, theorem coupling, declarations. It is a **static structure** view.
+
+The **Execution Theater** (`run.html`) answers a different question:
+
+> *"What does the kernel **do**, step by step — and can I watch the machine-checked
+> invariants hold while it does it?"*
+
+It is a **dynamic behavior** view: an interactive, replayable, proof-aware
+visualization of the seLe4n microkernel executing real traces. Threads move between
+the CPU, the run queue, and IPC wait queues; capabilities are minted and revoked;
+untyped memory is retyped; services start and stop — and at **every** step the
+website surfaces the invariants that Lean has proven always hold.
+
+The tagline: **"Watch the kernel run — and the proofs hold."**
+
+### 1.1 Why this is uniquely possible for seLe4n
+
+Two properties of the kernel make a faithful execution visualizer tractable and
+honest in a way it would *not* be for a conventional C kernel:
+
+1. **Every transition is a deterministic pure function.**
+   `abbrev Kernel := SeLe4n.KernelM SystemState KernelError` is a state transformer
+   `SystemState → Except KernelError (α × SystemState)`. Given the same input state
+   and the same syscall, you always get the same output state. A trace is therefore a
+   *reproducible* artifact, not a flaky recording of nondeterministic hardware.
+
+2. **Every invariant is machine-checked.** `SeLe4n.Testing.InvariantChecks` exposes a
+   library of *executable boolean* invariant checks (`endpointDualQueueWellFormedB`,
+   `schedulerRunQueueUniqueB`, `currentThreadValidB`, `blockedOnReceiveNotRunnableChecks`,
+   `cdtChildMapConsistentCheck`, …) that mirror the proven invariants
+   (`apiInvariantBundle`, `proofLayerInvariantBundle`, and the 11 composed subsystem
+   bundles). The kernel can evaluate these at every step of a trace and emit the
+   results. The website doesn't *assert* the invariants hold — it *reports* that Lean
+   proved they do, and that the executable checks agree at each replayed state.
+
+This is the difference between a toy "OS animation" and a credible artifact: the
+Theater is a window onto a verified machine, not a re-imagining of one.
+
+---
+
+## 2. First principle: replay, do not re-simulate
+
+**The website must never re-implement kernel semantics.** If JavaScript decided what
+a syscall does, that logic would be unverified and could silently diverge from the
+proven Lean kernel — quietly undermining the project's central claim.
+
+Therefore the runtime is a **fold engine**, not a kernel. A trace records, for each
+step, the *already-decided* effects as a small list of structured `ops` (a delta).
+Replaying a scenario = folding those deltas over the initial state. The fold applies
+effects; it never *computes* them.
+
+### 2.1 The hybrid model (replay + clearly-labeled sandbox)
+
+The product supports two modes, with a hard epistemic boundary between them:
+
+| Mode | What it is | Trust |
+|------|-----------|-------|
+| **Replay** (default) | Faithful playback of kernel-emitted (or fixture) traces. | Verified — these are real machine-checked transitions. |
+| **Sandbox** (opt-in, always labeled) | The user perturbs the *displayed* state with simple structural edits and watches a small set of **client-side** structural checks respond. | **Unverified** — JS checks, shown only to build intuition for what the proofs guarantee. |
+
+The sandbox is deliberately limited and *honestly framed*. It exists to make the
+proofs visceral: perturb the run queue to contain a duplicate, and watch
+`schedulerRunQueueUnique` go red — *"this is exactly the state the Lean proof
+guarantees the real kernel can never reach."* The sandbox never claims to execute
+syscalls; it never writes back into a "verified" channel; and every sandbox surface
+carries an **Unverified preview** banner.
+
+---
+
+## 3. Information architecture
+
+```
+run.html
+├── shared chrome (nav, theme toggle, bg toggle, language switcher, footer)
+├── hero
+│   ├── title + lead
+│   ├── status line + SOURCE BADGE  (verified kernel export · vX  |  reference fixture · schema vN)
+│   └── provenance note (honest disclaimer when source ≠ kernel)
+└── theater
+    ├── TRANSPORT BAR   scenario ▾ | ◀ ▶/⏸ ▶ | ━━━●━━ scrubber | step n/N | [Sandbox]
+    ├── caption (current step title, aria-live)
+    ├── GRID
+    │   ├── STAGE  (SVG scene — the kernel "in action")
+    │   └── SIDE
+    │       ├── INVARIANT RAIL   (machine-checked invariants; per-step status)
+    │       └── INSPECTOR        (step detail: syscall, effects, source links; + selected object)
+    ├── SANDBOX PANEL  (hidden until toggled; Unverified preview)
+    └── EVENT LOG  ([TAG] trace lines, click to jump)
+```
+
+### 3.1 Transport bar
+
+- **Scenario selector** — choose among the trace scenarios in the dataset.
+- **Step controls** — previous / play-pause / next. Play auto-advances at a fixed
+  cadence and stops at the last step.
+- **Scrubber** — a range input over `[0, steps-1]` for O(1) seeking to any step.
+- **Step counter** + **caption** — `n / N` and the current step's title.
+- **Sandbox toggle** — enters/exits the unverified sandbox mode.
+
+Keyboard: `Space` play/pause · `←`/`→` (or `h`/`l`) step · `Home`/`End` first/last.
+All transport state is mirrored to the URL for deep links (§9).
+
+### 3.2 The Stage (scenes)
+
+The stage renders one **scene** at a time. Each scene is an SVG projection of the
+current `SystemState`, laid out so that a kernel object lives in exactly the
+structural location the kernel itself puts it. Phase 1 ships the **System scene**;
+later phases add focused lenses (§5).
+
+The **System scene** is a two-column diagram:
+
+- **Left column** — the scheduler's view of a core:
+  - **CPU · core _k_** box holding the current thread chip.
+  - **Run queue** box holding ready thread chips, ordered by descending priority
+    (the same order `chooseThread` would consider them).
+  - **Blocked (awaiting reply)** box holding threads that are blocked but not parked
+    on a visible queue (e.g. `blockedOnReply`, `blockedOnCall`), which wait on a reply
+    object rather than the endpoint's send/receive queues.
+- **Right column** — IPC objects:
+  - **Endpoint** boxes, each showing its `receiveQ` and `sendQ` with the blocked
+    thread chips inside.
+  - **Notification** boxes, each showing `state`, `badge`, and waiter chips.
+
+A **thread chip** shows the thread label, a state dot colored by `threadState`
+(Running / Ready / Blocked / Inactive), the abbreviated `ipcState`, and the priority.
+A `pipBoost` badge appears when priority inheritance is active. Chips are clickable
+(→ inspector) and keyboard-focusable.
+
+**Motion communicates causality.** Between steps:
+
+- Entities touched by the current step's delta **pulse** (computed from the op list,
+  not from a structural diff — exact and cheap).
+- `message` ops animate a small **envelope** travelling from the sender chip to the
+  receiver chip (Web Animations API; suppressed under `prefers-reduced-motion`).
+
+### 3.3 Invariant rail
+
+The rail lists the dataset's **invariant catalog** — each entry mapping a website
+label to a real executable check in `SeLe4n.Testing.InvariantChecks` and to a
+representative proof module. For the current step:
+
+- Invariants the kernel **actively re-validated** at this transition
+  (`step.invariants.checked`) are highlighted as **verified this step**.
+- All others render as **holds** (green) — because the proofs guarantee they hold at
+  every reachable state, exercised or not.
+- Each rail item is a link to the relevant module on `map.html`
+  (`map.html?module=<mapModule>`), tying the dynamic view back to the static proof
+  structure. Hover reveals the underlying check function and Lean module.
+
+In **sandbox** mode, the rail additionally runs the client-side structural checks and
+flips the affected items to **violated** (red), with a summary banner explaining the
+epistemics.
+
+### 3.4 Inspector
+
+Two stacked panels:
+
+1. **Step detail** — kind badge (`boot`/`syscall`/`schedule`/`timer`/…), trace tag,
+   actor; the **syscall decode** (`id`, `gate`, `requiredRight`, `capPath`, `args`)
+   when present; a human-readable **effects** list derived from the delta ops; a
+   plain-language **narrative**; and **source links** into `map.html` for each
+   referenced declaration (`apiEndpointCall`, `chooseThread`, …).
+2. **Selected object** — when a chip/box is selected, a field table projected from the
+   current folded state (TCB fields, endpoint queues, notification state, …).
+
+### 3.5 Event log
+
+The `[TAG]`-prefixed trace lines (e.g. `ICR-001 syscall client → call(service-ep)`),
+mirroring the kernel's existing human-readable harness output. The active line is
+highlighted and auto-scrolled into view; clicking any line seeks to that step. This is
+the bridge between the visual stage and the textual trace that
+`SeLe4n.Testing.MainTraceHarness` already emits today.
+
+---
+
+## 4. Data model
+
+### 4.1 Trace schema (v1)
+
+A dataset is a single JSON document. Top level:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `schemaVersion` | `1` | Bumped on breaking schema changes. |
+| `source` | `"kernel"` \| `"fixture"` | Provenance. Drives the source badge + disclaimer. |
+| `generator` | string | Tool that produced the file. |
+| `disclaimer` | string | Honest description of provenance. |
+| `kernelVersion`, `kernelCommit`, `leanToolchain` | string | Upstream identity. |
+| `generatedAt` | ISO-8601 | Freshness (drives local-first selection). |
+| `invariantCatalog[]` | object[] | The invariants surfaced in the rail (§4.3). |
+| `scenarios[]` | object[] | The replayable executions (§4.2). |
+
+### 4.2 Scenario
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id`, `title`, `summary` | string | Identity + human description. |
+| `tags[]` | string[] | e.g. `["ipc","scheduler","capability"]`. |
+| `primaryScene` | string | Default scene for this scenario. |
+| `objects` | map | `id → { label, kind }` display metadata (legend). |
+| `initialState` | State | The bootstrap state (§4.4). |
+| `steps[]` | Step | The ordered transitions (§4.5). |
+
+### 4.3 Invariant catalog entry
+
+```json
+{
+  "id": "schedulerRunQueueUnique",
+  "label": "Run queue free of duplicates",
+  "check": "schedulerRunQueueUniqueB",
+  "module": "SeLe4n.Testing.InvariantChecks",
+  "mapModule": "SeLe4n.Kernel.Scheduler.Invariant",
+  "subsystem": "scheduler"
+}
+```
+
+`check` is the executable boolean in `InvariantChecks`; `mapModule` is the proof
+module the rail links to on `map.html`.
+
+### 4.4 State projection
+
+The state is a **display projection** of `SystemState` — faithful but compact, and
+free of the internal representation (`RHTable`, `FrozenMap`, …) that the UI doesn't
+need. Phase 1 fields:
+
+```jsonc
+{
+  "current": { "thread": "th.client", "core": 0 },
+  "threads": [
+    { "id", "label", "priority", "domain", "ipcState", "threadState",
+      "timeSlice", "deadline", "cspaceRoot", "vspaceRoot", "schedContext",
+      "boundNotification", "pipBoost", "replyObject", "pendingReceiveReply" }
+  ],
+  "endpoints":     [ { "id", "label", "sendQ": [tid], "receiveQ": [tid] } ],
+  "notifications": [ { "id", "label", "state", "waiters": [tid], "badge" } ],
+  "runQueue":      { "0": [tid] }            // per-core, priority-ordered
+}
+```
+
+`ipcState` is a string; blocked states carry their target after a colon
+(`"blockedOnReceive:ep.svc"`), mirroring the `ThreadIpcState` constructors. Later
+phases extend the projection with `cnodes`, `cdt`, `untyped`, `vspace`, `services`,
+`tlb`, and `domains` (§5) — all additive.
+
+### 4.5 Step + delta op vocabulary
+
+```jsonc
+{
+  "index": 1,                       // sequential from 0
+  "kind": "syscall",                // boot|syscall|schedule|timer|ipc|fault|interrupt
+  "title": "client → call(service-ep)",
+  "traceTag": "ICR-001",            // mirrors harness [TAG] codes
+  "actor": "th.client",
+  "syscall": { "id", "gate", "requiredRight", "capPath", "args" },
+  "narrative": "…plain language…",
+  "sourceRefs": [ { "label": "apiEndpointCall", "module": "SeLe4n.Kernel.API" } ],
+  "delta": { "ops": [ … ] },
+  "invariants": { "allHold": true, "checked": ["…ids…"], "failed": [] }
+}
+```
+
+The **op vocabulary** is intentionally small and structural — it expresses *effects*,
+never *decisions*:
+
+| Op | Effect on the projected state |
+|----|------------------------------|
+| `setCurrent {thread, core?}` | Set the current (running) thread / core. |
+| `threadPatch {id, set}` | Shallow-merge fields into a TCB. |
+| `epEnqueue {endpoint, queue, thread}` | Append a thread to an endpoint `sendQ`/`receiveQ`. |
+| `epDequeue {endpoint, queue, thread}` | Remove a thread from an endpoint queue. |
+| `rqInsert {core, thread}` | Insert into the run queue, priority-ordered, idempotent. |
+| `rqRemove {core, thread}` | Remove from the run queue. |
+| `notifPatch {id, set}` | Shallow-merge fields into a Notification. |
+| `message {from, to, endpoint, registers, caps}` | Event-only (animation/log); no state change. |
+| `note {text}` | Event-only annotation. |
+
+Replaying = folding each step's ops over `initialState`. The canonical fold engine
+lives in `scripts/lib/trace-analysis.mjs` (Node, unit-tested); the browser runtime
+(`assets/js/run.js`) carries a byte-faithful re-implementation of the *same* op
+vocabulary so the two cannot drift (the test suite pins the canonical behavior).
+
+### 4.6 Validation
+
+`scripts/lib/trace-analysis.mjs#validateTraceDataObject` and the
+`scripts/validate-traces.mjs` CLI enforce:
+
+- `schemaVersion`, `source`, ISO `generatedAt`.
+- Non-empty, well-formed `invariantCatalog`; unique ids.
+- Per-scenario: valid `initialState`; non-empty `steps`; **sequential** indices;
+  allowed `kind`/op names; `invariants.allHold` boolean; every `checked` id resolves
+  in the catalog; no `allHold && failed` contradiction.
+- A full **fold pass**: every op reference resolves (no dangling thread/endpoint/
+  notification ids), and **no run queue ever contains a duplicate** (a cheap structural
+  echo of `schedulerRunQueueUniqueB` that also guards authored fixtures).
+
+---
+
+## 5. Scene catalog (roadmap)
+
+The System scene (Phase 1) already exercises the scheduler + IPC structure. Future
+scenes are focused lenses over the same fold engine and (extended) state projection:
+
+| Scene | Shows | Backing kernel concepts |
+|-------|-------|------------------------|
+| **System** *(shipped)* | CPU, run queue, blocked lane, endpoints, notifications, message flow. | `SchedulerState`, `Endpoint`, `Notification`, `ThreadIpcState`. |
+| **Scheduler** | Per-core/per-domain priority buckets, EDF deadlines, CBS budget bars, PIP boost chains, context-switch timeline. | `RunQueue`, `chooseThread`, `cbs_bandwidth_bounded`, `blockingChainAcyclic`. |
+| **IPC** | Endpoints with dual queues, call/reply pairing, reply objects, donation chains, badge/notification signalling. | `IPC.DualQueue.*`, `donationChainAcyclic`, `notificationSignal/Wait`. |
+| **Capabilities / CDT** | CNode slots, the capability derivation tree, mint/copy/move/delete/revoke, rights badges. | `CapDerivationTree` (`childMap`/`parentMap`), `cspaceRevokeCdtStrict`. |
+| **Memory / VSpace** | Untyped regions with watermark bars, retype → typed objects, page-table mappings, W^X flags, TLB entries, ASIDs. | `UntypedObject`, `retypeFromUntyped`, `VSpace`, `TlbModel`. |
+| **Services** | Dependency DAG, lifecycle status (running/stopped/broken/restart), start/stop/restart with acyclicity. | `Service.Operations`, `serviceGraphAcyclicityChecks`. |
+| **Information flow** | Security-label lattice, per-step allowed/blocked flows, non-interference annotation. | `DomainFlowPolicy`, `NonInterferenceStep`, `securityFlowsTo`. |
+
+Scene switching is additive: a scene tab strip in the stage header; the active scene
+is part of the URL state (`&scene=`). Each scene reads the same folded state and the
+same step deltas, projecting whichever facet it specializes in.
+
+---
+
+## 6. Upstream integration — how the kernel emits traces
+
+Phase 1 ships a **hand-authored reference fixture** (`source: "fixture"`) that
+conforms to the schema. The honest end state is for the **kernel** to emit the
+artifact, so the website replays real machine-checked runs (`source: "kernel"`).
+
+Proposed upstream work (in the `hatter6822/seLe4n` repo):
+
+1. **`SeLe4n/Testing/TraceExport.lean`** — a structured-trace recorder. Today
+   `MainTraceHarness` interleaves `IO.println "[TAG] …"` calls. The recorder wraps the
+   same operations so that, for each transition, it captures: the syscall/decode, the
+   structured effects (as the op vocabulary above), `reprStr`-projected before/after
+   state, the `traceTag`, and the result of `assertStateInvariantsFor` /
+   `stateInvariantChecks` (→ `invariants.checked` + `allHold`).
+2. **JSON encoding** — a small `ToJson`-style encoder for the projection (the kernel is
+   Lean; it can serialize the display projection directly; the website never parses
+   `reprStr`).
+3. **CI artifact** — emit `docs/execution-traces.json` alongside the existing
+   `docs/codebase_map.json`. The website's sync + live-refresh then consume it exactly
+   like the map data.
+4. **Determinism guarantee** — because transitions are pure, the exported trace is
+   reproducible and diffable in CI (a regression in behavior shows up as a trace diff).
+
+Crucially, the **op vocabulary is the contract** between kernel and website. The
+recorder emits ops; the website folds them. Neither side needs to understand the
+other's internals.
+
+---
+
+## 7. Website data pipeline
+
+Mirrors the established map/site pipeline (local-first, cache, graceful live refresh):
+
+```
+upstream docs/execution-traces.json  (source: "kernel")
+        │  scripts/sync-trace-data.mjs   (Phase 2 — fetch + validate + write)
+        ▼
+data/execution-traces.json            (bundled snapshot, committed)
+        │  load order at runtime (assets/js/run.js):
+        ▼
+1. read localStorage cache (sele4n-exec-traces-v1, schema-versioned, TTL + max-stale)
+2. fetch bundled data/execution-traces.json
+3. choose freshest by generatedAt
+4. best-effort live refresh from raw.githubusercontent.com/.../docs/execution-traces.json
+   (404 today → silent fallback to local; no new CSP origin required)
+```
+
+All fetched payloads pass `isValidTraceData` (schema + foldability) before adoption, so
+malformed remote data can never corrupt the view.
+
+**Files (Phase 1, shipped):**
+
+| File | Role |
+|------|------|
+| `run.html` | Page skeleton (mirrors `map.html`: CSP, theme-init, i18n, nav, bg, footer). |
+| `assets/js/run.js` | Runtime: fold engine, SVG stage, rail, inspector, log, transport, sandbox, data load. |
+| `assets/css/run.css` | Page styles (reuses `style.css` tokens). |
+| `data/execution-traces.json` | Bundled reference fixture (2 scenarios, 11 steps). |
+| `scripts/lib/trace-analysis.mjs` | Canonical fold engine + validator (Node). |
+| `scripts/lib/trace-analysis.test.mjs` | Unit tests (14 tests, `node:test`). |
+| `scripts/validate-traces.mjs` | CLI validator (Tier 2). |
+| `locales/en.json` | `run.*`, `nav.run`, `meta.run_*` keys. |
+
+**Files (Phase 2+, planned):** `scripts/sync-trace-data.mjs` (upstream fetch),
+`scripts/nav-stability` extension or a `scripts/theater-smoke.py` Playwright probe.
+
+---
+
+## 8. Technology & cross-cutting concerns
+
+- **Rendering** — hand-rolled **SVG** + the **Web Animations API**, consistent with
+  `map.js`. SVG is accessible, theme-able via CSS custom properties, and crisp at any
+  zoom. No frameworks, no D3, no bundler. WebGL is reserved for the background.
+- **Strict CSP** — identical to the other pages (`default-src 'self'`,
+  `script-src 'self'`, `connect-src` limited to `api.github.com` +
+  `raw.githubusercontent.com`). No inline scripts/styles, no `eval`, no `innerHTML`
+  from trace data (all data rendered via `textContent`/`createElement`).
+- **Performance** — delta-fold with per-step snapshots precomputed on scenario load
+  (O(1) seeking); `requestAnimationFrame`-batched renders; DOM lookups cached at boot;
+  CSS `contain` on the stage; touched-entity highlighting computed from ops (no diff).
+  At larger scale: keyframe snapshots every N steps + virtualized event log.
+- **Accessibility** — full keyboard transport; `prefers-reduced-motion` disables
+  animation and snaps to states; `aria-live` on caption/status/inspector; chips and
+  the stage are focusable and labeled; the rail is a semantic list with links.
+- **i18n** — `data-i18n` on static chrome + `window.sele4nI18n.t()` (with English
+  literal fallbacks) for dynamic strings; re-render on `sele4n:locale-changed`.
+- **Theming** — light/dark via `data-theme` and the shared tokens; the theme + bg
+  toggles reuse the exact `map.js` handlers.
+- **Mobile** — single-column grid, scene tabs, enlarged touch targets, scrollable
+  stage; message animation degrades gracefully.
+
+## 9. URL state & deep links
+
+`run.html?scenario=<id>&step=<n>&object=<id>&sandbox=1` (Phase 2 adds `&scene=`). State
+is written with `history.replaceState` (no history spam) and parsed on load, so any
+step of any scenario is shareable and bookmarkable — including a selected object.
+
+## 10. Security posture
+
+- No new CSP origins. Trace data comes from `self` (bundled) or the already-allowed
+  `raw.githubusercontent.com`.
+- Remote/cached data is treated as **untrusted**: strict schema validation + a fold
+  dry-run gate adoption; rendering never interpolates data into HTML; future work caps
+  payload size and step counts to avoid pathological inputs.
+- The sandbox cannot escape into the verified channel; it operates on a throwaway state
+  clone and is always labeled unverified.
+
+## 11. Testing strategy
+
+| Tier | Scope | Command |
+|------|-------|---------|
+| 0 | JS syntax | `node --check assets/js/run.js` |
+| 1 | Unit (fold engine + validator) | `node scripts/lib/trace-analysis.test.mjs` |
+| 2 | Bundled trace integrity | `node scripts/validate-traces.mjs` |
+| 3 | Manual browser (desktop + mobile, light + dark, reduced-motion) | — |
+| 4 | Playwright transport/stepping probe *(Phase 2)* | `scripts/theater-smoke.py` |
+
+Phase 1 also ships a headless DOM-shim smoke check used during development to execute
+`run.js` end-to-end (render → step → sandbox-perturb → invariant violation) without a
+browser; it can be promoted to a committed Tier-1 check in Phase 2.
+
+---
+
+## 12. Phased roadmap
+
+- **Phase 1 — Vertical slice (shipped).** Schema v1, fold engine + tests + validator,
+  the System scene, invariant rail, inspector, event log, transport, deep-link URL
+  state, the clearly-labeled sandbox, full chrome/i18n/theming, and a 2-scenario
+  reference fixture. Honest provenance via the source badge + disclaimer.
+- **Phase 2 — Upstream truth + sync.** `TraceExport.lean` + CI artifact;
+  `sync-trace-data.mjs`; flip the bundled snapshot to `source: "kernel"`; Playwright
+  probe; promote the DOM smoke check.
+- **Phase 3 — Scenes.** Scheduler, IPC, Capabilities/CDT scenes with extended state
+  projection and scene tabs (`&scene=`).
+- **Phase 4 — Memory, Services, Information-flow scenes.** Watermark/retype/VSpace,
+  service DAG lifecycle, security-label lattice with non-interference annotation.
+- **Phase 5 — Depth.** State diff ribbon between arbitrary steps; per-step causality
+  graph ("why did this happen"); richer sandbox (more structural checks, guided
+  challenges); trace search/filter; multi-core SMP scenes.
+
+## 13. Documentation sync
+
+Changes here must keep in sync: `README.md` (page list + commands), `CONTRIBUTING.md`
+(required checks), `docs/TESTING.md` (tiers + commands), `CLAUDE.md` (build commands +
+file tables), and — when scenes/schema change — this spec.
