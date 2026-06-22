@@ -89,7 +89,8 @@ IPC wait queues), **Scheduler** (per-core SMP columns, priority buckets, EDF dea
 **Capabilities** (the capability derivation tree, where minting derives children and a
 strict revoke prunes a whole subtree), **Memory** (untyped regions with a watermark,
 carving typed objects out of memory and reclaiming them on revoke), **VSpace** (page
-mappings with W^X status, where a writable-and-executable map is rejected), **Information
+mappings with W^X status, where a writable-and-executable map is rejected and a TLB row
+shows cached translations being shot down on unmap), **Information
 flow** (the security-domain lattice, where the kernel blocks a leak from secret to
 public until an audited declassification authorizes it), and **Services** (the
 dependency DAG with dependency-ordered start, fault, and restart). A transport bar

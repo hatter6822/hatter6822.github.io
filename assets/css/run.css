@@ -183,6 +183,8 @@
 .vs-perms { fill: var(--accent); font: 600 0.72rem var(--font-mono); }
 .vs-ok { fill: var(--green); font: 600 0.7rem var(--font-mono); }
 .vs-rejected { fill: var(--red); font: 600 0.7rem var(--font-mono); }
+.vs-tlb { fill: var(--text-muted); font: 0.7rem var(--font-mono); }
+.vs-shootdown { fill: var(--yellow); font: 600 0.7rem var(--font-mono); }
 
 /* ── Invariant rail ────────────────────────────────────────── */
 .invariant-card #rail-summary { font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.4rem 0.55rem; border-radius: var(--radius); }

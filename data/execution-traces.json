@@ -28,7 +28,8 @@
     { "id": "serviceGraphAcyclic", "label": "Service dependency graph acyclic", "check": "serviceGraphAcyclicityChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Service.Invariant.Acyclicity", "subsystem": "services" },
     { "id": "servicePolicyEnforced", "label": "Service isolation policy enforced", "check": "hasIsolationEdge", "module": "SeLe4n.Model.State", "mapModule": "SeLe4n.Kernel.Service.Invariant.Policy", "subsystem": "services" },
     { "id": "vspaceWxCompliant", "label": "No page is writable and executable (W^X)", "check": "wxCompliant", "module": "SeLe4n.Model.Object.Structures", "mapModule": "SeLe4n.Kernel.Architecture.VSpaceInvariant", "subsystem": "memory" },
-    { "id": "vspaceAsidUnique", "label": "ASIDs unique across address spaces", "check": "vspaceAsidUniquenessChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Architecture.VSpaceInvariant", "subsystem": "memory" }
+    { "id": "vspaceAsidUnique", "label": "ASIDs unique across address spaces", "check": "vspaceAsidUniquenessChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Architecture.VSpaceInvariant", "subsystem": "memory" },
+    { "id": "tlbConsistent", "label": "TLB has no stale entries (shootdown on unmap)", "check": "tlbFlushConsistent", "module": "SeLe4n.Kernel.Architecture.TlbModel", "mapModule": "SeLe4n.Kernel.Architecture.TlbModel", "subsystem": "memory" }
   ],
   "scenarios": [
     {
@@ -806,7 +807,7 @@
         "notifications": [],
         "runQueue": { "0": [] },
         "vspace": [
-          { "id": "vs.app", "label": "app address space", "asid": 1, "mappings": [] }
+          { "id": "vs.app", "label": "app address space", "asid": 1, "mappings": [], "tlb": [] }
         ]
       },
       "steps": [
@@ -818,7 +819,7 @@
           "actor": null,
           "narrative": "The app address space (ASID 1) has no page mappings yet.",
           "delta": { "ops": [] },
-          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique"], "failed": [] }
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique", "tlbConsistent"], "failed": [] }
         },
         {
           "index": 1,
@@ -835,7 +836,7 @@
           "delta": { "ops": [
             { "op": "vspaceMap", "vspace": "vs.app", "mapping": { "vaddr": "0x1000", "paddr": "0x80000", "perms": "rx", "wx": false } }
           ] },
-          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique"], "failed": [] }
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique", "tlbConsistent"], "failed": [] }
         },
         {
           "index": 2,
@@ -852,7 +853,7 @@
           "delta": { "ops": [
             { "op": "vspaceMap", "vspace": "vs.app", "mapping": { "vaddr": "0x2000", "paddr": "0x81000", "perms": "rw", "wx": false } }
           ] },
-          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique"], "failed": [] }
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique", "tlbConsistent"], "failed": [] }
         },
         {
           "index": 3,
@@ -869,7 +870,7 @@
           "delta": { "ops": [
             { "op": "vspaceReject", "vspace": "vs.app", "mapping": { "vaddr": "0x3000", "paddr": "0x82000", "perms": "rwx", "wx": true } }
           ] },
-          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant"], "failed": [] }
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "tlbConsistent"], "failed": [] }
         },
         {
           "index": 4,
@@ -886,7 +887,7 @@
           "delta": { "ops": [
             { "op": "vspaceUnmap", "vspace": "vs.app", "vaddr": "0x2000" }
           ] },
-          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique"], "failed": [] }
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique", "tlbConsistent"], "failed": [] }
         }
       ]
     },

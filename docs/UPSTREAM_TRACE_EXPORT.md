@@ -64,6 +64,7 @@ what the scenes render (all additive — omit a block and its scene tab simply h
 | `untyped[]` | each `UntypedObject` (`regionBase`, `regionSize`, `watermark`, `isDevice`, `children`) |
 | `infoflow` | the `DomainFlowPolicy` (`domains` with confidentiality/integrity; `policy` = allowed-flow edges) |
 | `services[]` | `serviceRegistry` (`status` from `ServiceStatus`; `deps` from the dependency graph) |
+| `vspace[]` | each address space (`asid`; `mappings` = `vaddr`→`paddr`/`perms` from the page tables; `tlb` = the virtual addresses with cached translations) |
 
 `ipcState` is stringified with its target after a colon
 (`blockedOnReceive:<endpointId>`), mirroring the `ThreadIpcState` constructors.
@@ -87,6 +88,7 @@ just performed. The op set is small and maps 1:1 to operations:
 | flow check (`securityFlowsTo`) | `flowCheck{from, to, allowed}` (event-only) |
 | declassification authorize | `ifPolicyAdd{from, to}` |
 | `serviceStart`/`Stop`/`Restart` | `servicePatch{id, set:{status}}` |
+| `mapPage` / `unmapPage` | `vspaceMap{vspace, mapping}` (caches the page in `tlb`) / `vspaceUnmap{vspace, vaddr}` (shoots down the `tlb` entry) |
 
 **(B) Snapshot-diff (zero instrumentation).** Emit only the projected state *before*
 and *after* each step; let the website's sync script derive the ops by diffing

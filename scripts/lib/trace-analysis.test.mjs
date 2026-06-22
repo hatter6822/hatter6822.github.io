@@ -288,6 +288,17 @@ test('validateTraceDataObject flags a stored W^X violation and duplicate ASIDs',
   assert.ok(errors.some((m) => m.includes('reuses ASID 1')));
 });
 
+test('vspaceMap caches a TLB entry; vspaceUnmap shoots it down; validator flags stale TLB', () => {
+  const state = { vspace: [{ id: 'vs', asid: 1, mappings: [], tlb: [] }] };
+  applyOp(state, { op: 'vspaceMap', vspace: 'vs', mapping: { vaddr: '0x1000', paddr: '0x80000', perms: 'rx', wx: false } });
+  assert.deepEqual(state.vspace[0].tlb, ['0x1000']);
+  applyOp(state, { op: 'vspaceUnmap', vspace: 'vs', vaddr: '0x1000' });
+  assert.deepEqual(state.vspace[0].tlb, []);
+  const data = minimalData();
+  data.scenarios[0].initialState.vspace = [{ id: 'vs', asid: 1, mappings: [], tlb: ['0xdead'] }];
+  assert.ok(validateTraceDataObject(data).some((m) => m.includes('stale (missing shootdown)')));
+});
+
 /* ── Bundled fixture ────────────────────────────────────────── */
 
 test('bundled data/execution-traces.json is valid and folds cleanly', async () => {

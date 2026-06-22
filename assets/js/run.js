@@ -236,12 +236,16 @@
         if (vs && op.mapping && op.mapping.vaddr) {
           if (!Array.isArray(vs.mappings)) vs.mappings = [];
           if (!vs.mappings.some(function (mm) { return mm.vaddr === op.mapping.vaddr; })) vs.mappings.push(op.mapping);
+          if (Array.isArray(vs.tlb) && vs.tlb.indexOf(op.mapping.vaddr) === -1) vs.tlb.push(op.mapping.vaddr);
         }
         return state;
       }
       case "vspaceUnmap": {
         var vsu = findVspace(state, op.vspace);
-        if (vsu) vsu.mappings = (vsu.mappings || []).filter(function (mm) { return mm.vaddr !== op.vaddr; });
+        if (vsu) {
+          vsu.mappings = (vsu.mappings || []).filter(function (mm) { return mm.vaddr !== op.vaddr; });
+          if (Array.isArray(vsu.tlb)) vsu.tlb = vsu.tlb.filter(function (v) { return v !== op.vaddr; });
+        }
         return state;
       }
       default:
@@ -1016,15 +1020,18 @@
     var positions = {};
     var spaces = state.vspace || [];
     var BOXW = 460, ROWH = 26, PAD = 12, HEADH = 26, GAP = 22;
-    var rejectByVs = {};
+    var rejectByVs = {}, shootdownByVs = {};
     var ops = (step && step.delta && step.delta.ops) || [];
-    ops.forEach(function (op) { if (op.op === "vspaceReject" && op.vspace) rejectByVs[op.vspace] = op.mapping; });
+    ops.forEach(function (op) {
+      if (op.op === "vspaceReject" && op.vspace) rejectByVs[op.vspace] = op.mapping;
+      if (op.op === "vspaceUnmap" && op.vspace) shootdownByVs[op.vspace] = op.vaddr;
+    });
 
     var y = MARGIN + BOX_HEADER;
     spaces.forEach(function (vs) {
       var maps = vs.mappings || [];
       var reject = rejectByVs[vs.id];
-      var rowCount = Math.max(1, maps.length + (reject ? 1 : 0));
+      var rowCount = Math.max(1, maps.length + (reject ? 1 : 0) + (vs.tlb !== undefined ? 1 : 0));
       var bodyH = HEADH + rowCount * ROWH + PAD;
       var g = svg("g", { "class": "theater-chip vs-space", transform: "translate(" + MARGIN + "," + y + ")", role: "button", tabindex: "0" });
       g.setAttribute("data-vspace", vs.id);
@@ -1052,6 +1059,17 @@
       if (!maps.length && !reject) { var empty = svg("text", { x: 4, y: ry + 16, "class": "box-empty" }); empty.textContent = tt("run.no_mappings", "— no mappings —"); g.appendChild(empty); }
       maps.forEach(function (m) { row(m, false); });
       if (reject) row(reject, true);
+      if (vs.tlb !== undefined) {
+        var tlbText = svg("text", { x: 4, y: ry + 16, "class": "vs-tlb" });
+        tlbText.textContent = "TLB: " + ((vs.tlb && vs.tlb.length) ? vs.tlb.join("  ") : "—");
+        g.appendChild(tlbText);
+        if (shootdownByVs[vs.id]) {
+          var sd = svg("text", { x: BOXW, y: ry + 16, "class": "vs-shootdown", "text-anchor": "end" });
+          sd.textContent = "⚡ shootdown " + shootdownByVs[vs.id];
+          g.appendChild(sd);
+        }
+        ry += ROWH;
+      }
 
       g.addEventListener("click", function () { selectObject(vs.id); });
       g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectObject(vs.id); } });
@@ -1222,7 +1240,9 @@
     });
     Object.keys(touched.vspace || {}).forEach(function (id) {
       var a = findVspace(prev, id), b = findVspace(next, id);
-      if (a && b && (a.mappings || []).length !== (b.mappings || []).length) rows.push([b.label || id, "mappings", (a.mappings || []).length + " → " + (b.mappings || []).length]);
+      if (!a || !b) return;
+      if ((a.mappings || []).length !== (b.mappings || []).length) rows.push([b.label || id, "mappings", (a.mappings || []).length + " → " + (b.mappings || []).length]);
+      if (a.tlb !== undefined && b.tlb !== undefined && JSON.stringify(a.tlb) !== JSON.stringify(b.tlb)) rows.push([b.label || id, "TLB", (a.tlb.length || "—") + " → " + (b.tlb.length || "—") + " entries"]);
     });
     return rows;
   }
@@ -1364,6 +1384,7 @@
               fields.push(["asid", vsp.asid]);
               fields.push(["mappings", (vsp.mappings || []).length]);
               (vsp.mappings || []).forEach(function (m) { fields.push([m.vaddr, "→ " + (m.paddr || "?") + " [" + (m.perms || "") + "]"]); });
+              if (vsp.tlb !== undefined) fields.push(["TLB", (vsp.tlb && vsp.tlb.length) ? vsp.tlb.join(", ") : "—"]);
             }
           }
         }

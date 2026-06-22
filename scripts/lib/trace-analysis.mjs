@@ -240,12 +240,14 @@ export function applyOp(state, op) {
       if (!mp || typeof mp.vaddr !== 'string') throw new Error('vspaceMap: mapping.vaddr required');
       if (!Array.isArray(vs.mappings)) vs.mappings = [];
       if (!vs.mappings.some((m) => m.vaddr === mp.vaddr)) vs.mappings.push(mp);
+      if (Array.isArray(vs.tlb) && vs.tlb.indexOf(mp.vaddr) === -1) vs.tlb.push(mp.vaddr); // cache the translation
       return state;
     }
     case 'vspaceUnmap': {
       const vsu = findVspace(state, op.vspace);
       if (!vsu) throw new Error(`vspaceUnmap: unknown vspace ${op.vspace}`);
       vsu.mappings = (vsu.mappings || []).filter((m) => m.vaddr !== op.vaddr);
+      if (Array.isArray(vsu.tlb)) vsu.tlb = vsu.tlb.filter((v) => v !== op.vaddr); // TLB shootdown
       return state;
     }
     case 'vspaceReject':
@@ -378,6 +380,11 @@ function checkVspace(state, path, errors) {
       const perms = String(m.perms || '');
       const violating = m.wx === true || (/w/.test(perms) && /x/.test(perms));
       if (violating) errors.push(`${path}: vspace[${i}] mapping[${j}] (${m.vaddr}) is writable and executable — violates W^X`);
+    });
+    // No stale TLB entries: every cached vaddr must have a live mapping (shootdown on unmap).
+    const mapped = new Set((v.mappings || []).map((m) => m.vaddr));
+    (v.tlb || []).forEach((va) => {
+      if (!mapped.has(va)) errors.push(`${path}: vspace[${i}] TLB entry ${va} has no mapping — stale (missing shootdown)`);
     });
   });
 }

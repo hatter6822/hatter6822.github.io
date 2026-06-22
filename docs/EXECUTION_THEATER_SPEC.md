@@ -281,7 +281,8 @@ need. Phase 1 fields:
   ],
   "vspace": [                                // virtual address spaces (optional)
     { "id", "label", "asid",
-      "mappings": [ { "vaddr", "paddr", "perms", "wx" } ] }
+      "mappings": [ { "vaddr", "paddr", "perms", "wx" } ],
+      "tlb": [ "vaddr" ] }                    // cached translations (optional)
   ]
 }
 ```
@@ -290,8 +291,10 @@ need. Phase 1 fields:
 (`"blockedOnReceive:ep.svc"`), mirroring the `ThreadIpcState` constructors. Scheduler
 fields like `domain`, `deadline`, and `budgetMax` feed the Scheduler scene. The optional
 `cdt`, `untyped`, `vspace`, `infoflow`, and `services` blocks feed the Capability,
-Memory, VSpace, Information-flow, and Services scenes. Later phases extend the projection
-further with `cnodes` and `tlb` (§5) — all additive.
+Memory, VSpace, Information-flow, and Services scenes. The optional `vspace[].tlb` array
+holds the virtual addresses with cached translations; `vspaceMap` caches a page and
+`vspaceUnmap` shoots it down, so the VSpace scene can show stale-entry eviction. Later
+phases extend the projection further with `cnodes` (§5) — all additive.
 
 ### 4.5 Step + delta op vocabulary
 
@@ -331,8 +334,8 @@ never *decisions*:
 | `ifPolicyAdd {from, to}` | Add an allowed-flow edge to the policy (authorized declassification). |
 | `ifPolicyRemove {from, to}` | Remove an allowed-flow edge from the policy. |
 | `servicePatch {id, set}` | Shallow-merge fields (e.g. `status`) into a service registry entry. |
-| `vspaceMap {vspace, mapping}` | Add a page mapping (`vaddr`→`paddr`, `perms`) to an address space. |
-| `vspaceUnmap {vspace, vaddr}` | Remove a page mapping. |
+| `vspaceMap {vspace, mapping}` | Add a page mapping (`vaddr`→`paddr`, `perms`) to an address space; caches the `vaddr` in the TLB. |
+| `vspaceUnmap {vspace, vaddr}` | Remove a page mapping and shoot down its TLB entry. |
 | `vspaceReject {vspace, mapping}` | Event-only; the VSpace scene shows a W^X-violating map as rejected. |
 | `message {from, to, endpoint, registers, caps}` | Event-only (animation/log); no state change. |
 | `note {text}` | Event-only annotation. |
@@ -370,7 +373,7 @@ scenes are focused lenses over the same fold engine and (extended) state project
 | **IPC** | Endpoints with dual queues, call/reply pairing, reply objects, donation chains, badge/notification signalling. | `IPC.DualQueue.*`, `donationChainAcyclic`, `notificationSignal/Wait`. |
 | **Capabilities / CDT** *(shipped)* | The capability derivation tree as a tidy tree — minting/copying derive child capabilities, a strict revoke prunes a node and all its descendants — with target, rights, badge, and slot per node. *(A dedicated CNode-slot grid is future depth.)* | `CapDerivationTree` (`childMap`/`parentMap`), `cspaceRevokeCdtStrict`. |
 | **Memory** *(untyped shipped)* | Untyped regions as watermarked bars with typed objects carved out (retype advances the watermark; revoke reclaims the region). | `UntypedObject`, `retypeFromUntyped`, `untypedWatermarkChecks`. |
-| **VSpace** *(shipped)* | Per-address-space page-mapping rows with permissions and W^X status; a writable-and-executable map is rejected, never stored. *(TLB shootdown detail is future depth.)* | `mapPage`/`unmapPage`, `PagePermissions.wxCompliant`, `vspaceAsidUniquenessChecks`. |
+| **VSpace** *(shipped)* | Per-address-space page-mapping rows with permissions and W^X status; a writable-and-executable map is rejected, never stored. A TLB row shows cached translations: a map caches its page, an unmap shoots it down (with a `⚡ shootdown` marker), and a validator flags any TLB entry left without a backing mapping. | `mapPage`/`unmapPage`, `PagePermissions.wxCompliant`, `vspaceAsidUniquenessChecks`, `tlbFlushConsistent`. |
 | **Services** *(shipped)* | Dependency DAG laid out by topological level, with lifecycle status (running/stopped/broken) and dependency-ordered start / fault / restart; the graph stays provably acyclic. | `Service.Operations`, `serviceGraphAcyclicityChecks`. |
 | **Information flow** *(shipped)* | Security-domain lattice (ordered by confidentiality) with allowed-flow policy arcs and the current step's flow check drawn allowed (green) or blocked (red); an `ifPolicyAdd` declassification edge can unblock a flow. | `DomainFlowPolicy`, `NonInterferenceStep`, `securityFlowsTo`, `isDeclassificationAuthorized`. |
 
@@ -534,8 +537,9 @@ perturbation breaking a structural check — all without a browser.
   beyond the System scene's structure; a CNode-slot grid alongside the CDT; per-domain
   scheduler partitioning and PIP boost chains. *(All seven subsystem scenes, the scene-tab
   infrastructure, SMP scheduling, and the state-diff ribbon already ship in Phase 1.)*
-- **Phase 4 — Hardware depth.** TLB-shootdown detail in the VSpace scene; richer
-  multi-core visuals (per-core timers, IPI). 
+- **Phase 4 — Hardware depth.** TLB caching with shootdown-on-unmap already ships in the
+  VSpace scene (with a stale-entry validator); remaining depth is richer multi-core visuals
+  (per-core timers, IPI) and multi-level page-table walks. 
 - **Phase 5 — Exploration.** A per-step causality graph ("why did this happen"); a richer
   sandbox (more structural checks, guided challenges); trace search/filter.
 

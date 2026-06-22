@@ -79,6 +79,12 @@ function countCpuBoxes(node, acc = { n: 0 }) {
   (node.childNodes || []).forEach((c) => countCpuBoxes(c, acc));
   return acc.n;
 }
+// Return the textContent of the first element whose class list includes `cls`.
+function firstClassText(node, cls) {
+  if (klass(node).split(/\s+/).includes(cls)) return node.textContent || '';
+  for (const c of node.childNodes || []) { const t = firstClassText(c, cls); if (t !== null) return t; }
+  return null;
+}
 
 async function bootRunJs(search) {
   const { byId, document } = makeDom();
@@ -272,6 +278,23 @@ test('run.js shows the VSpace tab only for scenarios with an address space', asy
   const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
   const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
   assert.ok(!ipcTabs.includes('vspace'), 'ipc scenario hides the VSpace tab');
+});
+
+test('run.js VSpace scene renders a TLB row that caches mapped pages', async () => {
+  const { byId } = await bootRunJs('?scenario=vspace-wx&step=2');
+  assert.ok(countClass(byId['theater-stage'], 'vs-tlb') >= 1, 'a TLB row renders for the address space');
+  const tlb = firstClassText(byId['theater-stage'], 'vs-tlb');
+  assert.ok(/0x1000/.test(tlb) && /0x2000/.test(tlb), 'both mapped pages are cached in the TLB after two maps');
+  assert.equal(countClass(byId['theater-stage'], 'vs-shootdown'), 0, 'no shootdown annotation on a pure map step');
+});
+
+test('run.js VSpace unmap triggers a TLB shootdown (stale entry evicted)', async () => {
+  const { byId } = await bootRunJs('?scenario=vspace-wx&step=4');
+  assert.ok(countClass(byId['theater-stage'], 'vs-shootdown') >= 1, 'an unmap shows a shootdown annotation');
+  const sd = firstClassText(byId['theater-stage'], 'vs-shootdown');
+  assert.ok(/0x2000/.test(sd), 'the shootdown names the unmapped page');
+  const tlb = firstClassText(byId['theater-stage'], 'vs-tlb');
+  assert.ok(/0x1000/.test(tlb) && !/0x2000/.test(tlb), 'the unmapped page is evicted from the TLB, the survivor remains');
 });
 
 test('run.js Scheduler scene renders one CPU column per core (SMP)', async () => {
