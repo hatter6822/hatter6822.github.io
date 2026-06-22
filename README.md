@@ -44,6 +44,7 @@ node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
 node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
+node scripts/lib/csp-html.test.mjs
 ```
 
 ## Runtime data strategy
