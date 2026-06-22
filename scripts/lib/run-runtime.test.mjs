@@ -86,10 +86,11 @@ function firstClassText(node, cls) {
   return null;
 }
 
-async function bootRunJs(search) {
+async function bootRunJs(search, mutate) {
   const { byId, document } = makeDom();
   const store = new Map();
   const traceData = JSON.parse(await readFile(new URL('../../data/execution-traces.json', import.meta.url), 'utf8'));
+  if (mutate) mutate(traceData); // let a test perturb the served payload before boot
   const window = {
     document, location: { search: search || '', pathname: '/run.html' },
     history: { replaceState() {} },
@@ -319,4 +320,36 @@ test('run.js System scene is SMP-aware (one CPU box per core)', async () => {
   assert.equal(countCpuBoxes(smp.byId['theater-stage']), 2, 'two CPU boxes in the System scene too');
   const ipc = await bootRunJs('?scenario=ipc-call-reply&scene=system&step=0');
   assert.equal(countCpuBoxes(ipc.byId['theater-stage']), 1, 'single-core System scene → one CPU box');
+});
+
+test('run.js rail surfaces a recorded invariant failure as violated, not green', async () => {
+  // A step that reports allHold:false with a failed id must go red — outside
+  // sandbox the rail previously only read `checked` and always claimed all hold.
+  const { byId } = await bootRunJs('?scenario=ipc-call-reply&step=1', (data) => {
+    const sc = data.scenarios.find((s) => s.id === 'ipc-call-reply');
+    const inv0 = data.invariantCatalog[0].id;
+    sc.steps[1].invariants = { allHold: false, checked: [inv0], failed: [inv0] };
+  });
+  assert.ok(countStatus(byId['invariant-rail'], 'violated') >= 1, 'the failed invariant is shown violated');
+  assert.equal(byId['rail-summary'].dataset.tone, 'bad', 'rail summary tone reflects the failure');
+});
+
+test('run.js preserves a deep-linked selected object on initial load', async () => {
+  const trace = JSON.parse(await readFile(new URL('../../data/execution-traces.json', import.meta.url), 'utf8'));
+  const objId = trace.scenarios.find((s) => s.id === 'ipc-call-reply').initialState.threads[0].id;
+  const linked = await bootRunJs('?scenario=ipc-call-reply&step=1&object=' + encodeURIComponent(objId));
+  assert.ok(countClass(linked.byId['theater-inspector'], 'insp-object') >= 1, 'the deep-linked object detail survives the initial load');
+  const plain = await bootRunJs('?scenario=ipc-call-reply&step=1');
+  assert.equal(countClass(plain.byId['theater-inspector'], 'insp-object'), 0, 'no object panel without ?object=');
+});
+
+test('run.js strict adoption rejects a trace with a dangling op reference', async () => {
+  // The lenient render fold would silently ignore this op; the adoption gate must
+  // reject the whole payload so a corrupt export is never cached/shown as kernel data.
+  const { byId } = await bootRunJs('?scenario=ipc-call-reply&step=0', (data) => {
+    const sc = data.scenarios.find((s) => s.id === 'ipc-call-reply');
+    sc.steps[1].delta.ops.push({ op: 'threadPatch', id: 'th.ghost', set: { priority: 1 } });
+  });
+  assert.equal(countClass(byId['theater-stage'], 'theater-chip'), 0, 'malformed trace is not adopted/rendered');
+  assert.ok(/invalid/i.test(byId['theater-status'].textContent || ''), 'an invalid-data status is shown');
 });

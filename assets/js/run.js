@@ -288,6 +288,46 @@
     return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt, untyped: untyped, services: services, vspace: vspace };
   }
 
+  /* Does an op's referenced entity exist in `state`? The render fold is
+     deliberately lenient (it silently ignores dangling refs so a partial trace
+     still draws), but the live-adoption gate must be strict — otherwise a
+     corrupt upstream export the CLI validator would reject could be cached and
+     shown as a "kernel" trace. This mirrors the throwing checks in
+     scripts/lib/trace-analysis.mjs without changing render behavior. */
+  function opRefsResolve(state, op) {
+    switch (op.op) {
+      case "setCurrent": return !op.thread || !!findThread(state, op.thread);
+      case "threadPatch": return !!findThread(state, op.id);
+      case "epEnqueue":
+      case "epDequeue": return !!findEndpoint(state, op.endpoint) && (!op.thread || !!findThread(state, op.thread));
+      case "rqInsert":
+      case "rqRemove": return !!findThread(state, op.thread);
+      case "notifPatch": return !!findNotification(state, op.id);
+      case "cdtInsert": return !op.parent || !!findCdtNode(state, op.parent);
+      case "cdtRemove":
+      case "cdtPatch": return !!findCdtNode(state, op.node || op.id);
+      case "untypedRetype":
+      case "untypedRevoke": return !!findUntyped(state, op.untyped);
+      case "servicePatch": return !!findService(state, op.id);
+      case "vspaceMap":
+      case "vspaceUnmap":
+      case "vspaceReject": return !!findVspace(state, op.vspace);
+      default: return true; // message / note / flowCheck / ifPolicy* are event-only
+    }
+  }
+  function scenarioRefsResolve(sc) {
+    var state = cloneState(sc.initialState);
+    var steps = sc.steps || [];
+    for (var i = 0; i < steps.length; i++) {
+      var ops = (steps[i].delta && Array.isArray(steps[i].delta.ops)) ? steps[i].delta.ops : [];
+      for (var j = 0; j < ops.length; j++) {
+        if (!opRefsResolve(state, ops[j])) return false;
+        applyOp(state, ops[j]); // advance so later ops see the effects of earlier ones
+      }
+    }
+    return true;
+  }
+
   /* Lightweight client-side validation — guard against malformed remote data. */
   function isValidTraceData(data) {
     if (!data || typeof data !== "object") return false;
@@ -296,6 +336,8 @@
     for (var i = 0; i < data.scenarios.length; i++) {
       var sc = data.scenarios[i];
       if (!sc || !sc.initialState || !Array.isArray(sc.steps) || !sc.steps.length) return false;
+      // Reference integrity first (reject dangling ops), then the fold must not throw.
+      if (!scenarioRefsResolve(sc)) return false;
       try { scenarioStates(sc); } catch (e) { return false; }
     }
     return true;
@@ -1131,10 +1173,13 @@
     clear(DOM.rail);
     var catalog = (app.data && app.data.invariantCatalog) || [];
     var step = currentStep();
-    var checkedSet = {};
-    if (step && step.invariants && step.invariants.checked) step.invariants.checked.forEach(function (id) { checkedSet[id] = 1; });
+    var checkedSet = {}, failedSet = {};
+    if (step && step.invariants) {
+      if (step.invariants.checked) step.invariants.checked.forEach(function (id) { checkedSet[id] = 1; });
+      if (step.invariants.failed) step.invariants.failed.forEach(function (id) { failedSet[id] = 1; });
+    }
     var sandboxResults = app.sandbox ? jsChecks(viewState()) : null;
-    var anyViolation = false, checkedCount = 0;
+    var anyViolation = false, checkedCount = 0, anyFailed = false;
 
     // Group catalog entries by subsystem (preserving catalog order within a group).
     var groups = {}, seen = [];
@@ -1154,6 +1199,10 @@
         if (sandboxResults && Object.prototype.hasOwnProperty.call(sandboxResults, inv.id)) {
           status = sandboxResults[inv.id] ? "holds" : "violated";
           if (!sandboxResults[inv.id]) anyViolation = true;
+        } else if (failedSet[inv.id]) {
+          // The recorded trace reports this invariant as not holding at this step.
+          status = "violated";
+          anyFailed = true;
         } else if (checkedSet[inv.id]) {
           status = "verified";
           checkedCount++;
@@ -1182,6 +1231,10 @@
           ? tt("run.rail_violated", "Sandbox: a structural check is violated (this is exactly what the Lean proofs forbid).")
           : tt("run.rail_sandbox_ok", "Sandbox: client-side structural checks pass (unverified).");
         summary.dataset.tone = anyViolation ? "bad" : "warn";
+      } else if (anyFailed) {
+        var nFailed = (step && step.invariants && step.invariants.failed && step.invariants.failed.length) || 0;
+        summary.textContent = nFailed + " " + tt("run.rail_failed", "machine-checked invariant(s) failed at this step");
+        summary.dataset.tone = "bad";
       } else {
         summary.textContent = tt("run.rail_all_hold", "All machine-checked invariants hold")
           + (checkedCount > 0 ? " · " + checkedCount + " " + tt("run.rail_checked_here", "checked at this step") : "");
@@ -1539,7 +1592,10 @@
     if (availableScenes(sc).indexOf(app.scene) === -1) app.scene = "system";
     if (!keepStep) app.stepIndex = 0;
     app.stepIndex = Math.max(0, Math.min(app.scenario.steps.length - 1, app.stepIndex));
-    app.selectedObject = "";
+    // Preserve a deep-linked selection (?object=) on the initial load so shared/reloaded
+    // links keep the highlighted chip + inspector; reset only on an actual scenario switch.
+    app.selectedObject = keepStep ? (app._urlObject || "") : "";
+    app._urlObject = null;
     app.sandboxState = null;
     if (DOM.scenarioSelect) DOM.scenarioSelect.value = sc.id;
     render();
@@ -1617,7 +1673,7 @@
     if (q.scenario) app.scenarioId = q.scenario;
     if (q.step != null && q.step !== "") { var n = parseInt(q.step, 10); if (!isNaN(n)) app.stepIndex = n; }
     if (q.scene && SCENES.indexOf(q.scene) !== -1) { app.scene = q.scene; app._urlScene = q.scene; }
-    if (q.object) app.selectedObject = q.object;
+    if (q.object) { app.selectedObject = q.object; app._urlObject = q.object; }
     if (q.sandbox === "1") app.sandbox = true;
   }
 

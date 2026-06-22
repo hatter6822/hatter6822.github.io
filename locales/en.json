@@ -91,6 +91,7 @@
     "rail_ok": "All machine-checked invariants hold at this step.",
     "rail_all_hold": "All machine-checked invariants hold",
     "rail_checked_here": "checked at this step",
+    "rail_failed": "machine-checked invariant(s) failed at this step",
     "rail_violated": "Sandbox: a structural check is violated — exactly what the Lean proofs forbid.",
     "rail_sandbox_ok": "Sandbox: client-side structural checks pass (unverified).",
     "step_detail": "Step detail",
