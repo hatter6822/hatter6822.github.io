@@ -95,6 +95,14 @@
 .theater-stage-shell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .theater-svg { display: block; max-width: 100%; height: auto; }
 
+/* ── Scene tabs ────────────────────────────────────────────── */
+.stage-header { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.55rem; }
+.stage-header h2 { margin: 0; }
+.scene-tabs { display: flex; gap: 0.3rem; }
+.scene-tab { font-size: 0.74rem; padding: 0.25rem 0.7rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); color: var(--text-muted); cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.scene-tab:hover { color: var(--text); }
+.scene-tab[data-active="true"] { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, var(--border)); background: color-mix(in oklab, var(--accent) 12%, transparent); }
+
 /* ── SVG chips & boxes ─────────────────────────────────────── */
 .box-frame { fill: color-mix(in oklab, var(--surface-2) 65%, transparent); stroke: var(--border); stroke-width: 1; }
 .box-frame[data-accent="endpoint"] { stroke: color-mix(in oklab, var(--accent) 55%, var(--border)); }
@@ -128,6 +136,13 @@
 
 .msg-envelope { fill: color-mix(in oklab, var(--accent) 35%, var(--surface)); stroke: var(--accent); stroke-width: 1.2; }
 .msg-flap { fill: none; stroke: var(--accent); stroke-width: 1.2; }
+
+/* ── Scheduler scene (budget bars + dimmed non-runnable) ───── */
+.chip-rect[data-dim="true"] { opacity: 0.55; }
+.sched-chip .chip-sub { font-size: 0.66rem; }
+.budget-track { fill: color-mix(in oklab, var(--surface-2) 85%, transparent); stroke: var(--border); stroke-width: 0.75; }
+.budget-fill { fill: var(--green); }
+.budget-fill[data-empty="true"] { fill: var(--red); }
 
 /* ── Invariant rail ────────────────────────────────────────── */
 .invariant-card #rail-summary { font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.4rem 0.55rem; border-radius: var(--radius); }

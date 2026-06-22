@@ -73,6 +73,7 @@
   function cacheDom() {
     DOM.status = document.getElementById("theater-status");
     DOM.stage = document.getElementById("theater-stage");
+    DOM.sceneTabs = document.getElementById("theater-scenes");
     DOM.rail = document.getElementById("invariant-rail");
     DOM.inspector = document.getElementById("theater-inspector");
     DOM.log = document.getElementById("theater-log");
@@ -331,15 +332,27 @@
   function renderStage() {
     if (!DOM.stage) return;
     clear(DOM.stage);
+    renderSceneTabs();
     var state = viewState();
     if (!state) return;
     var step = currentStep();
     var touched = step ? touchedEntities(step.delta) : { threads: {}, endpoints: {}, notifications: {} };
-    var positions = {}; // id -> {x,y} center, for message animation
 
     var root = svg("svg", { "class": "theater-svg", xmlns: SVG_NS });
     root.setAttribute("role", "img");
-    root.setAttribute("aria-label", tt("run.stage_aria", "Kernel system state visualization"));
+    var dims = app.scene === "scheduler"
+      ? renderSchedulerScene(root, state, step, touched)
+      : renderSystemScene(root, state, step, touched);
+    root.setAttribute("aria-label", dims.aria || tt("run.stage_aria", "Kernel system state visualization"));
+    root.setAttribute("viewBox", "0 0 " + dims.width + " " + dims.height);
+    root.setAttribute("width", String(dims.width));
+    root.setAttribute("height", String(dims.height));
+    DOM.stage.appendChild(root);
+    if (step && !prefersReducedMotion()) animateMessages(root, step, dims.positions || {});
+  }
+
+  function renderSystemScene(root, state, step, touched) {
+    var positions = {}; // id -> {x,y} center, for message animation
 
     // Determine which threads are "in a queue" (endpoint/notification) so the
     // off-queue blocked lane only shows reply/call-blocked threads.
@@ -452,13 +465,7 @@
 
     var width = rightX + BOX_W + MARGIN;
     var height = Math.max(leftBottom, ry, 220) + MARGIN;
-    root.setAttribute("viewBox", "0 0 " + width + " " + height);
-    root.setAttribute("width", String(width));
-    root.setAttribute("height", String(height));
-    DOM.stage.appendChild(root);
-
-    // Message envelope animation for the current step.
-    if (step && !prefersReducedMotion()) animateMessages(root, step, positions);
+    return { width: width, height: height, positions: positions, aria: tt("run.stage_aria", "Kernel system state visualization") };
   }
 
   function animateMessages(root, step, positions) {
@@ -485,6 +492,122 @@
         if (flap.parentNode) flap.parentNode.removeChild(flap);
       }
     });
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     Scene switching + Scheduler scene
+     ════════════════════════════════════════════════════════════ */
+
+  var SCENES = ["system", "scheduler"];
+
+  function renderSceneTabs() {
+    if (!DOM.sceneTabs) return;
+    clear(DOM.sceneTabs);
+    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler") };
+    SCENES.forEach(function (id) {
+      var active = app.scene === id;
+      var b = el("button", { "class": "scene-tab", type: "button", role: "tab", dataset: { scene: id, active: active ? "true" : "false" }, text: labels[id], onclick: function () { setScene(id); } });
+      b.setAttribute("aria-selected", active ? "true" : "false");
+      DOM.sceneTabs.appendChild(b);
+    });
+  }
+
+  function setScene(id) {
+    if (SCENES.indexOf(id) === -1 || app.scene === id) return;
+    app.scene = id;
+    render();
+    syncUrl();
+  }
+
+  function renderSchedulerScene(root, state, step, touched) {
+    var positions = {};
+    var SBW = 248, SPAD = BOX_PAD, SW = SBW - 2 * SPAD, SCH = 58, SGAP = 9;
+    var current = state.current && state.current.thread;
+    var core = (state.current && state.current.core) || 0;
+
+    function buildSchedChip(th, opts) {
+      opts = opts || {};
+      var g = svg("g", { "class": "theater-chip sched-chip", role: "button", tabindex: "0" });
+      g.setAttribute("data-thread", th.id);
+      var color = STATE_COLORS[th.threadState] || "var(--text-muted)";
+      var rect = svg("rect", { width: SW, height: SCH, rx: 7, "class": "chip-rect" });
+      rect.setAttribute("stroke", color);
+      if (opts.selected) rect.setAttribute("data-selected", "true");
+      if (opts.touched) rect.setAttribute("data-touched", "true");
+      if (opts.current) rect.setAttribute("data-current", "true");
+      if (opts.dim) rect.setAttribute("data-dim", "true");
+      g.appendChild(rect);
+      var dot = svg("circle", { cx: 13, cy: 16, r: 5, "class": "chip-dot" }); dot.setAttribute("fill", color); g.appendChild(dot);
+      var name = svg("text", { x: 26, y: 18, "class": "chip-name" }); name.textContent = th.label || th.id; g.appendChild(name);
+      var sub = svg("text", { x: 26, y: 33, "class": "chip-sub" });
+      var dom = (th.domain !== undefined && th.domain !== null) ? (" · dom " + th.domain) : "";
+      var dl = (th.deadline !== undefined && th.deadline !== null) ? (" · dl " + th.deadline) : "";
+      sub.textContent = "prio " + th.priority + dom + dl;
+      g.appendChild(sub);
+      // CBS budget bar
+      var max = Number(th.budgetMax) || 5;
+      var cur = Number(th.timeSlice); if (isNaN(cur)) cur = max;
+      var ratio = max ? Math.max(0, Math.min(1, cur / max)) : 0;
+      var blab = svg("text", { x: 26, y: 50, "class": "chip-sub" }); blab.textContent = "budget " + cur + "/" + max; g.appendChild(blab);
+      var barX = 100, barY = 43, barW = SW - barX - 8, barH = 7;
+      var track = svg("rect", { x: barX, y: barY, width: barW, height: barH, rx: 3, "class": "budget-track" }); g.appendChild(track);
+      var fill = svg("rect", { x: barX, y: barY, width: Math.max(0, barW * ratio), height: barH, rx: 3, "class": "budget-fill" });
+      fill.setAttribute("data-empty", cur <= 0 ? "true" : "false");
+      g.appendChild(fill);
+      g.addEventListener("click", function () { selectObject(th.id); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectObject(th.id); } });
+      return g;
+    }
+
+    function placeSchedBox(startY, title, accent, members, dim) {
+      var box = buildBox(title, accent);
+      box.setAttribute("transform", "translate(" + MARGIN + "," + startY + ")");
+      var bodyH = Math.max(SCH, members.length * (SCH + SGAP) - (members.length ? SGAP : 0));
+      var frame = svg("rect", { x: -SPAD, y: -2, width: SBW, height: bodyH + 2 * SPAD, rx: 9, "class": "box-frame" });
+      if (accent) frame.setAttribute("data-accent", accent);
+      box.insertBefore(frame, box.firstChild);
+      var cy = SPAD;
+      if (!members.length) {
+        var empty = svg("text", { x: SBW / 2 - SPAD, y: bodyH / 2 + SPAD, "class": "box-empty", "text-anchor": "middle" });
+        empty.textContent = tt("run.empty", "— empty —");
+        box.appendChild(empty);
+      }
+      members.forEach(function (th) {
+        var chip = buildSchedChip(th, { touched: !!touched.threads[th.id], current: th.id === current, selected: th.id === app.selectedObject, dim: dim });
+        chip.setAttribute("transform", "translate(0," + cy + ")");
+        positions[th.id] = { x: MARGIN + SW / 2, y: startY + cy + SCH / 2 };
+        box.appendChild(chip);
+        cy += SCH + SGAP;
+      });
+      root.appendChild(box);
+      return startY + bodyH + 2 * SPAD + BOX_HEADER + ZONE_GAP;
+    }
+
+    var y = MARGIN + BOX_HEADER;
+    var cur = current ? findThread(state, current) : null;
+    y = placeSchedBox(y, tt("run.cpu", "CPU · core " + core), "running", cur ? [cur] : [], false);
+
+    // Ready threads grouped into priority buckets (descending) — the RunQueue structure.
+    var rq = (state.runQueue && state.runQueue[String(core)]) || [];
+    var buckets = {}, order = [];
+    rq.forEach(function (id) {
+      var th = findThread(state, id) || { id: id, label: id, priority: "?", threadState: "Ready" };
+      var p = th.priority;
+      if (!(p in buckets)) { buckets[p] = []; order.push(p); }
+      buckets[p].push(th);
+    });
+    order.sort(function (a, b) { return Number(b) - Number(a); });
+    if (!order.length) {
+      y = placeSchedBox(y, tt("run.runqueue", "Run queue"), "ready", [], false);
+    } else {
+      order.forEach(function (p) { y = placeSchedBox(y, tt("run.priority", "Priority") + " " + p, "ready", buckets[p], false); });
+    }
+
+    // Threads the scheduler ignores (blocked / not runnable), shown dimmed.
+    var blocked = (state.threads || []).filter(isBlocked);
+    if (blocked.length) y = placeSchedBox(y, tt("run.not_runnable", "Not runnable (blocked)"), "blocked", blocked, true);
+
+    return { width: SBW + 2 * MARGIN, height: Math.max(y, 220) + MARGIN - ZONE_GAP, positions: positions, aria: tt("run.scheduler_aria", "Kernel scheduler view: CPU, priority buckets, and budgets") };
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -764,7 +887,11 @@
     app.scenario = sc;
     app.scenarioId = sc.id;
     app.states = scenarioStates(sc);
-    app.scene = sc.primaryScene || "system";
+    // On the first load, honor an explicit URL scene; on scenario switch, reset to the
+    // scenario's preferred scene.
+    if (keepStep) { app.scene = app._urlScene || sc.primaryScene || "system"; app._urlScene = null; }
+    else { app.scene = sc.primaryScene || "system"; }
+    if (SCENES.indexOf(app.scene) === -1) app.scene = "system";
     if (!keepStep) app.stepIndex = 0;
     app.stepIndex = Math.max(0, Math.min(app.scenario.steps.length - 1, app.stepIndex));
     app.selectedObject = "";
@@ -833,6 +960,7 @@
     var params = [];
     if (app.scenarioId) params.push("scenario=" + encodeURIComponent(app.scenarioId));
     params.push("step=" + app.stepIndex);
+    if (app.scene && app.scene !== "system") params.push("scene=" + encodeURIComponent(app.scene));
     if (app.selectedObject) params.push("object=" + encodeURIComponent(app.selectedObject));
     if (app.sandbox) params.push("sandbox=1");
     var qs = "?" + params.join("&");
@@ -843,6 +971,7 @@
     var q = parseQuery();
     if (q.scenario) app.scenarioId = q.scenario;
     if (q.step != null && q.step !== "") { var n = parseInt(q.step, 10); if (!isNaN(n)) app.stepIndex = n; }
+    if (q.scene && SCENES.indexOf(q.scene) !== -1) { app.scene = q.scene; app._urlScene = q.scene; }
     if (q.object) app.selectedObject = q.object;
     if (q.sandbox === "1") app.sandbox = true;
   }

@@ -260,6 +260,93 @@
           "invariants": { "allHold": true, "checked": ["notificationWaiterConsistent", "uniqueWaiters", "blockedOnReceiveNotRunnable"], "failed": [] }
         }
       ]
+    },
+    {
+      "id": "edf-budget-preempt",
+      "title": "EDF tie-break with CBS budget",
+      "summary": "Two threads share a priority level; when the running thread's Constant-Bandwidth-Server budget is exhausted it yields, and Earliest-Deadline-First breaks the priority tie by selecting the thread with the earliest deadline.",
+      "tags": ["scheduler"],
+      "primaryScene": "scheduler",
+      "objects": {
+        "th.a": { "label": "alpha", "kind": "TCB" },
+        "th.b": { "label": "beta", "kind": "TCB" },
+        "th.c": { "label": "gamma", "kind": "TCB" }
+      },
+      "initialState": {
+        "current": { "thread": "th.a", "core": 0 },
+        "threads": [
+          { "id": "th.a", "label": "alpha", "priority": 180, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 1, "budgetMax": 4, "deadline": 30, "cspaceRoot": "cn.a", "vspaceRoot": "vs.a", "schedContext": "sc.a", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.b", "label": "beta", "priority": 180, "domain": 0, "ipcState": "ready", "threadState": "Ready", "timeSlice": 4, "budgetMax": 4, "deadline": 20, "cspaceRoot": "cn.b", "vspaceRoot": "vs.b", "schedContext": "sc.b", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.c", "label": "gamma", "priority": 150, "domain": 0, "ipcState": "ready", "threadState": "Ready", "timeSlice": 4, "budgetMax": 4, "deadline": 50, "cspaceRoot": "cn.c", "vspaceRoot": "vs.c", "schedContext": "sc.c", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": ["th.b", "th.c"] }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "EDF-000",
+          "actor": null,
+          "narrative": "Alpha is running on its last unit of budget. Beta (same priority 180, earlier deadline 20) and gamma (priority 150) wait in the run queue's priority buckets.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "cbsBudgetBounded"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "timer",
+          "title": "timer tick — alpha budget exhausted",
+          "traceTag": "EDF-001",
+          "actor": "th.a",
+          "narrative": "A timer interrupt charges alpha's Constant-Bandwidth-Server budget to zero. With no budget left, alpha must yield: it is returned to the priority-180 bucket and the core awaits a reschedule.",
+          "sourceRefs": [
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" },
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.a", "set": { "timeSlice": 0, "threadState": "Ready", "ipcState": "ready" } },
+            { "op": "rqInsert", "core": 0, "thread": "th.a" },
+            { "op": "setCurrent", "thread": null }
+          ] },
+          "invariants": { "allHold": true, "checked": ["schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "cbsBudgetBounded"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "schedule",
+          "title": "EDF selects beta (deadline 20)",
+          "traceTag": "EDF-002",
+          "actor": "scheduler",
+          "narrative": "The priority-180 bucket now holds beta (deadline 20) and alpha (deadline 30). Earliest-Deadline-First breaks the tie in beta's favour; the kernel restores beta and makes it current.",
+          "sourceRefs": [
+            { "label": "isBetterCandidate", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
+            { "label": "chooseBestInBucket", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
+            { "label": "chooseThread", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" }
+          ],
+          "delta": { "ops": [
+            { "op": "rqRemove", "core": 0, "thread": "th.b" },
+            { "op": "threadPatch", "id": "th.b", "set": { "threadState": "Running" } },
+            { "op": "setCurrent", "thread": "th.b", "core": 0 }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "schedulerQueueCurrentConsistent"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "timer",
+          "title": "timer tick — beta runs",
+          "traceTag": "EDF-003",
+          "actor": "th.b",
+          "narrative": "Beta executes; a timer tick charges one unit of its budget. Budget remains, so the Constant-Bandwidth-Server keeps beta running with no preemption.",
+          "sourceRefs": [
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.b", "set": { "timeSlice": 3 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "cbsBudgetBounded"], "failed": [] }
+        }
+      ]
     }
   ]
 }

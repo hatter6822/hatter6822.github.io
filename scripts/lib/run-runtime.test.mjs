@@ -137,3 +137,25 @@ test('run.js restores deep-link state (scenario + step) from the URL', async () 
   assert.equal(byId['scenario-select'].value, 'notification-signal');
   assert.equal(byId['theater-step-label'].textContent, '3 / 4');
 });
+
+test('run.js renders the Scheduler scene with CBS budget bars', async () => {
+  const { byId } = await bootRunJs('?scenario=edf-budget-preempt&step=0');
+  // edf scenario declares primaryScene "scheduler"
+  assert.ok(countClass(byId['theater-stage'], 'sched-chip') > 0, 'scheduler chips render');
+  assert.ok(countClass(byId['theater-stage'], 'budget-fill') > 0, 'budget bars render');
+});
+
+test('run.js honors a URL scene override on a system-default scenario', async () => {
+  const { byId } = await bootRunJs('?scenario=ipc-call-reply&scene=scheduler&step=0');
+  assert.ok(countClass(byId['theater-stage'], 'sched-chip') > 0, 'scene=scheduler forces the scheduler scene');
+});
+
+test('run.js scene tabs switch the rendered scene', async () => {
+  const { byId } = await bootRunJs('?scenario=ipc-call-reply&step=0');
+  assert.equal(countClass(byId['theater-stage'], 'sched-chip'), 0, 'starts on the system scene');
+  const tabs = byId['theater-scenes'].childNodes;
+  const schedTab = tabs.find((t) => t.dataset && t.dataset.scene === 'scheduler');
+  assert.ok(schedTab, 'a scheduler tab exists');
+  schedTab._fire('click');
+  assert.ok(countClass(byId['theater-stage'], 'sched-chip') > 0, 'clicking the tab switches to the scheduler scene');
+});

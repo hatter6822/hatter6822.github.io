@@ -137,7 +137,10 @@
 
         <div class="theater-grid">
           <div class="theater-card">
-            <h2 data-i18n="run.stage">System state</h2>
+            <div class="stage-header">
+              <h2 data-i18n="run.stage">Stage</h2>
+              <div id="theater-scenes" class="scene-tabs" role="tablist" aria-label="Scene" data-i18n-aria-label="run.scene"></div>
+            </div>
             <div class="theater-stage-shell" id="theater-stage-shell" tabindex="0" role="region" aria-label="Kernel system state" aria-live="polite">
               <div id="theater-stage"></div>
             </div>

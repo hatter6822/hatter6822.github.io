@@ -116,10 +116,11 @@ All transport state is mirrored to the URL for deep links (§9).
 
 ### 3.2 The Stage (scenes)
 
-The stage renders one **scene** at a time. Each scene is an SVG projection of the
+The stage renders one **scene** at a time, switchable via a tab strip in the stage
+header (and the `&scene=` URL parameter). Each scene is an SVG projection of the
 current `SystemState`, laid out so that a kernel object lives in exactly the
-structural location the kernel itself puts it. Phase 1 ships the **System scene**;
-later phases add focused lenses (§5).
+structural location the kernel itself puts it. Phase 1 ships the **System** and
+**Scheduler** scenes; later phases add more focused lenses (§5).
 
 The **System scene** is a two-column diagram:
 
@@ -139,6 +140,15 @@ A **thread chip** shows the thread label, a state dot colored by `threadState`
 (Running / Ready / Blocked / Inactive), the abbreviated `ipcState`, and the priority.
 A `pipBoost` badge appears when priority inheritance is active. Chips are clickable
 (→ inspector) and keyboard-focusable.
+
+The **Scheduler scene** re-projects the same state through the scheduler's eyes: the
+current thread sits in a **CPU · core _k_** box, ready threads are grouped into
+**priority buckets** (descending — the `RunQueue`'s `HashMap Priority (List ThreadId)`
+shape), and threads the scheduler ignores fall into a dimmed **not-runnable** lane.
+Each chip carries its **domain**, its **EDF deadline**, and a **CBS budget bar**
+(`timeSlice / budgetMax`, turning red at zero) — so a viewer can *see* why
+Earliest-Deadline-First breaks a priority tie, and watch a budget deplete until the
+thread yields. The bundled `edf-budget-preempt` scenario drives exactly this.
 
 **Motion communicates causality.** Between steps:
 
@@ -317,7 +327,7 @@ scenes are focused lenses over the same fold engine and (extended) state project
 | Scene | Shows | Backing kernel concepts |
 |-------|-------|------------------------|
 | **System** *(shipped)* | CPU, run queue, blocked lane, endpoints, notifications, message flow. | `SchedulerState`, `Endpoint`, `Notification`, `ThreadIpcState`. |
-| **Scheduler** | Per-core/per-domain priority buckets, EDF deadlines, CBS budget bars, PIP boost chains, context-switch timeline. | `RunQueue`, `chooseThread`, `cbs_bandwidth_bounded`, `blockingChainAcyclic`. |
+| **Scheduler** *(shipped)* | Per-core priority buckets, EDF deadlines, CBS budget bars, dimmed not-runnable lane. *(Per-domain partitioning and PIP boost chains are future depth.)* | `RunQueue`, `chooseThread`, `cbs_bandwidth_bounded`, `blockingChainAcyclic`. |
 | **IPC** | Endpoints with dual queues, call/reply pairing, reply objects, donation chains, badge/notification signalling. | `IPC.DualQueue.*`, `donationChainAcyclic`, `notificationSignal/Wait`. |
 | **Capabilities / CDT** | CNode slots, the capability derivation tree, mint/copy/move/delete/revoke, rights badges. | `CapDerivationTree` (`childMap`/`parentMap`), `cspaceRevokeCdtStrict`. |
 | **Memory / VSpace** | Untyped regions with watermark bars, retype → typed objects, page-table mappings, W^X flags, TLB entries, ASIDs. | `UntypedObject`, `retypeFromUntyped`, `VSpace`, `TlbModel`. |
@@ -387,7 +397,7 @@ malformed remote data can never corrupt the view.
 | `run.html` | Page skeleton (mirrors `map.html`: CSP, theme-init, i18n, nav, bg, footer). |
 | `assets/js/run.js` | Runtime: fold engine, SVG stage, rail, inspector, log, transport, sandbox, data load. |
 | `assets/css/run.css` | Page styles (reuses `style.css` tokens). |
-| `data/execution-traces.json` | Bundled reference fixture (2 scenarios, 11 steps). |
+| `data/execution-traces.json` | Bundled reference fixture (3 scenarios, 15 steps). |
 | `scripts/lib/trace-analysis.mjs` | Canonical fold engine + validator (Node). |
 | `scripts/lib/trace-analysis.test.mjs` | Unit tests (14 tests, `node:test`). |
 | `scripts/validate-traces.mjs` | CLI validator (Tier 2). |
@@ -423,9 +433,10 @@ malformed remote data can never corrupt the view.
 
 ## 9. URL state & deep links
 
-`run.html?scenario=<id>&step=<n>&object=<id>&sandbox=1` (Phase 2 adds `&scene=`). State
+`run.html?scenario=<id>&step=<n>&scene=<system|scheduler>&object=<id>&sandbox=1`. State
 is written with `history.replaceState` (no history spam) and parsed on load, so any
-step of any scenario is shareable and bookmarkable — including a selected object.
+step of any scenario in any scene is shareable and bookmarkable — including a selected
+object.
 
 ## 10. Security posture
 
@@ -442,28 +453,32 @@ step of any scenario is shareable and bookmarkable — including a selected obje
 | Tier | Scope | Command |
 |------|-------|---------|
 | 0 | JS syntax | `node --check assets/js/run.js` |
-| 1 | Unit (fold engine + validator) | `node scripts/lib/trace-analysis.test.mjs` |
+| 1 | Unit: fold engine + validator, and a headless `run.js` execution test | `node scripts/lib/trace-analysis.test.mjs` · `node scripts/lib/run-runtime.test.mjs` |
 | 2 | Bundled trace integrity | `node scripts/validate-traces.mjs` |
 | 3 | Manual browser (desktop + mobile, light + dark, reduced-motion) | — |
 | 4 | Playwright transport/stepping probe *(Phase 2)* | `scripts/theater-smoke.py` |
 
-Phase 1 also ships a headless DOM-shim smoke check used during development to execute
-`run.js` end-to-end (render → step → sandbox-perturb → invariant violation) without a
-browser; it can be promoted to a committed Tier-1 check in Phase 2.
+`scripts/lib/run-runtime.test.mjs` boots the real `run.js` inside a `vm` context backed
+by a minimal DOM shim (no jsdom dependency) and asserts the end-to-end pipeline — data
+load → stage render → transport stepping → scene switching → deep-link state → sandbox
+perturbation breaking a structural check — all without a browser.
 
 ---
 
 ## 12. Phased roadmap
 
-- **Phase 1 — Vertical slice (shipped).** Schema v1, fold engine + tests + validator,
-  the System scene, invariant rail, inspector, event log, transport, deep-link URL
-  state, the clearly-labeled sandbox, full chrome/i18n/theming, and a 2-scenario
-  reference fixture. Honest provenance via the source badge + disclaimer.
+- **Phase 1 — Vertical slice (shipped).** Schema v1, fold engine + tests + validator +
+  headless runtime test, the **System and Scheduler scenes** with tab switching, the
+  invariant rail, inspector, event log, transport, deep-link URL state (incl. `scene`),
+  the clearly-labeled sandbox, full chrome/i18n/theming, and a 3-scenario reference
+  fixture (IPC call/reply, notification signal/wait, EDF budget preemption). Honest
+  provenance via the source badge + disclaimer.
 - **Phase 2 — Upstream truth + sync.** `TraceExport.lean` + CI artifact;
   `sync-trace-data.mjs`; flip the bundled snapshot to `source: "kernel"`; Playwright
   probe; promote the DOM smoke check.
-- **Phase 3 — Scenes.** Scheduler, IPC, Capabilities/CDT scenes with extended state
-  projection and scene tabs (`&scene=`).
+- **Phase 3 — More scenes.** IPC and Capabilities/CDT scenes (the scene-tab
+  infrastructure and the Scheduler scene already shipped in Phase 1); per-domain
+  scheduler partitioning and PIP boost chains.
 - **Phase 4 — Memory, Services, Information-flow scenes.** Watermark/retype/VSpace,
   service DAG lifecycle, security-label lattice with non-interference annotation.
 - **Phase 5 — Depth.** State diff ribbon between arbitrary steps; per-step causality
