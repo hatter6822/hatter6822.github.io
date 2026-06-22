@@ -171,7 +171,7 @@
           "actor": "th.client",
           "narrative": "A timer interrupt charges the running thread's scheduling-context budget and decrements its time slice. Budget remains, so the Constant-Bandwidth-Server admits the thread to keep running with no preemption.",
           "sourceRefs": [
-            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Scheduler.Operations.Core" },
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Architecture.Adapter" },
             { "label": "SchedContext", "module": "SeLe4n.Kernel.Scheduler.Invariant" }
           ],
           "delta": { "ops": [
@@ -313,7 +313,7 @@
           "actor": "th.a",
           "narrative": "A timer interrupt charges alpha's Constant-Bandwidth-Server budget to zero. With no budget left, alpha must yield: it is returned to the priority-180 bucket and the core awaits a reschedule.",
           "sourceRefs": [
-            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Scheduler.Operations.Core" },
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Architecture.Adapter" },
             { "label": "SchedContext", "module": "SeLe4n.Kernel.Scheduler.Invariant" }
           ],
           "delta": { "ops": [
@@ -935,7 +935,7 @@
           "narrative": "w0 exhausts its budget on core 0 and yields. Core 0 selects w2 — independently of core 1, which keeps running w1.",
           "sourceRefs": [
             { "label": "chooseThread", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
-            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Scheduler.Operations.Core" }
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Architecture.Adapter" }
           ],
           "delta": { "ops": [
             { "op": "threadPatch", "id": "th.w0", "set": { "threadState": "Ready", "timeSlice": 0 } },
@@ -972,7 +972,7 @@
           "actor": "th.w1",
           "narrative": "A per-core timer on core 1 charges w1's budget. Budget remains, so w1 keeps running — independently of core 0.",
           "sourceRefs": [
-            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Scheduler.Operations.Core" },
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.Architecture.Adapter" },
             { "label": "SchedContext", "module": "SeLe4n.Kernel.Scheduler.Invariant" }
           ],
           "delta": { "ops": [
