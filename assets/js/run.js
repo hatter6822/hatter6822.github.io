@@ -50,7 +50,7 @@
   var SCHEMA_VERSION = 1;
 
   var PLAY_INTERVAL_MS = 1100;
-  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "untypedRetype", "untypedRevoke", "flowCheck", "ifPolicyAdd", "ifPolicyRemove", "servicePatch", "message", "note"];
+  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "untypedRetype", "untypedRevoke", "flowCheck", "ifPolicyAdd", "ifPolicyRemove", "servicePatch", "vspaceMap", "vspaceUnmap", "vspaceReject", "message", "note"];
 
   /* Layout geometry for the SVG stage. */
   var BOX_W = 188;
@@ -118,6 +118,7 @@
   function findUntyped(s, id) { for (var i = 0; i < (s.untyped || []).length; i++) if (s.untyped[i].id === id) return s.untyped[i]; return null; }
   function findDomain(s, id) { var ds = (s.infoflow && s.infoflow.domains) || []; for (var i = 0; i < ds.length; i++) if (ds[i].id === id) return ds[i]; return null; }
   function findService(s, id) { for (var i = 0; i < (s.services || []).length; i++) if (s.services[i].id === id) return s.services[i]; return null; }
+  function findVspace(s, id) { for (var i = 0; i < (s.vspace || []).length; i++) if (s.vspace[i].id === id) return s.vspace[i]; return null; }
 
   function rqInsertOrdered(state, core, threadId) {
     var key = String(core);
@@ -230,8 +231,21 @@
         if (sv) for (var k4 in op.set) if (Object.prototype.hasOwnProperty.call(op.set, k4)) sv[k4] = op.set[k4];
         return state;
       }
+      case "vspaceMap": {
+        var vs = findVspace(state, op.vspace);
+        if (vs && op.mapping && op.mapping.vaddr) {
+          if (!Array.isArray(vs.mappings)) vs.mappings = [];
+          if (!vs.mappings.some(function (mm) { return mm.vaddr === op.mapping.vaddr; })) vs.mappings.push(op.mapping);
+        }
+        return state;
+      }
+      case "vspaceUnmap": {
+        var vsu = findVspace(state, op.vspace);
+        if (vsu) vsu.mappings = (vsu.mappings || []).filter(function (mm) { return mm.vaddr !== op.vaddr; });
+        return state;
+      }
       default:
-        return state; // message / note / flowCheck are event-only
+        return state; // message / note / flowCheck / vspaceReject are event-only
     }
   }
 
@@ -250,7 +264,7 @@
   }
 
   function touchedEntities(delta) {
-    var threads = {}, endpoints = {}, notifications = {}, cdt = {}, untyped = {}, services = {};
+    var threads = {}, endpoints = {}, notifications = {}, cdt = {}, untyped = {}, services = {}, vspace = {};
     var ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
     for (var i = 0; i < ops.length; i++) {
       var op = ops[i];
@@ -264,9 +278,10 @@
       else if (op.op === "cdtPatch") { if (op.id) cdt[op.id] = 1; }
       else if (op.op === "untypedRetype" || op.op === "untypedRevoke") { if (op.untyped) untyped[op.untyped] = 1; }
       else if (op.op === "servicePatch") { if (op.id) services[op.id] = 1; }
+      else if (op.op === "vspaceMap" || op.op === "vspaceUnmap" || op.op === "vspaceReject") { if (op.vspace) vspace[op.vspace] = 1; }
       else if (op.op === "message") { if (op.from) threads[op.from] = 1; if (op.to) threads[op.to] = 1; if (op.endpoint) endpoints[op.endpoint] = 1; }
     }
-    return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt, untyped: untyped, services: services };
+    return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt, untyped: untyped, services: services, vspace: vspace };
   }
 
   /* Lightweight client-side validation — guard against malformed remote data. */
@@ -414,6 +429,7 @@
     var dims = app.scene === "scheduler" ? renderSchedulerScene(root, state, step, touched)
       : app.scene === "capability" ? renderCapabilityScene(root, state, step, touched)
       : app.scene === "memory" ? renderMemoryScene(root, state, step, touched)
+      : app.scene === "vspace" ? renderVspaceScene(root, state, step, touched)
       : app.scene === "infoflow" ? renderInfoflowScene(root, state, step, touched)
       : app.scene === "services" ? renderServicesScene(root, state, step, touched)
       : renderSystemScene(root, state, step, touched);
@@ -572,15 +588,16 @@
      Scene switching + Scheduler scene
      ════════════════════════════════════════════════════════════ */
 
-  var SCENES = ["system", "scheduler", "capability", "memory", "infoflow", "services"];
+  var SCENES = ["system", "scheduler", "capability", "memory", "vspace", "infoflow", "services"];
 
   // Scenes available for a scenario: System/Scheduler always; the rest only when the
-  // scenario carries the matching state (CDT / untyped / flow policy / service graph).
+  // scenario carries the matching state (CDT / untyped / vspace / flow policy / services).
   function availableScenes(scenario) {
     var out = ["system", "scheduler"];
     var init = scenario && scenario.initialState;
     if (init && init.cdt) out.push("capability");
     if (init && init.untyped) out.push("memory");
+    if (init && init.vspace) out.push("vspace");
     if (init && init.infoflow) out.push("infoflow");
     if (init && init.services) out.push("services");
     return out;
@@ -589,7 +606,7 @@
   function renderSceneTabs() {
     if (!DOM.sceneTabs) return;
     clear(DOM.sceneTabs);
-    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities"), memory: tt("run.scene_memory", "Memory"), infoflow: tt("run.scene_infoflow", "Information flow"), services: tt("run.scene_services", "Services") };
+    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities"), memory: tt("run.scene_memory", "Memory"), vspace: tt("run.scene_vspace", "VSpace"), infoflow: tt("run.scene_infoflow", "Information flow"), services: tt("run.scene_services", "Services") };
     availableScenes(app.scenario).forEach(function (id) {
       var active = app.scene === id;
       var b = el("button", { "class": "scene-tab", type: "button", role: "tab", dataset: { scene: id, active: active ? "true" : "false" }, text: labels[id], onclick: function () { setScene(id); } });
@@ -977,6 +994,63 @@
     return { width: Math.max(maxX, 240) + MARGIN, height: Math.max(maxY, 220) + MARGIN, positions: positions, aria: tt("run.services_aria", "Service dependency graph and lifecycle status") };
   }
 
+  function renderVspaceScene(root, state, step, touched) {
+    var positions = {};
+    var spaces = state.vspace || [];
+    var BOXW = 460, ROWH = 26, PAD = 12, HEADH = 26, GAP = 22;
+    var rejectByVs = {};
+    var ops = (step && step.delta && step.delta.ops) || [];
+    ops.forEach(function (op) { if (op.op === "vspaceReject" && op.vspace) rejectByVs[op.vspace] = op.mapping; });
+
+    var y = MARGIN + BOX_HEADER;
+    spaces.forEach(function (vs) {
+      var maps = vs.mappings || [];
+      var reject = rejectByVs[vs.id];
+      var rowCount = Math.max(1, maps.length + (reject ? 1 : 0));
+      var bodyH = HEADH + rowCount * ROWH + PAD;
+      var g = svg("g", { "class": "theater-chip vs-space", transform: "translate(" + MARGIN + "," + y + ")", role: "button", tabindex: "0" });
+      g.setAttribute("data-vspace", vs.id);
+      var frame = svg("rect", { x: -PAD, y: -2, width: BOXW + 2 * PAD, height: bodyH, rx: 9, "class": "box-frame vs-frame" });
+      frame.setAttribute("data-accent", "memory");
+      if (touched.vspace && touched.vspace[vs.id]) frame.setAttribute("data-touched", "true");
+      if (vs.id === app.selectedObject) frame.setAttribute("data-selected", "true");
+      g.appendChild(frame);
+      var label = (objectMeta(vs.id) && objectMeta(vs.id).label) || vs.label || vs.id;
+      var title = svg("text", { x: 0, y: 15, "class": "chip-name" });
+      title.textContent = label + "  ·  ASID " + (vs.asid != null ? vs.asid : "?") + "  ·  " + maps.length + " page" + (maps.length === 1 ? "" : "s");
+      g.appendChild(title);
+
+      var ry = HEADH;
+      function row(m, rejected) {
+        var perms = String(m.perms || "");
+        var violating = m.wx === true || (/w/.test(perms) && /x/.test(perms));
+        var t1 = svg("text", { x: 4, y: ry + 16, "class": "vs-addr" }); t1.textContent = m.vaddr + " → " + (m.paddr || "?"); g.appendChild(t1);
+        var pb = svg("text", { x: 200, y: ry + 16, "class": "vs-perms" }); pb.textContent = "[" + perms + "]"; g.appendChild(pb);
+        var status = svg("text", { x: BOXW, y: ry + 16, "class": (rejected || violating) ? "vs-rejected" : "vs-ok", "text-anchor": "end" });
+        status.textContent = rejected ? "✕ REJECTED (W^X)" : (violating ? "✕ W^X" : "✓ W^X");
+        g.appendChild(status);
+        ry += ROWH;
+      }
+      if (!maps.length && !reject) { var empty = svg("text", { x: 4, y: ry + 16, "class": "box-empty" }); empty.textContent = tt("run.no_mappings", "— no mappings —"); g.appendChild(empty); }
+      maps.forEach(function (m) { row(m, false); });
+      if (reject) row(reject, true);
+
+      g.addEventListener("click", function () { selectObject(vs.id); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectObject(vs.id); } });
+      positions[vs.id] = { x: MARGIN + BOXW / 2, y: y + bodyH / 2 };
+      root.appendChild(g);
+      y += bodyH + GAP;
+    });
+
+    if (!spaces.length) {
+      var emptyS = svg("text", { x: MARGIN, y: MARGIN + BOX_HEADER + 16, "class": "box-empty" });
+      emptyS.textContent = tt("run.no_vspace", "— no address spaces —");
+      root.appendChild(emptyS);
+    }
+
+    return { width: BOXW + 2 * MARGIN + 2 * PAD, height: Math.max(y, 200) + MARGIN - GAP, positions: positions, aria: tt("run.vspace_aria", "Virtual address space page mappings and W^X status") };
+  }
+
   /* ════════════════════════════════════════════════════════════
      Invariant rail
      ════════════════════════════════════════════════════════════ */
@@ -1072,6 +1146,9 @@
       case "ifPolicyAdd": return "Authorize flow " + flowName(op.from) + " → " + flowName(op.to) + " (declassification)";
       case "ifPolicyRemove": return "Revoke flow " + flowName(op.from) + " → " + flowName(op.to);
       case "servicePatch": { var sbits = []; for (var sk in op.set) if (Object.prototype.hasOwnProperty.call(op.set, sk)) sbits.push(sk + " → " + op.set[sk]); var snm = (findService(viewState(), op.id) || {}).label || op.id; return "Service " + snm + ": " + sbits.join(", "); }
+      case "vspaceMap": return "Map " + (op.mapping && op.mapping.vaddr) + " → " + (op.mapping && op.mapping.paddr) + " [" + (op.mapping && op.mapping.perms) + "]";
+      case "vspaceUnmap": return "Unmap " + op.vaddr;
+      case "vspaceReject": return "REJECTED map " + (op.mapping && op.mapping.vaddr) + " [" + (op.mapping && op.mapping.perms) + "] — W^X violation";
       case "message": return "Message " + labelOf(op.from) + " → " + labelOf(op.to) + " (" + (op.registers || 0) + " regs" + (op.caps ? ", " + op.caps + " caps" : "") + ")";
       case "note": return op.text || "";
       default: return op.op;
@@ -1189,12 +1266,20 @@
             fields.push(["may receive from", from.length ? from.join(", ") : "—"]);
           } else {
             var sv = findService(state, id);
-            if (!sv) return;
-            title = "Service · " + (sv.label || sv.id);
-            fields.push(["status", sv.status]);
-            fields.push(["depends on", (sv.deps || []).map(function (d) { var x = findService(state, d); return (x && x.label) || d; }).join(", ") || "—"]);
-            var dependents = (state.services || []).filter(function (x) { return (x.deps || []).indexOf(id) !== -1; }).map(function (x) { return x.label || x.id; });
-            fields.push(["required by", dependents.length ? dependents.join(", ") : "—"]);
+            if (sv) {
+              title = "Service · " + (sv.label || sv.id);
+              fields.push(["status", sv.status]);
+              fields.push(["depends on", (sv.deps || []).map(function (d) { var x = findService(state, d); return (x && x.label) || d; }).join(", ") || "—"]);
+              var dependents = (state.services || []).filter(function (x) { return (x.deps || []).indexOf(id) !== -1; }).map(function (x) { return x.label || x.id; });
+              fields.push(["required by", dependents.length ? dependents.join(", ") : "—"]);
+            } else {
+              var vsp = findVspace(state, id);
+              if (!vsp) return;
+              title = "VSpace · " + (vsp.label || vsp.id);
+              fields.push(["asid", vsp.asid]);
+              fields.push(["mappings", (vsp.mappings || []).length]);
+              (vsp.mappings || []).forEach(function (m) { fields.push([m.vaddr, "→ " + (m.paddr || "?") + " [" + (m.perms || "") + "]"]); });
+            }
           }
         }
       }

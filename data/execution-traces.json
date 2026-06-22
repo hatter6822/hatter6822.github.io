@@ -26,7 +26,9 @@
     { "id": "nonInterference", "label": "Non-interference preserved", "check": "noninterferenceStep", "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Soundness", "mapModule": "SeLe4n.Kernel.InformationFlow.Invariant.Composition", "subsystem": "infoflow" },
     { "id": "flowPolicyWellFormed", "label": "Flow policy reflexive & transitive", "check": "endpointFlowPolicyWellFormed", "module": "SeLe4n.Kernel.InformationFlow.Policy", "mapModule": "SeLe4n.Kernel.InformationFlow.Policy", "subsystem": "infoflow" },
     { "id": "serviceGraphAcyclic", "label": "Service dependency graph acyclic", "check": "serviceGraphAcyclicityChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Service.Invariant.Acyclicity", "subsystem": "services" },
-    { "id": "servicePolicyEnforced", "label": "Service isolation policy enforced", "check": "hasIsolationEdge", "module": "SeLe4n.Model.State", "mapModule": "SeLe4n.Kernel.Service.Invariant.Policy", "subsystem": "services" }
+    { "id": "servicePolicyEnforced", "label": "Service isolation policy enforced", "check": "hasIsolationEdge", "module": "SeLe4n.Model.State", "mapModule": "SeLe4n.Kernel.Service.Invariant.Policy", "subsystem": "services" },
+    { "id": "vspaceWxCompliant", "label": "No page is writable and executable (W^X)", "check": "wxCompliant", "module": "SeLe4n.Model.Object.Structures", "mapModule": "SeLe4n.Kernel.Architecture.VSpaceInvariant", "subsystem": "memory" },
+    { "id": "vspaceAsidUnique", "label": "ASIDs unique across address spaces", "check": "vspaceAsidUniquenessChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Architecture.VSpaceInvariant", "subsystem": "memory" }
   ],
   "scenarios": [
     {
@@ -782,6 +784,109 @@
             { "op": "servicePatch", "id": "svc.db", "set": { "status": "running" } }
           ] },
           "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "vspace-wx",
+      "title": "Virtual memory mapping with W^X enforcement",
+      "summary": "A task maps an executable code page and a writable data page, then the kernel rejects an attempt to map a page that is both writable and executable — enforcing the W^X invariant that no page is ever simultaneously writable and executable.",
+      "tags": ["memory", "vspace"],
+      "primaryScene": "vspace",
+      "objects": {
+        "th.sup": { "label": "loader", "kind": "TCB" },
+        "vs.app": { "label": "app address space", "kind": "VSpace" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "loader", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.app", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "vspace": [
+          { "id": "vs.app", "label": "app address space", "asid": 1, "mappings": [] }
+        ]
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "VSP-000",
+          "actor": null,
+          "narrative": "The app address space (ASID 1) has no page mappings yet.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "loader → vspaceMap(code, r-x)",
+          "traceTag": "VSP-001",
+          "actor": "th.sup",
+          "syscall": { "id": "vspaceMap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x1000", "paddr": "0x80000", "perms": "rx" } },
+          "narrative": "The loader maps an executable code page read-execute. It is not writable, so it is W^X-compliant.",
+          "sourceRefs": [
+            { "label": "apiVspaceMap", "module": "SeLe4n.Kernel.API" },
+            { "label": "mapPage", "module": "SeLe4n.Model.Object.Structures" }
+          ],
+          "delta": { "ops": [
+            { "op": "vspaceMap", "vspace": "vs.app", "mapping": { "vaddr": "0x1000", "paddr": "0x80000", "perms": "rx", "wx": false } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "syscall",
+          "title": "loader → vspaceMap(data, rw-)",
+          "traceTag": "VSP-002",
+          "actor": "th.sup",
+          "syscall": { "id": "vspaceMap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x2000", "paddr": "0x81000", "perms": "rw" } },
+          "narrative": "A writable data page is mapped read-write. It is not executable, so W^X still holds.",
+          "sourceRefs": [
+            { "label": "apiVspaceMap", "module": "SeLe4n.Kernel.API" },
+            { "label": "PagePermissions.wxCompliant", "module": "SeLe4n.Model.Object.Structures" }
+          ],
+          "delta": { "ops": [
+            { "op": "vspaceMap", "vspace": "vs.app", "mapping": { "vaddr": "0x2000", "paddr": "0x81000", "perms": "rw", "wx": false } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "fault",
+          "title": "vspaceMap(rwx) — rejected",
+          "traceTag": "VSP-003",
+          "actor": "th.sup",
+          "syscall": { "id": "vspaceMap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x3000", "paddr": "0x82000", "perms": "rwx" } },
+          "narrative": "The loader attempts to map a page both writable and executable. The kernel rejects it: the W^X invariant guarantees no such page can ever exist, so nothing is added to the address space.",
+          "sourceRefs": [
+            { "label": "PagePermissions.wxCompliant", "module": "SeLe4n.Model.Object.Structures" },
+            { "label": "apiVspaceMap", "module": "SeLe4n.Kernel.API" }
+          ],
+          "delta": { "ops": [
+            { "op": "vspaceReject", "vspace": "vs.app", "mapping": { "vaddr": "0x3000", "paddr": "0x82000", "perms": "rwx", "wx": true } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "syscall",
+          "title": "loader → vspaceUnmap(data)",
+          "traceTag": "VSP-004",
+          "actor": "th.sup",
+          "syscall": { "id": "vspaceUnmap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x2000" } },
+          "narrative": "The data page is unmapped and the TLB entry is invalidated; only the code page remains.",
+          "sourceRefs": [
+            { "label": "apiVspaceUnmap", "module": "SeLe4n.Kernel.API" },
+            { "label": "unmapPage", "module": "SeLe4n.Model.Object.Structures" }
+          ],
+          "delta": { "ops": [
+            { "op": "vspaceUnmap", "vspace": "vs.app", "vaddr": "0x2000" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique"], "failed": [] }
         }
       ]
     }

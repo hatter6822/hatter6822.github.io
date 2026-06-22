@@ -177,6 +177,13 @@
 .svc-rect { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke-width: 1.6; }
 .svc-node:hover .svc-rect { fill: color-mix(in oklab, var(--surface-2) 96%, transparent); }
 
+/* ── VSpace scene (page tables + W^X) ──────────────────────── */
+.vs-frame[data-selected="true"] { stroke-width: 2.5; filter: drop-shadow(0 0 6px var(--accent-glow)); }
+.vs-addr { fill: var(--text); font: 0.74rem var(--font-mono); }
+.vs-perms { fill: var(--accent); font: 600 0.72rem var(--font-mono); }
+.vs-ok { fill: var(--green); font: 600 0.7rem var(--font-mono); }
+.vs-rejected { fill: var(--red); font: 600 0.7rem var(--font-mono); }
+
 /* ── Invariant rail ────────────────────────────────────────── */
 .invariant-card #rail-summary { font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.4rem 0.55rem; border-radius: var(--radius); }
 #rail-summary[data-tone="good"] { color: var(--green); background: var(--green-dim); }

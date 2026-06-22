@@ -36,6 +36,9 @@ export const ALLOWED_OPS = [
   'ifPolicyAdd',
   'ifPolicyRemove',
   'servicePatch',
+  'vspaceMap',
+  'vspaceUnmap',
+  'vspaceReject',
   'message',
   'note'
 ];
@@ -82,6 +85,10 @@ function findUntyped(state, id) {
 
 function findService(state, id) {
   return (state.services || []).find((s) => s.id === id) || null;
+}
+
+function findVspace(state, id) {
+  return (state.vspace || []).find((v) => v.id === id) || null;
 }
 
 function rqInsertOrdered(state, core, threadId) {
@@ -226,6 +233,22 @@ export function applyOp(state, op) {
       Object.assign(sv, op.set || {});
       return state;
     }
+    case 'vspaceMap': {
+      const vs = findVspace(state, op.vspace);
+      if (!vs) throw new Error(`vspaceMap: unknown vspace ${op.vspace}`);
+      const mp = op.mapping;
+      if (!mp || typeof mp.vaddr !== 'string') throw new Error('vspaceMap: mapping.vaddr required');
+      if (!Array.isArray(vs.mappings)) vs.mappings = [];
+      if (!vs.mappings.some((m) => m.vaddr === mp.vaddr)) vs.mappings.push(mp);
+      return state;
+    }
+    case 'vspaceUnmap': {
+      const vsu = findVspace(state, op.vspace);
+      if (!vsu) throw new Error(`vspaceUnmap: unknown vspace ${op.vspace}`);
+      vsu.mappings = (vsu.mappings || []).filter((m) => m.vaddr !== op.vaddr);
+      return state;
+    }
+    case 'vspaceReject':
     case 'flowCheck':
     case 'message':
     case 'note':
@@ -270,6 +293,7 @@ export function touchedEntities(delta) {
   const cdt = new Set();
   const untyped = new Set();
   const services = new Set();
+  const vspace = new Set();
   const ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
   for (const op of ops) {
     switch (op.op) {
@@ -286,11 +310,14 @@ export function touchedEntities(delta) {
       case 'untypedRetype':
       case 'untypedRevoke': if (op.untyped) untyped.add(op.untyped); break;
       case 'servicePatch': if (op.id) services.add(op.id); break;
+      case 'vspaceMap':
+      case 'vspaceUnmap':
+      case 'vspaceReject': if (op.vspace) vspace.add(op.vspace); break;
       case 'message': if (op.from) threads.add(op.from); if (op.to) threads.add(op.to); if (op.endpoint) endpoints.add(op.endpoint); break;
       default: break;
     }
   }
-  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications], cdt: [...cdt], untyped: [...untyped], services: [...services] };
+  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications], cdt: [...cdt], untyped: [...untyped], services: [...services], vspace: [...vspace] };
 }
 
 /* ── Validation ─────────────────────────────────────────────── */
@@ -334,6 +361,25 @@ function validateState(state, path, errors) {
     }
   }
   if (state.services !== undefined && !Array.isArray(state.services)) errors.push(`${path}.services must be an array`);
+  if (state.vspace !== undefined && !Array.isArray(state.vspace)) errors.push(`${path}.vspace must be an array`);
+}
+
+/** Stored page mappings must be W^X-compliant, and ASIDs unique across address spaces. */
+function checkVspace(state, path, errors) {
+  const spaces = state.vspace;
+  if (!Array.isArray(spaces)) return;
+  const asids = new Set();
+  spaces.forEach((v, i) => {
+    if (v.asid !== undefined && v.asid !== null) {
+      if (asids.has(v.asid)) errors.push(`${path}: vspace[${i}] (${v.id}) reuses ASID ${v.asid}`);
+      asids.add(v.asid);
+    }
+    (v.mappings || []).forEach((m, j) => {
+      const perms = String(m.perms || '');
+      const violating = m.wx === true || (/w/.test(perms) && /x/.test(perms));
+      if (violating) errors.push(`${path}: vspace[${i}] mapping[${j}] (${m.vaddr}) is writable and executable — violates W^X`);
+    });
+  });
 }
 
 /** Service dependencies must reference existing services and the graph must be acyclic. */
@@ -485,6 +531,7 @@ export function validateTraceDataObject(data) {
       checkUntyped(state, `${sp}.initialState`, errors);
       checkInfoflow(state, `${sp}.initialState`, errors);
       checkServices(state, `${sp}.initialState`, errors);
+      checkVspace(state, `${sp}.initialState`, errors);
       sc.steps.forEach((step, idx) => {
         try {
           applyDelta(state, step.delta);
@@ -496,6 +543,7 @@ export function validateTraceDataObject(data) {
         checkUntyped(state, `${sp}.steps[${idx}]`, errors);
         checkInfoflow(state, `${sp}.steps[${idx}]`, errors);
         checkServices(state, `${sp}.steps[${idx}]`, errors);
+        checkVspace(state, `${sp}.steps[${idx}]`, errors);
       });
     } catch (e) {
       errors.push(`${sp}: failed to fold — ${e.message}`);

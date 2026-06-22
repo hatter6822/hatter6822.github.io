@@ -238,3 +238,25 @@ test('run.js shows the Services tab only for scenarios with a service graph', as
   const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
   assert.ok(!ipcTabs.includes('services'), 'ipc scenario hides the Services tab');
 });
+
+test('run.js renders the VSpace scene with mappings + W^X status', async () => {
+  const { byId } = await bootRunJs('?scenario=vspace-wx&step=2');
+  assert.ok(countClass(byId['theater-stage'], 'vs-space') >= 1, 'an address space renders');
+  assert.equal(countClass(byId['theater-stage'], 'vs-ok'), 2, 'two compliant page mappings (code r-x, data rw-)');
+  assert.equal(countClass(byId['theater-stage'], 'vs-rejected'), 0, 'no rejection at step 2');
+});
+
+test('run.js VSpace W^X rejection shows a rejected row', async () => {
+  const { byId } = await bootRunJs('?scenario=vspace-wx&step=3');
+  assert.ok(countClass(byId['theater-stage'], 'vs-rejected') >= 1, 'the rwx map is shown rejected');
+  assert.equal(countClass(byId['theater-stage'], 'vs-ok'), 2, 'the two compliant mappings remain (the rejected one is not stored)');
+});
+
+test('run.js shows the VSpace tab only for scenarios with an address space', async () => {
+  const vsp = await bootRunJs('?scenario=vspace-wx&step=0');
+  const vspTabs = vsp.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(vspTabs.includes('vspace'), 'vspace scenario shows the VSpace tab');
+  const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
+  const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(!ipcTabs.includes('vspace'), 'ipc scenario hides the VSpace tab');
+});

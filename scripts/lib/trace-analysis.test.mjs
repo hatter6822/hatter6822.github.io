@@ -269,6 +269,25 @@ test('validateTraceDataObject detects a service dependency cycle and dangling de
   assert.ok(validateTraceDataObject(data).some((m) => m.includes('depends on unknown ghost')));
 });
 
+/* ── VSpace / W^X ops ───────────────────────────────────────── */
+
+test('vspaceMap/Unmap mutate mappings; vspaceReject is event-only', () => {
+  const state = { vspace: [{ id: 'vs', asid: 1, mappings: [] }] };
+  applyOp(state, { op: 'vspaceMap', vspace: 'vs', mapping: { vaddr: '0x1000', paddr: '0x80000', perms: 'rx', wx: false } });
+  applyOp(state, { op: 'vspaceReject', vspace: 'vs', mapping: { vaddr: '0x3000', perms: 'rwx', wx: true } });
+  assert.equal(state.vspace[0].mappings.length, 1); // a rejected map is never stored
+  applyOp(state, { op: 'vspaceUnmap', vspace: 'vs', vaddr: '0x1000' });
+  assert.equal(state.vspace[0].mappings.length, 0);
+});
+
+test('validateTraceDataObject flags a stored W^X violation and duplicate ASIDs', () => {
+  const data = minimalData();
+  data.scenarios[0].initialState.vspace = [{ id: 'a', asid: 1, mappings: [{ vaddr: '0x1', perms: 'rwx', wx: true }] }, { id: 'b', asid: 1, mappings: [] }];
+  const errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('violates W^X')));
+  assert.ok(errors.some((m) => m.includes('reuses ASID 1')));
+});
+
 /* ── Bundled fixture ────────────────────────────────────────── */
 
 test('bundled data/execution-traces.json is valid and folds cleanly', async () => {

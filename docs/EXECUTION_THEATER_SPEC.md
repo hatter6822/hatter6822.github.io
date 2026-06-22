@@ -120,8 +120,8 @@ The stage renders one **scene** at a time, switchable via a tab strip in the sta
 header (and the `&scene=` URL parameter). Each scene is an SVG projection of the
 current `SystemState`, laid out so that a kernel object lives in exactly the
 structural location the kernel itself puts it. Phase 1 ships the **System**,
-**Scheduler**, **Capability**, **Memory**, **Information-flow**, and **Services** scenes
-— covering all six headline subsystems; later phases deepen them (§5).
+**Scheduler**, **Capability**, **Memory**, **VSpace**, **Information-flow**, and
+**Services** scenes — covering every headline subsystem; later phases deepen them (§5).
 
 The **System scene** is a two-column diagram:
 
@@ -273,6 +273,10 @@ need. Phase 1 fields:
   },
   "services": [                              // service registry (optional)
     { "id", "label", "status", "deps": [serviceId] }
+  ],
+  "vspace": [                                // virtual address spaces (optional)
+    { "id", "label", "asid",
+      "mappings": [ { "vaddr", "paddr", "perms", "wx" } ] }
   ]
 }
 ```
@@ -280,9 +284,9 @@ need. Phase 1 fields:
 `ipcState` is a string; blocked states carry their target after a colon
 (`"blockedOnReceive:ep.svc"`), mirroring the `ThreadIpcState` constructors. Scheduler
 fields like `domain`, `deadline`, and `budgetMax` feed the Scheduler scene. The optional
-`cdt`, `untyped`, `infoflow`, and `services` blocks feed the Capability, Memory,
-Information-flow, and Services scenes. Later phases extend the projection further with
-`cnodes`, `vspace`, and `tlb` (§5) — all additive.
+`cdt`, `untyped`, `vspace`, `infoflow`, and `services` blocks feed the Capability,
+Memory, VSpace, Information-flow, and Services scenes. Later phases extend the projection
+further with `cnodes` and `tlb` (§5) — all additive.
 
 ### 4.5 Step + delta op vocabulary
 
@@ -322,6 +326,9 @@ never *decisions*:
 | `ifPolicyAdd {from, to}` | Add an allowed-flow edge to the policy (authorized declassification). |
 | `ifPolicyRemove {from, to}` | Remove an allowed-flow edge from the policy. |
 | `servicePatch {id, set}` | Shallow-merge fields (e.g. `status`) into a service registry entry. |
+| `vspaceMap {vspace, mapping}` | Add a page mapping (`vaddr`→`paddr`, `perms`) to an address space. |
+| `vspaceUnmap {vspace, vaddr}` | Remove a page mapping. |
+| `vspaceReject {vspace, mapping}` | Event-only; the VSpace scene shows a W^X-violating map as rejected. |
 | `message {from, to, endpoint, registers, caps}` | Event-only (animation/log); no state change. |
 | `note {text}` | Event-only annotation. |
 
@@ -357,7 +364,8 @@ scenes are focused lenses over the same fold engine and (extended) state project
 | **Scheduler** *(shipped)* | Per-core priority buckets, EDF deadlines, CBS budget bars, dimmed not-runnable lane. *(Per-domain partitioning and PIP boost chains are future depth.)* | `RunQueue`, `chooseThread`, `cbs_bandwidth_bounded`, `blockingChainAcyclic`. |
 | **IPC** | Endpoints with dual queues, call/reply pairing, reply objects, donation chains, badge/notification signalling. | `IPC.DualQueue.*`, `donationChainAcyclic`, `notificationSignal/Wait`. |
 | **Capabilities / CDT** *(shipped)* | The capability derivation tree as a tidy tree — minting/copying derive child capabilities, a strict revoke prunes a node and all its descendants — with target, rights, badge, and slot per node. *(A dedicated CNode-slot grid is future depth.)* | `CapDerivationTree` (`childMap`/`parentMap`), `cspaceRevokeCdtStrict`. |
-| **Memory** *(untyped shipped)* | Untyped regions as watermarked bars with typed objects carved out (retype advances the watermark; revoke reclaims the region). *(VSpace page tables, W^X, TLB, and ASIDs are future depth.)* | `UntypedObject`, `retypeFromUntyped`, `untypedWatermarkChecks`, `VSpace`, `TlbModel`. |
+| **Memory** *(untyped shipped)* | Untyped regions as watermarked bars with typed objects carved out (retype advances the watermark; revoke reclaims the region). | `UntypedObject`, `retypeFromUntyped`, `untypedWatermarkChecks`. |
+| **VSpace** *(shipped)* | Per-address-space page-mapping rows with permissions and W^X status; a writable-and-executable map is rejected, never stored. *(TLB shootdown detail is future depth.)* | `mapPage`/`unmapPage`, `PagePermissions.wxCompliant`, `vspaceAsidUniquenessChecks`. |
 | **Services** *(shipped)* | Dependency DAG laid out by topological level, with lifecycle status (running/stopped/broken) and dependency-ordered start / fault / restart; the graph stays provably acyclic. | `Service.Operations`, `serviceGraphAcyclicityChecks`. |
 | **Information flow** *(shipped)* | Security-domain lattice (ordered by confidentiality) with allowed-flow policy arcs and the current step's flow check drawn allowed (green) or blocked (red); an `ifPolicyAdd` declassification edge can unblock a flow. | `DomainFlowPolicy`, `NonInterferenceStep`, `securityFlowsTo`, `isDeclassificationAuthorized`. |
 
@@ -433,7 +441,7 @@ malformed remote data can never corrupt the view.
 | `run.html` | Page skeleton (mirrors `map.html`: CSP, theme-init, i18n, nav, bg, footer). |
 | `assets/js/run.js` | Runtime: fold engine, SVG stage, rail, inspector, log, transport, sandbox, data load. |
 | `assets/css/run.css` | Page styles (reuses `style.css` tokens). |
-| `data/execution-traces.json` | Bundled reference fixture (7 scenarios, 36 steps). |
+| `data/execution-traces.json` | Bundled reference fixture (8 scenarios, 41 steps). |
 | `scripts/sync-trace-data.mjs` | Fetches + validates upstream `docs/execution-traces.json`; 404s gracefully to the bundled fixture. |
 | `scripts/lib/trace-analysis.mjs` | Canonical fold engine + validator (Node). |
 | `scripts/lib/trace-analysis.test.mjs` | Unit tests (14 tests, `node:test`). |
@@ -504,13 +512,14 @@ perturbation breaking a structural check — all without a browser.
 ## 12. Phased roadmap
 
 - **Phase 1 — Vertical slice (shipped).** Schema v1, fold engine + tests + validator +
-  headless runtime test + `sync-trace-data.mjs`, **all six scenes** (System, Scheduler,
-  Capability, Memory, Information-flow, Services) covering every headline subsystem, with
-  tab switching, the invariant rail, inspector, event log, transport, deep-link URL state
-  (incl. `scene`), the clearly-labeled sandbox, full chrome/i18n/theming, and a 7-scenario
-  reference fixture (IPC call/reply, notification signal/wait, EDF budget preemption,
-  capability mint/revoke, untyped retype/reclaim, information-flow non-interference,
-  service lifecycle). Honest provenance via the source badge + disclaimer.
+  headless runtime test + `sync-trace-data.mjs`, **all seven scenes** (System, Scheduler,
+  Capability, Memory, VSpace, Information-flow, Services) covering every headline
+  subsystem, with tab switching, the invariant rail, inspector, event log, transport,
+  deep-link URL state (incl. `scene`), the clearly-labeled sandbox, full
+  chrome/i18n/theming, and an 8-scenario reference fixture (IPC call/reply, notification
+  signal/wait, EDF budget preemption, capability mint/revoke, untyped retype/reclaim,
+  information-flow non-interference, service lifecycle, VSpace W^X). Honest provenance via
+  the source badge + disclaimer.
 - **Phase 2 — Upstream truth.** Add `SeLe4n/Testing/TraceExport.lean` + a CI artifact in
   the kernel repo, then flip the bundled snapshot to `source: "kernel"` — the
   website-side `sync-trace-data.mjs` and the headless runtime test are already in place.
@@ -518,9 +527,9 @@ perturbation breaking a structural check — all without a browser.
 - **Phase 3 — More scenes.** IPC and Memory/VSpace scenes (the scene-tab infrastructure
   plus the Scheduler and Capability scenes already shipped in Phase 1); a dedicated
   CNode-slot grid; per-domain scheduler partitioning and PIP boost chains.
-- **Phase 4 — Depth.** VSpace page tables / W^X / TLB / ASIDs to deepen the Memory scene;
-  a multi-core SMP scheduler view. (All six headline subsystems now have a scene — untyped
-  retype, the information-flow lattice, and the service DAG each ship in Phase 1.)
+- **Phase 4 — Depth.** TLB-shootdown detail in the VSpace scene; a multi-core SMP
+  scheduler view; a state-diff ribbon between arbitrary steps. (All seven headline
+  subsystem scenes — including VSpace/W^X — already ship in Phase 1.)
 - **Phase 5 — Depth.** State diff ribbon between arbitrary steps; per-step causality
   graph ("why did this happen"); richer sandbox (more structural checks, guided
   challenges); trace search/filter; multi-core SMP scenes.
