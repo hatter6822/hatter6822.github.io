@@ -158,6 +158,19 @@
 .mem-child-label { fill: #0a0e17; font: 600 0.66rem var(--font-mono); pointer-events: none; }
 .mem-watermark { stroke: var(--red); stroke-width: 1.5; stroke-dasharray: 3 2; }
 
+/* ── Information-flow scene (security-domain lattice) ──────── */
+.if-rect { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke: var(--accent); stroke-width: 1.5; }
+.if-domain:hover .if-rect { fill: color-mix(in oklab, var(--accent) 12%, var(--surface)); }
+.if-policy { fill: none; stroke: color-mix(in oklab, var(--text-muted) 60%, var(--border)); stroke-width: 1.3; }
+.if-head-policy { fill: color-mix(in oklab, var(--text-muted) 70%, var(--border)); }
+.if-flow { fill: none; stroke-width: 2.6; }
+.if-flow-allow { stroke: var(--green); }
+.if-flow-block { stroke: var(--red); stroke-dasharray: 5 3; }
+.if-head-allow { fill: var(--green); }
+.if-head-block { fill: var(--red); }
+.if-flow-label-allow { fill: var(--green); font: 600 0.74rem var(--font-sans); }
+.if-flow-label-block { fill: var(--red); font: 600 0.74rem var(--font-sans); }
+
 /* ── Invariant rail ────────────────────────────────────────── */
 .invariant-card #rail-summary { font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.4rem 0.55rem; border-radius: var(--radius); }
 #rail-summary[data-tone="good"] { color: var(--green); background: var(--green-dim); }

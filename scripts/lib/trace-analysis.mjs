@@ -32,6 +32,9 @@ export const ALLOWED_OPS = [
   'cdtPatch',
   'untypedRetype',
   'untypedRevoke',
+  'flowCheck',
+  'ifPolicyAdd',
+  'ifPolicyRemove',
   'message',
   'note'
 ];
@@ -197,6 +200,22 @@ export function applyOp(state, op) {
       utr.watermark = 0;
       return state;
     }
+    case 'ifPolicyAdd': {
+      if (!state.infoflow) throw new Error('ifPolicyAdd: no infoflow state');
+      const dom = new Set((state.infoflow.domains || []).map((d) => d.id));
+      if (!dom.has(op.from)) throw new Error(`ifPolicyAdd: unknown domain ${op.from}`);
+      if (!dom.has(op.to)) throw new Error(`ifPolicyAdd: unknown domain ${op.to}`);
+      if (!Array.isArray(state.infoflow.policy)) state.infoflow.policy = [];
+      if (!state.infoflow.policy.some((e) => e[0] === op.from && e[1] === op.to)) state.infoflow.policy.push([op.from, op.to]);
+      return state;
+    }
+    case 'ifPolicyRemove': {
+      if (state.infoflow && Array.isArray(state.infoflow.policy)) {
+        state.infoflow.policy = state.infoflow.policy.filter((e) => !(e[0] === op.from && e[1] === op.to));
+      }
+      return state;
+    }
+    case 'flowCheck':
     case 'message':
     case 'note':
       return state; // event-only ops carry no persistent state change
@@ -294,6 +313,23 @@ function validateState(state, path, errors) {
     }
   }
   if (state.untyped !== undefined && !Array.isArray(state.untyped)) errors.push(`${path}.untyped must be an array`);
+  if (state.infoflow !== undefined) {
+    if (!isObject(state.infoflow)) errors.push(`${path}.infoflow must be an object`);
+    else {
+      if (!Array.isArray(state.infoflow.domains)) errors.push(`${path}.infoflow.domains must be an array`);
+      if (state.infoflow.policy !== undefined && !Array.isArray(state.infoflow.policy)) errors.push(`${path}.infoflow.policy must be an array`);
+    }
+  }
+}
+
+/** Every information-flow policy edge must reference existing security domains. */
+function checkInfoflow(state, path, errors) {
+  if (!state.infoflow) return;
+  const ids = new Set((state.infoflow.domains || []).map((d) => d.id));
+  (state.infoflow.policy || []).forEach((e, i) => {
+    if (!ids.has(e[0])) errors.push(`${path}: infoflow policy[${i}] from ${e[0]} is not a domain`);
+    if (!ids.has(e[1])) errors.push(`${path}: infoflow policy[${i}] to ${e[1]} is not a domain`);
+  });
 }
 
 /** Untyped watermark must stay within the region, and allocations within the watermark. */
@@ -412,6 +448,7 @@ export function validateTraceDataObject(data) {
       checkRunQueueUnique(state, `${sp}.initialState`, errors);
       checkCdtRefs(state, `${sp}.initialState`, errors);
       checkUntyped(state, `${sp}.initialState`, errors);
+      checkInfoflow(state, `${sp}.initialState`, errors);
       sc.steps.forEach((step, idx) => {
         try {
           applyDelta(state, step.delta);
@@ -421,6 +458,7 @@ export function validateTraceDataObject(data) {
         checkRunQueueUnique(state, `${sp}.steps[${idx}]`, errors);
         checkCdtRefs(state, `${sp}.steps[${idx}]`, errors);
         checkUntyped(state, `${sp}.steps[${idx}]`, errors);
+        checkInfoflow(state, `${sp}.steps[${idx}]`, errors);
       });
     } catch (e) {
       errors.push(`${sp}: failed to fold — ${e.message}`);

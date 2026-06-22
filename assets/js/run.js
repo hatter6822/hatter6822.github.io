@@ -50,7 +50,7 @@
   var SCHEMA_VERSION = 1;
 
   var PLAY_INTERVAL_MS = 1100;
-  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "untypedRetype", "untypedRevoke", "message", "note"];
+  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "untypedRetype", "untypedRevoke", "flowCheck", "ifPolicyAdd", "ifPolicyRemove", "message", "note"];
 
   /* Layout geometry for the SVG stage. */
   var BOX_W = 188;
@@ -116,6 +116,7 @@
   function findCdtNode(s, id) { var ns = (s.cdt && s.cdt.nodes) || []; for (var i = 0; i < ns.length; i++) if (ns[i].id === id) return ns[i]; return null; }
   function cdtDescendants(cdt, rootId) { var out = {}; var stack = [rootId]; while (stack.length) { var id = stack.pop(); (cdt.edges || []).forEach(function (e) { if (e[0] === id && !out[e[1]]) { out[e[1]] = 1; stack.push(e[1]); } }); } return out; }
   function findUntyped(s, id) { for (var i = 0; i < (s.untyped || []).length; i++) if (s.untyped[i].id === id) return s.untyped[i]; return null; }
+  function findDomain(s, id) { var ds = (s.infoflow && s.infoflow.domains) || []; for (var i = 0; i < ds.length; i++) if (ds[i].id === id) return ds[i]; return null; }
 
   function rqInsertOrdered(state, core, threadId) {
     var key = String(core);
@@ -209,8 +210,22 @@
         if (utr) { utr.children = []; utr.watermark = 0; }
         return state;
       }
+      case "ifPolicyAdd": {
+        if (state.infoflow) {
+          var dom = {}; (state.infoflow.domains || []).forEach(function (d) { dom[d.id] = 1; });
+          if (dom[op.from] && dom[op.to]) {
+            if (!Array.isArray(state.infoflow.policy)) state.infoflow.policy = [];
+            if (!state.infoflow.policy.some(function (e) { return e[0] === op.from && e[1] === op.to; })) state.infoflow.policy.push([op.from, op.to]);
+          }
+        }
+        return state;
+      }
+      case "ifPolicyRemove": {
+        if (state.infoflow && Array.isArray(state.infoflow.policy)) state.infoflow.policy = state.infoflow.policy.filter(function (e) { return !(e[0] === op.from && e[1] === op.to); });
+        return state;
+      }
       default:
-        return state; // message / note are event-only
+        return state; // message / note / flowCheck are event-only
     }
   }
 
@@ -317,6 +332,7 @@
     return id;
   }
   function cdtLabelOf(id) { var n = findCdtNode(viewState(), id); return (n && n.label) || id; }
+  function flowName(id) { var d = findDomain(viewState(), id); return (d && d.label) || id; }
   function isBlocked(th) {
     if (!th) return false;
     return th.threadState === "Blocked" || /^blockedOn/.test(th.ipcState || "");
@@ -391,6 +407,7 @@
     var dims = app.scene === "scheduler" ? renderSchedulerScene(root, state, step, touched)
       : app.scene === "capability" ? renderCapabilityScene(root, state, step, touched)
       : app.scene === "memory" ? renderMemoryScene(root, state, step, touched)
+      : app.scene === "infoflow" ? renderInfoflowScene(root, state, step, touched)
       : renderSystemScene(root, state, step, touched);
     root.setAttribute("aria-label", dims.aria || tt("run.stage_aria", "Kernel system state visualization"));
     root.setAttribute("viewBox", "0 0 " + dims.width + " " + dims.height);
@@ -547,22 +564,23 @@
      Scene switching + Scheduler scene
      ════════════════════════════════════════════════════════════ */
 
-  var SCENES = ["system", "scheduler", "capability", "memory"];
+  var SCENES = ["system", "scheduler", "capability", "memory", "infoflow"];
 
-  // Scenes available for a scenario: System/Scheduler always; Capability/Memory only
-  // when the scenario carries the matching state (a CDT / an untyped region).
+  // Scenes available for a scenario: System/Scheduler always; the rest only when the
+  // scenario carries the matching state (a CDT / an untyped region / a flow policy).
   function availableScenes(scenario) {
     var out = ["system", "scheduler"];
     var init = scenario && scenario.initialState;
     if (init && init.cdt) out.push("capability");
     if (init && init.untyped) out.push("memory");
+    if (init && init.infoflow) out.push("infoflow");
     return out;
   }
 
   function renderSceneTabs() {
     if (!DOM.sceneTabs) return;
     clear(DOM.sceneTabs);
-    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities"), memory: tt("run.scene_memory", "Memory") };
+    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities"), memory: tt("run.scene_memory", "Memory"), infoflow: tt("run.scene_infoflow", "Information flow") };
     availableScenes(app.scenario).forEach(function (id) {
       var active = app.scene === id;
       var b = el("button", { "class": "scene-tab", type: "button", role: "tab", dataset: { scene: id, active: active ? "true" : "false" }, text: labels[id], onclick: function () { setScene(id); } });
@@ -801,6 +819,80 @@
     return { width: BARW + 2 * MARGIN + 2 * PAD, height: Math.max(y, 200) + MARGIN - REGION_GAP, positions: positions, aria: tt("run.memory_aria", "Untyped memory regions and allocations") };
   }
 
+  function renderInfoflowScene(root, state, step, touched) {
+    var positions = {};
+    var iflow = state.infoflow || { domains: [], policy: [] };
+    var domains = (iflow.domains || []).slice().sort(function (a, b) { return (Number(a.confidentiality) || 0) - (Number(b.confidentiality) || 0); });
+    var policy = iflow.policy || [];
+    var DOMW = 124, DOMH = 58, GAP = 74;
+    var domainY = MARGIN + BOX_HEADER + 90;
+
+    var defs = svg("defs", {});
+    function marker(id, cls) {
+      var m = svg("marker", { id: id, viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
+      m.appendChild(svg("path", { d: "M0 0 L10 5 L0 10 z", "class": cls }));
+      return m;
+    }
+    defs.appendChild(marker("if-arrow-policy", "if-head-policy"));
+    defs.appendChild(marker("if-arrow-allow", "if-head-allow"));
+    defs.appendChild(marker("if-arrow-block", "if-head-block"));
+    root.appendChild(defs);
+
+    var idx = {}; domains.forEach(function (d, i) { idx[d.id] = i; });
+    function dx(id) { return MARGIN + idx[id] * (DOMW + GAP); }
+    function cxOf(id) { return dx(id) + DOMW / 2; }
+    function domName(id) { for (var k = 0; k < domains.length; k++) if (domains[k].id === id) return domains[k].label || id; return id; }
+
+    // Allowed-flow policy arcs above the row.
+    var arcLayer = svg("g", { "class": "if-arcs" });
+    root.appendChild(arcLayer);
+    policy.forEach(function (e) {
+      if (idx[e[0]] === undefined || idx[e[1]] === undefined) return;
+      var x1 = cxOf(e[0]), x2 = cxOf(e[1]), topY = domainY - 6;
+      var lift = 30 + Math.abs(idx[e[1]] - idx[e[0]]) * 24;
+      arcLayer.appendChild(svg("path", { "class": "if-policy", "marker-end": "url(#if-arrow-policy)", d: "M" + x1 + " " + topY + " C " + x1 + " " + (topY - lift) + " " + x2 + " " + (topY - lift) + " " + x2 + " " + topY }));
+    });
+
+    // Domain nodes.
+    domains.forEach(function (d) {
+      var x = dx(d.id);
+      var g = svg("g", { "class": "theater-chip if-domain", transform: "translate(" + x + "," + domainY + ")", role: "button", tabindex: "0" });
+      g.setAttribute("data-domain", d.id);
+      var rect = svg("rect", { width: DOMW, height: DOMH, rx: 9, "class": "chip-rect if-rect" });
+      if (d.id === app.selectedObject) rect.setAttribute("data-selected", "true");
+      g.appendChild(rect);
+      var name = svg("text", { x: DOMW / 2, y: 24, "class": "chip-name", "text-anchor": "middle" }); name.textContent = d.label || d.id; g.appendChild(name);
+      var lab = svg("text", { x: DOMW / 2, y: 42, "class": "chip-sub", "text-anchor": "middle" }); lab.textContent = "C" + (d.confidentiality != null ? d.confidentiality : "?") + " · I" + (d.integrity != null ? d.integrity : "?"); g.appendChild(lab);
+      g.addEventListener("click", function () { selectObject(d.id); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectObject(d.id); } });
+      positions[d.id] = { x: x + DOMW / 2, y: domainY + DOMH / 2 };
+      root.appendChild(g);
+    });
+
+    // The current step's attempted flow (a flowCheck op).
+    var flow = null;
+    var ops = (step && step.delta && step.delta.ops) || [];
+    for (var i = 0; i < ops.length; i++) if (ops[i].op === "flowCheck") { flow = ops[i]; break; }
+    if (flow && idx[flow.from] !== undefined && idx[flow.to] !== undefined) {
+      var fx = cxOf(flow.from), tx = cxOf(flow.to), fy = domainY + DOMH + 28;
+      var allowed = flow.allowed !== false;
+      var path = svg("path", { "class": "if-flow " + (allowed ? "if-flow-allow" : "if-flow-block"), "marker-end": allowed ? "url(#if-arrow-allow)" : "url(#if-arrow-block)", d: "M" + fx + " " + (domainY + DOMH) + " L " + fx + " " + fy + " L " + tx + " " + fy + " L " + tx + " " + (domainY + DOMH + 5) });
+      root.appendChild(path);
+      var badge = svg("text", { x: (fx + tx) / 2, y: fy + 18, "class": allowed ? "if-flow-label-allow" : "if-flow-label-block", "text-anchor": "middle" });
+      badge.textContent = (allowed ? tt("run.allowed", "allowed") : tt("run.blocked", "blocked")) + ": " + domName(flow.from) + " → " + domName(flow.to);
+      root.appendChild(badge);
+    }
+
+    if (!domains.length) {
+      var empty = svg("text", { x: MARGIN, y: MARGIN + BOX_HEADER + 16, "class": "box-empty" });
+      empty.textContent = tt("run.no_domains", "— no security domains —");
+      root.appendChild(empty);
+    }
+
+    var width = MARGIN + domains.length * (DOMW + GAP) - GAP + MARGIN;
+    return { width: Math.max(width, 320), height: domainY + DOMH + 64 + MARGIN, positions: positions, aria: tt("run.infoflow_aria", "Security-domain flow policy and the current flow check") };
+  }
+
   /* ════════════════════════════════════════════════════════════
      Invariant rail
      ════════════════════════════════════════════════════════════ */
@@ -892,6 +984,9 @@
       case "cdtPatch": return "Update capability " + cdtLabelOf(op.id);
       case "untypedRetype": return "Retype " + (op.child && op.child.type) + " (" + (op.child && op.child.size) + ") from " + ((objectMeta(op.untyped) && objectMeta(op.untyped).label) || op.untyped);
       case "untypedRevoke": return "Revoke untyped " + ((objectMeta(op.untyped) && objectMeta(op.untyped).label) || op.untyped) + " — reclaim all objects";
+      case "flowCheck": return "Flow " + flowName(op.from) + " → " + flowName(op.to) + (op.allowed === false ? " — BLOCKED" : " — allowed");
+      case "ifPolicyAdd": return "Authorize flow " + flowName(op.from) + " → " + flowName(op.to) + " (declassification)";
+      case "ifPolicyRemove": return "Revoke flow " + flowName(op.from) + " → " + flowName(op.to);
       case "message": return "Message " + labelOf(op.from) + " → " + labelOf(op.to) + " (" + (op.registers || 0) + " regs" + (op.caps ? ", " + op.caps + " caps" : "") + ")";
       case "note": return op.text || "";
       default: return op.op;
@@ -988,14 +1083,26 @@
       }
       else {
         var ut = findUntyped(state, id);
-        if (!ut) return;
-        title = "Untyped · " + (ut.label || ut.id);
-        var rs = Number(ut.regionSize) || 0, wmv = Number(ut.watermark) || 0;
-        fields.push(["region size", rs]);
-        fields.push(["watermark", wmv]);
-        fields.push(["free", rs - wmv]);
-        fields.push(["device", ut.isDevice ? "yes" : "no"]);
-        fields.push(["objects", (ut.children || []).map(function (c) { return c.type + " (" + c.size + ")"; }).join(", ") || "—"]);
+        if (ut) {
+          title = "Untyped · " + (ut.label || ut.id);
+          var rs = Number(ut.regionSize) || 0, wmv = Number(ut.watermark) || 0;
+          fields.push(["region size", rs]);
+          fields.push(["watermark", wmv]);
+          fields.push(["free", rs - wmv]);
+          fields.push(["device", ut.isDevice ? "yes" : "no"]);
+          fields.push(["objects", (ut.children || []).map(function (c) { return c.type + " (" + c.size + ")"; }).join(", ") || "—"]);
+        } else {
+          var dm = findDomain(state, id);
+          if (!dm) return;
+          title = "Security domain · " + (dm.label || dm.id);
+          fields.push(["confidentiality", dm.confidentiality]);
+          fields.push(["integrity", dm.integrity]);
+          var pol = (state.infoflow && state.infoflow.policy) || [];
+          var to = pol.filter(function (e) { return e[0] === id; }).map(function (e) { return flowName(e[1]); });
+          var from = pol.filter(function (e) { return e[1] === id; }).map(function (e) { return flowName(e[0]); });
+          fields.push(["may flow to", to.length ? to.join(", ") : "—"]);
+          fields.push(["may receive from", from.length ? from.join(", ") : "—"]);
+        }
       }
     }
     var dl = el("dl", { "class": "insp-grid" });

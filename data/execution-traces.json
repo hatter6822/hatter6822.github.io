@@ -22,7 +22,9 @@
     { "id": "cdtAcyclic", "label": "Capability derivation tree is acyclic", "check": "edgeWellFounded", "module": "SeLe4n.Model.Object.Structures", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Defs", "subsystem": "capability" },
     { "id": "capRightsMonotone", "label": "Derived rights never exceed the parent", "check": "capabilityRightsStructuralChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Authority", "subsystem": "capability" },
     { "id": "untypedWatermarkBounded", "label": "Untyped watermark within its region", "check": "untypedWatermarkChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Lifecycle.Invariant", "subsystem": "memory" },
-    { "id": "memoryNonOverlap", "label": "Allocated objects do not overlap", "check": "childrenNonOverlap", "module": "SeLe4n.Model.Object.Types", "mapModule": "SeLe4n.Model.Object.Types", "subsystem": "memory" }
+    { "id": "memoryNonOverlap", "label": "Allocated objects do not overlap", "check": "childrenNonOverlap", "module": "SeLe4n.Model.Object.Types", "mapModule": "SeLe4n.Model.Object.Types", "subsystem": "memory" },
+    { "id": "nonInterference", "label": "Non-interference preserved", "check": "noninterferenceStep", "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Soundness", "mapModule": "SeLe4n.Kernel.InformationFlow.Invariant.Composition", "subsystem": "infoflow" },
+    { "id": "flowPolicyWellFormed", "label": "Flow policy reflexive & transitive", "check": "endpointFlowPolicyWellFormed", "module": "SeLe4n.Kernel.InformationFlow.Policy", "mapModule": "SeLe4n.Kernel.InformationFlow.Policy", "subsystem": "infoflow" }
   ],
   "scenarios": [
     {
@@ -555,6 +557,109 @@
             { "op": "untypedRevoke", "untyped": "ut.ram" }
           ] },
           "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "infoflow-noninterference",
+      "title": "Information-flow control and declassification",
+      "summary": "Across three security domains the kernel lets information flow up the confidentiality lattice but blocks a leak from secret to public — preserving non-interference — until an explicit, audited declassification edge authorizes it.",
+      "tags": ["infoflow", "security"],
+      "primaryScene": "infoflow",
+      "objects": {
+        "th.sup": { "label": "monitor", "kind": "TCB" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "monitor", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.sup", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "infoflow": {
+          "domains": [
+            { "id": "d.public", "label": "public", "confidentiality": 0, "integrity": 2 },
+            { "id": "d.app", "label": "app", "confidentiality": 1, "integrity": 1 },
+            { "id": "d.secret", "label": "secret", "confidentiality": 2, "integrity": 0 }
+          ],
+          "policy": [ ["d.public", "d.app"], ["d.app", "d.secret"], ["d.public", "d.secret"] ]
+        }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "IFC-000",
+          "actor": null,
+          "narrative": "Three security domains form a confidentiality lattice: public ⊑ app ⊑ secret. The flow policy permits information to move only upward.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["nonInterference", "flowPolicyWellFormed"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "ipc",
+          "title": "flow public → secret (allowed)",
+          "traceTag": "IFC-001",
+          "actor": "th.sup",
+          "narrative": "A secret-domain thread receives public data. Reading up the lattice cannot leak, so the flow is permitted.",
+          "sourceRefs": [
+            { "label": "securityFlowsTo", "module": "SeLe4n.Kernel.InformationFlow.Policy" },
+            { "label": "genericFlowCheck", "module": "SeLe4n.Kernel.InformationFlow.Policy" }
+          ],
+          "delta": { "ops": [
+            { "op": "flowCheck", "from": "d.public", "to": "d.secret", "allowed": true }
+          ] },
+          "invariants": { "allHold": true, "checked": ["nonInterference", "flowPolicyWellFormed"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "ipc",
+          "title": "flow secret → public (blocked)",
+          "traceTag": "IFC-002",
+          "actor": "th.sup",
+          "narrative": "A secret-domain thread attempts to send to public — a downward flow that would leak. The kernel's non-interference enforcement denies it; the invariant holds precisely because the flow is blocked.",
+          "sourceRefs": [
+            { "label": "endpointFlowCheck", "module": "SeLe4n.Kernel.InformationFlow.Policy" },
+            { "label": "securityFlowsTo", "module": "SeLe4n.Kernel.InformationFlow.Policy" }
+          ],
+          "delta": { "ops": [
+            { "op": "flowCheck", "from": "d.secret", "to": "d.public", "allowed": false }
+          ] },
+          "invariants": { "allHold": true, "checked": ["nonInterference"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "authorize declassification (secret → public)",
+          "traceTag": "IFC-003",
+          "actor": "th.sup",
+          "syscall": { "id": "declassify", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "monitor → declassification authority", "args": { "from": "d.secret", "to": "d.public" } },
+          "narrative": "A privileged monitor authorizes an explicit, audited declassification: information may now flow from secret to public. This is the controlled escape hatch the policy provides.",
+          "sourceRefs": [
+            { "label": "isDeclassificationAuthorized", "module": "SeLe4n.Kernel.InformationFlow.Policy" },
+            { "label": "DeclassificationPolicy", "module": "SeLe4n.Kernel.InformationFlow.Policy" }
+          ],
+          "delta": { "ops": [
+            { "op": "ifPolicyAdd", "from": "d.secret", "to": "d.public" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["flowPolicyWellFormed"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "ipc",
+          "title": "flow secret → public (now allowed)",
+          "traceTag": "IFC-004",
+          "actor": "th.sup",
+          "narrative": "The same secret → public flow is retried. With the declassification edge in place, the policy now permits it — under explicit authorization rather than as an uncontrolled leak.",
+          "sourceRefs": [
+            { "label": "genericFlowCheck", "module": "SeLe4n.Kernel.InformationFlow.Policy" }
+          ],
+          "delta": { "ops": [
+            { "op": "flowCheck", "from": "d.secret", "to": "d.public", "allowed": true }
+          ] },
+          "invariants": { "allHold": true, "checked": ["nonInterference", "flowPolicyWellFormed"], "failed": [] }
         }
       ]
     }

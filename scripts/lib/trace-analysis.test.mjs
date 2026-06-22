@@ -232,6 +232,26 @@ test('validateTraceDataObject flags an untyped watermark exceeding its region', 
   assert.ok(errors.some((m) => m.includes('watermark 200 exceeds region size 100')));
 });
 
+/* ── Information-flow ops ───────────────────────────────────── */
+
+test('ifPolicyAdd/Remove mutate the flow policy; flowCheck is event-only', () => {
+  const state = { infoflow: { domains: [{ id: 'lo' }, { id: 'hi' }], policy: [['lo', 'hi']] } };
+  applyOp(state, { op: 'flowCheck', from: 'hi', to: 'lo', allowed: false });
+  assert.deepEqual(state.infoflow.policy, [['lo', 'hi']]); // unchanged by a check
+  applyOp(state, { op: 'ifPolicyAdd', from: 'hi', to: 'lo' });
+  assert.deepEqual(state.infoflow.policy, [['lo', 'hi'], ['hi', 'lo']]);
+  applyOp(state, { op: 'ifPolicyRemove', from: 'hi', to: 'lo' });
+  assert.deepEqual(state.infoflow.policy, [['lo', 'hi']]);
+});
+
+test('ifPolicyAdd throws on an unknown domain; validator flags dangling policy edges', () => {
+  assert.throws(() => applyOp({ infoflow: { domains: [{ id: 'lo' }], policy: [] } }, { op: 'ifPolicyAdd', from: 'ghost', to: 'lo' }), /unknown domain ghost/);
+  const data = minimalData();
+  data.scenarios[0].initialState.infoflow = { domains: [{ id: 'lo' }], policy: [['lo', 'ghost']] };
+  const errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('infoflow policy[0] to ghost is not a domain')));
+});
+
 /* ── Bundled fixture ────────────────────────────────────────── */
 
 test('bundled data/execution-traces.json is valid and folds cleanly', async () => {

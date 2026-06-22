@@ -201,3 +201,25 @@ test('run.js shows the Memory tab only for scenarios with untyped memory', async
   const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
   assert.ok(!ipcTabs.includes('memory'), 'ipc scenario hides the Memory tab');
 });
+
+test('run.js renders the Information-flow scene with a blocked flow', async () => {
+  const { byId } = await bootRunJs('?scenario=infoflow-noninterference&step=2');
+  assert.equal(countClass(byId['theater-stage'], 'if-domain'), 3, 'three security domains');
+  assert.equal(countClass(byId['theater-stage'], 'if-policy'), 3, 'three allowed-flow policy arcs');
+  assert.ok(countClass(byId['theater-stage'], 'if-flow-block') >= 1, 'the secret→public flow is shown blocked');
+});
+
+test('run.js declassification permits the previously-blocked flow', async () => {
+  const { byId } = await bootRunJs('?scenario=infoflow-noninterference&step=4');
+  assert.equal(countClass(byId['theater-stage'], 'if-policy'), 4, 'the declassification edge was added to the policy');
+  assert.ok(countClass(byId['theater-stage'], 'if-flow-allow') >= 1, 'the same flow is now allowed');
+});
+
+test('run.js shows the Information-flow tab only for scenarios with a flow policy', async () => {
+  const inf = await bootRunJs('?scenario=infoflow-noninterference&step=0');
+  const infTabs = inf.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(infTabs.includes('infoflow'), 'infoflow scenario shows the tab');
+  const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
+  const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(!ipcTabs.includes('infoflow'), 'ipc scenario hides the infoflow tab');
+});
