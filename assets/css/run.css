@@ -79,8 +79,8 @@
 }
 .sandbox-toggle[data-on="true"] { color: var(--purple); border-color: color-mix(in oklab, var(--purple) 50%, var(--border)); background: var(--purple-dim); }
 
-/* ── Workspace grid ────────────────────────────────────────── */
-.theater-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, 21rem); gap: 1rem; align-items: start; }
+/* ── Workspace grid (stage + step inspector) ───────────────── */
+.theater-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(19rem, 22rem); gap: 1rem; align-items: start; }
 @media (max-width: 60rem) { .theater-grid { grid-template-columns: 1fr; } }
 
 .theater-card {
@@ -91,7 +91,7 @@
 }
 .theater-card h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.55rem; }
 
-.theater-stage-shell { overflow: auto; border-radius: var(--radius); background: color-mix(in oklab, var(--bg-alt) 70%, transparent); padding: 0.4rem; max-height: 78vh; }
+.theater-stage-shell { overflow: auto; border-radius: var(--radius); background: color-mix(in oklab, var(--bg-alt) 70%, transparent); padding: 0.5rem; min-height: 15rem; max-height: 78vh; display: grid; align-content: start; }
 .theater-stage-shell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .theater-svg { display: block; max-width: 100%; height: auto; }
 
@@ -186,25 +186,37 @@
 .vs-tlb { fill: var(--text-muted); font: 0.7rem var(--font-mono); }
 .vs-shootdown { fill: var(--yellow); font: 600 0.7rem var(--font-mono); }
 
-/* ── Invariant rail ────────────────────────────────────────── */
-.invariant-card #rail-summary { font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.4rem 0.55rem; border-radius: var(--radius); }
+/* ── Invariant band (subsystem-grouped, compact, full-width) ── */
+.invariant-card { margin-top: 1rem; }
+.invariant-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.invariant-head h2 { margin: 0; }
+#rail-summary { margin: 0; font-size: 0.76rem; font-weight: 600; padding: 0.26rem 0.62rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.4rem; }
+#rail-summary::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
 #rail-summary[data-tone="good"] { color: var(--green); background: var(--green-dim); }
 #rail-summary[data-tone="warn"] { color: var(--yellow); background: var(--yellow-dim); }
 #rail-summary[data-tone="bad"] { color: var(--red); background: var(--red-dim); }
-.invariant-rail { display: grid; gap: 0.3rem; }
-.rail-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.32rem 0.4rem; border-radius: var(--radius); border: 1px solid transparent; }
-.rail-item[data-status="verified"] { background: color-mix(in oklab, var(--accent) 12%, transparent); border-color: color-mix(in oklab, var(--accent) 30%, var(--border)); }
-.rail-item[data-status="violated"] { background: var(--red-dim); border-color: color-mix(in oklab, var(--red) 40%, var(--border)); }
-.rail-mark { display: inline-grid; place-items: center; width: 1.1rem; height: 1.1rem; border-radius: 50%; font-size: 0.72rem; font-weight: 700; flex: none; color: var(--on-accent); background: var(--green); }
-.rail-item[data-status="verified"] .rail-mark { background: var(--accent); }
-.rail-item[data-status="violated"] .rail-mark { background: var(--red); }
-.rail-link { display: grid; gap: 0.05rem; min-width: 0; }
-.rail-label { color: var(--text); font-size: 0.8rem; line-height: 1.25; }
-.rail-check { color: var(--text-muted); font: 0.66rem var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rail-item:hover .rail-label { color: var(--accent); }
 
-/* ── Inspector ─────────────────────────────────────────────── */
-.theater-inspector { margin-top: 0.9rem; }
+.invariant-rail { display: grid; grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr)); gap: 0.7rem 1.1rem; }
+.rail-group { min-width: 0; }
+.rail-group-title { display: flex; align-items: center; gap: 0.4rem; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin: 0 0 0.35rem; padding-bottom: 0.28rem; border-bottom: 1px solid var(--border); }
+.rail-group-count { margin-left: auto; font-family: var(--font-mono); font-size: 0.66rem; font-weight: 600; opacity: 0.75; }
+.rail-group-list { display: grid; gap: 0.1rem; }
+.rail-link { display: flex; align-items: flex-start; gap: 0.4rem; padding: 0.22rem 0.36rem; border-radius: var(--radius); min-width: 0; border: 1px solid transparent; transition: background 0.14s, border-color 0.14s, color 0.14s; }
+.rail-link:hover { background: color-mix(in oklab, var(--surface-2) 72%, transparent); }
+.rail-mark { flex: none; display: inline-grid; place-items: center; width: 0.95rem; height: 0.95rem; margin-top: 0.06rem; font-size: 0.74rem; font-weight: 700; color: var(--green); }
+.rail-label { color: var(--text); font-size: 0.76rem; line-height: 1.24; min-width: 0; }
+.rail-link:hover .rail-label { color: var(--accent); }
+/* checked at the current step → emphasized */
+.rail-item[data-status="verified"] .rail-link { background: color-mix(in oklab, var(--accent) 13%, transparent); border-color: color-mix(in oklab, var(--accent) 38%, var(--border)); }
+.rail-item[data-status="verified"] .rail-mark { color: var(--on-accent); background: var(--accent); border-radius: 50%; }
+.rail-item[data-status="verified"] .rail-label { color: var(--text-bright); font-weight: 600; }
+/* sandbox structural violation */
+.rail-item[data-status="violated"] .rail-link { background: var(--red-dim); border-color: color-mix(in oklab, var(--red) 45%, var(--border)); }
+.rail-item[data-status="violated"] .rail-mark { color: var(--on-accent); background: var(--red); border-radius: 50%; }
+.rail-item[data-status="violated"] .rail-label { color: var(--text-bright); font-weight: 600; }
+
+/* ── Inspector (step detail sidebar) ───────────────────────── */
+.theater-inspector { margin-top: 0; }
 .insp-head { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.35rem; }
 .insp-kind { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.12rem 0.45rem; border-radius: 999px; color: var(--on-accent); background: var(--accent); }
 .insp-kind[data-kind="schedule"] { background: var(--purple); }

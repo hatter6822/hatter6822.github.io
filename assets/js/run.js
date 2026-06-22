@@ -1113,6 +1113,19 @@
     return results;
   }
 
+  var RAIL_SUBSYSTEM_ORDER = ["ipc", "scheduler", "capability", "memory", "infoflow", "services"];
+  function railSubsystemLabel(sub) {
+    switch (sub) {
+      case "ipc": return tt("run.sub_ipc", "IPC");
+      case "scheduler": return tt("run.sub_scheduler", "Scheduler");
+      case "capability": return tt("run.sub_capability", "Capabilities");
+      case "memory": return tt("run.sub_memory", "Memory");
+      case "infoflow": return tt("run.sub_infoflow", "Information flow");
+      case "services": return tt("run.sub_services", "Services");
+      default: return sub || tt("run.sub_other", "Other");
+    }
+  }
+
   function renderRail() {
     if (!DOM.rail) return;
     clear(DOM.rail);
@@ -1121,25 +1134,45 @@
     var checkedSet = {};
     if (step && step.invariants && step.invariants.checked) step.invariants.checked.forEach(function (id) { checkedSet[id] = 1; });
     var sandboxResults = app.sandbox ? jsChecks(viewState()) : null;
-    var anyViolation = false;
+    var anyViolation = false, checkedCount = 0;
 
+    // Group catalog entries by subsystem (preserving catalog order within a group).
+    var groups = {}, seen = [];
     catalog.forEach(function (inv) {
-      var status = "holds";          // holds (per proof) / verified (this step) / violated (sandbox)
-      if (sandboxResults && Object.prototype.hasOwnProperty.call(sandboxResults, inv.id)) {
-        status = sandboxResults[inv.id] ? "holds" : "violated";
-        if (!sandboxResults[inv.id]) anyViolation = true;
-      } else if (checkedSet[inv.id]) {
-        status = "verified";
-      }
-      var href = "map.html?module=" + encodeURIComponent(inv.mapModule);
-      var item = el("li", { "class": "rail-item", dataset: { status: status, subsystem: inv.subsystem || "" } }, [
-        el("span", { "class": "rail-mark", "aria-hidden": "true", text: status === "violated" ? "✕" : "✓" }),
-        el("a", { "class": "rail-link", href: href, title: inv.check + " — " + inv.module }, [
-          el("span", { "class": "rail-label", text: inv.label }),
-          el("span", { "class": "rail-check", text: inv.check })
-        ])
-      ]);
-      DOM.rail.appendChild(item);
+      var sub = inv.subsystem || "other";
+      if (!groups[sub]) { groups[sub] = []; seen.push(sub); }
+      groups[sub].push(inv);
+    });
+    // Known subsystems in a stable order, then any extras as first encountered.
+    var ordered = RAIL_SUBSYSTEM_ORDER.filter(function (s) { return groups[s]; })
+      .concat(seen.filter(function (s) { return RAIL_SUBSYSTEM_ORDER.indexOf(s) === -1; }));
+
+    ordered.forEach(function (sub) {
+      var list = el("ul", { "class": "rail-group-list", role: "list" });
+      groups[sub].forEach(function (inv) {
+        var status = "holds";        // holds (per proof) / verified (this step) / violated (sandbox)
+        if (sandboxResults && Object.prototype.hasOwnProperty.call(sandboxResults, inv.id)) {
+          status = sandboxResults[inv.id] ? "holds" : "violated";
+          if (!sandboxResults[inv.id]) anyViolation = true;
+        } else if (checkedSet[inv.id]) {
+          status = "verified";
+          checkedCount++;
+        }
+        var href = "map.html?module=" + encodeURIComponent(inv.mapModule);
+        list.appendChild(el("li", { "class": "rail-item", dataset: { status: status, subsystem: sub } }, [
+          el("a", { "class": "rail-link", href: href, title: inv.label + " — " + inv.check + " (" + inv.module + ")" }, [
+            el("span", { "class": "rail-mark", "aria-hidden": "true", text: status === "violated" ? "✕" : "✓" }),
+            el("span", { "class": "rail-label", text: inv.label })
+          ])
+        ]));
+      });
+      DOM.rail.appendChild(el("section", { "class": "rail-group" }, [
+        el("h3", { "class": "rail-group-title" }, [
+          el("span", { text: railSubsystemLabel(sub) }),
+          el("span", { "class": "rail-group-count", "aria-hidden": "true", text: String(groups[sub].length) })
+        ]),
+        list
+      ]));
     });
 
     var summary = document.getElementById("rail-summary");
@@ -1150,7 +1183,8 @@
           : tt("run.rail_sandbox_ok", "Sandbox: client-side structural checks pass (unverified).");
         summary.dataset.tone = anyViolation ? "bad" : "warn";
       } else {
-        summary.textContent = tt("run.rail_ok", "All machine-checked invariants hold at this step.");
+        summary.textContent = tt("run.rail_all_hold", "All machine-checked invariants hold")
+          + (checkedCount > 0 ? " · " + checkedCount + " " + tt("run.rail_checked_here", "checked at this step") : "");
         summary.dataset.tone = "good";
       }
     }

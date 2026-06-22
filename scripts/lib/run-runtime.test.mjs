@@ -124,9 +124,19 @@ test('run.js renders the stage, rail, inspector, and log after loading bundled d
   assert.ok(byId['theater-stage'].childNodes.length >= 1, 'stage has an SVG root');
   assert.ok(countClass(byId['theater-stage'], 'theater-chip') > 0, 'stage renders thread chips');
   assert.ok(countClass(byId['theater-stage'], 'theater-box') > 0, 'stage renders boxes');
-  assert.equal(byId['invariant-rail'].childNodes.length, traceData.invariantCatalog.length, 'rail lists the full catalog');
+  assert.equal(countClass(byId['invariant-rail'], 'rail-item'), traceData.invariantCatalog.length, 'rail lists the full catalog (grouped by subsystem)');
+  // One subsystem group per distinct subsystem in the catalog.
+  const subsystems = new Set(traceData.invariantCatalog.map((i) => i.subsystem || 'other'));
+  assert.equal(countClass(byId['invariant-rail'], 'rail-group'), subsystems.size, 'rail renders one group per subsystem');
   assert.equal(byId['theater-log'].childNodes.length, traceData.scenarios[0].steps.length, 'log lists every step');
   assert.ok(byId['theater-inspector'].childNodes.length > 0, 'inspector is populated');
+});
+
+test('run.js rail emphasises exactly the invariants checked at the current step', async () => {
+  const { byId, traceData } = await bootRunJs('?scenario=vspace-wx&step=2');
+  const checked = traceData.scenarios.find((s) => s.id === 'vspace-wx').steps[2].invariants.checked.length;
+  assert.ok(checked > 0, 'the chosen step checks at least one invariant');
+  assert.equal(countStatus(byId['invariant-rail'], 'verified'), checked, 'each checked-at-this-step invariant is marked verified, the rest hold');
 });
 
 test('run.js transport advances the step counter', async () => {

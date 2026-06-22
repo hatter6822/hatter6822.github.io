@@ -136,7 +136,7 @@
         <p id="theater-caption" class="transport-caption" aria-live="polite"></p>
 
         <div class="theater-grid">
-          <div class="theater-card">
+          <div class="theater-card stage-card">
             <div class="stage-header">
               <h2 data-i18n="run.stage">Stage</h2>
               <div id="theater-scenes" class="scene-tabs" role="tablist" aria-label="Scene" data-i18n-aria-label="run.scene"></div>
@@ -145,13 +145,19 @@
               <div id="theater-stage"></div>
             </div>
           </div>
-          <aside class="theater-card invariant-card" aria-label="Invariants and inspector">
-            <h2 data-i18n="run.invariants">Machine-checked invariants</h2>
-            <p id="rail-summary" data-tone="good"></p>
-            <ul id="invariant-rail" class="invariant-rail" role="list"></ul>
+          <aside class="theater-card inspector-card" aria-label="Step detail">
+            <h2 data-i18n="run.step_detail">Step detail</h2>
             <div id="theater-inspector" class="theater-inspector" aria-live="polite"></div>
           </aside>
         </div>
+
+        <section class="theater-card invariant-card" aria-label="Machine-checked invariants">
+          <div class="invariant-head">
+            <h2 data-i18n="run.invariants">Machine-checked invariants</h2>
+            <p id="rail-summary" data-tone="good"></p>
+          </div>
+          <div id="invariant-rail" class="invariant-rail"></div>
+        </section>
 
         <section class="theater-sandbox" id="sandbox-panel" hidden aria-label="Sandbox (unverified preview)">
           <p class="sandbox-banner" data-i18n-html="run.sandbox_banner"><strong>Unverified preview.</strong> These structural checks run in JavaScript, not Lean. Perturb the state below and watch a check break — exactly what the machine-checked proofs guarantee can never happen in the real kernel.</p>

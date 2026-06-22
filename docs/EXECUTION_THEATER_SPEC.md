@@ -165,7 +165,11 @@ between them — and the System scene likewise renders one CPU box per core.
 
 The rail lists the dataset's **invariant catalog** — each entry mapping a website
 label to a real executable check in `SeLe4n.Testing.InvariantChecks` and to a
-representative proof module. For the current step:
+representative proof module. It is presented as a **full-width band beneath the
+workspace**, grouped into subsystem mini-columns (IPC, Scheduler, Capabilities,
+Memory, Information flow, Services) that tile responsively, with a summary chip
+("All machine-checked invariants hold · N checked at this step"). This keeps the
+catalog compact and scannable instead of a single long column. For the current step:
 
 - Invariants the kernel **actively re-validated** at this transition
   (`step.invariants.checked`) are highlighted as **verified this step**.
