@@ -171,6 +171,42 @@ test('touchedEntities collects referenced ids by category', () => {
   assert.deepEqual(touched.notifications, ['n']);
 });
 
+/* ── Capability derivation tree ops ─────────────────────────── */
+
+test('cdtRemove prunes a node and all its descendants', () => {
+  const state = { current: { thread: null }, threads: [], endpoints: [], notifications: [], runQueue: {}, cdt: { nodes: [{ id: 'root' }], edges: [] } };
+  applyOp(state, { op: 'cdtInsert', node: { id: 'a' }, parent: 'root' });
+  applyOp(state, { op: 'cdtInsert', node: { id: 'b' }, parent: 'a' });
+  applyOp(state, { op: 'cdtInsert', node: { id: 'c' }, parent: 'root' });
+  applyOp(state, { op: 'cdtRemove', node: 'a' });
+  assert.deepEqual(state.cdt.nodes.map((n) => n.id).sort(), ['c', 'root']);
+  assert.deepEqual(state.cdt.edges, [['root', 'c']]);
+});
+
+test('cdtInsert is idempotent on the parent edge and throws on a dangling parent', () => {
+  const state = { cdt: { nodes: [{ id: 'root' }], edges: [] } };
+  applyOp(state, { op: 'cdtInsert', node: { id: 'a' }, parent: 'root' });
+  applyOp(state, { op: 'cdtInsert', node: { id: 'a' }, parent: 'root' }); // repeat
+  assert.equal(state.cdt.edges.length, 1);
+  assert.throws(() => applyOp(state, { op: 'cdtInsert', node: { id: 'x' }, parent: 'ghost' }), /unknown parent ghost/);
+});
+
+test('validateTraceDataObject flags a CDT edge referencing a missing node', () => {
+  const data = minimalData();
+  data.scenarios[0].initialState.cdt = { nodes: [{ id: 'root' }], edges: [['root', 'ghost']] };
+  const errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('cdt edge[0] child ghost is not a node')));
+});
+
+test('touchedEntities collects CDT node ids', () => {
+  const touched = touchedEntities({ ops: [
+    { op: 'cdtInsert', node: { id: 'child' }, parent: 'root' },
+    { op: 'cdtRemove', node: 'old' },
+    { op: 'cdtPatch', id: 'p', set: {} }
+  ] });
+  assert.deepEqual(touched.cdt.sort(), ['child', 'old', 'p', 'root'].sort());
+});
+
 /* ── Bundled fixture ────────────────────────────────────────── */
 
 test('bundled data/execution-traces.json is valid and folds cleanly', async () => {

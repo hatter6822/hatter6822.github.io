@@ -27,6 +27,9 @@ export const ALLOWED_OPS = [
   'rqInsert',
   'rqRemove',
   'notifPatch',
+  'cdtInsert',
+  'cdtRemove',
+  'cdtPatch',
   'message',
   'note'
 ];
@@ -50,6 +53,21 @@ function findEndpoint(state, id) {
 
 function findNotification(state, id) {
   return (state.notifications || []).find((n) => n.id === id) || null;
+}
+
+function findCdtNode(state, id) {
+  return ((state.cdt && state.cdt.nodes) || []).find((n) => n.id === id) || null;
+}
+
+/** All transitive descendants of a CDT node (following parent→child edges). */
+function cdtDescendants(cdt, rootId) {
+  const out = new Set();
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop();
+    (cdt.edges || []).forEach((e) => { if (e[0] === id && !out.has(e[1])) { out.add(e[1]); stack.push(e[1]); } });
+  }
+  return out;
 }
 
 function rqInsertOrdered(state, core, threadId) {
@@ -129,6 +147,33 @@ export function applyOp(state, op) {
       Object.assign(n, op.set || {});
       return state;
     }
+    case 'cdtInsert': {
+      if (!state.cdt) state.cdt = { nodes: [], edges: [] };
+      const node = op.node;
+      if (!node || typeof node.id !== 'string') throw new Error('cdtInsert: node.id required');
+      if (!findCdtNode(state, node.id)) state.cdt.nodes.push(node);
+      if (op.parent !== undefined && op.parent !== null) {
+        if (!findCdtNode(state, op.parent)) throw new Error(`cdtInsert: unknown parent ${op.parent}`);
+        const exists = (state.cdt.edges || []).some((e) => e[0] === op.parent && e[1] === node.id);
+        if (!exists) state.cdt.edges.push([op.parent, node.id]);
+      }
+      return state;
+    }
+    case 'cdtRemove': {
+      if (!state.cdt) return state;
+      if (!findCdtNode(state, op.node)) throw new Error(`cdtRemove: unknown node ${op.node}`);
+      const doomed = cdtDescendants(state.cdt, op.node);
+      doomed.add(op.node);
+      state.cdt.nodes = (state.cdt.nodes || []).filter((n) => !doomed.has(n.id));
+      state.cdt.edges = (state.cdt.edges || []).filter((e) => !doomed.has(e[0]) && !doomed.has(e[1]));
+      return state;
+    }
+    case 'cdtPatch': {
+      const cn = findCdtNode(state, op.id);
+      if (!cn) throw new Error(`cdtPatch: unknown cdt node ${op.id}`);
+      Object.assign(cn, op.set || {});
+      return state;
+    }
     case 'message':
     case 'note':
       return state; // event-only ops carry no persistent state change
@@ -169,6 +214,7 @@ export function touchedEntities(delta) {
   const threads = new Set();
   const endpoints = new Set();
   const notifications = new Set();
+  const cdt = new Set();
   const ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
   for (const op of ops) {
     switch (op.op) {
@@ -179,11 +225,14 @@ export function touchedEntities(delta) {
       case 'rqInsert':
       case 'rqRemove': if (op.thread) threads.add(op.thread); break;
       case 'notifPatch': if (op.id) notifications.add(op.id); break;
+      case 'cdtInsert': if (op.node && op.node.id) cdt.add(op.node.id); if (op.parent) cdt.add(op.parent); break;
+      case 'cdtRemove': if (op.node) cdt.add(op.node); break;
+      case 'cdtPatch': if (op.id) cdt.add(op.id); break;
       case 'message': if (op.from) threads.add(op.from); if (op.to) threads.add(op.to); if (op.endpoint) endpoints.add(op.endpoint); break;
       default: break;
     }
   }
-  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications] };
+  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications], cdt: [...cdt] };
 }
 
 /* ── Validation ─────────────────────────────────────────────── */
@@ -211,6 +260,23 @@ function validateState(state, path, errors) {
   if (state.endpoints !== undefined && !Array.isArray(state.endpoints)) errors.push(`${path}.endpoints must be an array`);
   if (state.notifications !== undefined && !Array.isArray(state.notifications)) errors.push(`${path}.notifications must be an array`);
   if (state.runQueue !== undefined && !isObject(state.runQueue)) errors.push(`${path}.runQueue must be an object`);
+  if (state.cdt !== undefined) {
+    if (!isObject(state.cdt)) errors.push(`${path}.cdt must be an object`);
+    else {
+      if (!Array.isArray(state.cdt.nodes)) errors.push(`${path}.cdt.nodes must be an array`);
+      if (!Array.isArray(state.cdt.edges)) errors.push(`${path}.cdt.edges must be an array`);
+    }
+  }
+}
+
+/** Every CDT edge must reference existing nodes (a structural echo of childMapConsistent). */
+function checkCdtRefs(state, path, errors) {
+  if (!state.cdt) return;
+  const ids = new Set((state.cdt.nodes || []).map((n) => n.id));
+  (state.cdt.edges || []).forEach((e, i) => {
+    if (!ids.has(e[0])) errors.push(`${path}: cdt edge[${i}] parent ${e[0]} is not a node`);
+    if (!ids.has(e[1])) errors.push(`${path}: cdt edge[${i}] child ${e[1]} is not a node`);
+  });
 }
 
 /** Run queues should never contain a duplicate thread id (mirrors schedulerRunQueueUniqueB). */
@@ -306,6 +372,7 @@ export function validateTraceDataObject(data) {
     try {
       let state = cloneState(sc.initialState);
       checkRunQueueUnique(state, `${sp}.initialState`, errors);
+      checkCdtRefs(state, `${sp}.initialState`, errors);
       sc.steps.forEach((step, idx) => {
         try {
           applyDelta(state, step.delta);
@@ -313,6 +380,7 @@ export function validateTraceDataObject(data) {
           errors.push(`${sp}.steps[${idx}] (${step && step.traceTag}): ${e.message}`);
         }
         checkRunQueueUnique(state, `${sp}.steps[${idx}]`, errors);
+        checkCdtRefs(state, `${sp}.steps[${idx}]`, errors);
       });
     } catch (e) {
       errors.push(`${sp}: failed to fold — ${e.message}`);

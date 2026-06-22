@@ -144,6 +144,12 @@
 .budget-fill { fill: var(--green); }
 .budget-fill[data-empty="true"] { fill: var(--red); }
 
+/* ── Capability scene (CDT tree) ───────────────────────────── */
+.cdt-edge { fill: none; stroke: color-mix(in oklab, var(--purple) 55%, var(--border)); stroke-width: 1.5; }
+.cdt-rect { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke: var(--purple); stroke-width: 1.5; }
+.cdt-node:hover .cdt-rect { fill: color-mix(in oklab, var(--purple) 14%, var(--surface)); }
+.cdt-node .chip-sub { font-family: var(--font-mono); }
+
 /* ── Invariant rail ────────────────────────────────────────── */
 .invariant-card #rail-summary { font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.4rem 0.55rem; border-radius: var(--radius); }
 #rail-summary[data-tone="good"] { color: var(--green); background: var(--green-dim); }

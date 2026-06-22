@@ -159,3 +159,24 @@ test('run.js scene tabs switch the rendered scene', async () => {
   schedTab._fire('click');
   assert.ok(countClass(byId['theater-stage'], 'sched-chip') > 0, 'clicking the tab switches to the scheduler scene');
 });
+
+test('run.js renders the Capability scene CDT (nodes + edges)', async () => {
+  const { byId } = await bootRunJs('?scenario=capability-mint-revoke&step=3');
+  assert.equal(countClass(byId['theater-stage'], 'cdt-node'), 4, 'four capability nodes before revoke');
+  assert.equal(countClass(byId['theater-stage'], 'cdt-edge'), 3, 'three derivation edges');
+});
+
+test('run.js capability revocation prunes the subtree in the rendered scene', async () => {
+  const { byId } = await bootRunJs('?scenario=capability-mint-revoke&step=4');
+  assert.equal(countClass(byId['theater-stage'], 'cdt-node'), 2, 'root + logger remain after revoke');
+  assert.equal(countClass(byId['theater-stage'], 'cdt-edge'), 1, 'one derivation edge remains');
+});
+
+test('run.js shows the Capability tab only for scenarios with a CDT', async () => {
+  const cap = await bootRunJs('?scenario=capability-mint-revoke&step=0');
+  const capTabs = cap.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(capTabs.includes('capability'), 'capability scenario shows the tab');
+  const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
+  const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
+  assert.ok(!ipcTabs.includes('capability'), 'ipc scenario hides the capability tab');
+});

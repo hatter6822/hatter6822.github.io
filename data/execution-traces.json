@@ -18,7 +18,9 @@
     { "id": "runQueueThreadPriorityConsistent", "label": "Run-queue order respects priority", "check": "runQueueThreadPriorityConsistentB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Scheduler.Invariant", "subsystem": "scheduler" },
     { "id": "schedulerQueueCurrentConsistent", "label": "Scheduler / current-thread consistency", "check": "schedulerQueueCurrentConsistentB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Scheduler.Invariant", "subsystem": "scheduler" },
     { "id": "capDerivationConsistent", "label": "Capability derivation tree consistent", "check": "cdtChildMapConsistentCheck", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Defs", "subsystem": "capability" },
-    { "id": "cbsBudgetBounded", "label": "CBS budget bandwidth bounded", "check": "cbs_bandwidth_bounded", "module": "SeLe4n.Kernel.SchedContext", "mapModule": "SeLe4n.Kernel.SchedContext", "subsystem": "scheduler" }
+    { "id": "cbsBudgetBounded", "label": "CBS budget bandwidth bounded", "check": "cbs_bandwidth_bounded", "module": "SeLe4n.Kernel.SchedContext", "mapModule": "SeLe4n.Kernel.SchedContext", "subsystem": "scheduler" },
+    { "id": "cdtAcyclic", "label": "Capability derivation tree is acyclic", "check": "edgeWellFounded", "module": "SeLe4n.Model.Object.Structures", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Defs", "subsystem": "capability" },
+    { "id": "capRightsMonotone", "label": "Derived rights never exceed the parent", "check": "capabilityRightsStructuralChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Authority", "subsystem": "capability" }
   ],
   "scenarios": [
     {
@@ -345,6 +347,110 @@
             { "op": "threadPatch", "id": "th.b", "set": { "timeSlice": 3 } }
           ] },
           "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "cbsBudgetBounded"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "capability-mint-revoke",
+      "title": "Capability minting and strict revocation",
+      "summary": "A supervisor mints and copies capabilities derived from a master endpoint capability, growing the Capability Derivation Tree; a strict revoke then removes a capability together with every capability derived from it.",
+      "tags": ["capability"],
+      "primaryScene": "capability",
+      "objects": {
+        "th.sup": { "label": "supervisor", "kind": "TCB" },
+        "ep.svc": { "label": "service-ep", "kind": "Endpoint" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "supervisor", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.sup", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "cdt": {
+          "nodes": [
+            { "id": "cap.root", "label": "master", "slot": "sup/1", "target": "ep.svc", "rights": "rwg", "badge": null }
+          ],
+          "edges": []
+        }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "CAP-000",
+          "actor": null,
+          "narrative": "The supervisor holds a single master capability to the service endpoint with read/write/grant rights. The Capability Derivation Tree has one root node.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "supervisor → cspaceMint(app)",
+          "traceTag": "CAP-001",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceMint", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "supervisor CSpace → master ep capability", "args": { "dest": "app/3", "rights": "w", "badge": 7 } },
+          "narrative": "Minting derives a child capability: a write-only, badge-7 copy for the app component. The new node is attached under the master in the derivation tree, and its rights are a subset of the parent's.",
+          "sourceRefs": [
+            { "label": "apiCspaceMint", "module": "SeLe4n.Kernel.API" },
+            { "label": "storeCapabilityRef", "module": "SeLe4n.Model.State" }
+          ],
+          "delta": { "ops": [
+            { "op": "cdtInsert", "node": { "id": "cap.app", "label": "app", "slot": "app/3", "target": "ep.svc", "rights": "w", "badge": 7 }, "parent": "cap.root" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic", "capRightsMonotone"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "syscall",
+          "title": "supervisor → cspaceCopy(app′)",
+          "traceTag": "CAP-002",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceCopy", "gate": "SyscallGate", "requiredRight": "write", "capPath": "supervisor CSpace → app capability", "args": { "src": "app/3", "dest": "app/4" } },
+          "narrative": "Copying the app capability derives a further child beneath it, so the derivation tree records the provenance: app′ descends from app, which descends from the master.",
+          "sourceRefs": [
+            { "label": "apiCspaceCopy", "module": "SeLe4n.Kernel.API" }
+          ],
+          "delta": { "ops": [
+            { "op": "cdtInsert", "node": { "id": "cap.app2", "label": "app′", "slot": "app/4", "target": "ep.svc", "rights": "w", "badge": 7 }, "parent": "cap.app" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic", "capRightsMonotone"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "supervisor → cspaceMint(logger)",
+          "traceTag": "CAP-003",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceMint", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "supervisor CSpace → master ep capability", "args": { "dest": "log/2", "rights": "r", "badge": 9 } },
+          "narrative": "A second branch is minted from the master: a read-only capability for a logger. The tree now has two sibling branches under the master.",
+          "sourceRefs": [
+            { "label": "apiCspaceMint", "module": "SeLe4n.Kernel.API" }
+          ],
+          "delta": { "ops": [
+            { "op": "cdtInsert", "node": { "id": "cap.log", "label": "logger", "slot": "log/2", "target": "ep.svc", "rights": "r", "badge": 9 }, "parent": "cap.root" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic", "capRightsMonotone"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "syscall",
+          "title": "supervisor → cspaceDelete(app, revoke subtree)",
+          "traceTag": "CAP-004",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceDelete", "gate": "SyscallGate", "requiredRight": "write", "capPath": "supervisor CSpace → app capability", "args": { "slot": "app/3", "mode": "revoke-subtree" } },
+          "narrative": "Strict revocation removes the app capability and every capability derived from it — so app′ is destroyed along with app. The logger branch, derived independently from the master, is untouched.",
+          "sourceRefs": [
+            { "label": "apiCspaceDelete", "module": "SeLe4n.Kernel.API" },
+            { "label": "cspaceRevokeCdtStrict", "module": "SeLe4n.Kernel.Capability.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "cdtRemove", "node": "cap.app" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic"], "failed": [] }
         }
       ]
     }

@@ -50,7 +50,7 @@
   var SCHEMA_VERSION = 1;
 
   var PLAY_INTERVAL_MS = 1100;
-  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "message", "note"];
+  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "message", "note"];
 
   /* Layout geometry for the SVG stage. */
   var BOX_W = 188;
@@ -113,6 +113,8 @@
   function findThread(s, id) { for (var i = 0; i < (s.threads || []).length; i++) if (s.threads[i].id === id) return s.threads[i]; return null; }
   function findEndpoint(s, id) { for (var i = 0; i < (s.endpoints || []).length; i++) if (s.endpoints[i].id === id) return s.endpoints[i]; return null; }
   function findNotification(s, id) { for (var i = 0; i < (s.notifications || []).length; i++) if (s.notifications[i].id === id) return s.notifications[i]; return null; }
+  function findCdtNode(s, id) { var ns = (s.cdt && s.cdt.nodes) || []; for (var i = 0; i < ns.length; i++) if (ns[i].id === id) return ns[i]; return null; }
+  function cdtDescendants(cdt, rootId) { var out = {}; var stack = [rootId]; while (stack.length) { var id = stack.pop(); (cdt.edges || []).forEach(function (e) { if (e[0] === id && !out[e[1]]) { out[e[1]] = 1; stack.push(e[1]); } }); } return out; }
 
   function rqInsertOrdered(state, core, threadId) {
     var key = String(core);
@@ -167,6 +169,31 @@
         if (n) for (var k2 in op.set) if (Object.prototype.hasOwnProperty.call(op.set, k2)) n[k2] = op.set[k2];
         return state;
       }
+      case "cdtInsert": {
+        if (!state.cdt) state.cdt = { nodes: [], edges: [] };
+        var cnode = op.node;
+        if (cnode && cnode.id) {
+          if (!findCdtNode(state, cnode.id)) state.cdt.nodes.push(cnode);
+          if (op.parent != null && findCdtNode(state, op.parent)) {
+            var dup = (state.cdt.edges || []).some(function (e) { return e[0] === op.parent && e[1] === cnode.id; });
+            if (!dup) state.cdt.edges.push([op.parent, cnode.id]);
+          }
+        }
+        return state;
+      }
+      case "cdtRemove": {
+        if (state.cdt && findCdtNode(state, op.node)) {
+          var doomed = cdtDescendants(state.cdt, op.node); doomed[op.node] = 1;
+          state.cdt.nodes = state.cdt.nodes.filter(function (nd) { return !doomed[nd.id]; });
+          state.cdt.edges = state.cdt.edges.filter(function (e) { return !doomed[e[0]] && !doomed[e[1]]; });
+        }
+        return state;
+      }
+      case "cdtPatch": {
+        var cn = findCdtNode(state, op.id);
+        if (cn) for (var k3 in op.set) if (Object.prototype.hasOwnProperty.call(op.set, k3)) cn[k3] = op.set[k3];
+        return state;
+      }
       default:
         return state; // message / note are event-only
     }
@@ -187,7 +214,7 @@
   }
 
   function touchedEntities(delta) {
-    var threads = {}, endpoints = {}, notifications = {};
+    var threads = {}, endpoints = {}, notifications = {}, cdt = {};
     var ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
     for (var i = 0; i < ops.length; i++) {
       var op = ops[i];
@@ -196,9 +223,12 @@
       else if ((op.op === "epEnqueue" || op.op === "epDequeue")) { if (op.endpoint) endpoints[op.endpoint] = 1; if (op.thread) threads[op.thread] = 1; }
       else if ((op.op === "rqInsert" || op.op === "rqRemove") && op.thread) threads[op.thread] = 1;
       else if (op.op === "notifPatch" && op.id) notifications[op.id] = 1;
+      else if (op.op === "cdtInsert") { if (op.node && op.node.id) cdt[op.node.id] = 1; if (op.parent) cdt[op.parent] = 1; }
+      else if (op.op === "cdtRemove") { if (op.node) cdt[op.node] = 1; }
+      else if (op.op === "cdtPatch") { if (op.id) cdt[op.id] = 1; }
       else if (op.op === "message") { if (op.from) threads[op.from] = 1; if (op.to) threads[op.to] = 1; if (op.endpoint) endpoints[op.endpoint] = 1; }
     }
-    return { threads: threads, endpoints: endpoints, notifications: notifications };
+    return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt };
   }
 
   /* Lightweight client-side validation — guard against malformed remote data. */
@@ -270,6 +300,7 @@
     if (meta && meta.label) return meta.label;
     return id;
   }
+  function cdtLabelOf(id) { var n = findCdtNode(viewState(), id); return (n && n.label) || id; }
   function isBlocked(th) {
     if (!th) return false;
     return th.threadState === "Blocked" || /^blockedOn/.test(th.ipcState || "");
@@ -335,13 +366,14 @@
     renderSceneTabs();
     var state = viewState();
     if (!state) return;
+    if (availableScenes(app.scenario).indexOf(app.scene) === -1) app.scene = "system";
     var step = currentStep();
-    var touched = step ? touchedEntities(step.delta) : { threads: {}, endpoints: {}, notifications: {} };
+    var touched = step ? touchedEntities(step.delta) : { threads: {}, endpoints: {}, notifications: {}, cdt: {} };
 
     var root = svg("svg", { "class": "theater-svg", xmlns: SVG_NS });
     root.setAttribute("role", "img");
-    var dims = app.scene === "scheduler"
-      ? renderSchedulerScene(root, state, step, touched)
+    var dims = app.scene === "scheduler" ? renderSchedulerScene(root, state, step, touched)
+      : app.scene === "capability" ? renderCapabilityScene(root, state, step, touched)
       : renderSystemScene(root, state, step, touched);
     root.setAttribute("aria-label", dims.aria || tt("run.stage_aria", "Kernel system state visualization"));
     root.setAttribute("viewBox", "0 0 " + dims.width + " " + dims.height);
@@ -498,13 +530,21 @@
      Scene switching + Scheduler scene
      ════════════════════════════════════════════════════════════ */
 
-  var SCENES = ["system", "scheduler"];
+  var SCENES = ["system", "scheduler", "capability"];
+
+  // Scenes available for a scenario: System/Scheduler always; Capability only when
+  // the scenario actually carries a capability derivation tree.
+  function availableScenes(scenario) {
+    var out = ["system", "scheduler"];
+    if (scenario && scenario.initialState && scenario.initialState.cdt) out.push("capability");
+    return out;
+  }
 
   function renderSceneTabs() {
     if (!DOM.sceneTabs) return;
     clear(DOM.sceneTabs);
-    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler") };
-    SCENES.forEach(function (id) {
+    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities") };
+    availableScenes(app.scenario).forEach(function (id) {
       var active = app.scene === id;
       var b = el("button", { "class": "scene-tab", type: "button", role: "tab", dataset: { scene: id, active: active ? "true" : "false" }, text: labels[id], onclick: function () { setScene(id); } });
       b.setAttribute("aria-selected", active ? "true" : "false");
@@ -513,7 +553,7 @@
   }
 
   function setScene(id) {
-    if (SCENES.indexOf(id) === -1 || app.scene === id) return;
+    if (availableScenes(app.scenario).indexOf(id) === -1 || app.scene === id) return;
     app.scene = id;
     render();
     syncUrl();
@@ -610,6 +650,77 @@
     return { width: SBW + 2 * MARGIN, height: Math.max(y, 220) + MARGIN - ZONE_GAP, positions: positions, aria: tt("run.scheduler_aria", "Kernel scheduler view: CPU, priority buckets, and budgets") };
   }
 
+  function renderCapabilityScene(root, state, step, touched) {
+    var positions = {};
+    var cdt = state.cdt || { nodes: [], edges: [] };
+    var nodes = cdt.nodes || [];
+    var edges = cdt.edges || [];
+    var NW = 158, NH = 60, HGAP = 24, VGAP = 50;
+
+    // Build the tree structure from parent→child edges.
+    var childrenOf = {}, hasParent = {};
+    nodes.forEach(function (n) { childrenOf[n.id] = []; });
+    edges.forEach(function (e) { if (childrenOf[e[0]]) childrenOf[e[0]].push(e[1]); hasParent[e[1]] = 1; });
+    var roots = nodes.filter(function (n) { return !hasParent[n.id]; }).map(function (n) { return n.id; });
+
+    // Tidy layout: leaves take sequential x slots; internal nodes centre over children.
+    var xIndex = {}, depth = {}, visited = {}, leaf = 0;
+    function dfs(id, d) {
+      if (visited[id]) return;
+      visited[id] = 1; depth[id] = d;
+      var kids = childrenOf[id] || [];
+      if (!kids.length) { xIndex[id] = leaf++; return; }
+      var sum = 0, count = 0;
+      kids.forEach(function (c) { dfs(c, d + 1); if (xIndex[c] !== undefined) { sum += xIndex[c]; count++; } });
+      xIndex[id] = count ? sum / count : leaf++;
+    }
+    roots.forEach(function (r) { dfs(r, 0); });
+    nodes.forEach(function (n) { if (visited[n.id] === undefined) { visited[n.id] = 1; depth[n.id] = 0; xIndex[n.id] = leaf++; } });
+
+    function px(id) { return MARGIN + xIndex[id] * (NW + HGAP); }
+    function py(id) { return MARGIN + BOX_HEADER + depth[id] * (NH + VGAP); }
+
+    // Derivation edges (drawn under the nodes).
+    var edgeLayer = svg("g", { "class": "cdt-edges" });
+    root.appendChild(edgeLayer);
+    edges.forEach(function (e) {
+      if (xIndex[e[0]] === undefined || xIndex[e[1]] === undefined) return;
+      var x1 = px(e[0]) + NW / 2, y1 = py(e[0]) + NH, x2 = px(e[1]) + NW / 2, y2 = py(e[1]);
+      var midY = (y1 + y2) / 2;
+      edgeLayer.appendChild(svg("path", { "class": "cdt-edge", d: "M" + x1 + " " + y1 + " C " + x1 + " " + midY + " " + x2 + " " + midY + " " + x2 + " " + y2 }));
+    });
+
+    // Capability nodes.
+    var maxX = 0, maxY = 0;
+    nodes.forEach(function (n) {
+      var x = px(n.id), y = py(n.id);
+      maxX = Math.max(maxX, x + NW); maxY = Math.max(maxY, y + NH);
+      var g = svg("g", { "class": "theater-chip cdt-node", transform: "translate(" + x + "," + y + ")", role: "button", tabindex: "0" });
+      g.setAttribute("data-cdt", n.id);
+      var rect = svg("rect", { width: NW, height: NH, rx: 8, "class": "chip-rect cdt-rect" });
+      if (n.id === app.selectedObject) rect.setAttribute("data-selected", "true");
+      if (touched.cdt && touched.cdt[n.id]) rect.setAttribute("data-touched", "true");
+      g.appendChild(rect);
+      var title = svg("text", { x: 11, y: 19, "class": "chip-name" }); title.textContent = n.label || n.id; g.appendChild(title);
+      var tgt = svg("text", { x: 11, y: 35, "class": "chip-sub" }); tgt.textContent = "→ " + ((objectMeta(n.target) && objectMeta(n.target).label) || n.target || "?"); g.appendChild(tgt);
+      var meta = svg("text", { x: 11, y: 50, "class": "chip-sub" });
+      meta.textContent = "[" + (n.rights || "") + "]" + (n.badge != null ? " b" + n.badge : "") + (n.slot ? " · " + n.slot : "");
+      g.appendChild(meta);
+      g.addEventListener("click", function () { selectObject(n.id); });
+      g.addEventListener("keydown", function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); selectObject(n.id); } });
+      positions[n.id] = { x: x + NW / 2, y: y + NH / 2 };
+      root.appendChild(g);
+    });
+
+    if (!nodes.length) {
+      var empty = svg("text", { x: MARGIN, y: MARGIN + BOX_HEADER + 16, "class": "box-empty" });
+      empty.textContent = tt("run.no_caps", "— no capabilities —");
+      root.appendChild(empty);
+    }
+
+    return { width: Math.max(maxX, 240) + MARGIN, height: Math.max(maxY, 220) + MARGIN, positions: positions, aria: tt("run.capability_aria", "Capability derivation tree") };
+  }
+
   /* ════════════════════════════════════════════════════════════
      Invariant rail
      ════════════════════════════════════════════════════════════ */
@@ -696,6 +807,9 @@
       case "rqInsert": return "Enqueue " + labelOf(op.thread) + " on run queue (core " + (op.core || 0) + ")";
       case "rqRemove": return "Dequeue " + labelOf(op.thread) + " from run queue (core " + (op.core || 0) + ")";
       case "notifPatch": return labelOf(op.id) + " updated";
+      case "cdtInsert": return "Derive capability " + (op.node && (op.node.label || op.node.id)) + (op.parent ? " from " + cdtLabelOf(op.parent) : "");
+      case "cdtRemove": return "Revoke capability " + cdtLabelOf(op.node) + " and its descendants";
+      case "cdtPatch": return "Update capability " + cdtLabelOf(op.id);
       case "message": return "Message " + labelOf(op.from) + " → " + labelOf(op.to) + " (" + (op.registers || 0) + " regs" + (op.caps ? ", " + op.caps + " caps" : "") + ")";
       case "note": return op.text || "";
       default: return op.op;
@@ -775,8 +889,21 @@
     } else {
       var ep = findEndpoint(state, id);
       var n = !ep ? findNotification(state, id) : null;
+      var cn = (!ep && !n) ? findCdtNode(state, id) : null;
       if (ep) { title = "Endpoint · " + (labelOf(id)); fields.push(["receiveQ", (ep.receiveQ || []).map(labelOf).join(", ") || "—"]); fields.push(["sendQ", (ep.sendQ || []).map(labelOf).join(", ") || "—"]); }
       else if (n) { title = "Notification · " + (labelOf(id)); fields.push(["state", n.state]); fields.push(["waiters", (n.waiters || []).map(labelOf).join(", ") || "—"]); fields.push(["badge", n.badge == null ? "—" : n.badge]); }
+      else if (cn) {
+        title = "Capability · " + (cn.label || cn.id);
+        fields.push(["target", (objectMeta(cn.target) && objectMeta(cn.target).label) || cn.target || "?"]);
+        fields.push(["rights", cn.rights || "—"]);
+        fields.push(["badge", cn.badge == null ? "—" : cn.badge]);
+        fields.push(["slot", cn.slot || "—"]);
+        var cedges = (state.cdt && state.cdt.edges) || [];
+        var par = cedges.filter(function (e) { return e[1] === id; }).map(function (e) { return cdtLabelOf(e[0]); });
+        var kids = cedges.filter(function (e) { return e[0] === id; }).map(function (e) { return cdtLabelOf(e[1]); });
+        fields.push(["derived from", par.length ? par.join(", ") : "— (root)"]);
+        fields.push(["children", kids.length ? kids.join(", ") : "—"]);
+      }
       else return;
     }
     var dl = el("dl", { "class": "insp-grid" });
@@ -891,7 +1018,7 @@
     // scenario's preferred scene.
     if (keepStep) { app.scene = app._urlScene || sc.primaryScene || "system"; app._urlScene = null; }
     else { app.scene = sc.primaryScene || "system"; }
-    if (SCENES.indexOf(app.scene) === -1) app.scene = "system";
+    if (availableScenes(sc).indexOf(app.scene) === -1) app.scene = "system";
     if (!keepStep) app.stepIndex = 0;
     app.stepIndex = Math.max(0, Math.min(app.scenario.steps.length - 1, app.stepIndex));
     app.selectedObject = "";
