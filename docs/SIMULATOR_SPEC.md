@@ -201,7 +201,9 @@ Two stacked panels:
 
 The `[TAG]`-prefixed trace lines (e.g. `ICR-001 syscall client → call(service-ep)`),
 mirroring the kernel's existing human-readable harness output. The active line is
-highlighted and auto-scrolled into view; clicking any line seeks to that step. This is
+highlighted and kept visible **within the log panel only** (its own `scrollTop` is
+nudged — never `scrollIntoView`, which would scroll the whole window down to this
+bottom-of-page card on every replay step); clicking any line seeks to that step. This is
 the bridge between the visual stage and the textual trace that
 `SeLe4n.Testing.MainTraceHarness` already emits today.
 

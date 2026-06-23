@@ -409,6 +409,71 @@
     } catch (e) { /* getBBox throws when not renderable — keep the computed dims */ }
   }
 
+  /* Condense an SVG <text> node so it never paints past `maxWidth` (in the
+     element's own user units). SVG text neither wraps nor clips, so a long
+     label is otherwise drawn at full width regardless of its box. We measure
+     the rendered advance and, only when it overshoots, pin textLength +
+     lengthAdjust="spacingAndGlyphs" so the glyphs squeeze to fit — text that
+     already fits is left untouched (never stretched). No-op in the headless
+     shim, which has no getComputedTextLength. */
+  function fitText(node, maxWidth) {
+    if (!node || !(maxWidth > 0) || typeof node.getComputedTextLength !== "function") return;
+    try {
+      var len = node.getComputedTextLength();
+      if (isFinite(len) && len > maxWidth) {
+        node.setAttribute("textLength", String(Math.round(maxWidth)));
+        node.setAttribute("lengthAdjust", "spacingAndGlyphs");
+      }
+    } catch (e) { /* not measurable yet — leave the label intact */ }
+  }
+
+  /* Keep every chip label inside its chip's rounded rect. Run once, after the
+     scene is attached (so text is measurable), over each rectangular chip (one
+     carrying a .chip-rect — the wide bar-style chips have their own room). The
+     label budget is the rect's inner width minus the label's own inset, derived
+     from its text-anchor. Called before fitViewBox so condensed labels don't
+     force the scene's viewBox to grow. No-op in the headless shim. */
+  function fitChipText(root) {
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    var PAD = 8;
+    var chips = root.querySelectorAll(".theater-chip");
+    for (var i = 0; i < chips.length; i++) {
+      var chip = chips[i];
+      var rect = chip.querySelector && chip.querySelector(".chip-rect");
+      if (!rect) continue;
+      var boxW = parseFloat(rect.getAttribute("width"));
+      var rectX = parseFloat(rect.getAttribute("x")) || 0;
+      if (!isFinite(boxW)) continue;
+      var labels = chip.querySelectorAll(".chip-name, .chip-sub");
+      for (var j = 0; j < labels.length; j++) {
+        var label = labels[j];
+        var x = parseFloat(label.getAttribute("x")) || 0;
+        var anchor = label.getAttribute("text-anchor");
+        var budget;
+        if (anchor === "middle") budget = boxW - 2 * PAD;          // centred on x
+        else if (anchor === "end") budget = (x - rectX) - PAD;      // ends at x
+        else budget = (rectX + boxW) - x - PAD;                     // starts at x
+        fitText(label, budget);
+      }
+    }
+  }
+
+  /* Reveal `line` inside its scroll panel WITHOUT scrolling the window.
+     Element.scrollIntoView() walks every scroll ancestor up to the viewport;
+     since the log is the page's bottom card (and html{scroll-behavior:smooth}),
+     that animated the whole window down/up on every replay step. Nudging only
+     the panel's own scrollTop confines the motion to the panel. No-op in the
+     headless shim, which has no getBoundingClientRect. */
+  function keepLineWithin(container, line) {
+    if (!container || !line || typeof line.getBoundingClientRect !== "function") return;
+    try {
+      var c = container.getBoundingClientRect();
+      var l = line.getBoundingClientRect();
+      if (l.top < c.top) container.scrollTop -= (c.top - l.top);
+      else if (l.bottom > c.bottom) container.scrollTop += (l.bottom - c.bottom);
+    } catch (e) { /* not measurable — leave the scroll position as-is */ }
+  }
+
   /* ════════════════════════════════════════════════════════════
      Trace-state helpers
      ════════════════════════════════════════════════════════════ */
@@ -515,6 +580,7 @@
     root.setAttribute("width", String(dims.width));
     root.setAttribute("height", String(dims.height));
     DOM.stage.appendChild(root);
+    fitChipText(root);
     fitViewBox(root, dims);
     if (step && !prefersReducedMotion()) animateMessages(root, step, dims.positions || {});
   }
@@ -1543,9 +1609,7 @@
       DOM.log.appendChild(line);
     });
     var activeLine = DOM.log.querySelector('[data-active="true"]');
-    if (activeLine && activeLine.scrollIntoView) {
-      try { activeLine.scrollIntoView({ block: "nearest" }); } catch (e) {}
-    }
+    if (activeLine) keepLineWithin(DOM.log, activeLine);
   }
 
   /* ════════════════════════════════════════════════════════════
