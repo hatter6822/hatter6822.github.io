@@ -72,7 +72,7 @@
     "no_domains": "— no security domains —",
     "no_services": "— no services —",
     "allowed": "allowed",
-    "blocked": "blocked",
+    "flow_blocked": "blocked",
     "priority": "Priority",
     "not_runnable": "Not runnable (blocked)",
     "invariants": "Machine-checked invariants",

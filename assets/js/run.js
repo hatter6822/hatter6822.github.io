@@ -391,10 +391,18 @@
       var bb = root.getBBox();
       if (!bb || !isFinite(bb.width) || !isFinite(bb.height)) return;
       var pad = 8;
-      var w = Math.max(dims.width, Math.ceil(bb.x + bb.width + pad));
-      var h = Math.max(dims.height, Math.ceil(bb.y + bb.height + pad));
-      if (w !== dims.width || h !== dims.height) {
-        root.setAttribute("viewBox", "0 0 " + w + " " + h);
+      // Enclose both the computed [0..dims] box and the actual painted bbox —
+      // including content that overshoots left/top (negative bb.x / bb.y), e.g. a
+      // long centred domain label or a tall policy arc in the info-flow scene.
+      // Shifting the viewBox origin moves all content uniformly, so chip and
+      // message-animation coordinates stay aligned.
+      var minX = bb.x < 0 ? Math.floor(bb.x - pad) : 0;
+      var minY = bb.y < 0 ? Math.floor(bb.y - pad) : 0;
+      var maxX = Math.max(dims.width, Math.ceil(bb.x + bb.width + pad));
+      var maxY = Math.max(dims.height, Math.ceil(bb.y + bb.height + pad));
+      var w = maxX - minX, h = maxY - minY;
+      if (minX !== 0 || minY !== 0 || w !== dims.width || h !== dims.height) {
+        root.setAttribute("viewBox", minX + " " + minY + " " + w + " " + h);
         root.setAttribute("width", String(w));
         root.setAttribute("height", String(h));
       }
@@ -993,7 +1001,7 @@
       var path = svg("path", { "class": "if-flow " + (allowed ? "if-flow-allow" : "if-flow-block"), "marker-end": allowed ? "url(#if-arrow-allow)" : "url(#if-arrow-block)", d: "M" + fx + " " + (domainY + DOMH) + " L " + fx + " " + fy + " L " + tx + " " + fy + " L " + tx + " " + (domainY + DOMH + 5) });
       root.appendChild(path);
       var badge = svg("text", { x: (fx + tx) / 2, y: fy + 18, "class": allowed ? "if-flow-label-allow" : "if-flow-label-block", "text-anchor": "middle" });
-      badge.textContent = (allowed ? tt("run.allowed", "allowed") : tt("run.blocked", "blocked")) + ": " + domName(flow.from) + " → " + domName(flow.to);
+      badge.textContent = (allowed ? tt("run.allowed", "allowed") : tt("run.flow_blocked", "blocked")) + ": " + domName(flow.from) + " → " + domName(flow.to);
       root.appendChild(badge);
     }
 
