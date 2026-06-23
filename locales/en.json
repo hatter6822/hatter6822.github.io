@@ -50,6 +50,7 @@
     "sandbox": "Sandbox",
     "stage": "Stage",
     "stage_aria": "Kernel system state visualization",
+    "stage_region": "Kernel state visualization",
     "scene": "Scene",
     "scene_system": "System",
     "scene_scheduler": "Scheduler",

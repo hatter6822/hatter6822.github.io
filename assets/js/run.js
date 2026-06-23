@@ -380,6 +380,27 @@
     try { return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; }
   }
 
+  /* Grow an SVG scene's viewBox to enclose any content that paints past the
+     geometric bounds the scene computed — e.g. a long object label or box title.
+     The outer <svg> clips to its viewBox, so without this such text would be cut
+     off at the viewport edge. Inert when content already fits (never shrinks);
+     a no-op in the headless test shim, which has no getBBox. */
+  function fitViewBox(root, dims) {
+    if (!root || typeof root.getBBox !== "function") return;
+    try {
+      var bb = root.getBBox();
+      if (!bb || !isFinite(bb.width) || !isFinite(bb.height)) return;
+      var pad = 8;
+      var w = Math.max(dims.width, Math.ceil(bb.x + bb.width + pad));
+      var h = Math.max(dims.height, Math.ceil(bb.y + bb.height + pad));
+      if (w !== dims.width || h !== dims.height) {
+        root.setAttribute("viewBox", "0 0 " + w + " " + h);
+        root.setAttribute("width", String(w));
+        root.setAttribute("height", String(h));
+      }
+    } catch (e) { /* getBBox throws when not renderable — keep the computed dims */ }
+  }
+
   /* ════════════════════════════════════════════════════════════
      Trace-state helpers
      ════════════════════════════════════════════════════════════ */
@@ -471,7 +492,9 @@
     var touched = step ? touchedEntities(step.delta) : { threads: {}, endpoints: {}, notifications: {}, cdt: {} };
 
     var root = svg("svg", { "class": "theater-svg", xmlns: SVG_NS });
-    root.setAttribute("role", "img");
+    // role="group" (not "img"): the scene contains focusable, interactive object
+    // chips, which an "img" role would hide from assistive technology.
+    root.setAttribute("role", "group");
     var dims = app.scene === "scheduler" ? renderSchedulerScene(root, state, step, touched)
       : app.scene === "capability" ? renderCapabilityScene(root, state, step, touched)
       : app.scene === "memory" ? renderMemoryScene(root, state, step, touched)
@@ -484,6 +507,7 @@
     root.setAttribute("width", String(dims.width));
     root.setAttribute("height", String(dims.height));
     DOM.stage.appendChild(root);
+    fitViewBox(root, dims);
     if (step && !prefersReducedMotion()) animateMessages(root, step, dims.positions || {});
   }
 
