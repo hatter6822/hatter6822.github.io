@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-import { writeFile } from 'node:fs/promises';
+import { writeFile, mkdtemp, mkdir, rm, readFile, readdir } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { extractImportTokens, extractInteriorCodeItems, theoremCount, INTERIOR_KIND_GROUPS } from './lib/lean-analysis.mjs';
 
 const REPO = 'hatter6822/seLe4n';
 const REF = 'main';
-const API = `https://api.github.com/repos/${REPO}`;
 const OUT_FILE = new URL('../data/map-data.json', import.meta.url);
-const FETCH_CONCURRENCY = 8;
 
 const ALL_INTERIOR_KINDS = [
   ...INTERIOR_KIND_GROUPS.object,
@@ -42,117 +43,120 @@ function moduleBase(moduleName) {
   return moduleName.replace(/\.(Operations|Invariant)$/, '');
 }
 
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.json();
+// ── Acquire the repository without per-file REST calls ─────────────────────
+// The previous approach fetched one git blob per .lean file (~1 REST request
+// each), which blows past the 60/hr anonymous rate limit on a repo this size.
+// Instead, resolve the tip over the git protocol and pull a single source
+// archive from codeload — neither consumes the REST core quota — then analyze
+// the files locally with the same lean-analysis helpers. Net: 1 archive
+// download, 0 REST calls, regardless of repository size.
+
+function resolveSha() {
+  const out = execFileSync('git', ['ls-remote', `https://github.com/${REPO}.git`, `refs/heads/${REF}`], { encoding: 'utf8' });
+  const sha = (out.split(/\s+/)[0] || '').trim();
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error(`could not resolve ${REPO}@${REF} (git ls-remote returned: ${JSON.stringify(out.slice(0, 80))})`);
+  return sha;
 }
 
-async function runInPool(items, worker) {
-  let index = 0;
-  async function runner() {
-    if (index >= items.length) return;
-    const current = index;
-    index += 1;
-    await worker(items[current]);
-    await runner();
-  }
-
-  const workers = Array.from({ length: Math.min(FETCH_CONCURRENCY, items.length) }, () => runner());
-  await Promise.all(workers);
+async function downloadAndExtract(sha) {
+  const work = await mkdtemp(join(tmpdir(), 'sele4n-sync-'));
+  const tarPath = join(work, 'repo.tar.gz');
+  const res = await fetch(`https://codeload.github.com/${REPO}/tar.gz/${sha}`);
+  if (!res.ok) throw new Error(`archive download failed: HTTP ${res.status}`);
+  await writeFile(tarPath, Buffer.from(await res.arrayBuffer()));
+  const outDir = join(work, 'extracted');
+  await mkdir(outDir);
+  execFileSync('tar', ['xzf', tarPath, '-C', outDir]); // system tar handles long paths / all variants
+  const entries = await readdir(outDir);               // a single {owner}-{repo}-{sha} dir
+  if (entries.length !== 1) throw new Error(`unexpected archive layout: ${entries.join(', ')}`);
+  return { work, root: join(outDir, entries[0]) };
 }
 
-const [tree, commit] = await Promise.all([
-  fetchJson(`${API}/git/trees/${REF}?recursive=1`),
-  fetchJson(`${API}/commits/${REF}`)
-]);
-
-const files = [];
-const leanFiles = [];
-const leanShasByPath = Object.create(null);
-
-for (const entry of tree.tree ?? []) {
-  if (!entry || entry.type !== 'blob') continue;
-  files.push(entry.path);
-  if (/^SeLe4n\/.*\.lean$/.test(entry.path)) {
-    leanFiles.push(entry.path);
-    leanShasByPath[entry.path] = entry.sha || '';
+async function walkFiles(root, rel = '') {
+  const out = [];
+  for (const ent of await readdir(join(root, rel), { withFileTypes: true })) {
+    const r = rel ? `${rel}/${ent.name}` : ent.name;
+    if (ent.isDirectory()) out.push(...await walkFiles(root, r));
+    else if (ent.isFile()) out.push(r);
   }
+  return out;
 }
 
-const modules = leanFiles.map(moduleFromPath);
-const moduleMap = Object.create(null);
-const moduleMeta = Object.create(null);
-const importsTo = Object.create(null);
-const importsFrom = Object.create(null);
-const externalImportsFrom = Object.create(null);
+const commitSha = resolveSha();
+const { work, root } = await downloadAndExtract(commitSha);
 
-for (let i = 0; i < modules.length; i += 1) moduleMap[modules[i]] = leanFiles[i];
+let output;
+try {
+  const files = (await walkFiles(root)).sort();
+  const leanFiles = files.filter((p) => /^SeLe4n\/.*\.lean$/.test(p));
+  const modules = leanFiles.map(moduleFromPath);
 
-await runInPool(leanFiles, async (path) => {
-  const moduleName = moduleFromPath(path);
-  const sha = leanShasByPath[path];
+  const moduleMap = Object.create(null);
+  const moduleMeta = Object.create(null);
+  const importsTo = Object.create(null);
+  const importsFrom = Object.create(null);
+  const externalImportsFrom = Object.create(null);
+  for (let i = 0; i < modules.length; i += 1) moduleMap[modules[i]] = leanFiles[i];
 
-  if (!sha) {
-    importsFrom[moduleName] = [];
-    externalImportsFrom[moduleName] = [];
-    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0, symbols: emptySymbols() };
-    return;
-  }
-
-  const blob = await fetchJson(`${API}/git/blobs/${sha}`);
-  if (blob?.encoding !== 'base64' || !blob.content) {
-    importsFrom[moduleName] = [];
-    externalImportsFrom[moduleName] = [];
-    moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0, symbols: emptySymbols() };
-    return;
-  }
-
-  const source = Buffer.from(blob.content, 'base64').toString('utf8');
-  const seenInternal = Object.create(null);
-  const seenExternal = Object.create(null);
-  const internal = [];
-  const external = [];
-
-  for (const token of extractImportTokens(source)) {
-    if (moduleMap[token]) {
-      if (!seenInternal[token]) {
-        seenInternal[token] = true;
-        internal.push(token);
-      }
-    } else if (!seenExternal[token]) {
-      seenExternal[token] = true;
-      external.push(token);
+  for (const path of leanFiles) {
+    const moduleName = moduleFromPath(path);
+    let source;
+    try {
+      source = await readFile(join(root, path), 'utf8');
+    } catch {
+      importsFrom[moduleName] = [];
+      externalImportsFrom[moduleName] = [];
+      moduleMeta[moduleName] = { layer: classifyLayer(moduleName), kind: moduleKind(moduleName), base: moduleBase(moduleName), theorems: 0, symbols: emptySymbols() };
+      continue;
     }
+
+    const seenInternal = Object.create(null);
+    const seenExternal = Object.create(null);
+    const internal = [];
+    const external = [];
+
+    for (const token of extractImportTokens(source)) {
+      if (moduleMap[token]) {
+        if (!seenInternal[token]) {
+          seenInternal[token] = true;
+          internal.push(token);
+        }
+      } else if (!seenExternal[token]) {
+        seenExternal[token] = true;
+        external.push(token);
+      }
+    }
+
+    importsFrom[moduleName] = internal;
+    externalImportsFrom[moduleName] = external;
+    for (const dep of internal) {
+      if (!importsTo[dep]) importsTo[dep] = [];
+      importsTo[dep].push(moduleName);
+    }
+
+    moduleMeta[moduleName] = {
+      layer: classifyLayer(moduleName),
+      kind: moduleKind(moduleName),
+      base: moduleBase(moduleName),
+      theorems: theoremCount(source),
+      symbols: extractInteriorCodeItems(source)
+    };
   }
 
-  importsFrom[moduleName] = internal;
-  externalImportsFrom[moduleName] = external;
-  for (const dep of internal) {
-    if (!importsTo[dep]) importsTo[dep] = [];
-    importsTo[dep].push(moduleName);
-  }
-
-  moduleMeta[moduleName] = {
-    layer: classifyLayer(moduleName),
-    kind: moduleKind(moduleName),
-    base: moduleBase(moduleName),
-    theorems: theoremCount(source),
-    symbols: extractInteriorCodeItems(source)
+  output = {
+    files,
+    modules,
+    moduleMap,
+    moduleMeta,
+    importsTo,
+    importsFrom,
+    externalImportsFrom,
+    commitSha,
+    generatedAt: new Date().toISOString()
   };
-});
-
-const output = {
-  files,
-  modules,
-  moduleMap,
-  moduleMeta,
-  importsTo,
-  importsFrom,
-  externalImportsFrom,
-  commitSha: commit?.sha || '',
-  generatedAt: new Date().toISOString()
-};
+} finally {
+  await rm(work, { recursive: true, force: true });
+}
 
 await writeFile(OUT_FILE, JSON.stringify(output, null, 2) + '\n');
-console.log(`Updated ${new URL(OUT_FILE).pathname}`);
+console.log(`Updated ${new URL(OUT_FILE).pathname} — ${output.modules.length} modules @ ${output.commitSha.slice(0, 7)} (1 archive download, 0 REST calls)`);
