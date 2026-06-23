@@ -380,6 +380,35 @@
     try { return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; }
   }
 
+  /* Grow an SVG scene's viewBox to enclose any content that paints past the
+     geometric bounds the scene computed — e.g. a long object label or box title.
+     The outer <svg> clips to its viewBox, so without this such text would be cut
+     off at the viewport edge. Inert when content already fits (never shrinks);
+     a no-op in the headless test shim, which has no getBBox. */
+  function fitViewBox(root, dims) {
+    if (!root || typeof root.getBBox !== "function") return;
+    try {
+      var bb = root.getBBox();
+      if (!bb || !isFinite(bb.width) || !isFinite(bb.height)) return;
+      var pad = 8;
+      // Enclose both the computed [0..dims] box and the actual painted bbox —
+      // including content that overshoots left/top (negative bb.x / bb.y), e.g. a
+      // long centred domain label or a tall policy arc in the info-flow scene.
+      // Shifting the viewBox origin moves all content uniformly, so chip and
+      // message-animation coordinates stay aligned.
+      var minX = bb.x < 0 ? Math.floor(bb.x - pad) : 0;
+      var minY = bb.y < 0 ? Math.floor(bb.y - pad) : 0;
+      var maxX = Math.max(dims.width, Math.ceil(bb.x + bb.width + pad));
+      var maxY = Math.max(dims.height, Math.ceil(bb.y + bb.height + pad));
+      var w = maxX - minX, h = maxY - minY;
+      if (minX !== 0 || minY !== 0 || w !== dims.width || h !== dims.height) {
+        root.setAttribute("viewBox", minX + " " + minY + " " + w + " " + h);
+        root.setAttribute("width", String(w));
+        root.setAttribute("height", String(h));
+      }
+    } catch (e) { /* getBBox throws when not renderable — keep the computed dims */ }
+  }
+
   /* ════════════════════════════════════════════════════════════
      Trace-state helpers
      ════════════════════════════════════════════════════════════ */
@@ -471,7 +500,9 @@
     var touched = step ? touchedEntities(step.delta) : { threads: {}, endpoints: {}, notifications: {}, cdt: {} };
 
     var root = svg("svg", { "class": "theater-svg", xmlns: SVG_NS });
-    root.setAttribute("role", "img");
+    // role="group" (not "img"): the scene contains focusable, interactive object
+    // chips, which an "img" role would hide from assistive technology.
+    root.setAttribute("role", "group");
     var dims = app.scene === "scheduler" ? renderSchedulerScene(root, state, step, touched)
       : app.scene === "capability" ? renderCapabilityScene(root, state, step, touched)
       : app.scene === "memory" ? renderMemoryScene(root, state, step, touched)
@@ -484,6 +515,7 @@
     root.setAttribute("width", String(dims.width));
     root.setAttribute("height", String(dims.height));
     DOM.stage.appendChild(root);
+    fitViewBox(root, dims);
     if (step && !prefersReducedMotion()) animateMessages(root, step, dims.positions || {});
   }
 
@@ -969,7 +1001,7 @@
       var path = svg("path", { "class": "if-flow " + (allowed ? "if-flow-allow" : "if-flow-block"), "marker-end": allowed ? "url(#if-arrow-allow)" : "url(#if-arrow-block)", d: "M" + fx + " " + (domainY + DOMH) + " L " + fx + " " + fy + " L " + tx + " " + fy + " L " + tx + " " + (domainY + DOMH + 5) });
       root.appendChild(path);
       var badge = svg("text", { x: (fx + tx) / 2, y: fy + 18, "class": allowed ? "if-flow-label-allow" : "if-flow-label-block", "text-anchor": "middle" });
-      badge.textContent = (allowed ? tt("run.allowed", "allowed") : tt("run.blocked", "blocked")) + ": " + domName(flow.from) + " → " + domName(flow.to);
+      badge.textContent = (allowed ? tt("run.allowed", "allowed") : tt("run.flow_blocked", "blocked")) + ": " + domName(flow.from) + " → " + domName(flow.to);
       root.appendChild(badge);
     }
 
