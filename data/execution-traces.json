@@ -1,0 +1,986 @@
+{
+  "schemaVersion": 1,
+  "source": "fixture",
+  "generator": "hand-authored-reference-fixture",
+  "disclaimer": "Reference fixture conforming to the Simulator trace schema (schemaVersion 1). These steps mirror the deterministic transitions exercised by SeLe4n.Testing.MainTraceHarness, but they are authored by hand for the website until the kernel's trace harness emits this artifact directly. When source == 'kernel', every step is a faithful replay of a machine-checked execution; when source == 'fixture', it is an honest illustration of the same schema.",
+  "kernelVersion": "0.31.151",
+  "kernelCommit": "03d0257",
+  "leanToolchain": "4.28.0",
+  "generatedAt": "2026-06-22T00:00:00Z",
+  "invariantCatalog": [
+    { "id": "endpointDualQueueWellFormed", "label": "Endpoint dual-queues well-formed", "check": "endpointDualQueueWellFormedB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.IPC.Invariant.Structural", "subsystem": "ipc" },
+    { "id": "uniqueWaiters", "label": "Endpoint/notification waiters unique", "check": "uniqueWaitersCheck", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.IPC.Invariant.Structural", "subsystem": "ipc" },
+    { "id": "blockedOnReceiveNotRunnable", "label": "Receive-blocked threads aren't runnable", "check": "blockedOnReceiveNotRunnableChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.IPC.Invariant.Structural", "subsystem": "ipc" },
+    { "id": "blockedOnSendNotRunnable", "label": "Send-blocked threads aren't runnable", "check": "blockedOnSendNotRunnableChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.IPC.Invariant.Structural", "subsystem": "ipc" },
+    { "id": "notificationWaiterConsistent", "label": "Notification waiters consistent", "check": "notificationWaiterConsistentChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.IPC.Invariant.NotificationPreservation", "subsystem": "ipc" },
+    { "id": "schedulerRunQueueUnique", "label": "Run queue free of duplicates", "check": "schedulerRunQueueUniqueB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Scheduler.Invariant", "subsystem": "scheduler" },
+    { "id": "currentThreadValid", "label": "Current thread valid & runnable", "check": "currentThreadValidB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Scheduler.Invariant", "subsystem": "scheduler" },
+    { "id": "runQueueThreadPriorityConsistent", "label": "Run-queue order respects priority", "check": "runQueueThreadPriorityConsistentB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Scheduler.Invariant", "subsystem": "scheduler" },
+    { "id": "schedulerQueueCurrentConsistent", "label": "Scheduler / current-thread consistency", "check": "schedulerQueueCurrentConsistentB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Scheduler.Invariant", "subsystem": "scheduler" },
+    { "id": "capDerivationConsistent", "label": "Capability derivation tree consistent", "check": "cdtChildMapConsistentCheck", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Defs", "subsystem": "capability" },
+    { "id": "cbsBudgetBounded", "label": "CBS budget bandwidth bounded", "check": "cbs_bandwidth_bounded", "module": "SeLe4n.Kernel.SchedContext.Invariant.Defs", "mapModule": "SeLe4n.Kernel.SchedContext.Invariant.Defs", "subsystem": "scheduler" },
+    { "id": "cdtAcyclic", "label": "Capability derivation tree is acyclic", "check": "edgeWellFounded", "module": "SeLe4n.Model.Object.Structures", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Defs", "subsystem": "capability" },
+    { "id": "capRightsMonotone", "label": "Derived rights never exceed the parent", "check": "capabilityRightsStructuralChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Authority", "subsystem": "capability" },
+    { "id": "untypedWatermarkBounded", "label": "Untyped watermark within its region", "check": "untypedWatermarkChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Lifecycle.Invariant", "subsystem": "memory" },
+    { "id": "memoryNonOverlap", "label": "Allocated objects do not overlap", "check": "childrenNonOverlap", "module": "SeLe4n.Model.Object.Types", "mapModule": "SeLe4n.Model.Object.Types", "subsystem": "memory" },
+    { "id": "nonInterference", "label": "Non-interference preserved", "check": "noninterferenceStep", "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Soundness", "mapModule": "SeLe4n.Kernel.InformationFlow.Invariant.Composition", "subsystem": "infoflow" },
+    { "id": "flowPolicyWellFormed", "label": "Flow policy reflexive & transitive", "check": "endpointFlowPolicyWellFormed", "module": "SeLe4n.Kernel.InformationFlow.Policy", "mapModule": "SeLe4n.Kernel.InformationFlow.Policy", "subsystem": "infoflow" },
+    { "id": "serviceGraphAcyclic", "label": "Service dependency graph acyclic", "check": "serviceGraphAcyclicityChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Service.Invariant.Acyclicity", "subsystem": "services" },
+    { "id": "servicePolicyEnforced", "label": "Service isolation policy enforced", "check": "hasIsolationEdge", "module": "SeLe4n.Model.State", "mapModule": "SeLe4n.Kernel.Service.Invariant.Policy", "subsystem": "services" },
+    { "id": "vspaceWxCompliant", "label": "No page is writable and executable (W^X)", "check": "wxCompliant", "module": "SeLe4n.Model.Object.Structures", "mapModule": "SeLe4n.Kernel.Architecture.VSpaceInvariant", "subsystem": "memory" },
+    { "id": "vspaceAsidUnique", "label": "ASIDs unique across address spaces", "check": "vspaceAsidUniquenessChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Architecture.VSpaceInvariant", "subsystem": "memory" },
+    { "id": "tlbConsistent", "label": "TLB has no stale entries (shootdown on unmap)", "check": "tlbFlushConsistent", "module": "SeLe4n.Kernel.Architecture.TlbModel", "mapModule": "SeLe4n.Kernel.Architecture.TlbModel", "subsystem": "memory" }
+  ],
+  "scenarios": [
+    {
+      "id": "ipc-call-reply",
+      "title": "IPC call / reply with context switch",
+      "summary": "A client thread calls a server over a capability-protected endpoint. The message rendezvouses with the waiting server, the scheduler context-switches, the server replies, and the client is resumed — every transition preserving the IPC and scheduler invariants.",
+      "tags": ["ipc", "scheduler", "capability"],
+      "primaryScene": "system",
+      "objects": {
+        "th.client": { "label": "client", "kind": "TCB" },
+        "th.server": { "label": "server", "kind": "TCB" },
+        "th.idle": { "label": "idle", "kind": "TCB" },
+        "ep.svc": { "label": "service-ep", "kind": "Endpoint" }
+      },
+      "initialState": {
+        "current": { "thread": "th.client", "core": 0 },
+        "threads": [
+          { "id": "th.client", "label": "client", "priority": 200, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.client", "vspaceRoot": "vs.client", "schedContext": "sc.client", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.server", "label": "server", "priority": 180, "domain": 0, "ipcState": "blockedOnReceive:ep.svc", "threadState": "Blocked", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.server", "vspaceRoot": "vs.server", "schedContext": "sc.server", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.idle", "label": "idle", "priority": 0, "domain": 0, "ipcState": "ready", "threadState": "Ready", "timeSlice": 0, "deadline": 0, "cspaceRoot": "cn.idle", "vspaceRoot": "vs.idle", "schedContext": null, "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [
+          { "id": "ep.svc", "label": "service-ep", "sendQ": [], "receiveQ": ["th.server"] }
+        ],
+        "notifications": [],
+        "runQueue": { "0": ["th.idle"] }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "ICR-000",
+          "actor": null,
+          "narrative": "The system boots into a verified initial state: the client is running, the server is parked on the receive queue of the service endpoint waiting for work, and an idle thread backstops the run queue.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["endpointDualQueueWellFormed", "uniqueWaiters", "blockedOnReceiveNotRunnable", "currentThreadValid", "schedulerRunQueueUnique"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "client → call(service-ep)",
+          "traceTag": "ICR-001",
+          "actor": "th.client",
+          "syscall": { "id": "call", "gate": "SyscallGate", "requiredRight": "write", "capPath": "client CSpace → service-ep capability", "args": { "endpoint": "ep.svc", "msgRegisters": 2, "extraCaps": 0 } },
+          "narrative": "The client invokes the `call` syscall on the service endpoint. The capability gate checks the client holds a write right on the endpoint cap, the receiver is already waiting, so the message is delivered by rendezvous and the caller blocks awaiting the reply.",
+          "sourceRefs": [
+            { "label": "apiEndpointCall", "module": "SeLe4n.Kernel.API" },
+            { "label": "dispatchSyscall", "module": "SeLe4n.Kernel.API" }
+          ],
+          "delta": { "ops": [
+            { "op": "message", "from": "th.client", "to": "th.server", "endpoint": "ep.svc", "registers": 2, "caps": 0 },
+            { "op": "epDequeue", "endpoint": "ep.svc", "queue": "receiveQ", "thread": "th.server" },
+            { "op": "threadPatch", "id": "th.server", "set": { "ipcState": "ready", "threadState": "Ready", "pendingReceiveReply": "th.client" } },
+            { "op": "rqInsert", "core": 0, "thread": "th.server" },
+            { "op": "threadPatch", "id": "th.client", "set": { "ipcState": "blockedOnReply:ep.svc", "threadState": "Blocked", "replyObject": "th.server" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["endpointDualQueueWellFormed", "uniqueWaiters", "blockedOnReceiveNotRunnable", "schedulerRunQueueUnique"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "schedule",
+          "title": "reschedule → server",
+          "traceTag": "ICR-002",
+          "actor": "scheduler",
+          "narrative": "The current thread is now blocked, so the scheduler selects the highest-priority runnable thread. The server (priority 180) wins, so the kernel saves the outgoing register context and restores the server's, making it current.",
+          "sourceRefs": [
+            { "label": "chooseThread", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
+            { "label": "restoreIncomingContext", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" }
+          ],
+          "delta": { "ops": [
+            { "op": "rqRemove", "core": 0, "thread": "th.server" },
+            { "op": "threadPatch", "id": "th.server", "set": { "threadState": "Running" } },
+            { "op": "setCurrent", "thread": "th.server", "core": 0 }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "schedulerQueueCurrentConsistent"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "server → reply(client)",
+          "traceTag": "ICR-003",
+          "actor": "th.server",
+          "syscall": { "id": "reply", "gate": "SyscallGate", "requiredRight": "grantReply", "capPath": "server reply capability → client", "args": { "msgRegisters": 1, "extraCaps": 0 } },
+          "narrative": "The server processes the request and replies. The one-shot reply capability is consumed, the answer is copied into the client's message registers, and the client becomes runnable again.",
+          "sourceRefs": [
+            { "label": "apiEndpointReply", "module": "SeLe4n.Kernel.API" },
+            { "label": "storeTcbIpcState", "module": "SeLe4n.Kernel.IPC.Operations.Endpoint" }
+          ],
+          "delta": { "ops": [
+            { "op": "message", "from": "th.server", "to": "th.client", "endpoint": "ep.svc", "registers": 1, "caps": 0 },
+            { "op": "threadPatch", "id": "th.client", "set": { "ipcState": "ready", "threadState": "Ready", "replyObject": null } },
+            { "op": "rqInsert", "core": 0, "thread": "th.client" },
+            { "op": "threadPatch", "id": "th.server", "set": { "pendingReceiveReply": null } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["schedulerRunQueueUnique", "currentThreadValid", "blockedOnSendNotRunnable", "capDerivationConsistent"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "syscall",
+          "title": "server → receive(service-ep)",
+          "traceTag": "ICR-004",
+          "actor": "th.server",
+          "syscall": { "id": "receive", "gate": "SyscallGate", "requiredRight": "read", "capPath": "server CSpace → service-ep capability", "args": { "endpoint": "ep.svc" } },
+          "narrative": "Having answered, the server loops back to wait for the next request. With no sender pending, it blocks on the endpoint's receive queue.",
+          "sourceRefs": [
+            { "label": "apiEndpointReceive", "module": "SeLe4n.Kernel.API" },
+            { "label": "notificationWait", "module": "SeLe4n.Kernel.IPC.Operations.Endpoint" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.server", "set": { "ipcState": "blockedOnReceive:ep.svc", "threadState": "Blocked" } },
+            { "op": "epEnqueue", "endpoint": "ep.svc", "queue": "receiveQ", "thread": "th.server" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["endpointDualQueueWellFormed", "uniqueWaiters", "blockedOnReceiveNotRunnable"], "failed": [] }
+        },
+        {
+          "index": 5,
+          "kind": "schedule",
+          "title": "reschedule → client",
+          "traceTag": "ICR-005",
+          "actor": "scheduler",
+          "narrative": "The server has blocked, so the scheduler runs again and restores the client (priority 200), which now has its reply waiting in its message registers.",
+          "sourceRefs": [
+            { "label": "chooseBestRunnableInDomain", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
+            { "label": "saveOutgoingContext", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" }
+          ],
+          "delta": { "ops": [
+            { "op": "rqRemove", "core": 0, "thread": "th.client" },
+            { "op": "threadPatch", "id": "th.client", "set": { "threadState": "Running" } },
+            { "op": "setCurrent", "thread": "th.client", "core": 0 }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "blockedOnReceiveNotRunnable"], "failed": [] }
+        },
+        {
+          "index": 6,
+          "kind": "timer",
+          "title": "timer tick — budget charged",
+          "traceTag": "ICR-006",
+          "actor": "th.client",
+          "narrative": "A timer interrupt charges the running thread's scheduling-context budget and decrements its time slice. Budget remains, so the Constant-Bandwidth-Server admits the thread to keep running with no preemption.",
+          "sourceRefs": [
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" },
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.client", "set": { "timeSlice": 4 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "cbsBudgetBounded"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "notification-signal",
+      "title": "Notification signal / wait",
+      "summary": "An interrupt-style notification wakes a higher-priority waiter, which preempts the signaller and then consumes the pending badge — demonstrating asynchronous signalling alongside the scheduler.",
+      "tags": ["ipc", "scheduler"],
+      "primaryScene": "system",
+      "objects": {
+        "th.driver": { "label": "driver", "kind": "TCB" },
+        "th.handler": { "label": "handler", "kind": "TCB" },
+        "nt.alarm": { "label": "alarm-ntfn", "kind": "Notification" }
+      },
+      "initialState": {
+        "current": { "thread": "th.driver", "core": 0 },
+        "threads": [
+          { "id": "th.driver", "label": "driver", "priority": 150, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.driver", "vspaceRoot": "vs.driver", "schedContext": "sc.driver", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.handler", "label": "handler", "priority": 190, "domain": 0, "ipcState": "blockedOnNotification:nt.alarm", "threadState": "Blocked", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.handler", "vspaceRoot": "vs.handler", "schedContext": "sc.handler", "boundNotification": "nt.alarm", "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [
+          { "id": "nt.alarm", "label": "alarm-ntfn", "state": "waiting", "waiters": ["th.handler"], "badge": null }
+        ],
+        "runQueue": { "0": [] }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "NSW-000",
+          "actor": null,
+          "narrative": "The handler is blocked waiting on the alarm notification; the lower-priority driver is running and about to raise an event.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["notificationWaiterConsistent", "uniqueWaiters", "currentThreadValid", "schedulerRunQueueUnique"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "driver → signal(alarm-ntfn)",
+          "traceTag": "NSW-001",
+          "actor": "th.driver",
+          "syscall": { "id": "notificationSignal", "gate": "SyscallGate", "requiredRight": "write", "capPath": "driver CSpace → alarm-ntfn capability", "args": { "notification": "nt.alarm", "badge": 1 } },
+          "narrative": "The driver signals the alarm notification. The single waiter is released with the pending badge and becomes runnable; the notification returns to idle because no other waiters remain.",
+          "sourceRefs": [
+            { "label": "notificationSignal", "module": "SeLe4n.Kernel.IPC.Operations.Endpoint" }
+          ],
+          "delta": { "ops": [
+            { "op": "notifPatch", "id": "nt.alarm", "set": { "state": "idle", "waiters": [], "badge": null } },
+            { "op": "threadPatch", "id": "th.handler", "set": { "ipcState": "ready", "threadState": "Ready" } },
+            { "op": "rqInsert", "core": 0, "thread": "th.handler" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["notificationWaiterConsistent", "uniqueWaiters", "schedulerRunQueueUnique"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "schedule",
+          "title": "preempt → handler",
+          "traceTag": "NSW-002",
+          "actor": "scheduler",
+          "narrative": "The freshly-runnable handler (priority 190) outranks the running driver (priority 150), so the scheduler preempts: the driver is enqueued and the handler is made current.",
+          "sourceRefs": [
+            { "label": "isBetterCandidate", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
+            { "label": "chooseThread", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" }
+          ],
+          "delta": { "ops": [
+            { "op": "rqInsert", "core": 0, "thread": "th.driver" },
+            { "op": "threadPatch", "id": "th.driver", "set": { "threadState": "Ready" } },
+            { "op": "rqRemove", "core": 0, "thread": "th.handler" },
+            { "op": "threadPatch", "id": "th.handler", "set": { "threadState": "Running" } },
+            { "op": "setCurrent", "thread": "th.handler", "core": 0 }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "schedulerQueueCurrentConsistent"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "handler → wait(alarm-ntfn)",
+          "traceTag": "NSW-003",
+          "actor": "th.handler",
+          "syscall": { "id": "notificationWait", "gate": "SyscallGate", "requiredRight": "read", "capPath": "handler CSpace → alarm-ntfn capability", "args": { "notification": "nt.alarm" } },
+          "narrative": "The handler services the event and waits again. A badge is already pending was consumed during release, so it re-arms and blocks back on the notification.",
+          "sourceRefs": [
+            { "label": "notificationWait", "module": "SeLe4n.Kernel.IPC.Operations.Endpoint" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.handler", "set": { "ipcState": "blockedOnNotification:nt.alarm", "threadState": "Blocked" } },
+            { "op": "notifPatch", "id": "nt.alarm", "set": { "state": "waiting", "waiters": ["th.handler"], "badge": null } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["notificationWaiterConsistent", "uniqueWaiters", "blockedOnReceiveNotRunnable"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "edf-budget-preempt",
+      "title": "EDF tie-break with CBS budget",
+      "summary": "Two threads share a priority level; when the running thread's Constant-Bandwidth-Server budget is exhausted it yields, and Earliest-Deadline-First breaks the priority tie by selecting the thread with the earliest deadline.",
+      "tags": ["scheduler"],
+      "primaryScene": "scheduler",
+      "objects": {
+        "th.a": { "label": "alpha", "kind": "TCB" },
+        "th.b": { "label": "beta", "kind": "TCB" },
+        "th.c": { "label": "gamma", "kind": "TCB" }
+      },
+      "initialState": {
+        "current": { "thread": "th.a", "core": 0 },
+        "threads": [
+          { "id": "th.a", "label": "alpha", "priority": 180, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 1, "budgetMax": 4, "deadline": 30, "cspaceRoot": "cn.a", "vspaceRoot": "vs.a", "schedContext": "sc.a", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.b", "label": "beta", "priority": 180, "domain": 0, "ipcState": "ready", "threadState": "Ready", "timeSlice": 4, "budgetMax": 4, "deadline": 20, "cspaceRoot": "cn.b", "vspaceRoot": "vs.b", "schedContext": "sc.b", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.c", "label": "gamma", "priority": 150, "domain": 0, "ipcState": "ready", "threadState": "Ready", "timeSlice": 4, "budgetMax": 4, "deadline": 50, "cspaceRoot": "cn.c", "vspaceRoot": "vs.c", "schedContext": "sc.c", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": ["th.b", "th.c"] }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "EDF-000",
+          "actor": null,
+          "narrative": "Alpha is running on its last unit of budget. Beta (same priority 180, earlier deadline 20) and gamma (priority 150) wait in the run queue's priority buckets.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "cbsBudgetBounded"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "timer",
+          "title": "timer tick — alpha budget exhausted",
+          "traceTag": "EDF-001",
+          "actor": "th.a",
+          "narrative": "A timer interrupt charges alpha's Constant-Bandwidth-Server budget to zero. With no budget left, alpha must yield: it is returned to the priority-180 bucket and the core awaits a reschedule.",
+          "sourceRefs": [
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" },
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.a", "set": { "timeSlice": 0, "threadState": "Ready", "ipcState": "ready" } },
+            { "op": "rqInsert", "core": 0, "thread": "th.a" },
+            { "op": "setCurrent", "thread": null }
+          ] },
+          "invariants": { "allHold": true, "checked": ["schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "cbsBudgetBounded"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "schedule",
+          "title": "EDF selects beta (deadline 20)",
+          "traceTag": "EDF-002",
+          "actor": "scheduler",
+          "narrative": "The priority-180 bucket now holds beta (deadline 20) and alpha (deadline 30). Earliest-Deadline-First breaks the tie in beta's favour; the kernel restores beta and makes it current.",
+          "sourceRefs": [
+            { "label": "isBetterCandidate", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
+            { "label": "chooseBestInBucket", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
+            { "label": "chooseThread", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" }
+          ],
+          "delta": { "ops": [
+            { "op": "rqRemove", "core": 0, "thread": "th.b" },
+            { "op": "threadPatch", "id": "th.b", "set": { "threadState": "Running" } },
+            { "op": "setCurrent", "thread": "th.b", "core": 0 }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "schedulerQueueCurrentConsistent"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "timer",
+          "title": "timer tick — beta runs",
+          "traceTag": "EDF-003",
+          "actor": "th.b",
+          "narrative": "Beta executes; a timer tick charges one unit of its budget. Budget remains, so the Constant-Bandwidth-Server keeps beta running with no preemption.",
+          "sourceRefs": [
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.b", "set": { "timeSlice": 3 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "cbsBudgetBounded"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "capability-mint-revoke",
+      "title": "Capability minting and strict revocation",
+      "summary": "A supervisor mints and copies capabilities derived from a master endpoint capability, growing the Capability Derivation Tree; a strict revoke then removes a capability together with every capability derived from it.",
+      "tags": ["capability"],
+      "primaryScene": "capability",
+      "objects": {
+        "th.sup": { "label": "supervisor", "kind": "TCB" },
+        "ep.svc": { "label": "service-ep", "kind": "Endpoint" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "supervisor", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.sup", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "cdt": {
+          "nodes": [
+            { "id": "cap.root", "label": "master", "slot": "sup/1", "target": "ep.svc", "rights": "rwg", "badge": null }
+          ],
+          "edges": []
+        }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "CAP-000",
+          "actor": null,
+          "narrative": "The supervisor holds a single master capability to the service endpoint with read/write/grant rights. The Capability Derivation Tree has one root node.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "supervisor → cspaceMint(app)",
+          "traceTag": "CAP-001",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceMint", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "supervisor CSpace → master ep capability", "args": { "dest": "app/3", "rights": "w", "badge": 7 } },
+          "narrative": "Minting derives a child capability: a write-only, badge-7 copy for the app component. The new node is attached under the master in the derivation tree, and its rights are a subset of the parent's.",
+          "sourceRefs": [
+            { "label": "apiCspaceMint", "module": "SeLe4n.Kernel.API" },
+            { "label": "storeCapabilityRef", "module": "SeLe4n.Model.State" }
+          ],
+          "delta": { "ops": [
+            { "op": "cdtInsert", "node": { "id": "cap.app", "label": "app", "slot": "app/3", "target": "ep.svc", "rights": "w", "badge": 7 }, "parent": "cap.root" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic", "capRightsMonotone"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "syscall",
+          "title": "supervisor → cspaceCopy(app′)",
+          "traceTag": "CAP-002",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceCopy", "gate": "SyscallGate", "requiredRight": "write", "capPath": "supervisor CSpace → app capability", "args": { "src": "app/3", "dest": "app/4" } },
+          "narrative": "Copying the app capability derives a further child beneath it, so the derivation tree records the provenance: app′ descends from app, which descends from the master.",
+          "sourceRefs": [
+            { "label": "apiCspaceCopy", "module": "SeLe4n.Kernel.API" }
+          ],
+          "delta": { "ops": [
+            { "op": "cdtInsert", "node": { "id": "cap.app2", "label": "app′", "slot": "app/4", "target": "ep.svc", "rights": "w", "badge": 7 }, "parent": "cap.app" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic", "capRightsMonotone"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "supervisor → cspaceMint(logger)",
+          "traceTag": "CAP-003",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceMint", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "supervisor CSpace → master ep capability", "args": { "dest": "log/2", "rights": "r", "badge": 9 } },
+          "narrative": "A second branch is minted from the master: a read-only capability for a logger. The tree now has two sibling branches under the master.",
+          "sourceRefs": [
+            { "label": "apiCspaceMint", "module": "SeLe4n.Kernel.API" }
+          ],
+          "delta": { "ops": [
+            { "op": "cdtInsert", "node": { "id": "cap.log", "label": "logger", "slot": "log/2", "target": "ep.svc", "rights": "r", "badge": 9 }, "parent": "cap.root" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic", "capRightsMonotone"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "syscall",
+          "title": "supervisor → cspaceDelete(app, revoke subtree)",
+          "traceTag": "CAP-004",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceDelete", "gate": "SyscallGate", "requiredRight": "write", "capPath": "supervisor CSpace → app capability", "args": { "slot": "app/3", "mode": "revoke-subtree" } },
+          "narrative": "Strict revocation removes the app capability and every capability derived from it — so app′ is destroyed along with app. The logger branch, derived independently from the master, is untouched.",
+          "sourceRefs": [
+            { "label": "apiCspaceDelete", "module": "SeLe4n.Kernel.API" },
+            { "label": "cspaceRevokeCdtStrict", "module": "SeLe4n.Kernel.Capability.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "cdtRemove", "node": "cap.app" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["capDerivationConsistent", "cdtAcyclic"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "untyped-retype",
+      "title": "Untyped memory retype and reclaim",
+      "summary": "A supervisor carves typed kernel objects out of an untyped memory region, advancing a watermark that the kernel proves never exceeds the region; a revoke then reclaims the whole region in one step.",
+      "tags": ["memory", "lifecycle"],
+      "primaryScene": "memory",
+      "objects": {
+        "th.sup": { "label": "supervisor", "kind": "TCB" },
+        "ut.ram": { "label": "RAM untyped", "kind": "Untyped" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "supervisor", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.sup", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "untyped": [
+          { "id": "ut.ram", "label": "RAM untyped", "regionBase": 0, "regionSize": 1024, "watermark": 0, "isDevice": false, "children": [] }
+        ]
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "MEM-000",
+          "actor": null,
+          "narrative": "The supervisor holds a 1024-unit untyped memory region with its watermark at zero — no objects have been allocated yet.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "supervisor → lifecycleRetype(TCB)",
+          "traceTag": "MEM-001",
+          "actor": "th.sup",
+          "syscall": { "id": "lifecycleRetype", "gate": "SyscallGate", "requiredRight": "retype", "capPath": "supervisor CSpace → untyped capability", "args": { "type": "TCB", "size": 256, "dest": "sup/8" } },
+          "narrative": "Retyping carves a 256-unit TCB out of the untyped region. The watermark advances to 256; the allocation lies entirely within the region, which the kernel proves.",
+          "sourceRefs": [
+            { "label": "apiLifecycleRetype", "module": "SeLe4n.Kernel.API" },
+            { "label": "retypeFromUntyped", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "untypedRetype", "untyped": "ut.ram", "child": { "id": "obj.tcb", "type": "TCB", "size": 256 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "syscall",
+          "title": "supervisor → lifecycleRetype(CNode)",
+          "traceTag": "MEM-002",
+          "actor": "th.sup",
+          "syscall": { "id": "lifecycleRetype", "gate": "SyscallGate", "requiredRight": "retype", "capPath": "supervisor CSpace → untyped capability", "args": { "type": "CNode", "size": 256, "dest": "sup/9" } },
+          "narrative": "A 256-unit CNode is carved next, immediately after the TCB. The watermark advances to 512, and the new object does not overlap the previous one.",
+          "sourceRefs": [
+            { "label": "apiLifecycleRetype", "module": "SeLe4n.Kernel.API" },
+            { "label": "retypeFromUntyped", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "untypedRetype", "untyped": "ut.ram", "child": { "id": "obj.cnode", "type": "CNode", "size": 256 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "supervisor → lifecycleRetype(Endpoint)",
+          "traceTag": "MEM-003",
+          "actor": "th.sup",
+          "syscall": { "id": "lifecycleRetype", "gate": "SyscallGate", "requiredRight": "retype", "capPath": "supervisor CSpace → untyped capability", "args": { "type": "Endpoint", "size": 128, "dest": "sup/10" } },
+          "narrative": "A 128-unit Endpoint is carved, taking the watermark to 640 — still well within the 1024-unit region.",
+          "sourceRefs": [
+            { "label": "apiLifecycleRetype", "module": "SeLe4n.Kernel.API" },
+            { "label": "objectTypeAllocSize", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "untypedRetype", "untyped": "ut.ram", "child": { "id": "obj.ep", "type": "Endpoint", "size": 128 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "syscall",
+          "title": "supervisor → revoke(untyped)",
+          "traceTag": "MEM-004",
+          "actor": "th.sup",
+          "syscall": { "id": "cspaceDelete", "gate": "SyscallGate", "requiredRight": "write", "capPath": "supervisor CSpace → untyped capability", "args": { "slot": "sup/7", "mode": "revoke-untyped" } },
+          "narrative": "Revoking the untyped capability reclaims every object carved from it. The children are removed and the watermark resets to zero, returning the region to a clean slate.",
+          "sourceRefs": [
+            { "label": "lifecycleRevokeDeleteRetype", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "untypedRevoke", "untyped": "ut.ram" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["untypedWatermarkBounded", "memoryNonOverlap"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "infoflow-noninterference",
+      "title": "Information-flow control and declassification",
+      "summary": "Across three security domains the kernel lets information flow up the confidentiality lattice but blocks a leak from secret to public — preserving non-interference — until an explicit, audited declassification edge authorizes it.",
+      "tags": ["infoflow", "security"],
+      "primaryScene": "infoflow",
+      "objects": {
+        "th.sup": { "label": "monitor", "kind": "TCB" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "monitor", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.sup", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "infoflow": {
+          "domains": [
+            { "id": "d.public", "label": "public", "confidentiality": 0, "integrity": 2 },
+            { "id": "d.app", "label": "app", "confidentiality": 1, "integrity": 1 },
+            { "id": "d.secret", "label": "secret", "confidentiality": 2, "integrity": 0 }
+          ],
+          "policy": [ ["d.public", "d.app"], ["d.app", "d.secret"], ["d.public", "d.secret"] ]
+        }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "IFC-000",
+          "actor": null,
+          "narrative": "Three security domains form a confidentiality lattice: public ⊑ app ⊑ secret. The flow policy permits information to move only upward.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["nonInterference", "flowPolicyWellFormed"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "ipc",
+          "title": "flow public → secret (allowed)",
+          "traceTag": "IFC-001",
+          "actor": "th.sup",
+          "narrative": "A secret-domain thread receives public data. Reading up the lattice cannot leak, so the flow is permitted.",
+          "sourceRefs": [
+            { "label": "securityFlowsTo", "module": "SeLe4n.Kernel.InformationFlow.Policy" },
+            { "label": "genericFlowCheck", "module": "SeLe4n.Kernel.InformationFlow.Policy" }
+          ],
+          "delta": { "ops": [
+            { "op": "flowCheck", "from": "d.public", "to": "d.secret", "allowed": true }
+          ] },
+          "invariants": { "allHold": true, "checked": ["nonInterference", "flowPolicyWellFormed"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "ipc",
+          "title": "flow secret → public (blocked)",
+          "traceTag": "IFC-002",
+          "actor": "th.sup",
+          "narrative": "A secret-domain thread attempts to send to public — a downward flow that would leak. The kernel's non-interference enforcement denies it; the invariant holds precisely because the flow is blocked.",
+          "sourceRefs": [
+            { "label": "endpointFlowCheck", "module": "SeLe4n.Kernel.InformationFlow.Policy" },
+            { "label": "securityFlowsTo", "module": "SeLe4n.Kernel.InformationFlow.Policy" }
+          ],
+          "delta": { "ops": [
+            { "op": "flowCheck", "from": "d.secret", "to": "d.public", "allowed": false }
+          ] },
+          "invariants": { "allHold": true, "checked": ["nonInterference"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "authorize declassification (secret → public)",
+          "traceTag": "IFC-003",
+          "actor": "th.sup",
+          "syscall": { "id": "declassify", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "monitor → declassification authority", "args": { "from": "d.secret", "to": "d.public" } },
+          "narrative": "A privileged monitor authorizes an explicit, audited declassification: information may now flow from secret to public. This is the controlled escape hatch the policy provides.",
+          "sourceRefs": [
+            { "label": "isDeclassificationAuthorized", "module": "SeLe4n.Kernel.InformationFlow.Policy" },
+            { "label": "DeclassificationPolicy", "module": "SeLe4n.Kernel.InformationFlow.Policy" }
+          ],
+          "delta": { "ops": [
+            { "op": "ifPolicyAdd", "from": "d.secret", "to": "d.public" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["flowPolicyWellFormed"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "ipc",
+          "title": "flow secret → public (now allowed)",
+          "traceTag": "IFC-004",
+          "actor": "th.sup",
+          "narrative": "The same secret → public flow is retried. With the declassification edge in place, the policy now permits it — under explicit authorization rather than as an uncontrolled leak.",
+          "sourceRefs": [
+            { "label": "genericFlowCheck", "module": "SeLe4n.Kernel.InformationFlow.Policy" }
+          ],
+          "delta": { "ops": [
+            { "op": "flowCheck", "from": "d.secret", "to": "d.public", "allowed": true }
+          ] },
+          "invariants": { "allHold": true, "checked": ["nonInterference", "flowPolicyWellFormed"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "service-lifecycle",
+      "title": "Service orchestration: dependency-ordered start, fault, restart",
+      "summary": "The kernel's first-class service registry starts components in dependency order, survives a fault in a mid-tier service, and restarts it — all while the dependency graph stays provably acyclic.",
+      "tags": ["services", "lifecycle"],
+      "primaryScene": "services",
+      "objects": {
+        "th.sup": { "label": "init", "kind": "TCB" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "init", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.sup", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "services": [
+          { "id": "svc.store", "label": "store", "status": "stopped", "deps": [] },
+          { "id": "svc.cache", "label": "cache", "status": "stopped", "deps": [] },
+          { "id": "svc.db", "label": "database", "status": "stopped", "deps": ["svc.store"] },
+          { "id": "svc.api", "label": "api", "status": "stopped", "deps": ["svc.db", "svc.cache"] }
+        ]
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "SVC-000",
+          "actor": null,
+          "narrative": "Four services are registered but stopped. The dependency graph (api → database → store, and api → cache) is acyclic, which the kernel proves.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "init → start(store, cache)",
+          "traceTag": "SVC-001",
+          "actor": "th.sup",
+          "syscall": { "id": "serviceStart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.store", "svc.cache"] } },
+          "narrative": "The leaf services — store and cache — have no dependencies, so dependency-ordered startup brings them up first.",
+          "sourceRefs": [
+            { "label": "apiServiceStart", "module": "SeLe4n.Kernel.API" },
+            { "label": "serviceStart", "module": "SeLe4n.Kernel.Service.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.store", "set": { "status": "running" } },
+            { "op": "servicePatch", "id": "svc.cache", "set": { "status": "running" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "syscall",
+          "title": "init → start(database)",
+          "traceTag": "SVC-002",
+          "actor": "th.sup",
+          "syscall": { "id": "serviceStart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.db"] } },
+          "narrative": "The database depends on store, which is now running, so its dependency is satisfied and it starts.",
+          "sourceRefs": [
+            { "label": "serviceStart", "module": "SeLe4n.Kernel.Service.Operations" },
+            { "label": "dependenciesSatisfied", "module": "SeLe4n.Model.State" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.db", "set": { "status": "running" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "syscall",
+          "title": "init → start(api)",
+          "traceTag": "SVC-003",
+          "actor": "th.sup",
+          "syscall": { "id": "serviceStart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.api"] } },
+          "narrative": "The api depends on both database and cache; both are running, so the final tier comes up and the whole stack is live.",
+          "sourceRefs": [
+            { "label": "serviceStart", "module": "SeLe4n.Kernel.Service.Operations" },
+            { "label": "serviceHasPathTo", "module": "SeLe4n.Kernel.Service.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.api", "set": { "status": "running" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "fault",
+          "title": "database faults",
+          "traceTag": "SVC-004",
+          "actor": "svc.db",
+          "narrative": "The database service faults and is marked broken. Its dependents (api) now have a broken dependency, but the registry's graph structure is unchanged and still acyclic.",
+          "sourceRefs": [
+            { "label": "setServiceStatusState", "module": "SeLe4n.Model.State" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.db", "set": { "status": "broken" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        },
+        {
+          "index": 5,
+          "kind": "syscall",
+          "title": "init → restart(database)",
+          "traceTag": "SVC-005",
+          "actor": "th.sup",
+          "syscall": { "id": "serviceRestart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "service": "svc.db" } },
+          "narrative": "A dependency-aware restart brings the database back to running. With its dependency healthy again, api is fully operational once more.",
+          "sourceRefs": [
+            { "label": "serviceRestart", "module": "SeLe4n.Kernel.Service.Operations" }
+          ],
+          "delta": { "ops": [
+            { "op": "servicePatch", "id": "svc.db", "set": { "status": "running" } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "vspace-wx",
+      "title": "Virtual memory mapping with W^X enforcement",
+      "summary": "A task maps an executable code page and a writable data page, then the kernel rejects an attempt to map a page that is both writable and executable — enforcing the W^X invariant that no page is ever simultaneously writable and executable.",
+      "tags": ["memory", "vspace"],
+      "primaryScene": "vspace",
+      "objects": {
+        "th.sup": { "label": "loader", "kind": "TCB" },
+        "vs.app": { "label": "app address space", "kind": "VSpace" }
+      },
+      "initialState": {
+        "current": { "thread": "th.sup", "core": 0 },
+        "threads": [
+          { "id": "th.sup", "label": "loader", "priority": 255, "domain": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 5, "deadline": 0, "cspaceRoot": "cn.sup", "vspaceRoot": "vs.app", "schedContext": "sc.sup", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": [] },
+        "vspace": [
+          { "id": "vs.app", "label": "app address space", "asid": 1, "mappings": [], "tlb": [] }
+        ]
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "VSP-000",
+          "actor": null,
+          "narrative": "The app address space (ASID 1) has no page mappings yet.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique", "tlbConsistent"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "syscall",
+          "title": "loader → vspaceMap(code, r-x)",
+          "traceTag": "VSP-001",
+          "actor": "th.sup",
+          "syscall": { "id": "vspaceMap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x1000", "paddr": "0x80000", "perms": "rx" } },
+          "narrative": "The loader maps an executable code page read-execute. It is not writable, so it is W^X-compliant.",
+          "sourceRefs": [
+            { "label": "apiVspaceMap", "module": "SeLe4n.Kernel.API" },
+            { "label": "mapPage", "module": "SeLe4n.Model.Object.Structures" }
+          ],
+          "delta": { "ops": [
+            { "op": "vspaceMap", "vspace": "vs.app", "mapping": { "vaddr": "0x1000", "paddr": "0x80000", "perms": "rx", "wx": false } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique", "tlbConsistent"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "syscall",
+          "title": "loader → vspaceMap(data, rw-)",
+          "traceTag": "VSP-002",
+          "actor": "th.sup",
+          "syscall": { "id": "vspaceMap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x2000", "paddr": "0x81000", "perms": "rw" } },
+          "narrative": "A writable data page is mapped read-write. It is not executable, so W^X still holds.",
+          "sourceRefs": [
+            { "label": "apiVspaceMap", "module": "SeLe4n.Kernel.API" },
+            { "label": "PagePermissions.wxCompliant", "module": "SeLe4n.Model.Object.Structures" }
+          ],
+          "delta": { "ops": [
+            { "op": "vspaceMap", "vspace": "vs.app", "mapping": { "vaddr": "0x2000", "paddr": "0x81000", "perms": "rw", "wx": false } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique", "tlbConsistent"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "fault",
+          "title": "vspaceMap(rwx) — rejected",
+          "traceTag": "VSP-003",
+          "actor": "th.sup",
+          "syscall": { "id": "vspaceMap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x3000", "paddr": "0x82000", "perms": "rwx" } },
+          "narrative": "The loader attempts to map a page both writable and executable. The kernel rejects it: the W^X invariant guarantees no such page can ever exist, so nothing is added to the address space.",
+          "sourceRefs": [
+            { "label": "PagePermissions.wxCompliant", "module": "SeLe4n.Model.Object.Structures" },
+            { "label": "apiVspaceMap", "module": "SeLe4n.Kernel.API" }
+          ],
+          "delta": { "ops": [
+            { "op": "vspaceReject", "vspace": "vs.app", "mapping": { "vaddr": "0x3000", "paddr": "0x82000", "perms": "rwx", "wx": true } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "tlbConsistent"], "failed": [] }
+        },
+        {
+          "index": 4,
+          "kind": "syscall",
+          "title": "loader → vspaceUnmap(data)",
+          "traceTag": "VSP-004",
+          "actor": "th.sup",
+          "syscall": { "id": "vspaceUnmap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x2000" } },
+          "narrative": "The data page is unmapped and the TLB entry is invalidated; only the code page remains.",
+          "sourceRefs": [
+            { "label": "apiVspaceUnmap", "module": "SeLe4n.Kernel.API" },
+            { "label": "unmapPage", "module": "SeLe4n.Model.Object.Structures" }
+          ],
+          "delta": { "ops": [
+            { "op": "vspaceUnmap", "vspace": "vs.app", "vaddr": "0x2000" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["vspaceWxCompliant", "vspaceAsidUnique", "tlbConsistent"], "failed": [] }
+        }
+      ]
+    },
+    {
+      "id": "smp-schedule",
+      "title": "Multi-core scheduling with thread migration",
+      "summary": "Two cores each run and schedule independently; a context switch happens on core 0, then the kernel migrates a thread from core 1 to core 0 for load balancing — with the run queues staying duplicate-free across both cores.",
+      "tags": ["scheduler", "smp"],
+      "primaryScene": "scheduler",
+      "objects": {
+        "th.w0": { "label": "w0", "kind": "TCB" },
+        "th.w1": { "label": "w1", "kind": "TCB" },
+        "th.w2": { "label": "w2", "kind": "TCB" },
+        "th.w3": { "label": "w3", "kind": "TCB" }
+      },
+      "initialState": {
+        "current": { "thread": "th.w0", "core": 0 },
+        "threads": [
+          { "id": "th.w0", "label": "w0", "priority": 200, "domain": 0, "core": 0, "ipcState": "ready", "threadState": "Running", "timeSlice": 1, "budgetMax": 4, "deadline": 30, "cspaceRoot": "cn.w0", "vspaceRoot": "vs.w0", "schedContext": "sc.w0", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.w1", "label": "w1", "priority": 190, "domain": 0, "core": 1, "ipcState": "ready", "threadState": "Running", "timeSlice": 3, "budgetMax": 4, "deadline": 40, "cspaceRoot": "cn.w1", "vspaceRoot": "vs.w1", "schedContext": "sc.w1", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.w2", "label": "w2", "priority": 180, "domain": 0, "core": 0, "ipcState": "ready", "threadState": "Ready", "timeSlice": 4, "budgetMax": 4, "deadline": 25, "cspaceRoot": "cn.w2", "vspaceRoot": "vs.w2", "schedContext": "sc.w2", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null },
+          { "id": "th.w3", "label": "w3", "priority": 170, "domain": 0, "core": 1, "ipcState": "ready", "threadState": "Ready", "timeSlice": 4, "budgetMax": 4, "deadline": 50, "cspaceRoot": "cn.w3", "vspaceRoot": "vs.w3", "schedContext": "sc.w3", "boundNotification": null, "pipBoost": null, "replyObject": null, "pendingReceiveReply": null }
+        ],
+        "endpoints": [],
+        "notifications": [],
+        "runQueue": { "0": ["th.w2"], "1": ["th.w3"] }
+      },
+      "steps": [
+        {
+          "index": 0,
+          "kind": "boot",
+          "title": "Bootstrap state",
+          "traceTag": "SMP-000",
+          "actor": null,
+          "narrative": "Core 0 runs w0 (with w2 ready behind it); core 1 runs w1 (with w3 ready). Each core schedules from its own run queue.",
+          "delta": { "ops": [] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent"], "failed": [] }
+        },
+        {
+          "index": 1,
+          "kind": "schedule",
+          "title": "core 0 reschedule → w2",
+          "traceTag": "SMP-001",
+          "actor": "scheduler",
+          "narrative": "w0 exhausts its budget on core 0 and yields. Core 0 selects w2 — independently of core 1, which keeps running w1.",
+          "sourceRefs": [
+            { "label": "chooseThread", "module": "SeLe4n.Kernel.Scheduler.Operations.Selection" },
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.w0", "set": { "threadState": "Ready", "timeSlice": 0 } },
+            { "op": "rqInsert", "core": 0, "thread": "th.w0" },
+            { "op": "rqRemove", "core": 0, "thread": "th.w2" },
+            { "op": "threadPatch", "id": "th.w2", "set": { "threadState": "Running", "core": 0 } },
+            { "op": "setCurrent", "thread": "th.w2", "core": 0 }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "runQueueThreadPriorityConsistent", "schedulerQueueCurrentConsistent"], "failed": [] }
+        },
+        {
+          "index": 2,
+          "kind": "schedule",
+          "title": "migrate w3: core 1 → core 0",
+          "traceTag": "SMP-002",
+          "actor": "scheduler",
+          "narrative": "Load balancing migrates w3 from core 1's run queue to core 0's. Its CPU affinity updates and both run queues remain duplicate-free.",
+          "sourceRefs": [
+            { "label": "CrossSubsystemPerCore", "module": "SeLe4n.Kernel.CrossSubsystemPerCore" },
+            { "label": "cpuAffinity", "module": "SeLe4n.Model.Object.Types" }
+          ],
+          "delta": { "ops": [
+            { "op": "rqRemove", "core": 1, "thread": "th.w3" },
+            { "op": "threadPatch", "id": "th.w3", "set": { "core": 0 } },
+            { "op": "rqInsert", "core": 0, "thread": "th.w3" }
+          ] },
+          "invariants": { "allHold": true, "checked": ["schedulerRunQueueUnique", "runQueueThreadPriorityConsistent"], "failed": [] }
+        },
+        {
+          "index": 3,
+          "kind": "timer",
+          "title": "core 1 timer — w1 budget",
+          "traceTag": "SMP-003",
+          "actor": "th.w1",
+          "narrative": "A per-core timer on core 1 charges w1's budget. Budget remains, so w1 keeps running — independently of core 0.",
+          "sourceRefs": [
+            { "label": "PerCoreTimerEntry", "module": "SeLe4n.Kernel.PerCoreTimerEntry" },
+            { "label": "SchedContext", "module": "SeLe4n.Kernel.SchedContext" }
+          ],
+          "delta": { "ops": [
+            { "op": "threadPatch", "id": "th.w1", "set": { "timeSlice": 2 } }
+          ] },
+          "invariants": { "allHold": true, "checked": ["currentThreadValid", "schedulerRunQueueUnique", "cbsBudgetBounded"], "failed": [] }
+        }
+      ]
+    }
+  ]
+}

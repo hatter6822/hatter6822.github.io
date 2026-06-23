@@ -24,12 +24,17 @@ node scripts/lib/lean-analysis.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
+node scripts/lib/trace-analysis.test.mjs
+node scripts/lib/run-runtime.test.mjs
+node scripts/lib/csp-html.test.mjs
 
 # Bundled data integrity
 node scripts/validate-data.mjs
+node scripts/validate-traces.mjs
 
 # JavaScript syntax checks
 node --check assets/js/map.js
+node --check assets/js/run.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
 node --check assets/js/i18n.js
@@ -42,6 +47,7 @@ node --check assets/js/theme-init.js
 ```bash
 node scripts/sync-site-data.mjs
 node scripts/sync-map-data.mjs
+node scripts/sync-trace-data.mjs
 ```
 
 ## Validation Tiers
@@ -64,6 +70,7 @@ Several files exceed 500 lines:
 |------|-------|-------|
 | `assets/js/map.js` | ~4,850 | Largest runtime; read in chunks of ≤500 lines |
 | `assets/css/style.css` | ~1,833 | Global design system |
+| `assets/js/run.js` | ~1,810 | Simulator runtime (fold engine + SVG scenes) |
 | `assets/css/map.css` | ~874 | Map-specific styles |
 | `assets/js/background-pattern.js` | ~846 | WebGL shader; contains third-party noise code |
 | `assets/js/site.js` | ~788 | Landing page runtime |
@@ -118,6 +125,8 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |
 | Data validation | `scripts/lib/data-validation.mjs` |
 | Global styles | `assets/css/style.css` |
+| Simulator (kernel-in-action) | `run.html`, `assets/js/run.js`, `assets/css/run.css` |
+| Trace data + fold engine | `data/execution-traces.json`, `scripts/lib/trace-analysis.mjs` |
 
 ## Documentation Sync Requirements
 
@@ -127,6 +136,8 @@ When making changes, keep these documents in sync:
 - `CONTRIBUTING.md` — Required checks and checklists
 - `docs/ARCHITECTURE.md` — System architecture decisions
 - `docs/CODEBASE_MAP.md` — Map pipeline and runtime behavior
+- `docs/SIMULATOR_SPEC.md` — Simulator design + trace schema
+- `docs/UPSTREAM_TRACE_EXPORT.md` — Kernel-side trace export bridge (source: fixture → kernel)
 - `docs/DEVELOPER_GUIDE.md` — File-by-file orientation
 - `docs/TESTING.md` — Testing matrix and manual verification
 

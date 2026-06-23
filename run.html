@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en" data-i18n-title="meta.run_title">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <title>seLe4n Simulator</title>
+  <meta name="description" content="Replay the seLe4n microkernel in action: step through deterministic execution traces and watch the machine-checked scheduler, IPC, and capability invariants hold at every transition." data-i18n-content="meta.run_description">
+  <meta property="og:title" content="seLe4n Simulator" data-i18n-content="meta.run_og_title">
+  <meta property="og:description" content="Step through deterministic kernel execution traces and watch the machine-checked invariants hold at every transition." data-i18n-content="meta.run_og_description">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://sele4n.org/run.html">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="seLe4n Simulator" data-i18n-content="meta.run_og_title">
+  <meta name="twitter:description" content="Step through deterministic kernel execution traces and watch the machine-checked invariants hold at every transition." data-i18n-content="meta.run_og_description">
+  <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests">
+
+  <link rel="canonical" href="https://sele4n.org/run.html">
+  <link rel="icon" type="image/png" href="assets/images/favicon.png">
+  <link rel="dns-prefetch" href="https://api.github.com">
+
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="stylesheet" href="assets/css/run.css">
+  <script src="assets/js/theme-init.js"></script>
+  <script src="assets/js/i18n.js"></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "seLe4n Simulator",
+    "description": "Replay deterministic seLe4n microkernel execution traces and watch the machine-checked invariants hold at every transition.",
+    "url": "https://sele4n.org/run.html",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Any"
+  }
+  </script>
+</head>
+<body>
+  <div id="bg-canvas-wrap" aria-hidden="true">
+    <div id="bg-canvas-mover">
+      <canvas id="math-bg-a" class="math-bg-layer"></canvas>
+    </div>
+  </div>
+
+  <a href="#main-content" class="skip-link" data-i18n="nav.skip_to_main">Skip to main content</a>
+
+  <nav class="nav scrolled" id="nav" aria-label="Main navigation" data-force-scrolled="true">
+    <div class="nav-inner">
+      <a href="/#hero" class="nav-logo" aria-label="seLe4n home" data-i18n-aria-label="nav.home_label">
+        <img src="assets/images/favicon.png" alt="seLe4n" class="logo-img logo-img-favicon" width="40" height="40" decoding="async" fetchpriority="high">
+      </a>
+      <ul class="nav-links" id="nav-links" role="list">
+        <li><a href="/#about" data-i18n="nav.about">About</a></li>
+        <li><a href="/#architecture" data-i18n="nav.architecture">Architecture</a></li>
+        <li><a href="/#comparison" data-i18n="nav.comparison">Comparison</a></li>
+        <li><a href="/#features" data-i18n="nav.features">Features</a></li>
+        <li><a href="/map.html" data-i18n="nav.code_map">Code Map</a></li>
+        <li><a href="/run.html" aria-current="page" data-i18n="nav.run">Simulator</a></li>
+        <li><a href="/#security" data-i18n="nav.security">Security</a></li>
+        <li><a href="/#verification" data-i18n="nav.verification">Verification</a></li>
+        <li><a href="/#getting-started" data-i18n="nav.get_started">Get Started</a></li>
+        <li><a href="https://github.com/hatter6822/seLe4n" target="_blank" rel="noopener noreferrer" class="nav-cta" data-i18n="nav.github">GitHub</a></li>
+      </ul>
+      <div class="nav-controls">
+        <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links" aria-haspopup="true" data-i18n-aria-label="nav.toggle_nav">
+          <span></span><span></span><span></span>
+        </button>
+        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme" data-i18n-aria-label="nav.toggle_theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <button class="theme-toggle bg-animation-toggle" id="bg-animation-toggle" aria-label="Pause background animation" aria-pressed="false" title="Pause background animation" data-i18n-aria-label="nav.pause_bg" data-i18n-title="nav.pause_bg">
+          <svg class="icon-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+          <svg class="icon-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <div class="lang-switcher" id="lang-switcher">
+          <button class="lang-switcher-btn" id="lang-switcher-btn" aria-label="Language" aria-expanded="false" aria-haspopup="listbox" data-i18n-aria-label="nav.language">
+            <svg class="icon-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <span class="lang-switcher-label" id="lang-switcher-label">EN</span>
+          </button>
+          <ul class="lang-switcher-menu" id="lang-switcher-menu" role="listbox" aria-label="Select language" data-i18n-aria-label="nav.select_language" hidden></ul>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main-content" class="theater-page">
+    <header class="section theater-hero" id="theater-overview">
+      <div class="container theater-hero-shell">
+        <p class="hero-label" data-i18n="run.hero_label">seLe4n Simulator</p>
+        <h1 data-i18n="run.hero_title">Watch the kernel run — and the proofs hold</h1>
+        <p class="section-lead" data-i18n="run.hero_lead">Every seLe4n transition is a deterministic pure function whose invariants are machine-checked by Lean. Step through a real execution trace below and watch threads move between the CPU, the run queue, and IPC wait queues — with the proven invariants holding at every step.</p>
+        <div class="theater-meta">
+          <p id="theater-status" class="theater-status" role="status" aria-live="polite" data-i18n="run.loading">Loading kernel traces…</p>
+          <span id="theater-source" class="source-badge" data-source="fixture" aria-live="polite"></span>
+        </div>
+        <p class="theater-fixture-note" data-i18n="run.fixture_note">When sourced from a verified kernel export, every step is a faithful replay of a machine-checked run. The bundled sample is a hand-authored reference fixture that conforms to the same schema.</p>
+        <div class="theater-legend" aria-hidden="true">
+          <span><i data-state="running"></i> Running</span>
+          <span><i data-state="ready"></i> Ready</span>
+          <span><i data-state="blocked"></i> Blocked</span>
+          <span><i data-state="inactive"></i> Inactive</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="section section-alt" id="theater" aria-label="Kernel execution theater">
+      <div class="container">
+        <div class="theater-transport" role="group" aria-label="Playback controls">
+          <div class="transport-group">
+            <label for="scenario-select" data-i18n="run.scenario">Scenario</label>
+            <select id="scenario-select" aria-label="Select scenario" data-i18n-aria-label="run.scenario"></select>
+          </div>
+          <div class="transport-group" role="group" aria-label="Stepping">
+            <button id="theater-prev" class="transport-btn" type="button" aria-label="Previous step" data-i18n-aria-label="run.prev">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <button id="theater-play" class="transport-btn" type="button" aria-pressed="false" data-playing="false" aria-label="Play" data-i18n-aria-label="run.play">
+              <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+            </button>
+            <button id="theater-next" class="transport-btn" type="button" aria-label="Next step" data-i18n-aria-label="run.next">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+          <div class="transport-scrub">
+            <input id="theater-scrubber" type="range" min="0" max="0" value="0" step="1" aria-label="Step scrubber" data-i18n-aria-label="run.scrubber">
+          </div>
+          <span id="theater-step-label" class="transport-step">– / –</span>
+          <button id="sandbox-toggle" class="sandbox-toggle" type="button" aria-pressed="false" data-on="false" data-i18n="run.sandbox">Sandbox</button>
+        </div>
+        <p id="theater-caption" class="transport-caption" aria-live="polite"></p>
+
+        <div class="theater-grid">
+          <div class="theater-card stage-card">
+            <div class="stage-header">
+              <h2 data-i18n="run.stage">Stage</h2>
+              <div id="theater-scenes" class="scene-tabs" role="tablist" aria-label="Scene" data-i18n-aria-label="run.scene"></div>
+            </div>
+            <div class="theater-stage-shell" id="theater-stage-shell" tabindex="0" role="region" aria-label="Kernel system state" aria-live="polite">
+              <div id="theater-stage"></div>
+            </div>
+          </div>
+          <aside class="theater-card inspector-card" aria-label="Step detail">
+            <h2 data-i18n="run.step_detail">Step detail</h2>
+            <div id="theater-inspector" class="theater-inspector" aria-live="polite"></div>
+          </aside>
+        </div>
+
+        <section class="theater-card invariant-card" aria-label="Machine-checked invariants">
+          <div class="invariant-head">
+            <h2 data-i18n="run.invariants">Machine-checked invariants</h2>
+            <p id="rail-summary" data-tone="good"></p>
+          </div>
+          <div id="invariant-rail" class="invariant-rail"></div>
+        </section>
+
+        <section class="theater-sandbox" id="sandbox-panel" hidden aria-label="Sandbox (unverified preview)">
+          <p class="sandbox-banner" data-i18n-html="run.sandbox_banner"><strong>Unverified preview.</strong> These structural checks run in JavaScript, not Lean. Perturb the state below and watch a check break — exactly what the machine-checked proofs guarantee can never happen in the real kernel.</p>
+          <div class="sandbox-actions">
+            <button class="btn btn-secondary" type="button" data-perturb="enqueue-current" data-i18n="run.sb_enqueue">Enqueue the running thread</button>
+            <button class="btn btn-secondary" type="button" data-perturb="dup-runqueue" data-i18n="run.sb_dup">Duplicate a run-queue entry</button>
+            <button class="btn btn-secondary" type="button" data-perturb="wake-blocked" data-i18n="run.sb_wake">Wake a blocked thread</button>
+            <button class="btn" type="button" data-sandbox-reset data-i18n="run.sb_reset">Reset to trace</button>
+          </div>
+        </section>
+
+        <div class="theater-card theater-log-shell">
+          <h2 data-i18n="run.timeline">Execution trace</h2>
+          <div id="theater-log" class="theater-log" role="list" aria-label="Execution trace steps"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer footer-compact">
+    <div class="container">
+      <p>
+        seLe4n &middot;
+        <a href="/" data-i18n="footer.back_to_home">Back to Home</a> &middot;
+        <a href="/map.html" data-i18n="nav.code_map">Code Map</a> &middot;
+        <a href="https://github.com/hatter6822/seLe4n" target="_blank" rel="noopener noreferrer" data-i18n="nav.github">GitHub</a> &middot;
+        Licensed under <a href="https://github.com/hatter6822/seLe4n/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">GPLv3</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="assets/js/header-nav.js" defer></script>
+  <script src="assets/js/background-pattern.js" defer></script>
+  <script src="assets/js/run.js" defer></script>
+</body>
+</html>

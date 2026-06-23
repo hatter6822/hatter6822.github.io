@@ -15,6 +15,7 @@ Thanks for improving the seLe4n website.
 
 - `index.html`: landing page
 - `map.html`: interactive codebase map
+- `run.html`: Simulator (kernel-in-action replay)
 - `assets/css/`: CSS bundles
 - `assets/js/`: browser runtime logic
 - `scripts/`: snapshot sync and validation tooling
@@ -29,8 +30,13 @@ node scripts/lib/lean-analysis.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
+node scripts/lib/trace-analysis.test.mjs
+node scripts/lib/run-runtime.test.mjs
+node scripts/lib/csp-html.test.mjs
 node scripts/validate-data.mjs
+node scripts/validate-traces.mjs
 node --check assets/js/map.js
+node --check assets/js/run.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
 node --check assets/js/i18n.js
@@ -42,11 +48,12 @@ node --check assets/js/theme-init.js
 
 If you changed UI behavior or layout:
 
-1. Verify desktop rendering in `index.html` and `map.html`.
+1. Verify desktop rendering in `index.html`, `map.html`, and `run.html`.
 2. Verify mobile rendering at ~390px width.
 3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills).
 4. Confirm declaration context switching works (click declaration → flowchart shows calls/callers → breadcrumb navigation returns to module).
-5. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
+5. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
+6. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
 
 ## Data/sync change checklist
 

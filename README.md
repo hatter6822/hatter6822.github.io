@@ -11,8 +11,9 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 - `index.html`: main marketing page
 - `map.html`: interactive codebase map
+- `run.html`: Simulator — replay the kernel in action with the proven invariants
 - `assets/css/`: shared and page-specific styles
-- `assets/js/`: runtime scripts (theme, site, map, background)
+- `assets/js/`: runtime scripts (theme, site, map, run, background)
 - `data/`: bundled snapshots consumed at runtime
 - `scripts/`: sync, validation, and parser utilities
 - `docs/`: architecture and map implementation documentation
@@ -24,12 +25,14 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 ```bash
 node scripts/sync-site-data.mjs
 node scripts/sync-map-data.mjs
+node scripts/sync-trace-data.mjs
 ```
 
 ### 2) Validate snapshots
 
 ```bash
 node scripts/validate-data.mjs
+node scripts/validate-traces.mjs
 ```
 
 ### 3) Run parser regression tests
@@ -39,6 +42,9 @@ node scripts/lib/lean-analysis.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
+node scripts/lib/trace-analysis.test.mjs
+node scripts/lib/run-runtime.test.mjs
+node scripts/lib/csp-html.test.mjs
 ```
 
 ## Runtime data strategy
@@ -74,10 +80,38 @@ The code map interior panel supports declaration-first navigation:
 - The unified context search bar supports both module and declaration search using a dot-append approach (e.g., `SeLe4n.Kernel.API.apiInvariantBundle` resolves to `SeLe4n.Kernel.API`'s internal `apiInvariantBundle` declaration) via two complementary strategies: (1) progressive module-prefix resolution with declaration suffix matching, and (2) global cross-module search via a pre-built `declarationSearchList` index when no exact module prefix matches; when a declaration is selected via the context search, the flowchart automatically syncs to declaration context; results are ranked by exact/prefix/substring scoring and multiple suggestions appear as styled dropdown entries selectable via keyboard or mouse
 - Derives homepage theorem totals from declaration/symbol payloads in `docs/codebase_map.json` first, using top-level theorem aggregates only as a last-resort fallback; deduplicates modules appearing in both `modules[]` and `moduleMeta` to prevent double-counting
 
+## Simulator (kernel in action)
+
+`run.html` is a proof-aware execution visualizer. Because every seLe4n transition is a
+deterministic pure function with machine-checked invariants, the page can **replay**
+real kernel execution traces step by step and show the proven invariants holding at
+every transition. It offers seven switchable **scenes** — **System** (CPU, run queue,
+IPC wait queues), **Scheduler** (per-core SMP columns, priority buckets, EDF deadlines, CBS budget bars),
+**Capabilities** (the capability derivation tree, where minting derives children and a
+strict revoke prunes a whole subtree), **Memory** (untyped regions with a watermark,
+carving typed objects out of memory and reclaiming them on revoke), **VSpace** (page
+mappings with W^X status, where a writable-and-executable map is rejected and a TLB row
+shows cached translations being shot down on unmap), **Information
+flow** (the security-domain lattice, where the kernel blocks a leak from secret to
+public until an audited declassification authorizes it), and **Services** (the
+dependency DAG with dependency-ordered start, fault, and restart). A transport bar
+(play/step/scrub) drives the
+timeline; an invariant rail links each machine-checked invariant back to its proof
+module on `map.html`; and an opt-in, clearly-labeled **sandbox** lets you perturb the
+state and watch a structural check break — illustrating exactly what the Lean proofs
+forbid.
+
+Trace data lives in `data/execution-traces.json` (a schema-versioned snapshot; the
+bundled sample is a reference fixture until the upstream kernel emits the artifact
+directly). The full design — schema, scenes, pipeline, and roadmap — is in
+[docs/SIMULATOR_SPEC.md](docs/SIMULATOR_SPEC.md).
+
 ## Documentation index
 
 - [Architecture audit and growth plan](docs/ARCHITECTURE.md)
 - [Codebase map end-to-end guide](docs/CODEBASE_MAP.md)
+- [Simulator design + trace schema](docs/SIMULATOR_SPEC.md)
+- [Upstream trace export (kernel-side bridge)](docs/UPSTREAM_TRACE_EXPORT.md)
 - [Testing and validation matrix](docs/TESTING.md)
 - [Developer guide (file-by-file orientation)](docs/DEVELOPER_GUIDE.md)
 - [Contributing guide](CONTRIBUTING.md)

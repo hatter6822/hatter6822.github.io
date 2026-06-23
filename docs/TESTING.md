@@ -13,9 +13,15 @@ node scripts/lib/lean-analysis.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
+node scripts/lib/trace-analysis.test.mjs
+node scripts/lib/run-runtime.test.mjs
+node scripts/lib/csp-html.test.mjs
 ```
 
 Validates:
+- CSP compliance (`csp-html.test.mjs`): static guard asserting `index.html`, `map.html`, and `run.html` carry no inline `style="…"` attributes. The pages ship `style-src 'self'` with no `'unsafe-inline'`, so an inline style is blocked at runtime and silently fails to apply — this catches that regression class at build time (it was found in the wild via a Playwright render: the status-legend swatches rendered colourless until their colours were moved to a CSS class)
+- Simulator runtime (`run-runtime.test.mjs`): boots the real `assets/js/run.js` inside a `vm` context backed by a minimal DOM shim and asserts the end-to-end pipeline — bundled data loads, the SVG stage renders thread chips and boxes, the invariant rail lists the full catalog, the event log lists every step, the inspector populates, transport stepping advances the counter, deep-link URL state (`scenario`/`step`) is restored, and a sandbox perturbation flips a client-side structural check to "violated". Per-scene coverage spans all seven scenes (System, Scheduler, Capability, Memory, VSpace, Information-flow, Services), scene-tab gating, SMP per-core CPU columns in the System and Scheduler scenes, and the VSpace TLB row (a map caches both pages; an unmap shoots down the stale entry with a `⚡ shootdown` marker)
+- Simulator trace analysis (`trace-analysis.mjs`): schema validation (schemaVersion/source/ISO timestamp, invariant catalog shape and uniqueness, sequential step indices, allowed step kinds and op names, `invariants.allHold`/`checked`/`failed` consistency, `checked` ids resolving in the catalog); the deterministic fold engine (`reconstructState`/`scenarioStates` produce one state per step without mutating input, `rqInsert` keeps the run queue priority-ordered and idempotent, `applyOp` throws on dangling thread/endpoint/queue references, `message`/`note` ops are state-neutral); `touchedEntities` categorization; and a full integrity pass over the bundled `data/execution-traces.json` (validates clean + folds every scenario)
 - Lean import token extraction
 - interior symbol extraction across all supported declaration kinds and line tracking
 - theorem counting behavior, including declaration-first theorem derivation from `docs/codebase_map.json` payloads
@@ -45,16 +51,19 @@ Validates:
 
 ```bash
 node scripts/validate-data.mjs
+node scripts/validate-traces.mjs
 ```
 
 Validates:
 - `data/site-data.json` shape/content
 - `data/map-data.json` shape/content
+- `data/execution-traces.json` shape/content + a fold dry-run over every scenario (also warns when `source` is not `"kernel"`, i.e. the bundled traces are illustrative fixtures rather than a verified kernel export)
 
 ### JavaScript syntax checks
 
 ```bash
 node --check assets/js/map.js
+node --check assets/js/run.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
 node --check assets/js/i18n.js
@@ -114,6 +123,20 @@ node --check assets/js/theme-init.js
 - Confirm that partial dot-appended queries (e.g., `Module.Name.api`) show declaration suggestions in the dropdown with distinct italic styling and a left border accent.
 - Confirm that selecting a declaration suggestion via keyboard (Enter) or mouse click navigates to declaration context and displays the search feedback "Declaration: name in Module".
 - Confirm that the search bar correctly falls back to declaration search when no module match is found, with an appropriate error message when no declaration match exists either.
+
+### Simulator (`run.html`)
+
+- Confirm `run.html` loads from a static server, shows the source badge (e.g. "reference fixture · schema v1") and the provenance disclaimer when `source` is not `"kernel"`.
+- Confirm the transport bar: scenario selector switches scenarios; play auto-advances and stops at the last step; prev/next and the scrubber seek correctly; the step counter and caption update.
+- Confirm keyboard transport works off-input: `Space` play/pause, `←`/`→` (and `h`/`l`) step, `Home`/`End` jump to first/last.
+- Confirm the SVG stage renders threads in their structural location (current thread in the CPU box, ready threads in the priority-ordered run queue, blocked threads inside their endpoint/notification queues, reply-blocked threads in the off-queue lane) and that entities touched by a step pulse; confirm message ops animate an envelope between sender and receiver.
+- Confirm the invariant rail lists the catalog, highlights invariants re-validated at the current step, and links each entry to the corresponding module on `map.html`.
+- Confirm the inspector shows the step's kind/tag/actor, syscall decode, humanized effects, narrative, and source links, and that clicking a chip/box shows that object's field table.
+- Confirm the event log mirrors the `[TAG]` steps, highlights the active line, and that clicking a line seeks to that step.
+- Confirm the sandbox toggle reveals the clearly-labeled "Unverified preview" panel; perturbing the state (e.g. "Duplicate a run-queue entry") flips a structural check to violated and updates the rail summary tone; "Reset to trace" restores the replayed state; and stepping clears any perturbation.
+- Confirm deep links work: `run.html?scenario=<id>&step=<n>&object=<id>&sandbox=1` restores the corresponding view.
+- Confirm `prefers-reduced-motion` disables chip pulses and message animation (states snap instead of animating).
+- Verify desktop and ~390px mobile rendering in both light and dark themes; confirm the theme toggle and background-animation toggle behave as on the other pages.
 
 ### Cross-browser nav stability probe (optional, Playwright)
 
