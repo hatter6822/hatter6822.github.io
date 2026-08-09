@@ -48,7 +48,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Locale resolution: URL `?lang=` param > `localStorage` > `navigator.languages` > `en` default.
 - HTML elements use `data-i18n` attributes; JS code calls `sele4nI18n.t(key, vars)`.
 - Locale bundles are JSON files in `/locales/`, fetched via XHR from `'self'` origin.
-- Supported locales: English, Spanish, French, Japanese, Simplified Chinese.
+- Supported locales: English, Spanish, French, Japanese, Simplified Chinese, Ukrainian.
 - Language switcher in the navigation bar allows runtime locale switching.
 
 ### Runtime refresh strategy
