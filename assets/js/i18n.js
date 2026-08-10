@@ -14,13 +14,14 @@
 
   var STORAGE_KEY = "sele4n-locale-v1";
   var DEFAULT_LOCALE = "en";
-  var SUPPORTED_LOCALES = ["en", "es", "fr", "ja", "zh-CN"];
+  var SUPPORTED_LOCALES = ["en", "es", "fr", "ja", "zh-CN", "uk"];
   var LOCALE_LABELS = {
     "en": "English",
     "es": "Espa\u00f1ol",
     "fr": "Fran\u00e7ais",
     "ja": "\u65e5\u672c\u8a9e",
-    "zh-CN": "\u4e2d\u6587"
+    "zh-CN": "\u4e2d\u6587",
+    "uk": "\u0423\u043a\u0440\u0430\u0457\u043d\u0441\u044c\u043a\u0430"
   };
 
   /* Allowed HTML tags for data-i18n-html translations (defense-in-depth). */
