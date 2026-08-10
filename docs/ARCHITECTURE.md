@@ -29,7 +29,7 @@ To prepare for future growth, static assets were moved from root into explicit d
   - `theme-init.js`
   - `background-pattern.js`
 - `locales/`
-  - `en.json`, `es.json`, `fr.json`, `ja.json`, `zh-CN.json`
+  - `en.json`, `es.json`, `fr.json`, `ja.json`, `uk.json`, `zh-CN.json`
 
 HTML references were updated in `index.html` and `map.html` with no runtime behavior changes.
 

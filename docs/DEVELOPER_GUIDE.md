@@ -93,7 +93,7 @@ Internationalization runtime for multi-language support. Responsibilities:
 - supports interpolation via `{{variable}}` placeholders in locale strings.
 - initializes and manages the language switcher dropdown UI in the navigation bar.
 - fires `sele4n:locale-changed` CustomEvent when the locale changes.
-- supported locales: `en`, `es`, `fr`, `ja`, `zh-CN`.
+- supported locales: `en`, `es`, `fr`, `ja`, `uk`, `zh-CN`.
 
 ### `locales/*.json`
 Locale string bundles organized by page section. Structure mirrors the site's section hierarchy (`nav`, `hero`, `about`, `architecture`, `comparison`, `features`, `security`, `verification`, `api`, `structure`, `getting_started`, `roadmap`, `footer`, `map`). Each key maps to a translated string with optional `{{variable}}` interpolation.
