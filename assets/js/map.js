@@ -229,18 +229,24 @@
     return { start: normalizedStart, end: normalizedEnd };
   }
 
+  var pendingInteriorRenderArgs = null;
   function scheduleInteriorMenuRender(selected, caretRange, shouldRefocus) {
+    /* Always record the newest args so a burst of input events within one
+       rAF interval restores the latest caret, not the first one captured. */
+    pendingInteriorRenderArgs = { selected: selected, caretRange: caretRange, shouldRefocus: shouldRefocus };
     if (interiorMenuRenderScheduled) return;
     interiorMenuRenderScheduled = true;
     window.requestAnimationFrame(function () {
       interiorMenuRenderScheduled = false;
-      renderFlowNodeInteriorMenu(selected);
-      if (!shouldRefocus) return;
+      var args = pendingInteriorRenderArgs;
+      pendingInteriorRenderArgs = null;
+      renderFlowNodeInteriorMenu(args.selected);
+      if (!args.shouldRefocus) return;
       var queryInput = document.getElementById("interior-symbol-filter");
       if (!queryInput) return;
       queryInput.focus();
-      if (!caretRange || typeof queryInput.setSelectionRange !== "function") return;
-      queryInput.setSelectionRange(caretRange.start, caretRange.end);
+      if (!args.caretRange || typeof queryInput.setSelectionRange !== "function") return;
+      queryInput.setSelectionRange(args.caretRange.start, args.caretRange.end);
     });
   }
 
@@ -495,7 +501,6 @@
       var kind = kinds[i];
       var candidates = [kind];
       if (kind === "constant") candidates.push("constants");
-      if (kind === "constants") candidates.push("constant");
       var list = [];
       for (var c = 0; c < candidates.length; c++) {
         var key = candidates[c];
@@ -1388,6 +1393,11 @@
   function renderFlowNodeInteriorMenu(selected) {
     var menu = DOM.flowNodeInteriorMenu || document.getElementById("flow-node-interior-menu");
     if (!menu) return;
+    /* Preserve focus/caret across externally-triggered re-renders (live-sync
+       refresh, window resize) that destroy the filter input mid-typing. */
+    var prevInput = document.getElementById("interior-symbol-filter");
+    var hadFocus = Boolean(prevInput && document.activeElement === prevInput);
+    var savedCaret = hadFocus ? normalizeCaretRange(prevInput.value, prevInput.selectionStart, prevInput.selectionEnd) : null;
     menu.innerHTML = "";
     if (!selected) {
       menu.textContent = t("map.select_module") || "Select a module to inspect interior declarations.";
@@ -1580,6 +1590,14 @@
     var gridFragment = document.createDocumentFragment();
     gridFragment.appendChild(grid);
     menu.appendChild(gridFragment);
+
+    if (hadFocus) {
+      var newInput = document.getElementById("interior-symbol-filter");
+      if (newInput) {
+        newInput.focus();
+        if (savedCaret && typeof newInput.setSelectionRange === "function") newInput.setSelectionRange(savedCaret.start, savedCaret.end);
+      }
+    }
   }
 
   function wrapLabelLines(text, width, minChars) {
@@ -1984,8 +2002,13 @@
     group.appendChild(contentGroup);
 
     if (onActivate) {
-      group.addEventListener("click", function () { onActivate(); });
+      group.addEventListener("click", function (event) {
+        /* Let clicks on the nested source link perform their own navigation */
+        if (event.target && event.target.closest && event.target.closest("a")) return;
+        onActivate();
+      });
       group.addEventListener("keydown", function (event) {
+        if (event.target && event.target.closest && event.target.closest("a")) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onActivate();
@@ -3186,11 +3209,27 @@
   }
 
   function persistCurrentMapCache() {
+    /* Snapshot moduleMeta without the private __interiorCache/__interiorCacheSource
+       fields: they re-serialize symbols ~3x, inflating the localStorage payload
+       toward the quota, and are rebuilt on demand anyway. */
+    var metaSnapshot = Object.create(null);
+    for (var metaName in state.moduleMeta) {
+      if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, metaName)) continue;
+      var meta = state.moduleMeta[metaName] || {};
+      metaSnapshot[metaName] = {
+        layer: meta.layer,
+        kind: meta.kind,
+        base: meta.base,
+        theorems: meta.theorems,
+        symbols: meta.symbols,
+        symbolsLoaded: meta.symbolsLoaded
+      };
+    }
     setCache({
       files: state.files,
       modules: state.modules,
       moduleMap: state.moduleMap,
-      moduleMeta: state.moduleMeta,
+      moduleMeta: metaSnapshot,
       importsTo: state.importsTo,
       importsFrom: state.importsFrom,
       externalImportsFrom: state.externalImportsFrom,
@@ -3392,6 +3431,16 @@
     function normalizeModuleSymbols(rawSymbols) {
       var source = rawSymbols || {};
       var callGraph = Object.create(null);
+      /* Seed from a previously-normalized payload (e.g. a localStorage cache
+         round-trip) whose symbols are already in byKind form: without this the
+         declarations branch below is skipped and the call graph is lost. */
+      var priorGraph = source && source.callGraph && typeof source.callGraph === "object" && !Array.isArray(source.callGraph) ? source.callGraph : null;
+      if (priorGraph) {
+        for (var pg in priorGraph) {
+          if (!Object.prototype.hasOwnProperty.call(priorGraph, pg)) continue;
+          if (Array.isArray(priorGraph[pg]) && priorGraph[pg].length) callGraph[pg] = priorGraph[pg].slice();
+        }
+      }
       if (Array.isArray(source.declarations) && !source.byKind && !source.by_kind) {
         var declarationKinds = Object.create(null);
         for (var decIdx = 0; decIdx < source.declarations.length; decIdx++) {
@@ -3652,7 +3701,8 @@
       var parsed = JSON.parse(decoded);
       var normalized = normalizeCanonicalPayload(parsed);
 
-      if (!normalized.commitSha && payload.sha) normalized.commitSha = String(payload.sha);
+      /* payload.sha is the file's BLOB sha — never a commit sha, so it must
+         not be used as commitSha (it can never match commit identifiers). */
       return normalized;
     });
   }
@@ -3892,6 +3942,48 @@
         });
       }).then(function () {
           rebuildImportsToIndex();
+          /* Rebuild declaration state from the current moduleMeta the same way
+             normalizeMapData does, so declaration search and call lanes never
+             serve entries from a previous dataset (or stay empty on cold start).
+             Unchanged modules on the incremental path keep their symbols.callGraph,
+             so valid call lanes are preserved; freshly parsed symbols carry no
+             callGraph and correctly yield empty graphs. */
+          state.declarationGraph = Object.create(null);
+          state.declarationReverseGraph = Object.create(null);
+          state.declarationIndex = Object.create(null);
+          for (var declModule in state.moduleMeta) {
+            if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, declModule)) continue;
+            var declMeta = state.moduleMeta[declModule];
+            if (!declMeta || !declMeta.symbols) continue;
+            var declCallGraph = declMeta.symbols.callGraph;
+            if (declCallGraph && typeof declCallGraph === "object") {
+              for (var declKey in declCallGraph) {
+                if (!Object.prototype.hasOwnProperty.call(declCallGraph, declKey)) continue;
+                if (!Array.isArray(declCallGraph[declKey])) continue;
+                state.declarationGraph[declKey] = { module: declModule, calls: declCallGraph[declKey] };
+                for (var declCalledIdx = 0; declCalledIdx < declCallGraph[declKey].length; declCalledIdx++) {
+                  var declCalledTarget = declCallGraph[declKey][declCalledIdx];
+                  if (!state.declarationReverseGraph[declCalledTarget]) state.declarationReverseGraph[declCalledTarget] = [];
+                  state.declarationReverseGraph[declCalledTarget].push(declKey);
+                }
+              }
+            }
+            var declByKind = declMeta.symbols.byKind;
+            if (declByKind && typeof declByKind === "object") {
+              for (var declKind in declByKind) {
+                if (!Object.prototype.hasOwnProperty.call(declByKind, declKind)) continue;
+                var declItems = declByKind[declKind];
+                if (!Array.isArray(declItems)) continue;
+                for (var declItemIdx = 0; declItemIdx < declItems.length; declItemIdx++) {
+                  var declItem = declItems[declItemIdx];
+                  if (declItem && declItem.name && !state.declarationIndex[declItem.name]) {
+                    state.declarationIndex[declItem.name] = { module: declModule, kind: declKind, line: declItem.line || 0 };
+                  }
+                }
+              }
+            }
+          }
+          buildSearchIndex();
           state.commitSha = latestCommitSha || "";
           state.generatedAt = new Date().toISOString();
           buildPairs();
@@ -3940,19 +4032,26 @@
     var cooldown = remainingSyncCooldownMs();
 
     if (reason === "poll" && hasLocalData) {
-      var knownCommit = state.commitSha || cachedCommitSha || "";
       return fetchLatestMapCommitSha().then(function (latestMapCommitSha) {
         if (!latestMapCommitSha) {
           if (cooldown > 0 && !opts.force) return;
           return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true });
         }
 
-        if (knownCommit && knownCommit === latestMapCommitSha) {
+        /* Compare against the last file-touching commit we checked, not
+           state.commitSha (the sha embedded INSIDE the map payload) — those
+           come from different domains and can never be equal, which used to
+           force a full canonical re-download on every poll. */
+        var meta = getLiveSyncMeta();
+        if (meta && meta.lastCheckedCommit && meta.lastCheckedCommit === latestMapCommitSha) {
           setLiveSyncMeta(latestMapCommitSha);
           return;
         }
 
-        return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true });
+        return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true }).then(function () {
+          /* Key the fast path on the same identifier we polled */
+          setLiveSyncMeta(latestMapCommitSha);
+        });
       });
     }
 
@@ -4112,6 +4211,10 @@
     // Search interior declarations (from moduleMeta symbols)
     var interior = interiorCodeForModule(moduleName);
     var bestMatch = null;
+    /* Track match quality (1 = prefix, 2 = substring) so a later prefix match
+       upgrades an earlier substring match — keeping resolution consistent with
+       the dropdown ranking in declarationSearchMatches. */
+    var bestClass = 3;
 
     if (interior && interior.byKind) {
       var kinds = allInteriorKinds();
@@ -4123,12 +4226,16 @@
           var itemLower = items[j].name.toLowerCase();
           if (itemLower === declSuffixLower) {
             return { module: moduleName, declaration: items[j].name, exact: true };
-          }
-          if (!bestMatch && itemLower.indexOf(declSuffixLower) === 0) {
-            bestMatch = { module: moduleName, declaration: items[j].name, exact: false };
-          }
-          if (!bestMatch && itemLower.indexOf(declSuffixLower) !== -1) {
-            bestMatch = { module: moduleName, declaration: items[j].name, exact: false };
+          } else if (itemLower.indexOf(declSuffixLower) === 0) {
+            if (bestClass > 1) {
+              bestClass = 1;
+              bestMatch = { module: moduleName, declaration: items[j].name, exact: false };
+            }
+          } else if (itemLower.indexOf(declSuffixLower) !== -1) {
+            if (bestClass > 2) {
+              bestClass = 2;
+              bestMatch = { module: moduleName, declaration: items[j].name, exact: false };
+            }
           }
         }
       }
@@ -4141,9 +4248,11 @@
       if (entry.module !== moduleName) continue;
       if (entry.nameLower === declSuffixLower) {
         return { module: moduleName, declaration: entry.name, exact: true };
-      }
-      if (!bestMatch && entry.nameLower.indexOf(declSuffixLower) === 0) {
-        bestMatch = { module: moduleName, declaration: entry.name, exact: false };
+      } else if (entry.nameLower.indexOf(declSuffixLower) === 0) {
+        if (bestClass > 1) {
+          bestClass = 1;
+          bestMatch = { module: moduleName, declaration: entry.name, exact: false };
+        }
       }
     }
 
@@ -4424,6 +4533,22 @@
       var choose = function () {
         setSearchFeedback("", false);
         if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
+
+        /* Resolve exact declaration matches before the fuzzy module match:
+           every module shares the "sele4n" token, so qualified declaration
+           queries would otherwise always fuzzy-match a module and kick the
+           user out of declaration context on Enter/blur. */
+        var trimmedValue = (search.value || "").trim();
+        if (trimmedValue.indexOf(".") !== -1) {
+          var exactDecl = declarationSearchMatch(trimmedValue);
+          if (exactDecl && exactDecl.exact) {
+            search.value = exactDecl.module + "." + exactDecl.declaration;
+            selectDeclaration(exactDecl.declaration, exactDecl.module);
+            closeModuleSearchOptions();
+            setSearchFeedback("Declaration: " + exactDecl.declaration + " in " + exactDecl.module, false);
+            return;
+          }
+        }
 
         var list = contextList();
         var match = matchModule(search.value, list);

@@ -1,6 +1,6 @@
 # Codebase Map: End-to-End Guide
 
-> Documentation baseline: website release **0.25.13**.
+> Documentation baseline: website release **0.26.0**.
 
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
@@ -124,21 +124,21 @@ Declaration search suggestions are rendered with distinct styling (italic text, 
 
 ## Upstream module structure (reflected in map data)
 
-The seLe4n codebase now comprises 77 total modules across 4 layers:
+The seLe4n codebase now comprises 273 total modules across 4 layers:
 
 | Layer | Module count | Description |
 |-------|-------------|-------------|
-| kernel | 57 | Core kernel subsystems |
-| platform | 10 | Simulator and RPi5 bindings |
-| other | 6 | Testing framework and root modules |
-| model | 4 | Object types, structures, state |
+| kernel | 236 | Core kernel subsystems |
+| platform | 17 | Simulator and RPi5 bindings |
+| model | 12 | Object types, structures, state |
+| other | 8 | Testing framework and root modules |
 
 Key structural features visible in the map:
 
-- **Robin Hood** (`SeLe4n.Kernel.RobinHood.*`): 7 modules, 179 theorems — verified hash map foundation imported by `Model.Object.Types`.
-- **Deep IPC modularization**: 14 files covering DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Endpoint, SchedulerLemmas}, Invariant/{Structural, EndpointPreservation, NotificationPreservation, CallReplyRecv, Defs}.
-- **Architecture expansion**: 9 files including RegisterDecode, SyscallArgDecode, TlbModel, VSpaceInvariant alongside the existing VSpace/VSpaceBackend/Adapter triad.
-- **Capability invariant decomposition**: Authority, Defs, and Preservation sub-modules with 118 total theorems.
+- **Robin Hood** (`SeLe4n.Kernel.RobinHood.*`): 8 modules, 186 theorems — verified hash map foundation imported by `Model.Object.Types`.
+- **Deep IPC modularization**: 52 files covering DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Donation, Endpoint, NotificationBind, SchedulerLemmas, Timeout}, Invariant/{Structural, EndpointPreservation, NotificationPreservation, CallReplyRecv, Defs, PerCore}, and an 18-module CrossCore/ suite.
+- **Architecture expansion**: 31 files including RegisterDecode, SyscallArgDecode, TlbModel, VSpaceInvariant alongside the existing VSpace/VSpaceBackend/Adapter triad.
+- **Capability invariant decomposition**: Authority, Defs, PerCore, and a six-module Preservation/ tree with 203 total theorems.
 
 ## Troubleshooting checklist
 

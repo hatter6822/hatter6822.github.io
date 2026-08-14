@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.25.13**.
+> Documentation baseline: website release **0.26.0**.
 
 ## Audit summary
 
@@ -272,7 +272,7 @@ The `LABEL_WRAP_CACHE` previously evicted a single entry when at capacity. This 
 - **SVG role semantics**: Changed flowchart SVG `role` from `"img"` to `"group"` so screen readers can discover interactive child nodes (flow nodes with `tabindex="0"` and `role="button"`) instead of treating the entire SVG as a single opaque image.
 - **Interior kind select labels**: Added `aria-label="Filter [group] by kind"` to dynamically created interior kind `<select>` elements so screen readers announce the purpose of each filter dropdown.
 - **Breadcrumb separator**: Added `aria-hidden="true"` to the declaration breadcrumb separator character (`›`) to prevent screen readers from announcing it as punctuation.
-- **Section tracking semantics**: Changed section tracking from `aria-current="page"` to `aria-current="true"` in both `header-nav.js` and `site.js`. The `"page"` token is reserved for page-level navigation (which page link points to the current page), while `"true"` is the correct value for in-page section highlighting. Updated CSS to match both values.
+- **Section tracking semantics**: Section tracking and page-level navigation now share a single `aria-current="page"` convention in both `header-nav.js` and `site.js` (the interim `aria-current="true"` token for in-page section highlighting has been retired). CSS matches only the `"page"` value (`.nav-links a[aria-current="page"]`).
 
 ### Test coverage expansion
 
@@ -376,32 +376,33 @@ The upstream seLe4n codebase has undergone significant architectural changes now
 
 ### Robin Hood hash map subsystem
 
-A fully verified Robin Hood hash table implementation (`SeLe4n/Kernel/RobinHood/`) serves as the algebraic foundation for all kernel hash-based data structures. 7 modules, 179 theorems:
+A fully verified Robin Hood hash table implementation (`SeLe4n/Kernel/RobinHood/`) serves as the algebraic foundation for all kernel hash-based data structures. 8 modules, 186 theorems:
 
-- **Core** (`Core.lean`): `RHTable` data type with O(1) amortized insert, lookup, erase, and resize. 9 theorems including `insertLoop_preserves_len` and `RHTable.empty_wf`.
-- **Bridge** (`Bridge.lean`): 30 theorems connecting the implementation to `HashMap`-compatible semantics (`getElem?_insert_self`, `getElem?_erase_self`, `mem_iff_isSome_getElem?`).
-- **Invariant/Defs**: Well-formedness definitions and 4 foundational theorems.
-- **Invariant/Lookup**: 40 lookup correctness theorems including `getLoop_none_of_absent` and `findLoop_some_has_key`.
-- **Invariant/Preservation**: 56 preservation proofs including `insertLoop_countOccupied` and `backshiftLoop_countOccupied`.
+- **Core** (`Core.lean`): `RHTable` data type with O(1) amortized insert, lookup, erase, and resize. 10 theorems including `insertLoop_preserves_len` and `RHTable.empty_wf`.
+- **Bridge** (`Bridge.lean`): 46 theorems connecting the implementation to `HashMap`-compatible semantics (`getElem?_insert_self`, `getElem?_erase_self`, `mem_iff_isSome_getElem?`).
+- **Set** (`Set.lean`): `RHSet` verified hash set — a newtype wrapper around `RHTable κ Unit` replacing `Std.HashSet` for state-persistent set fields. 15 theorems.
+- **Invariant/Defs**: Well-formedness definitions and 7 foundational theorems.
+- **Invariant/Lookup**: 44 lookup correctness theorems including `getLoop_none_of_absent` and `findLoop_some_has_key`.
+- **Invariant/Preservation**: 64 preservation proofs including `insertLoop_countOccupied` and `backshiftLoop_countOccupied`.
 
 Imported by `Model.Object.Types` — the entire kernel object type system builds on verified hash operations.
 
-### Architecture layer expansion (9 files, 123 theorems)
+### Architecture layer expansion (31 files, 1,019 theorems)
 
-- **RegisterDecode** (`RegisterDecode.lean`): 18 roundtrip proofs for register encode/decode (CapPtr, SyscallId, MsgInfo, MessageRegisters).
-- **SyscallArgDecode** (`SyscallArgDecode.lean`): 28 determinism proofs for verified syscall argument parsing across all syscall types.
-- **TlbModel** (`TlbModel.lean`): 13 TLB consistency proofs including flush-after-modify theorems.
-- **VSpaceInvariant** (`VSpaceInvariant.lean`): 17 VSpace invariant proofs separated from operations.
+- **RegisterDecode** (`RegisterDecode.lean`): 24 roundtrip proofs for register encode/decode (CapPtr, SyscallId, MsgInfo, MessageRegisters).
+- **SyscallArgDecode** (`SyscallArgDecode.lean`): 59 determinism proofs for verified syscall argument parsing across all syscall types.
+- **TlbModel** (`TlbModel.lean`): 38 TLB consistency proofs including flush-after-modify theorems.
+- **VSpaceInvariant** (`VSpaceInvariant.lean`): 20 VSpace invariant proofs separated from operations.
 
 ### Deep modularization
 
 Subsystems have been decomposed into focused sub-modules:
 
-- **IPC**: 14 files, 223 theorems — DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Endpoint, SchedulerLemmas}, Invariant/{Structural(76), EndpointPreservation(27), NotificationPreservation(15), CallReplyRecv(9), Defs}.
-- **Capability**: 5 files, 118 theorems — Invariant/{Authority(26), Defs(46), Preservation(46)}.
-- **InformationFlow**: 10 files — Enforcement/{Soundness, Wrappers}, Invariant/{Composition, Helpers, Operations}.
-- **Scheduler**: 6 files — Operations/{Core, Preservation, Selection}.
-- **Service**: 4 files — Invariant/{Acyclicity, Policy}.
+- **IPC**: 52 files, 1,659 theorems — DualQueue/{Core, Transport, WithCaps}, Operations/{CapTransfer, Donation, Endpoint, NotificationBind, SchedulerLemmas, Timeout}, Invariant/{Structural, EndpointPreservation, NotificationPreservation, CallReplyRecv, Defs, PerCore}, and an 18-module CrossCore/ suite for SMP cross-core IPC.
+- **Capability**: 12 files, 244 theorems — Invariant/{Authority(24), Defs(62), PerCore(12)} and a six-module Preservation/ tree.
+- **InformationFlow**: 14 files — Enforcement/{Soundness, Wrappers}, Invariant/{Composition, Helpers, Operations}.
+- **Scheduler**: 46 files — Operations/{Core, Preservation, Selection} plus deep invariant, liveness, and per-core SMP trees.
+- **Service**: 7 files — Invariant/{Acyclicity, Policy}.
 
 ### Object model split
 
@@ -413,25 +414,29 @@ New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.l
 
 ## Rust syscall wrapper layer
 
-The upstream seLe4n repository includes a `rust/` workspace (v0.17.13, Rust 2021 edition, GPL-3.0) providing safe, `no_std` user-space bindings for all 14 kernel syscalls. The website now documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+The upstream seLe4n repository includes a `rust/` workspace (v0.33.6 — tracking the kernel version, Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's 30-syscall ABI (27 of the 30 syscalls have typed safe wrappers in `sele4n-sys`; `TcbBindNotification`, `TcbUnbindNotification`, and `MintReplyCap` are modeled in `sele4n-types` but not yet wrapped). The website now documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
 
 ### Crate architecture
 
-Three crates form a layered dependency chain:
+The workspace contains four crates. Three form a layered user-space dependency chain:
 
-1. **`sele4n-types`** — Zero-dependency foundation. 14 `#[repr(transparent)]` newtype identifiers mirroring `SeLe4n/Prelude.lean` (ObjId, ThreadId, CPtr, Slot, ASID, VAddr, PAddr, etc.), a 34-variant `KernelError` enum matching the Lean kernel model, bitmask-based `AccessRights` (Read/Write/Grant/GrantReply/Retype), and a 14-variant `SyscallId` enum with `#[repr(u64)]` discriminants. Enforces `#![deny(unsafe_code)]`.
+1. **`sele4n-types`** — Zero-dependency foundation. 16 `#[repr(transparent)]` newtype identifiers mirroring `SeLe4n/Prelude.lean` (ObjId, ThreadId, CPtr, Slot, ASID, VAddr, PAddr, etc.), a 55-variant `KernelError` enum matching the Lean kernel model, bitmask-based `AccessRights` (Read/Write/Grant/GrantReply/Retype), and a 30-variant `SyscallId` enum with `#[repr(u64)]` discriminants. Enforces `#![deny(unsafe_code)]`.
 
 2. **`sele4n-abi`** — ARM64 register ABI layer. `MessageInfo` bitfield encoding/decoding, syscall request/response marshalling via `encode`/`decode` modules, IPC buffer overflow handling for messages exceeding the 4-register inline limit (x2–x5), and `TypeTag`/`PagePerms` enums. Contains exactly **one** `unsafe` block: the inline `svc #0` instruction in `trap.rs`. Non-AArch64 targets get a mock trap returning `InvalidSyscallNumber` for host-based testing.
 
-3. **`sele4n-sys`** — Safe high-level wrappers. Organized into six modules:
+3. **`sele4n-sys`** — Safe high-level wrappers. Organized into eight modules:
    - `ipc.rs` — `endpoint_send`, `endpoint_receive`, `endpoint_call`, `endpoint_reply`, `notification_signal`, `notification_wait`
    - `cspace.rs` — `cspace_mint`, `cspace_copy`, `cspace_move`, `cspace_delete`
    - `lifecycle.rs` — `lifecycle_retype` with convenience wrappers (`retype_tcb`, `retype_endpoint`, etc.)
    - `vspace.rs` — `vspace_map` (with W^X pre-check), `vspace_unmap`, plus `vspace_map_read_only`/`read_write`/`read_execute` helpers
    - `service.rs` — `service_register`, `service_revoke`, `service_query`
+   - `sched_context.rs` — `sched_context_configure`, `sched_context_bind`, `sched_context_unbind`
+   - `tcb.rs` — `tcb_suspend`, `tcb_resume`, `tcb_set_priority`, `tcb_set_mcp`, `tcb_set_ipc_buffer`, `tcb_set_affinity`
    - `cap.rs` — Phantom-typed `Cap<Obj, Rts>` with sealed marker traits, compile-time rights tracking, and safe `restrict()` (the insecure `downgrade()` was removed)
 
    Zero `unsafe` code — all unsafe is isolated in `sele4n-abi`.
+
+4. **`sele4n-hal`** — Kernel-side, bare-metal Raspberry Pi 5 (BCM2712, Cortex-A76) hardware abstraction layer, deliberately outside the user-space chain (zero runtime dependencies; only a test-only dev-dependency on `sele4n-types` to cross-check its hand-mirrored `SyscallId`): GIC-400 interrupt controller, ARM Generic Timer, ARMv8 MMU configuration, TLB maintenance and cross-core shootdown, per-CPU state, PSCI-based SMP bring-up, ticket/RW locks, PL011 UART, typed SVC dispatch, and the FFI bridge exporting into the Lean kernel (`ffi.rs`).
 
 ### Website integration
 

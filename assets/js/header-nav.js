@@ -358,7 +358,7 @@
         pendingObservations = 0;
 
         for (var i = 0; i < sectionEntries.length; i++) {
-          if (i === index) sectionEntries[i].link.setAttribute("aria-current", "true");
+          if (i === index) sectionEntries[i].link.setAttribute("aria-current", "page");
           else sectionEntries[i].link.removeAttribute("aria-current");
         }
       }
@@ -612,7 +612,10 @@
         }
       }
 
-      window.addEventListener("pagehide", function () {
+      window.addEventListener("pagehide", function (event) {
+        /* Keep observers alive when the page is only suspended into the
+           back/forward cache; disconnect on real unload only. */
+        if (event.persisted) return;
         if (navMutationObserver) navMutationObserver.disconnect();
         if (navResizeObserver) navResizeObserver.disconnect();
       });

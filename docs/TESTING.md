@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.25.13**.
+> Documentation baseline: website release **0.26.0**.
 
 ## Automated checks
 
@@ -16,10 +16,14 @@ node scripts/lib/map-toolbar.test.mjs
 node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
+node scripts/lib/static-values.test.mjs
+node scripts/lib/i18n-locales.test.mjs
 ```
 
 Validates:
-- CSP compliance (`csp-html.test.mjs`): static guard asserting `index.html`, `map.html`, and `run.html` carry no inline `style="…"` attributes. The pages ship `style-src 'self'` with no `'unsafe-inline'`, so an inline style is blocked at runtime and silently fails to apply — this catches that regression class at build time (it was found in the wild via a Playwright render: the status-legend swatches rendered colourless until their colours were moved to a CSS class)
+- Static fallback sync (`static-values.test.mjs`): pins the `data/site-data.json` → `index.html` static-value mapping used by `scripts/apply-static-values.mjs` (every mapped `data-live` span, JSON-LD version, `<time>` stamp), verifies idempotence and `$`-safe replacement, and asserts the committed `index.html` is byte-identical to what the rewriter produces from the committed snapshot — a diff means someone changed `data/site-data.json` without re-running `node scripts/apply-static-values.mjs`
+- Locale completeness (`i18n-locales.test.mjs`): every `locales/*.json` has exact key parity with `en.json` (this silently broke before — four locales shipped without the entire simulator `run.*` surface), no empty or non-string leaf values, and every `data-i18n*` key referenced by the HTML pages resolves in `en.json`
+- CSP compliance (`csp-html.test.mjs`): static guard asserting `index.html`, `map.html`, `run.html`, and `404.html` carry no inline `style="…"` attributes. The pages ship `style-src 'self'` with no `'unsafe-inline'`, so an inline style is blocked at runtime and silently fails to apply — this catches that regression class at build time (it was found in the wild via a Playwright render: the status-legend swatches rendered colourless until their colours were moved to a CSS class)
 - Simulator runtime (`run-runtime.test.mjs`): boots the real `assets/js/run.js` inside a `vm` context backed by a minimal DOM shim and asserts the end-to-end pipeline — bundled data loads, the SVG stage renders thread chips and boxes, the invariant rail lists the full catalog, the event log lists every step, the inspector populates, transport stepping advances the counter, deep-link URL state (`scenario`/`step`) is restored, and a sandbox perturbation flips a client-side structural check to "violated". Per-scene coverage spans all seven scenes (System, Scheduler, Capability, Memory, VSpace, Information-flow, Services), scene-tab gating, SMP per-core CPU columns in the System and Scheduler scenes, and the VSpace TLB row (a map caches both pages; an unmap shoots down the stale entry with a `⚡ shootdown` marker)
 - Simulator trace analysis (`trace-analysis.mjs`): schema validation (schemaVersion/source/ISO timestamp, invariant catalog shape and uniqueness, sequential step indices, allowed step kinds and op names, `invariants.allHold`/`checked`/`failed` consistency, `checked` ids resolving in the catalog); the deterministic fold engine (`reconstructState`/`scenarioStates` produce one state per step without mutating input, `rqInsert` keeps the run queue priority-ordered and idempotent, `applyOp` throws on dangling thread/endpoint/queue references, `message`/`note` ops are state-neutral); `touchedEntities` categorization; and a full integrity pass over the bundled `data/execution-traces.json` (validates clean + folds every scenario)
 - Lean import token extraction
@@ -74,13 +78,13 @@ node --check assets/js/theme-init.js
 ## Manual verification recommendations
 
 - Confirm `index.html` and `map.html` load from a static server.
-- Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="true"` for section tracking, `aria-current="page"` for page-level nav) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
+- Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="page"` — the single convention shared by section tracking and page-level nav) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
 - Stress-test long hash jumps (top-to-lower sections and back) in Chromium: active nav state should transition once per section boundary and stay stable near boundaries (no alternating flicker), including after repeated clicks on links whose sections are near midpoint boundaries.
 - While a lower section is active (for example `/#verification`), trigger an asynchronous layout shift (expand/collapse content above the fold using DevTools or temporary DOM edits): active nav selection should remain deterministic (no back-and-forth oscillation) and converge to the true in-focus section after layout settles.
 - Verify hash-near-header behavior: when the URL hash matches a section whose heading is currently inside the fixed-header focus window, that section's nav link remains active even if tiny scroll jitter is present.
 - Verify repeated same-page hash clicks (especially `/#verification`, `/#api`, `/#roadmap`) do not produce alternating `aria-current` assignments in Chrome after smooth-scroll completes.
 - Verify rapid alternating clicks across multiple hash links (for example `/#features` → `/#security` → `/#verification` → `/#getting-started`) converge to the final clicked section without post-settle `aria-current` oscillation.
-- Confirm only one nav controller is active on `index.html`: with normal script order (`site.js` before `header-nav.js`), `header-nav.js` should own same-page hash behavior and no duplicate `aria-current` toggling should be observable in DevTools event listener traces.
+- Confirm only one nav controller is active on `index.html`: with normal script order (`header-nav.js` before `site.js`), `header-nav.js` should own same-page hash behavior and no duplicate `aria-current` toggling should be observable in DevTools event listener traces.
 - Test map page on mobile viewport (~390px width). Verify flow-node text does not overflow node boundaries — text should wrap within the node rect and be clipped cleanly at node edges.
 - Confirm the compact toolbar is rendered before the interior declaration panel and contains only current module context search and reset, with compact-density toolbar semantics.
 - Confirm map context-search keyboard navigation (Arrow/Home/End) and keyboard traversal still function.

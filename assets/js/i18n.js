@@ -38,7 +38,7 @@
     // 1. URL search param ?lang=xx
     try {
       var params = new URLSearchParams(window.location.search);
-      var paramLang = params.get("lang");
+      var paramLang = normalizeLangTag(params.get("lang"));
       if (paramLang && isSupported(paramLang)) return paramLang;
     } catch (e) {}
 
@@ -57,6 +57,16 @@
       // Try base language (e.g. "es-MX" → "es")
       var base = tag.split("-")[0];
       if (isSupported(base)) return base;
+
+      // Try lang-REGION for 3-part tags (e.g. "zh-Hans-CN" → "zh-CN")
+      var rawParts = String(browserLangs[i]).trim().split(/[-_]/);
+      if (rawParts.length > 2) {
+        var langRegion = rawParts[0].toLowerCase() + "-" + rawParts[rawParts.length - 1].toUpperCase();
+        if (isSupported(langRegion)) return langRegion;
+      }
+
+      // Map generic Simplified Chinese to zh-CN (but not Traditional-script/region tags)
+      if (base === "zh" && !/\b(Hant|TW|HK|MO)\b/i.test(tag) && isSupported("zh-CN")) return "zh-CN";
     }
 
     return DEFAULT_LOCALE;
@@ -172,6 +182,8 @@
     var all = document.querySelectorAll(selector);
     for (var i = 0; i < all.length; i++) {
       var el = all[i];
+      // <html data-i18n-title> is reserved for the document.title update below
+      if (el === document.documentElement) continue;
       for (var j = 0; j < I18N_ATTRS.length; j++) {
         var key = el.getAttribute(I18N_ATTRS[j].attr);
         if (key) applyTranslation(el, key, I18N_ATTRS[j].setter);
@@ -209,6 +221,7 @@
 
     xhr.ontimeout = function () {
       if (locale !== DEFAULT_LOCALE) {
+        currentLocale = DEFAULT_LOCALE;
         loadLocale(DEFAULT_LOCALE, callback);
         return;
       }
@@ -229,6 +242,7 @@
       }
       // Fallback: load English
       if (locale !== DEFAULT_LOCALE) {
+        currentLocale = DEFAULT_LOCALE;
         loadLocale(DEFAULT_LOCALE, callback);
         return;
       }
@@ -237,6 +251,7 @@
 
     xhr.onerror = function () {
       if (locale !== DEFAULT_LOCALE) {
+        currentLocale = DEFAULT_LOCALE;
         loadLocale(DEFAULT_LOCALE, callback);
         return;
       }
@@ -336,6 +351,7 @@
             closeMenu();
             updateLabel();
             buildMenu();
+            btn.focus();
           };
         })(loc));
         menu.appendChild(li);
@@ -419,8 +435,14 @@
 
   currentLocale = resolveLocale();
   loadLocale(currentLocale, function (err) {
-    if (!err) translateDOM();
-    firePendingCallbacks();
+    var finish = function () {
+      if (!err) translateDOM();
+      firePendingCallbacks();
+    };
+    // If the locale arrives while the body is still streaming in, wait for the
+    // full DOM so translateDOM does not miss elements parsed after this point.
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", finish);
+    else finish();
   });
 
   // Initialize language switcher when DOM is ready

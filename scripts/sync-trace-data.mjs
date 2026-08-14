@@ -36,8 +36,10 @@ async function fetchUpstream() {
     if (e && e.name === 'AbortError') throw new Error('raw fetch timed out');
     // fall through to the contents API
   }
+  const headers = { Accept: 'application/vnd.github+json' };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   const res = await fetch(`${API}/contents/${UPSTREAM_PATH}?ref=${REF}`, {
-    headers: { Accept: 'application/vnd.github+json' },
+    headers,
     signal: signal()
   });
   if (res.status === 404) return null;

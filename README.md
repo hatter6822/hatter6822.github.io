@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.25.13`
+- Website version: `0.26.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -12,6 +12,8 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 - `index.html`: main marketing page
 - `map.html`: interactive codebase map
 - `run.html`: Simulator — replay the kernel in action with the proven invariants
+- `404.html`: not-found page served by GitHub Pages
+- `robots.txt` / `sitemap.xml`: crawler policy and page inventory
 - `assets/css/`: shared and page-specific styles
 - `assets/js/`: runtime scripts (theme, site, map, run, background)
 - `data/`: bundled snapshots consumed at runtime
@@ -26,7 +28,16 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 node scripts/sync-site-data.mjs
 node scripts/sync-map-data.mjs
 node scripts/sync-trace-data.mjs
+node scripts/apply-static-values.mjs
 ```
+
+`apply-static-values.mjs` rewrites the static fallback values in `index.html`
+(the `data-live` spans, JSON-LD version, and snapshot timestamp) from
+`data/site-data.json`, so the no-JS view matches the bundled snapshot. The
+weekly `sync-sele4n-data.yml` workflow runs this same pipeline — the scripts
+here are the single source of truth for every published metric. The sync
+scripts send an `Authorization` header when a `GITHUB_TOKEN` environment
+variable is present, which avoids anonymous API rate limits in CI.
 
 ### 2) Validate snapshots
 
@@ -45,6 +56,8 @@ node scripts/lib/map-toolbar.test.mjs
 node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
+node scripts/lib/static-values.test.mjs
+node scripts/lib/i18n-locales.test.mjs
 ```
 
 ## Runtime data strategy

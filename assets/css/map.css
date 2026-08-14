@@ -114,46 +114,6 @@
   padding-left: calc(0.5rem - 2px);
 }
 
-.detail-preset {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  min-width: 0;
-  display: grid;
-  gap: 0.24rem;
-}
-.detail-preset legend {
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  line-height: 1.1;
-  padding: 0;
-}
-.detail-preset-options {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.28rem;
-  align-items: center;
-}
-.detail-pill {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  min-height: 2rem;
-  padding: 0.24rem 0.56rem;
-  background: rgba(20, 28, 45, 0.85);
-  background: color-mix(in oklab, var(--surface) 85%, transparent);
-  color: var(--text);
-  font-size: 0.76rem;
-  cursor: pointer;
-}
-.detail-pill:hover,
-.detail-pill:focus-visible {
-  border-color: color-mix(in oklab, var(--accent) 58%, var(--border));
-}
-.detail-pill.is-active {
-  border-color: var(--accent);
-  color: var(--heading);
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 24%, transparent);
-}
 .toolbar-actions {
   display: flex;
   justify-content: flex-end;
@@ -446,7 +406,6 @@
 
 @media (max-width: 1320px) {
   .map-toolbar { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
-  .detail-preset { width: 100%; }
   .toolbar-actions { justify-content: flex-start; margin-top: 0; }
   .toolbar-actions .btn { min-width: 8rem; }
 }
@@ -481,8 +440,6 @@
     align-items: flex-start;
     gap: 0.24rem;
   }
-  .detail-preset-options { width: 100%; }
-  .detail-pill { flex: 1 1 0; text-align: center; }
 }
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
@@ -550,12 +507,10 @@
     border-radius: 0.75rem;
   }
   .control-group label,
-  .detail-preset legend,
   .search-feedback,
   .interior-menu-column h4 {
     font-size: 0.8rem;
   }
-  .detail-pill,
   .control-group input,
   .control-group select,
   .toolbar-actions .btn,
@@ -727,13 +682,6 @@
      can be relatively larger without overflow. */
   .flow-node text { font-size: 12.5px; }
   .flow-node .flow-meta { font-size: 11px; }
-  .detail-preset-options {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-  .detail-pill {
-    width: 100%;
-  }
   .flowchart-wrap {
     max-height: calc(100svh - var(--nav-height) - 7.75rem);
   }

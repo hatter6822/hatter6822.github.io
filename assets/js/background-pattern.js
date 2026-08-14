@@ -762,7 +762,16 @@
   });
   themeObserver.observe(document.documentElement, { attributes: true });
 
-  window.addEventListener('pagehide', function () {
+  window.addEventListener('pagehide', function (event) {
+    /* Back/forward-cache suspension: keep the GL program, buffer and
+       theme observer alive so the page can resume after restore (the
+       visibilitychange handler restarts the loop). Only tear down on
+       a real unload. */
+    if (event.persisted) {
+      clearTimeout(resizeTimer);
+      stopAnimation();
+      return;
+    }
     clearTimeout(resizeTimer);
     themeObserver.disconnect();
     if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
@@ -782,6 +791,23 @@
     if (!userPaused) startAnimation();
   });
 
+  /* ═══════════════════════════════════════════════════════════
+     Reduced-motion preference — react to mid-session changes
+     ═══════════════════════════════════════════════════════════ */
+  if (window.matchMedia) {
+    var motionMql = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (motionMql.addEventListener) {
+      motionMql.addEventListener('change', function (event) {
+        prefersReduced = event.matches;
+        if (prefersReduced) {
+          stopAnimation();
+          renderStatic();
+        } else if (!userPaused && !document.hidden) {
+          startAnimation();
+        }
+      });
+    }
+  }
 
   window.addEventListener('sele4n:bg-animation-toggle', function (event) {
     var detail = event && event.detail;

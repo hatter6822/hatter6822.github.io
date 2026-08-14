@@ -257,6 +257,10 @@ em {
   box-shadow: 0 1px 0 var(--border);
 }
 
+[data-theme="light"] .nav.scrolled {
+  background: rgba(248, 249, 252, 0.92);
+}
+
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .nav.scrolled {
     background: rgba(8, 12, 21, 0.985);
@@ -265,9 +269,6 @@ em {
   [data-theme="light"] .nav.scrolled {
     background: rgba(248, 249, 252, 0.985);
   }
-}
-[data-theme="light"] .nav.scrolled {
-  background: rgba(248, 249, 252, 0.92);
 }
 
 .nav-inner {
@@ -296,9 +297,6 @@ em {
 .nav-logo:hover {
   color: var(--accent);
 }
-
-.logo-se { color: var(--text-muted); }
-.logo-le4n { color: var(--accent); }
 
 .nav-links {
   display: flex;
@@ -347,8 +345,7 @@ em {
   color: var(--text-bright);
   background: var(--accent-glow);
 }
-.nav-links a[aria-current="page"],
-.nav-links a[aria-current="true"] {
+.nav-links a[aria-current="page"] {
   color: var(--accent);
   background: var(--accent-glow);
 }
@@ -1056,29 +1053,14 @@ html:not([data-theme="light"]) .hero-subtitle {
   padding: 0.2rem 0.5rem;
   border-radius: 1rem;
   white-space: nowrap;
-}
-.badge-stable {
   background: var(--green-dim);
   color: var(--green);
 }
 
-/* Lean 4 Syntax Highlighting */
-.kw {
-  color: var(--purple);
-  font-weight: 600;
-}
-.ty {
-  color: var(--accent);
-}
-.fn {
-  color: var(--green);
-}
+/* Lean 4 Syntax Highlighting — only .cm is currently exercised */
 .cm {
   color: var(--text-muted);
   font-style: italic;
-}
-.tac {
-  color: var(--yellow);
 }
 
 /* --- Shortcut Table Section --- */
@@ -1451,11 +1433,6 @@ html:not([data-theme="light"]) .hero-subtitle {
 .footer-brand {
   font-size: 0.9375rem;
 }
-.footer-brand .logo-se,
-.footer-brand .logo-le4n {
-  font-size: 1.25rem;
-  font-weight: 700;
-}
 .footer-brand p {
   margin-top: 0.75rem;
   color: var(--text-muted);
@@ -1465,9 +1442,6 @@ html:not([data-theme="light"]) .hero-subtitle {
 
 .footer-logo-link {
   text-decoration: none;
-}
-.footer-logo-link:hover .logo-le4n {
-  color: var(--text-bright);
 }
 
 .footer-meta {
@@ -1865,11 +1839,13 @@ a.tier-script:hover {
 
 /* --- Print --- */
 @media print {
-  --print-bg: #fff;
-  --print-fg: #222;
-  --print-muted: #333;
-  --print-border: #ccc;
-  --print-surface: #f5f5f5;
+  :root {
+    --print-bg: #fff;
+    --print-fg: #222;
+    --print-muted: #333;
+    --print-border: #ccc;
+    --print-surface: #f5f5f5;
+  }
 
   .nav, .hero-bg, .skip-link, #bg-canvas-wrap {
     display: none;

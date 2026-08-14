@@ -8,8 +8,14 @@ const API = `https://api.github.com/repos/${REPO}`;
 const RAW = `https://raw.githubusercontent.com/${REPO}/${REF}/`;
 const OUT_FILE = new URL('../data/site-data.json', import.meta.url);
 
+function apiHeaders() {
+  const headers = { 'Accept': 'application/vnd.github+json' };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  return headers;
+}
+
 async function fetchJson(url) {
-  const res = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json' } });
+  const res = await fetch(url, { headers: apiHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }

@@ -3,10 +3,10 @@
   "source": "fixture",
   "generator": "hand-authored-reference-fixture",
   "disclaimer": "Reference fixture conforming to the Simulator trace schema (schemaVersion 1). These steps mirror the deterministic transitions exercised by SeLe4n.Testing.MainTraceHarness, but they are authored by hand for the website until the kernel's trace harness emits this artifact directly. When source == 'kernel', every step is a faithful replay of a machine-checked execution; when source == 'fixture', it is an honest illustration of the same schema.",
-  "kernelVersion": "0.31.151",
-  "kernelCommit": "03d0257",
+  "kernelVersion": "0.33.6",
+  "kernelCommit": "989e549",
   "leanToolchain": "4.28.0",
-  "generatedAt": "2026-06-22T00:00:00Z",
+  "generatedAt": "2026-08-14T00:00:00Z",
   "invariantCatalog": [
     { "id": "endpointDualQueueWellFormed", "label": "Endpoint dual-queues well-formed", "check": "endpointDualQueueWellFormedB", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.IPC.Invariant.Structural", "subsystem": "ipc" },
     { "id": "uniqueWaiters", "label": "Endpoint/notification waiters unique", "check": "uniqueWaitersCheck", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.IPC.Invariant.Structural", "subsystem": "ipc" },
@@ -23,13 +23,13 @@
     { "id": "capRightsMonotone", "label": "Derived rights never exceed the parent", "check": "capabilityRightsStructuralChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Capability.Invariant.Authority", "subsystem": "capability" },
     { "id": "untypedWatermarkBounded", "label": "Untyped watermark within its region", "check": "untypedWatermarkChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Lifecycle.Invariant", "subsystem": "memory" },
     { "id": "memoryNonOverlap", "label": "Allocated objects do not overlap", "check": "childrenNonOverlap", "module": "SeLe4n.Model.Object.Types", "mapModule": "SeLe4n.Model.Object.Types", "subsystem": "memory" },
-    { "id": "nonInterference", "label": "Non-interference preserved", "check": "noninterferenceStep", "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Soundness", "mapModule": "SeLe4n.Kernel.InformationFlow.Invariant.Composition", "subsystem": "infoflow" },
+    { "id": "nonInterference", "label": "Non-interference preserved", "check": "NonInterferenceStep", "module": "SeLe4n.Kernel.InformationFlow.Invariant.Composition", "mapModule": "SeLe4n.Kernel.InformationFlow.Invariant.Composition", "subsystem": "infoflow" },
     { "id": "flowPolicyWellFormed", "label": "Flow policy reflexive & transitive", "check": "endpointFlowPolicyWellFormed", "module": "SeLe4n.Kernel.InformationFlow.Policy", "mapModule": "SeLe4n.Kernel.InformationFlow.Policy", "subsystem": "infoflow" },
     { "id": "serviceGraphAcyclic", "label": "Service dependency graph acyclic", "check": "serviceGraphAcyclicityChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Service.Invariant.Acyclicity", "subsystem": "services" },
     { "id": "servicePolicyEnforced", "label": "Service isolation policy enforced", "check": "hasIsolationEdge", "module": "SeLe4n.Model.State", "mapModule": "SeLe4n.Kernel.Service.Invariant.Policy", "subsystem": "services" },
     { "id": "vspaceWxCompliant", "label": "No page is writable and executable (W^X)", "check": "wxCompliant", "module": "SeLe4n.Model.Object.Structures", "mapModule": "SeLe4n.Kernel.Architecture.VSpaceInvariant", "subsystem": "memory" },
     { "id": "vspaceAsidUnique", "label": "ASIDs unique across address spaces", "check": "vspaceAsidUniquenessChecks", "module": "SeLe4n.Testing.InvariantChecks", "mapModule": "SeLe4n.Kernel.Architecture.VSpaceInvariant", "subsystem": "memory" },
-    { "id": "tlbConsistent", "label": "TLB has no stale entries (shootdown on unmap)", "check": "tlbFlushConsistent", "module": "SeLe4n.Kernel.Architecture.TlbModel", "mapModule": "SeLe4n.Kernel.Architecture.TlbModel", "subsystem": "memory" }
+    { "id": "tlbConsistent", "label": "TLB has no stale entries (shootdown on unmap)", "check": "tlbConsistent", "module": "SeLe4n.Kernel.Architecture.TlbModel", "mapModule": "SeLe4n.Kernel.Architecture.TlbModel", "subsystem": "memory" }
   ],
   "scenarios": [
     {
@@ -77,7 +77,7 @@
           "syscall": { "id": "call", "gate": "SyscallGate", "requiredRight": "write", "capPath": "client CSpace → service-ep capability", "args": { "endpoint": "ep.svc", "msgRegisters": 2, "extraCaps": 0 } },
           "narrative": "The client invokes the `call` syscall on the service endpoint. The capability gate checks the client holds a write right on the endpoint cap, the receiver is already waiting, so the message is delivered by rendezvous and the caller blocks awaiting the reply.",
           "sourceRefs": [
-            { "label": "apiEndpointCall", "module": "SeLe4n.Kernel.API" },
+            { "label": "endpointCall", "module": "SeLe4n.Kernel.IPC.DualQueue.Transport" },
             { "label": "dispatchSyscall", "module": "SeLe4n.Kernel.API" }
           ],
           "delta": { "ops": [
@@ -116,7 +116,7 @@
           "syscall": { "id": "reply", "gate": "SyscallGate", "requiredRight": "grantReply", "capPath": "server reply capability → client", "args": { "msgRegisters": 1, "extraCaps": 0 } },
           "narrative": "The server processes the request and replies. The one-shot reply capability is consumed, the answer is copied into the client's message registers, and the client becomes runnable again.",
           "sourceRefs": [
-            { "label": "apiEndpointReply", "module": "SeLe4n.Kernel.API" },
+            { "label": "endpointReply", "module": "SeLe4n.Kernel.IPC.DualQueue.Transport" },
             { "label": "storeTcbIpcState", "module": "SeLe4n.Kernel.IPC.Operations.Endpoint" }
           ],
           "delta": { "ops": [
@@ -136,8 +136,8 @@
           "syscall": { "id": "receive", "gate": "SyscallGate", "requiredRight": "read", "capPath": "server CSpace → service-ep capability", "args": { "endpoint": "ep.svc" } },
           "narrative": "Having answered, the server loops back to wait for the next request. With no sender pending, it blocks on the endpoint's receive queue.",
           "sourceRefs": [
-            { "label": "apiEndpointReceive", "module": "SeLe4n.Kernel.API" },
-            { "label": "notificationWait", "module": "SeLe4n.Kernel.IPC.Operations.Endpoint" }
+            { "label": "endpointReceiveDual", "module": "SeLe4n.Kernel.IPC.DualQueue.Transport" },
+            { "label": "storeTcbIpcState", "module": "SeLe4n.Kernel.IPC.Operations.Endpoint" }
           ],
           "delta": { "ops": [
             { "op": "threadPatch", "id": "th.server", "set": { "ipcState": "blockedOnReceive:ep.svc", "threadState": "Blocked" } },
@@ -404,7 +404,7 @@
           "syscall": { "id": "cspaceMint", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "supervisor CSpace → master ep capability", "args": { "dest": "app/3", "rights": "w", "badge": 7 } },
           "narrative": "Minting derives a child capability: a write-only, badge-7 copy for the app component. The new node is attached under the master in the derivation tree, and its rights are a subset of the parent's.",
           "sourceRefs": [
-            { "label": "apiCspaceMint", "module": "SeLe4n.Kernel.API" },
+            { "label": "cspaceMintWithCdt", "module": "SeLe4n.Kernel.Capability.Operations" },
             { "label": "storeCapabilityRef", "module": "SeLe4n.Model.State" }
           ],
           "delta": { "ops": [
@@ -421,7 +421,7 @@
           "syscall": { "id": "cspaceCopy", "gate": "SyscallGate", "requiredRight": "write", "capPath": "supervisor CSpace → app capability", "args": { "src": "app/3", "dest": "app/4" } },
           "narrative": "Copying the app capability derives a further child beneath it, so the derivation tree records the provenance: app′ descends from app, which descends from the master.",
           "sourceRefs": [
-            { "label": "apiCspaceCopy", "module": "SeLe4n.Kernel.API" }
+            { "label": "cspaceCopy", "module": "SeLe4n.Kernel.Capability.Operations" }
           ],
           "delta": { "ops": [
             { "op": "cdtInsert", "node": { "id": "cap.app2", "label": "app′", "slot": "app/4", "target": "ep.svc", "rights": "w", "badge": 7 }, "parent": "cap.app" }
@@ -437,7 +437,7 @@
           "syscall": { "id": "cspaceMint", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "supervisor CSpace → master ep capability", "args": { "dest": "log/2", "rights": "r", "badge": 9 } },
           "narrative": "A second branch is minted from the master: a read-only capability for a logger. The tree now has two sibling branches under the master.",
           "sourceRefs": [
-            { "label": "apiCspaceMint", "module": "SeLe4n.Kernel.API" }
+            { "label": "cspaceMintWithCdt", "module": "SeLe4n.Kernel.Capability.Operations" }
           ],
           "delta": { "ops": [
             { "op": "cdtInsert", "node": { "id": "cap.log", "label": "logger", "slot": "log/2", "target": "ep.svc", "rights": "r", "badge": 9 }, "parent": "cap.root" }
@@ -453,7 +453,7 @@
           "syscall": { "id": "cspaceDelete", "gate": "SyscallGate", "requiredRight": "write", "capPath": "supervisor CSpace → app capability", "args": { "slot": "app/3", "mode": "revoke-subtree" } },
           "narrative": "Strict revocation removes the app capability and every capability derived from it — so app′ is destroyed along with app. The logger branch, derived independently from the master, is untouched.",
           "sourceRefs": [
-            { "label": "apiCspaceDelete", "module": "SeLe4n.Kernel.API" },
+            { "label": "cspaceDeleteSlot", "module": "SeLe4n.Kernel.Capability.Operations" },
             { "label": "cspaceRevokeCdtStrict", "module": "SeLe4n.Kernel.Capability.Operations" }
           ],
           "delta": { "ops": [
@@ -505,8 +505,8 @@
           "syscall": { "id": "lifecycleRetype", "gate": "SyscallGate", "requiredRight": "retype", "capPath": "supervisor CSpace → untyped capability", "args": { "type": "TCB", "size": 256, "dest": "sup/8" } },
           "narrative": "Retyping carves a 256-unit TCB out of the untyped region. The watermark advances to 256; the allocation lies entirely within the region, which the kernel proves.",
           "sourceRefs": [
-            { "label": "apiLifecycleRetype", "module": "SeLe4n.Kernel.API" },
-            { "label": "retypeFromUntyped", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+            { "label": "lifecycleRetypeWithCleanup", "module": "SeLe4n.Kernel.Lifecycle.Operations.RetypeWrappers" },
+            { "label": "retypeFromUntyped", "module": "SeLe4n.Kernel.Lifecycle.Operations.ScrubAndUntyped" }
           ],
           "delta": { "ops": [
             { "op": "untypedRetype", "untyped": "ut.ram", "child": { "id": "obj.tcb", "type": "TCB", "size": 256 } }
@@ -522,8 +522,8 @@
           "syscall": { "id": "lifecycleRetype", "gate": "SyscallGate", "requiredRight": "retype", "capPath": "supervisor CSpace → untyped capability", "args": { "type": "CNode", "size": 256, "dest": "sup/9" } },
           "narrative": "A 256-unit CNode is carved next, immediately after the TCB. The watermark advances to 512, and the new object does not overlap the previous one.",
           "sourceRefs": [
-            { "label": "apiLifecycleRetype", "module": "SeLe4n.Kernel.API" },
-            { "label": "retypeFromUntyped", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+            { "label": "lifecycleRetypeWithCleanup", "module": "SeLe4n.Kernel.Lifecycle.Operations.RetypeWrappers" },
+            { "label": "retypeFromUntyped", "module": "SeLe4n.Kernel.Lifecycle.Operations.ScrubAndUntyped" }
           ],
           "delta": { "ops": [
             { "op": "untypedRetype", "untyped": "ut.ram", "child": { "id": "obj.cnode", "type": "CNode", "size": 256 } }
@@ -539,8 +539,8 @@
           "syscall": { "id": "lifecycleRetype", "gate": "SyscallGate", "requiredRight": "retype", "capPath": "supervisor CSpace → untyped capability", "args": { "type": "Endpoint", "size": 128, "dest": "sup/10" } },
           "narrative": "A 128-unit Endpoint is carved, taking the watermark to 640 — still well within the 1024-unit region.",
           "sourceRefs": [
-            { "label": "apiLifecycleRetype", "module": "SeLe4n.Kernel.API" },
-            { "label": "objectTypeAllocSize", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+            { "label": "lifecycleRetypeWithCleanup", "module": "SeLe4n.Kernel.Lifecycle.Operations.RetypeWrappers" },
+            { "label": "objectTypeAllocSize", "module": "SeLe4n.Kernel.Lifecycle.Operations.ScrubAndUntyped" }
           ],
           "delta": { "ops": [
             { "op": "untypedRetype", "untyped": "ut.ram", "child": { "id": "obj.ep", "type": "Endpoint", "size": 128 } }
@@ -556,7 +556,7 @@
           "syscall": { "id": "cspaceDelete", "gate": "SyscallGate", "requiredRight": "write", "capPath": "supervisor CSpace → untyped capability", "args": { "slot": "sup/7", "mode": "revoke-untyped" } },
           "narrative": "Revoking the untyped capability reclaims every object carved from it. The children are removed and the watermark resets to zero, returning the region to a clean slate.",
           "sourceRefs": [
-            { "label": "lifecycleRevokeDeleteRetype", "module": "SeLe4n.Kernel.Lifecycle.Operations" }
+            { "label": "lifecycleRevokeDeleteRetype", "module": "SeLe4n.Kernel.Lifecycle.Operations.CleanupPreservation" }
           ],
           "delta": { "ops": [
             { "op": "untypedRevoke", "untyped": "ut.ram" }
@@ -640,9 +640,10 @@
           "title": "authorize declassification (secret → public)",
           "traceTag": "IFC-003",
           "actor": "th.sup",
-          "syscall": { "id": "declassify", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "monitor → declassification authority", "args": { "from": "d.secret", "to": "d.public" } },
+          "syscall": { "id": "declassifyStore", "gate": "SyscallGate", "requiredRight": "grant", "capPath": "monitor → declassification authority", "args": { "from": "d.secret", "to": "d.public" } },
           "narrative": "A privileged monitor authorizes an explicit, audited declassification: information may now flow from secret to public. This is the controlled escape hatch the policy provides.",
           "sourceRefs": [
+            { "label": "declassifyStore", "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Soundness" },
             { "label": "isDeclassificationAuthorized", "module": "SeLe4n.Kernel.InformationFlow.Policy" },
             { "label": "DeclassificationPolicy", "module": "SeLe4n.Kernel.InformationFlow.Policy" }
           ],
@@ -670,8 +671,8 @@
     },
     {
       "id": "service-lifecycle",
-      "title": "Service orchestration: dependency-ordered start, fault, restart",
-      "summary": "The kernel's first-class service registry starts components in dependency order, survives a fault in a mid-tier service, and restarts it — all while the dependency graph stays provably acyclic.",
+      "title": "Service registry: dependency-ordered registration and revocation",
+      "summary": "The kernel's capability-indexed service registry brings components online in dependency order and revokes a mid-tier service — all while the dependency graph stays provably acyclic.",
       "tags": ["services", "lifecycle"],
       "primaryScene": "services",
       "objects": {
@@ -686,10 +687,10 @@
         "notifications": [],
         "runQueue": { "0": [] },
         "services": [
-          { "id": "svc.store", "label": "store", "status": "stopped", "deps": [] },
-          { "id": "svc.cache", "label": "cache", "status": "stopped", "deps": [] },
-          { "id": "svc.db", "label": "database", "status": "stopped", "deps": ["svc.store"] },
-          { "id": "svc.api", "label": "api", "status": "stopped", "deps": ["svc.db", "svc.cache"] }
+          { "id": "svc.store", "label": "store", "status": "unregistered", "deps": [] },
+          { "id": "svc.cache", "label": "cache", "status": "unregistered", "deps": [] },
+          { "id": "svc.db", "label": "database", "status": "unregistered", "deps": ["svc.store"] },
+          { "id": "svc.api", "label": "api", "status": "unregistered", "deps": ["svc.db", "svc.cache"] }
         ]
       },
       "steps": [
@@ -699,90 +700,92 @@
           "title": "Bootstrap state",
           "traceTag": "SVC-000",
           "actor": null,
-          "narrative": "Four services are registered but stopped. The dependency graph (api → database → store, and api → cache) is acyclic, which the kernel proves.",
+          "narrative": "Four components are declared to init with their dependency edges (api → database → store, and api → cache), but none is registered in the kernel's capability-indexed service registry yet. The dependency graph is acyclic, which the kernel proves.",
           "delta": { "ops": [] },
           "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
         },
         {
           "index": 1,
           "kind": "syscall",
-          "title": "init → start(store, cache)",
+          "title": "init → serviceRegister(store, cache)",
           "traceTag": "SVC-001",
           "actor": "th.sup",
-          "syscall": { "id": "serviceStart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.store", "svc.cache"] } },
-          "narrative": "The leaf services — store and cache — have no dependencies, so dependency-ordered startup brings them up first.",
+          "syscall": { "id": "serviceRegister", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.store", "svc.cache"] } },
+          "narrative": "The leaf components — store and cache — have no dependencies, so dependency-ordered bring-up registers them first. Each registration binds a service identity to its endpoint capability in the registry.",
           "sourceRefs": [
-            { "label": "apiServiceStart", "module": "SeLe4n.Kernel.API" },
-            { "label": "serviceStart", "module": "SeLe4n.Kernel.Service.Operations" }
+            { "label": "registerService", "module": "SeLe4n.Kernel.Service.Registry" },
+            { "label": "registerInterface", "module": "SeLe4n.Kernel.Service.Registry" }
           ],
           "delta": { "ops": [
-            { "op": "servicePatch", "id": "svc.store", "set": { "status": "running" } },
-            { "op": "servicePatch", "id": "svc.cache", "set": { "status": "running" } }
+            { "op": "servicePatch", "id": "svc.store", "set": { "status": "registered" } },
+            { "op": "servicePatch", "id": "svc.cache", "set": { "status": "registered" } }
           ] },
           "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
         },
         {
           "index": 2,
           "kind": "syscall",
-          "title": "init → start(database)",
+          "title": "init → serviceRegister(database)",
           "traceTag": "SVC-002",
           "actor": "th.sup",
-          "syscall": { "id": "serviceStart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.db"] } },
-          "narrative": "The database depends on store, which is now running, so its dependency is satisfied and it starts.",
+          "syscall": { "id": "serviceRegister", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.db"] } },
+          "narrative": "The database declares a dependency on store, which is already registered, so the registry records the dependency edge and accepts the registration.",
           "sourceRefs": [
-            { "label": "serviceStart", "module": "SeLe4n.Kernel.Service.Operations" },
-            { "label": "dependenciesSatisfied", "module": "SeLe4n.Model.State" }
+            { "label": "serviceRegisterDependency", "module": "SeLe4n.Kernel.Service.Operations" },
+            { "label": "hasServiceDependency", "module": "SeLe4n.Model.State" }
           ],
           "delta": { "ops": [
-            { "op": "servicePatch", "id": "svc.db", "set": { "status": "running" } }
+            { "op": "servicePatch", "id": "svc.db", "set": { "status": "registered" } }
           ] },
           "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
         },
         {
           "index": 3,
           "kind": "syscall",
-          "title": "init → start(api)",
+          "title": "init → serviceRegister(api)",
           "traceTag": "SVC-003",
           "actor": "th.sup",
-          "syscall": { "id": "serviceStart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.api"] } },
-          "narrative": "The api depends on both database and cache; both are running, so the final tier comes up and the whole stack is live.",
+          "syscall": { "id": "serviceRegister", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "services": ["svc.api"] } },
+          "narrative": "The api depends on both database and cache; both are registered, so the final tier comes online and the whole stack is reachable through the registry.",
           "sourceRefs": [
-            { "label": "serviceStart", "module": "SeLe4n.Kernel.Service.Operations" },
+            { "label": "registerService", "module": "SeLe4n.Kernel.Service.Registry" },
             { "label": "serviceHasPathTo", "module": "SeLe4n.Kernel.Service.Operations" }
           ],
           "delta": { "ops": [
-            { "op": "servicePatch", "id": "svc.api", "set": { "status": "running" } }
+            { "op": "servicePatch", "id": "svc.api", "set": { "status": "registered" } }
           ] },
           "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
         },
         {
           "index": 4,
-          "kind": "fault",
-          "title": "database faults",
+          "kind": "syscall",
+          "title": "init → serviceRevoke(database)",
           "traceTag": "SVC-004",
-          "actor": "svc.db",
-          "narrative": "The database service faults and is marked broken. Its dependents (api) now have a broken dependency, but the registry's graph structure is unchanged and still acyclic.",
+          "actor": "th.sup",
+          "syscall": { "id": "serviceRevoke", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "service": "svc.db" } },
+          "narrative": "The database's registration is revoked: its capability binding is removed from the registry. Its dependent (api) keeps a declared edge to a now-unregistered service, but the graph structure is unchanged and still acyclic.",
           "sourceRefs": [
-            { "label": "setServiceStatusState", "module": "SeLe4n.Model.State" }
+            { "label": "revokeService", "module": "SeLe4n.Kernel.Service.Registry" }
           ],
           "delta": { "ops": [
-            { "op": "servicePatch", "id": "svc.db", "set": { "status": "broken" } }
+            { "op": "servicePatch", "id": "svc.db", "set": { "status": "revoked" } }
           ] },
           "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
         },
         {
           "index": 5,
           "kind": "syscall",
-          "title": "init → restart(database)",
+          "title": "init → serviceRegister(database) again",
           "traceTag": "SVC-005",
           "actor": "th.sup",
-          "syscall": { "id": "serviceRestart", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "service": "svc.db" } },
-          "narrative": "A dependency-aware restart brings the database back to running. With its dependency healthy again, api is fully operational once more.",
+          "syscall": { "id": "serviceRegister", "gate": "SyscallGate", "requiredRight": "write", "capPath": "init → service registry", "args": { "service": "svc.db" } },
+          "narrative": "Re-registration brings the database back: a fresh capability binding is recorded, and dependents resolve it through the registry again — recovery by revoke-and-re-register rather than a kernel-level restart.",
           "sourceRefs": [
-            { "label": "serviceRestart", "module": "SeLe4n.Kernel.Service.Operations" }
+            { "label": "registerService", "module": "SeLe4n.Kernel.Service.Registry" },
+            { "label": "lookupServiceByCap", "module": "SeLe4n.Kernel.Service.Registry" }
           ],
           "delta": { "ops": [
-            { "op": "servicePatch", "id": "svc.db", "set": { "status": "running" } }
+            { "op": "servicePatch", "id": "svc.db", "set": { "status": "registered" } }
           ] },
           "invariants": { "allHold": true, "checked": ["serviceGraphAcyclic", "servicePolicyEnforced"], "failed": [] }
         }
@@ -830,7 +833,7 @@
           "syscall": { "id": "vspaceMap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x1000", "paddr": "0x80000", "perms": "rx" } },
           "narrative": "The loader maps an executable code page read-execute. It is not writable, so it is W^X-compliant.",
           "sourceRefs": [
-            { "label": "apiVspaceMap", "module": "SeLe4n.Kernel.API" },
+            { "label": "vspaceMapPageCheckedWithFlushFromState", "module": "SeLe4n.Kernel.Architecture.VSpace" },
             { "label": "mapPage", "module": "SeLe4n.Model.Object.Structures" }
           ],
           "delta": { "ops": [
@@ -847,7 +850,7 @@
           "syscall": { "id": "vspaceMap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x2000", "paddr": "0x81000", "perms": "rw" } },
           "narrative": "A writable data page is mapped read-write. It is not executable, so W^X still holds.",
           "sourceRefs": [
-            { "label": "apiVspaceMap", "module": "SeLe4n.Kernel.API" },
+            { "label": "vspaceMapPageCheckedWithFlushFromState", "module": "SeLe4n.Kernel.Architecture.VSpace" },
             { "label": "PagePermissions.wxCompliant", "module": "SeLe4n.Model.Object.Structures" }
           ],
           "delta": { "ops": [
@@ -865,7 +868,7 @@
           "narrative": "The loader attempts to map a page both writable and executable. The kernel rejects it: the W^X invariant guarantees no such page can ever exist, so nothing is added to the address space.",
           "sourceRefs": [
             { "label": "PagePermissions.wxCompliant", "module": "SeLe4n.Model.Object.Structures" },
-            { "label": "apiVspaceMap", "module": "SeLe4n.Kernel.API" }
+            { "label": "vspaceMapPageCheckedWithFlushFromState", "module": "SeLe4n.Kernel.Architecture.VSpace" }
           ],
           "delta": { "ops": [
             { "op": "vspaceReject", "vspace": "vs.app", "mapping": { "vaddr": "0x3000", "paddr": "0x82000", "perms": "rwx", "wx": true } }
@@ -881,7 +884,7 @@
           "syscall": { "id": "vspaceUnmap", "gate": "SyscallGate", "requiredRight": "write", "capPath": "loader CSpace → vspace capability", "args": { "vaddr": "0x2000" } },
           "narrative": "The data page is unmapped and the TLB entry is invalidated; only the code page remains.",
           "sourceRefs": [
-            { "label": "apiVspaceUnmap", "module": "SeLe4n.Kernel.API" },
+            { "label": "vspaceUnmapPageWithFlush", "module": "SeLe4n.Kernel.Architecture.VSpace" },
             { "label": "unmapPage", "module": "SeLe4n.Model.Object.Structures" }
           ],
           "delta": { "ops": [
