@@ -46,7 +46,7 @@ async def sample_nav_state(page, target_href):
     for _ in range(SAMPLE_COUNT):
         snapshot = await page.evaluate(
             """(targetHref) => {
-              const active = document.querySelector('#nav-links a[aria-current="page"]');
+              const active = document.querySelector('#nav-links a[aria-current="location"]');
               const activeHref = active ? active.getAttribute('href') : null;
               const activeHash = activeHref && activeHref.includes('#') ? activeHref.slice(activeHref.indexOf('#')) : null;
               const targetHash = targetHref.includes('#') ? targetHref.slice(targetHref.indexOf('#')) : '';

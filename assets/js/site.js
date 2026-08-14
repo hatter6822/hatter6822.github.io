@@ -455,7 +455,7 @@
           for (var id in sectionMap) {
             sectionMap[id].removeAttribute("aria-current");
           }
-          link.setAttribute("aria-current", "page");
+          link.setAttribute("aria-current", "location");
         }
       }, { rootMargin: "-30% 0px -60% 0px", threshold: 0.01 });
 

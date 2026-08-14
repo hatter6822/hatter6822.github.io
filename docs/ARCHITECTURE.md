@@ -272,7 +272,7 @@ The `LABEL_WRAP_CACHE` previously evicted a single entry when at capacity. This 
 - **SVG role semantics**: Changed flowchart SVG `role` from `"img"` to `"group"` so screen readers can discover interactive child nodes (flow nodes with `tabindex="0"` and `role="button"`) instead of treating the entire SVG as a single opaque image.
 - **Interior kind select labels**: Added `aria-label="Filter [group] by kind"` to dynamically created interior kind `<select>` elements so screen readers announce the purpose of each filter dropdown.
 - **Breadcrumb separator**: Added `aria-hidden="true"` to the declaration breadcrumb separator character (`›`) to prevent screen readers from announcing it as punctuation.
-- **Section tracking semantics**: Section tracking and page-level navigation now share a single `aria-current="page"` convention in both `header-nav.js` and `site.js` (the interim `aria-current="true"` token for in-page section highlighting has been retired). CSS matches only the `"page"` value (`.nav-links a[aria-current="page"]`).
+- **Section tracking semantics**: In-page section tracking sets `aria-current="location"` (the ARIA token for "current location within the page") in both `header-nav.js` and `site.js`, while links to a different page — the Code Map and Simulator entries on their own pages, and `refreshCurrentPageAria` matches without a hash — carry `aria-current="page"`. The interim `aria-current="true"` token has been retired. CSS styles both tokens (`.nav-links a[aria-current="page"], .nav-links a[aria-current="location"]`), and the Tier 4 probe samples the `"location"` token for section links.
 
 ### Test coverage expansion
 

@@ -78,7 +78,7 @@ node --check assets/js/theme-init.js
 ## Manual verification recommendations
 
 - Confirm `index.html` and `map.html` load from a static server.
-- Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="page"` — the single convention shared by section tracking and page-level nav) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
+- Confirm header navigation active-link stability: clicking a same-page nav hash keeps the selected nav item marked (`aria-current="location"` for in-page section tracking; cross-page nav entries use `aria-current="page"`) while smooth scrolling settles, with no rapid oscillation to adjacent sections.
 - Stress-test long hash jumps (top-to-lower sections and back) in Chromium: active nav state should transition once per section boundary and stay stable near boundaries (no alternating flicker), including after repeated clicks on links whose sections are near midpoint boundaries.
 - While a lower section is active (for example `/#verification`), trigger an asynchronous layout shift (expand/collapse content above the fold using DevTools or temporary DOM edits): active nav selection should remain deterministic (no back-and-forth oscillation) and converge to the true in-focus section after layout settles.
 - Verify hash-near-header behavior: when the URL hash matches a section whose heading is currently inside the fixed-header focus window, that section's nav link remains active even if tiny scroll jitter is present.

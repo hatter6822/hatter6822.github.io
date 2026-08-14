@@ -58,9 +58,11 @@
       var base = tag.split("-")[0];
       if (isSupported(base)) return base;
 
-      // Try lang-REGION for 3-part tags (e.g. "zh-Hans-CN" → "zh-CN")
+      // Try lang-REGION for 3-part tags (e.g. "zh-Hans-CN" → "zh-CN").
+      // Skip when the script subtag is Traditional (zh-Hant-CN must not
+      // collapse to the Simplified zh-CN bundle).
       var rawParts = String(browserLangs[i]).trim().split(/[-_]/);
-      if (rawParts.length > 2) {
+      if (rawParts.length > 2 && !/^hant$/i.test(rawParts[1])) {
         var langRegion = rawParts[0].toLowerCase() + "-" + rawParts[rawParts.length - 1].toUpperCase();
         if (isSupported(langRegion)) return langRegion;
       }
