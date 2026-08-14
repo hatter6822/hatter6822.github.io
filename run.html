@@ -10,17 +10,20 @@
   <meta property="og:description" content="Step through deterministic kernel execution traces and watch the machine-checked invariants hold at every transition." data-i18n-content="meta.run_og_description">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sele4n.org/run.html">
+  <meta property="og:image" content="https://sele4n.org/assets/images/favicon.png">
   <meta name="twitter:card" content="summary">
+  <meta name="twitter:image" content="https://sele4n.org/assets/images/favicon.png">
   <meta name="twitter:title" content="seLe4n Simulator" data-i18n-content="meta.run_og_title">
   <meta name="twitter:description" content="Step through deterministic kernel execution traces and watch the machine-checked invariants hold at every transition." data-i18n-content="meta.run_og_description">
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 
   <link rel="canonical" href="https://sele4n.org/run.html">
   <link rel="icon" type="image/png" href="assets/images/favicon.png">
+  <link rel="apple-touch-icon" href="assets/images/favicon.png">
   <link rel="dns-prefetch" href="https://api.github.com">
 
   <link rel="stylesheet" href="assets/css/style.css">
@@ -66,19 +69,19 @@
         <li><a href="https://github.com/hatter6822/seLe4n" target="_blank" rel="noopener noreferrer" class="nav-cta" data-i18n="nav.github">GitHub</a></li>
       </ul>
       <div class="nav-controls">
-        <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links" aria-haspopup="true" data-i18n-aria-label="nav.toggle_nav">
+        <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links" aria-haspopup="true" data-i18n-aria-label="nav.toggle_nav">
           <span></span><span></span><span></span>
         </button>
-        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme" data-i18n-aria-label="nav.toggle_theme">
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme" data-i18n-aria-label="nav.toggle_theme">
           <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
-        <button class="theme-toggle bg-animation-toggle" id="bg-animation-toggle" aria-label="Pause background animation" aria-pressed="false" title="Pause background animation" data-i18n-aria-label="nav.pause_bg" data-i18n-title="nav.pause_bg">
+        <button type="button" class="theme-toggle bg-animation-toggle" id="bg-animation-toggle" aria-label="Pause background animation" aria-pressed="false" title="Pause background animation" data-i18n-aria-label="nav.pause_bg" data-i18n-title="nav.pause_bg">
           <svg class="icon-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
           <svg class="icon-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 5v14l11-7z"/></svg>
         </button>
         <div class="lang-switcher" id="lang-switcher">
-          <button class="lang-switcher-btn" id="lang-switcher-btn" aria-label="Language" aria-expanded="false" aria-haspopup="listbox" data-i18n-aria-label="nav.language">
+          <button type="button" class="lang-switcher-btn" id="lang-switcher-btn" aria-label="Language" aria-expanded="false" aria-haspopup="listbox" data-i18n-aria-label="nav.language">
             <svg class="icon-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             <span class="lang-switcher-label" id="lang-switcher-label">EN</span>
           </button>

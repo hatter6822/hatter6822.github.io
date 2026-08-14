@@ -19,158 +19,68 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch live data from seLe4n repository
-        id: fetch
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The .mjs pipeline in scripts/ is the single source of truth for every
+      # bundled snapshot. This job must not re-derive any metric itself — the
+      # previous inline-bash version of this workflow drifted from the pipeline
+      # (different module filters, LOC estimation, theorem grep) and never
+      # refreshed map-data.json at all.
+      - name: Refresh bundled data snapshots
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          REPO="hatter6822/seLe4n"
-          RAW="https://raw.githubusercontent.com/${REPO}/main"
-
-          # 1. Lean toolchain version
-          LEAN_VERSION=$(curl -sf "${RAW}/lean-toolchain" | grep -oP '\d+\.\d+\.\d+' || echo "")
-          echo "lean_version=${LEAN_VERSION}" >> "$GITHUB_OUTPUT"
-
-          # 2. Project version from lakefile.toml
-          VERSION=$(curl -sf "${RAW}/lakefile.toml" | grep -oP 'version\s*=\s*"\K[^"]+' || echo "")
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-          # 3. Count modules, scripts, docs from the git tree
-          TREE=$(gh api "repos/${REPO}/git/trees/main?recursive=1" --jq '.tree[] | select(.type == "blob") | .path')
-
-          MODULES=$(echo "$TREE" | grep -cP '^SeLe4n/(?!Testing/).*\.lean$' || echo "0")
-          SCRIPTS=$(echo "$TREE" | grep -cP '^scripts/.*\.sh$' || echo "0")
-          DOCS=$(echo "$TREE" | grep -cP '^docs/.*\.(md|txt)$' || echo "0")
-          BUILD_JOBS=$((MODULES * 2))
-          echo "modules=${MODULES}" >> "$GITHUB_OUTPUT"
-          echo "scripts=${SCRIPTS}" >> "$GITHUB_OUTPUT"
-          echo "docs=${DOCS}" >> "$GITHUB_OUTPUT"
-          echo "build_jobs=${BUILD_JOBS}" >> "$GITHUB_OUTPUT"
-
-          # 4. Estimate lines from language stats
-          LEAN_BYTES=$(gh api "repos/${REPO}/languages" --jq '.Lean // 0')
-          if [ "$LEAN_BYTES" -gt 0 ] 2>/dev/null; then
-            LINES=$((LEAN_BYTES / 38))
-            LINES_FMT=$(printf "%'d" "$LINES")
-            echo "lines=${LINES_FMT}" >> "$GITHUB_OUTPUT"
-          else
-            echo "lines=" >> "$GITHUB_OUTPUT"
-          fi
-
-          # 5. Count theorems across ALL Lean source files (dynamic enumeration)
-          LEAN_FILES=$(echo "$TREE" | grep -P '^SeLe4n/.*\.lean$')
-          THEOREMS=0
-          for f in $LEAN_FILES; do
-            COUNT=$(curl -sf "${RAW}/${f}" | grep -cP '^\s*(?:@\[.*?\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(?:theorem|lemma)\s' || true)
-            THEOREMS=$((THEOREMS + COUNT))
-          done
-          echo "theorems=${THEOREMS}" >> "$GITHUB_OUTPUT"
-
-          # Summary
-          echo "### Fetched Data" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Version | ${VERSION} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Lean | ${LEAN_VERSION} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Theorems | ${THEOREMS} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Modules | ${MODULES} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Scripts | ${SCRIPTS} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Docs | ${DOCS} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Build Jobs | ${BUILD_JOBS} |" >> "$GITHUB_STEP_SUMMARY"
+          node scripts/sync-site-data.mjs
+          node scripts/sync-map-data.mjs
+          node scripts/sync-trace-data.mjs
 
       - name: Update static fallback values in index.html
-        env:
-          VERSION: ${{ steps.fetch.outputs.version }}
-          LEAN_VERSION: ${{ steps.fetch.outputs.lean_version }}
-          THEOREMS: ${{ steps.fetch.outputs.theorems }}
-          MODULES: ${{ steps.fetch.outputs.modules }}
-          SCRIPTS: ${{ steps.fetch.outputs.scripts }}
-          DOCS: ${{ steps.fetch.outputs.docs }}
-          BUILD_JOBS: ${{ steps.fetch.outputs.build_jobs }}
-          LINES: ${{ steps.fetch.outputs.lines }}
+        run: node scripts/apply-static-values.mjs
+
+      - name: Validate snapshots
         run: |
           set -euo pipefail
-          FILE="index.html"
+          node scripts/validate-data.mjs
+          node scripts/validate-traces.mjs
 
-          if [ -z "$VERSION" ] || [ -z "$THEOREMS" ] || [ "$THEOREMS" -eq 0 ]; then
-            echo "::warning::Incomplete data fetched, skipping update"
-            exit 0
-          fi
-
-          # Helper: update data-live fallback values
-          # Matches: data-live="key">OLD_VALUE< and replaces OLD_VALUE
-          update_live() {
-            local key="$1" value="$2"
-            if [ -n "$value" ]; then
-              sed -i "s|data-live=\"${key}\">[^<]*<|data-live=\"${key}\">${value}<|g" "$FILE"
-            fi
-          }
-
-          update_live "version" "$VERSION"
-          update_live "lean-version" "$LEAN_VERSION"
-          update_live "theorems" "$THEOREMS"
-          update_live "modules" "$MODULES"
-          update_live "scripts" "$SCRIPTS"
-          update_live "docs" "$DOCS"
-          update_live "build-jobs" "$BUILD_JOBS"
-          if [ -n "$LINES" ]; then
-            update_live "lines" "$LINES"
-          fi
-
-          # Update meta description theorem counts
-          sed -i "s|with [0-9,]* machine-checked theorems|with ${THEOREMS} machine-checked theorems|g" "$FILE"
-
-          # Update JSON-LD version
-          sed -i "s|\"version\": \"[^\"]*\"|\"version\": \"${VERSION}\"|g" "$FILE"
-
-      - name: Update site-data.json
-        env:
-          VERSION: ${{ steps.fetch.outputs.version }}
-          LEAN_VERSION: ${{ steps.fetch.outputs.lean_version }}
-          THEOREMS: ${{ steps.fetch.outputs.theorems }}
-          MODULES: ${{ steps.fetch.outputs.modules }}
-          SCRIPTS: ${{ steps.fetch.outputs.scripts }}
-          DOCS: ${{ steps.fetch.outputs.docs }}
-          BUILD_JOBS: ${{ steps.fetch.outputs.build_jobs }}
-          LINES: ${{ steps.fetch.outputs.lines }}
+      - name: Run test suite
         run: |
           set -euo pipefail
-          node -e "
-            const fs = require('fs');
-            const data = JSON.parse(fs.readFileSync('data/site-data.json', 'utf8'));
-            if (process.env.VERSION) data.version = process.env.VERSION;
-            if (process.env.LEAN_VERSION) data.leanVersion = process.env.LEAN_VERSION;
-            if (process.env.THEOREMS) data.theorems = Number(process.env.THEOREMS);
-            if (process.env.MODULES) data.modules = Number(process.env.MODULES);
-            if (process.env.SCRIPTS) data.scripts = Number(process.env.SCRIPTS);
-            if (process.env.DOCS) data.docs = Number(process.env.DOCS);
-            if (process.env.BUILD_JOBS) data.buildJobs = Number(process.env.BUILD_JOBS);
-            if (process.env.LINES) data.lines = process.env.LINES;
-            data.generatedAt = new Date().toISOString();
-            fs.writeFileSync('data/site-data.json', JSON.stringify(data, null, 2) + '\n');
-          "
+          node scripts/lib/lean-analysis.test.mjs
+          node scripts/lib/data-validation.test.mjs
+          node scripts/lib/map-runtime.test.mjs
+          node scripts/lib/map-toolbar.test.mjs
+          node scripts/lib/trace-analysis.test.mjs
+          node scripts/lib/run-runtime.test.mjs
+          node scripts/lib/csp-html.test.mjs
+          node scripts/lib/static-values.test.mjs
 
       - name: Check for changes and commit
         run: |
-          if git diff --quiet index.html data/site-data.json; then
+          set -euo pipefail
+          if git diff --quiet index.html data/; then
             echo "No changes detected — website is already in sync."
             exit 0
           fi
 
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('data/site-data.json','utf8')).version")
+          THEOREMS=$(node -p "JSON.parse(require('fs').readFileSync('data/site-data.json','utf8')).theorems")
+          MODULES=$(node -p "JSON.parse(require('fs').readFileSync('data/site-data.json','utf8')).modules")
+
           echo "### Changes detected" >> "$GITHUB_STEP_SUMMARY"
           echo '```diff' >> "$GITHUB_STEP_SUMMARY"
-          git diff index.html >> "$GITHUB_STEP_SUMMARY"
+          git diff index.html data/site-data.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html data/site-data.json
-          git commit -m "sync: update static values from seLe4n v${{ steps.fetch.outputs.version }}
+          git add index.html data/
+          git commit -m "sync: update bundled data from seLe4n v${VERSION}
 
           Automated sync from GitHub Actions.
-          Theorems: ${{ steps.fetch.outputs.theorems }}
-          Modules: ${{ steps.fetch.outputs.modules }}
-          Scripts: ${{ steps.fetch.outputs.scripts }}
-          Docs: ${{ steps.fetch.outputs.docs }}"
+          Theorems: ${THEOREMS}
+          Modules: ${MODULES}"
           git push

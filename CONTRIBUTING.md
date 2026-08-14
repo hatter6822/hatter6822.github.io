@@ -2,7 +2,7 @@
 
 Thanks for improving the seLe4n website.
 
-> Current release target: **0.25.13**
+> Current release target: **0.26.0**
 
 ## Repository principles
 
@@ -33,6 +33,8 @@ node scripts/lib/map-toolbar.test.mjs
 node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
+node scripts/lib/static-values.test.mjs
+node scripts/lib/i18n-locales.test.mjs
 node scripts/validate-data.mjs
 node scripts/validate-traces.mjs
 node --check assets/js/map.js
@@ -62,6 +64,8 @@ If you changed scripts or map data flow:
 1. Run sync scripts if needed:
    - `node scripts/sync-site-data.mjs`
    - `node scripts/sync-map-data.mjs`
+   - `node scripts/sync-trace-data.mjs`
+   - `node scripts/apply-static-values.mjs` (keeps index.html static fallbacks in lockstep)
 2. Run validation script.
 3. Ensure generated JSON is committed when intentionally updated.
 4. Document behavior changes in `docs/`.

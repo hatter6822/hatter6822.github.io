@@ -1081,7 +1081,7 @@
     return { width: Math.max(width, 320), height: domainY + DOMH + 64 + MARGIN, positions: positions, aria: tt("run.infoflow_aria", "Security-domain flow policy and the current flow check") };
   }
 
-  var SVC_STATUS_COLORS = { running: "var(--green)", stopped: "var(--text-muted)", broken: "var(--red)", restarting: "var(--yellow)", restart: "var(--yellow)" };
+  var SVC_STATUS_COLORS = { registered: "var(--green)", unregistered: "var(--text-muted)", revoked: "var(--red)", running: "var(--green)", stopped: "var(--text-muted)", broken: "var(--red)", restarting: "var(--yellow)", restart: "var(--yellow)" };
 
   function renderServicesScene(root, state, step, touched) {
     var positions = {};

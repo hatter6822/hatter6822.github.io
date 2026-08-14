@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.25.13`
+**Website version:** `0.26.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -26,6 +26,8 @@ node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
 node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
+node scripts/lib/static-values.test.mjs
+node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/csp-html.test.mjs
 
 # Bundled data integrity
@@ -48,6 +50,7 @@ node --check assets/js/theme-init.js
 node scripts/sync-site-data.mjs
 node scripts/sync-map-data.mjs
 node scripts/sync-trace-data.mjs
+node scripts/apply-static-values.mjs   # rewrite index.html static fallbacks from site-data.json
 ```
 
 ## Validation Tiers
@@ -120,6 +123,8 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Landing page metrics | `assets/js/site.js`, `index.html` |
 | Navigation behavior | `assets/js/header-nav.js` |
 | Theme switching | `assets/js/theme-init.js` |
+| Static fallback sync | `scripts/apply-static-values.mjs`, `scripts/lib/static-values.mjs` |
+| Locale key parity | `scripts/lib/i18n-locales.test.mjs`, `locales/*.json` |
 | Internationalization | `assets/js/i18n.js`, `locales/*.json` |
 | Background animation | `assets/js/background-pattern.js` |
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |

@@ -74,17 +74,19 @@
     if (!data.theorems) return;
 
     var i18nSummary = window.sele4nI18n && window.sele4nI18n.t("meta.index_description");
-    var summary = (i18nSummary && i18nSummary !== "meta.index_description") ? i18nSummary : ("Formally verified microkernel with " + data.theorems + " machine-checked theorems. Zero sorry, zero axiom. Targeting Raspberry Pi 5.");
-    var selectors = [
-      'meta[name="description"]',
-      'meta[property="og:description"]',
-      'meta[name="twitter:description"]'
+    var summary = (i18nSummary && i18nSummary !== "meta.index_description") ? i18nSummary : "seLe4n is a formally verified microkernel written in Lean 4 with machine-checked proofs and safe Rust syscall wrappers. Zero sorry, zero axiom. Targeting Raspberry Pi 5.";
+    var i18nOgSummary = window.sele4nI18n && window.sele4nI18n.t("meta.index_og_description");
+    var ogSummary = (i18nOgSummary && i18nOgSummary !== "meta.index_og_description") ? i18nOgSummary : "Formally verified microkernel with machine-checked proofs and safe Rust syscall wrappers. Zero sorry, zero axiom. Targeting Raspberry Pi 5.";
+    var targets = [
+      { selector: 'meta[name="description"]', value: summary },
+      { selector: 'meta[property="og:description"]', value: ogSummary },
+      { selector: 'meta[name="twitter:description"]', value: ogSummary }
     ];
 
-    for (var i = 0; i < selectors.length; i++) {
-      var el = document.querySelector(selectors[i]);
+    for (var i = 0; i < targets.length; i++) {
+      var el = document.querySelector(targets[i].selector);
       if (!el) continue;
-      el.setAttribute("content", summary);
+      el.setAttribute("content", targets[i].value);
     }
   }
 
@@ -133,22 +135,34 @@
     } catch (e) {}
   }
 
-  function setTheme(theme) {
+  function applyTheme(theme) {
     var root = document.documentElement;
     var themeColorMeta = document.getElementById("theme-color-meta");
 
     root.setAttribute("data-theme", theme);
-    try { localStorage.setItem("sele4n-theme", theme); } catch (e) {}
 
     if (themeColorMeta) {
       themeColorMeta.setAttribute("content", theme === "light" ? "#f8f9fc" : "#0a0e17");
     }
   }
 
+  function setTheme(theme) {
+    applyTheme(theme);
+    try { localStorage.setItem("sele4n-theme", theme); } catch (e) {}
+  }
+
   function setupTheme() {
     var root = document.documentElement;
     var themeToggle = document.getElementById("theme-toggle");
-    if (!root.getAttribute("data-theme")) setTheme("dark");
+    var themeColorMeta = document.getElementById("theme-color-meta");
+    var current = root.getAttribute("data-theme");
+    if (!current) {
+      setTheme("dark");
+    } else if (themeColorMeta) {
+      // theme-init.js already applied the theme; sync the browser-chrome
+      // color without persisting a possibly system-derived theme.
+      themeColorMeta.setAttribute("content", current === "light" ? "#f8f9fc" : "#0a0e17");
+    }
 
     if (themeToggle) {
       themeToggle.addEventListener("click", function () {
@@ -162,7 +176,9 @@
       var onChange = function (e) {
         var saved = null;
         try { saved = localStorage.getItem("sele4n-theme"); } catch (err) {}
-        if (!saved) setTheme(e.matches ? "light" : "dark");
+        // Follow the system without persisting — persisting would pin the
+        // user to whatever the OS happened to be at the first change event.
+        if (!saved) applyTheme(e.matches ? "light" : "dark");
       };
 
       if (mq.addEventListener) mq.addEventListener("change", onChange);
@@ -439,7 +455,7 @@
           for (var id in sectionMap) {
             sectionMap[id].removeAttribute("aria-current");
           }
-          link.setAttribute("aria-current", "true");
+          link.setAttribute("aria-current", "location");
         }
       }, { rootMargin: "-30% 0px -60% 0px", threshold: 0.01 });
 
@@ -684,6 +700,8 @@
       fetchJSON(API + "/git/trees/" + REF + "?recursive=1").then(function (treePayload) {
         var tree = treePayload && treePayload.tree;
         if (!Array.isArray(tree)) return;
+        // A truncated tree would undercount; keep the bundled/cached values.
+        if (treePayload.truncated) return;
 
         var modules = 0;
         var scripts = 0;
@@ -697,9 +715,9 @@
           if (/^docs\/.*\.(md|txt)$/.test(path)) docs += 1;
         }
 
-        data.modules = modules;
-        data.scripts = scripts;
-        data.docs = docs;
+        if (modules > 0) data.modules = modules;
+        if (scripts > 0) data.scripts = scripts;
+        if (docs > 0) data.docs = docs;
       }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] tree fetch:", e.message || e); }),
       fetchJSON(API + "/languages").then(function (langs) {
         if (!langs || typeof langs.Lean !== "number") return;
@@ -767,6 +785,8 @@
         console.warn("[seLe4n] bundled data fetch failed:", err);
       }
     }).then(function () {
+      // Cooldown: skip the live GitHub fetch while the cache is fresh.
+      if (cachedRecord && cachedRecord.isFresh) return;
       return fetchLiveData().then(function (data) {
         baseline = mergeData(baseline, data);
         setCache(baseline);
@@ -808,6 +828,13 @@
   hardenExternalLinks();
 
   window.addEventListener("sele4n:locale-changed", function () {
+    for (var k in LIVE_NODE_CACHE) delete LIVE_NODE_CACHE[k];
+    if (lastAppliedData) applyData(lastAppliedData);
+  });
+
+  // The i18n bootstrap translateDOM replaces data-i18n-html contents without
+  // firing sele4n:locale-changed; drop cached nodes so live spans re-resolve.
+  if (window.sele4nI18n) window.sele4nI18n.onReady(function () {
     for (var k in LIVE_NODE_CACHE) delete LIVE_NODE_CACHE[k];
     if (lastAppliedData) applyData(lastAppliedData);
   });

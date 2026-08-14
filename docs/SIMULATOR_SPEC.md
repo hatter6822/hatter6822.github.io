@@ -42,7 +42,7 @@ honest in a way it would *not* be for a conventional C kernel:
    library of *executable boolean* invariant checks (`endpointDualQueueWellFormedB`,
    `schedulerRunQueueUniqueB`, `currentThreadValidB`, `blockedOnReceiveNotRunnableChecks`,
    `cdtChildMapConsistentCheck`, …) that mirror the proven invariants
-   (`apiInvariantBundle`, `proofLayerInvariantBundle`, and the 11 composed subsystem
+   (`apiInvariantBundle`, `proofLayerInvariantBundle`, and the 15 composed subsystem
    bundles). The kernel can evaluate these at every step of a trace and emit the
    results. The website doesn't *assert* the invariants hold — it *reports* that Lean
    proved they do, and that the executable checks agree at each replayed state.
@@ -379,7 +379,7 @@ scenes are focused lenses over the same fold engine and (extended) state project
 | **IPC** | Endpoints with dual queues, call/reply pairing, reply objects, donation chains, badge/notification signalling. | `IPC.DualQueue.*`, `donationChainAcyclic`, `notificationSignal/Wait`. |
 | **Capabilities / CDT** *(shipped)* | The capability derivation tree as a tidy tree — minting/copying derive child capabilities, a strict revoke prunes a node and all its descendants — with target, rights, badge, and slot per node. *(A dedicated CNode-slot grid is future depth.)* | `CapDerivationTree` (`childMap`/`parentMap`), `cspaceRevokeCdtStrict`. |
 | **Memory** *(untyped shipped)* | Untyped regions as watermarked bars with typed objects carved out (retype advances the watermark; revoke reclaims the region). | `UntypedObject`, `retypeFromUntyped`, `untypedWatermarkChecks`. |
-| **VSpace** *(shipped)* | Per-address-space page-mapping rows with permissions and W^X status; a writable-and-executable map is rejected, never stored. A TLB row shows cached translations: a map caches its page, an unmap shoots it down (with a `⚡ shootdown` marker), and a validator flags any TLB entry left without a backing mapping. | `mapPage`/`unmapPage`, `PagePermissions.wxCompliant`, `vspaceAsidUniquenessChecks`, `tlbFlushConsistent`. |
+| **VSpace** *(shipped)* | Per-address-space page-mapping rows with permissions and W^X status; a writable-and-executable map is rejected, never stored. A TLB row shows cached translations: a map caches its page, an unmap shoots it down (with a `⚡ shootdown` marker), and a validator flags any TLB entry left without a backing mapping. | `mapPage`/`unmapPage`, `PagePermissions.wxCompliant`, `vspaceAsidUniquenessChecks`, `tlbConsistent`. |
 | **Services** *(shipped)* | Dependency DAG laid out by topological level, with lifecycle status (running/stopped/broken) and dependency-ordered start / fault / restart; the graph stays provably acyclic. | `Service.Operations`, `serviceGraphAcyclicityChecks`. |
 | **Information flow** *(shipped)* | Security-domain lattice (ordered by confidentiality) with allowed-flow policy arcs and the current step's flow check drawn allowed (green) or blocked (red); an `ifPolicyAdd` declassification edge can unblock a flow. | `DomainFlowPolicy`, `NonInterferenceStep`, `securityFlowsTo`, `isDeclassificationAuthorized`. |
 

@@ -12,7 +12,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const PAGES = ['index.html', 'map.html', 'run.html'];
+const PAGES = ['index.html', 'map.html', 'run.html', '404.html'];
 const ROOT = new URL('../../', import.meta.url);
 
 // An HTML `style` attribute: whitespace-delimited so it never matches

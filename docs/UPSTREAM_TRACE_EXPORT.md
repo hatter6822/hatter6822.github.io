@@ -105,13 +105,13 @@ For each step, evaluate the boolean checks the kernel already exposes and fill
 
 ```lean
 -- SeLe4n.Testing.InvariantChecks
-def failedChecks (s : SystemState) : List String        -- empty ⇒ allHold
 def stateInvariantChecks (s : SystemState) : List (String × Bool)
+private def failedChecks (checks : List (String × Bool)) : List String  -- failedChecks (stateInvariantChecks s) empty ⇒ allHold
 ```
 
-- `invariants.allHold := (failedChecks stateAfter).isEmpty`
+- `invariants.allHold := (failedChecks (stateInvariantChecks stateAfter)).isEmpty`
 - `invariants.checked := <the catalog ids re-validated at this transition>`
-- `invariants.failed := failedChecks stateAfter` (must be `[]` whenever `allHold`)
+- `invariants.failed := failedChecks (stateInvariantChecks stateAfter)` (must be `[]` whenever `allHold`; since `failedChecks` is file-private, an external exporter re-derives it from `stateInvariantChecks` output)
 
 The website's `invariantCatalog[].check` names are exactly these check functions, so
 the rail links each one back to its proof module on `map.html`. Because every check is
