@@ -242,7 +242,7 @@
   gap: 0.24rem;
   margin-bottom: 0.25rem;
 }
-.interior-menu-column h4 {
+.interior-menu-column h2 {
   margin: 0;
   font-size: 0.68rem;
   color: var(--text-muted);
@@ -280,8 +280,11 @@
   content: none;
   display: none;
 }
-.card .interior-menu-items .interior-menu-item {
-  /* Override shared `.card ul li` list padding so declaration chips keep balanced insets. */
+.interior-menu-items .interior-menu-item {
+  /* Override shared `.card ul li` list padding so declaration chips keep balanced
+     insets. Two classes (0,2,0) already outrank `.card ul li` (0,1,2), so this
+     stays at the same weight as the responsive overrides further down and they
+     win on source order rather than losing to a more specific base rule. */
   padding: 0.22rem 0.52rem;
 }
 .interior-menu-item {
@@ -442,18 +445,6 @@
   }
 }
 
-@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  @media (max-width: 900px) {
-    .map-toolbar {
-      background: rgba(13, 19, 32, 0.96);
-    }
-
-    [data-theme="light"] .map-toolbar {
-      background: rgba(240, 242, 247, 0.97);
-    }
-  }
-}
-
 @media (max-width: 640px) {
   .code-map-hero {
     padding-top: 1.9rem;
@@ -508,7 +499,7 @@
   }
   .control-group label,
   .search-feedback,
-  .interior-menu-column h4 {
+  .interior-menu-column h2 {
     font-size: 0.8rem;
   }
   .control-group input,
@@ -550,7 +541,7 @@
   .legend-item { font-size: 0.72rem; }
   .interior-menu-grid { grid-template-columns: 1fr; }
   .interior-kind-select { width: 100%; }
-  .interior-menu-item {
+  .interior-menu-items .interior-menu-item {
     font-size: 0.74rem;
     min-height: 2.2rem;
     padding: 0.28rem 0.55rem;
@@ -595,7 +586,7 @@
   .interior-menu-items {
     max-height: min(6rem, 28svh);
   }
-  .interior-menu-item {
+  .interior-menu-items .interior-menu-item {
     padding: 0.15rem 0.42rem;
     min-height: 1.4rem;
   }
@@ -806,3 +797,22 @@
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
 /* Light-theme assurance colors now handled via --assurance-* variables in style.css */
+
+/* --- Opaque fallback for the sticky toolbar ---------------------------------
+   Without backdrop-filter the toolbar would let the graph scroll through it, so
+   these near-opaque backgrounds stand in for the blur. This block must stay LAST
+   in the file: its light-theme rule carries the same weight (0,2,0) as the
+   `[data-theme="light"] .map-toolbar` refinement above, so it only wins on
+   source order. Adding `.map-toolbar` rules below this point would silently
+   restore the translucent background on browsers that lack backdrop-filter. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  @media (max-width: 900px) {
+    .map-toolbar {
+      background: rgba(13, 19, 32, 0.96);
+    }
+
+    [data-theme="light"] .map-toolbar {
+      background: rgba(240, 242, 247, 0.97);
+    }
+  }
+}

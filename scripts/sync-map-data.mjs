@@ -158,5 +158,11 @@ try {
   await rm(work, { recursive: true, force: true });
 }
 
-await writeFile(OUT_FILE, JSON.stringify(output, null, 2) + '\n');
+// Written compact: this snapshot is ~3 MB pretty-printed and is the dominant
+// payload on map.html. Minifying halves it on disk and cuts the gzipped
+// transfer by roughly 40%. Nothing reads it as text — every consumer parses it
+// as JSON — and a 100k-line generated diff was never reviewable anyway.
+// site-data.json and execution-traces.json stay indented; they are small and
+// people do read them.
+await writeFile(OUT_FILE, JSON.stringify(output) + '\n');
 console.log(`Updated ${new URL(OUT_FILE).pathname} — ${output.modules.length} modules @ ${output.commitSha.slice(0, 7)} (1 archive download, 0 REST calls)`);

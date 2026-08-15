@@ -1588,6 +1588,11 @@ html:not([data-theme="light"]) .hero-subtitle {
   .nav-links a.nav-cta {
     margin-top: 0.5rem;
     text-align: center;
+    /* `.nav-links a.nav-cta` and the `.nav-links a` rule above carry the same
+       weight, so the base pill padding would otherwise win here and leave the
+       CTA a ~30px target in a menu where every sibling row is 44px. */
+    padding: 0.85rem 1rem;
+    min-height: 2.75rem;
   }
 
   .nav-logo .logo-img {
@@ -1870,8 +1875,23 @@ a.tier-script:hover {
     background: var(--print-bg, #fff);
     padding: 1.5rem 0;
   }
-  a { color: var(--print-fg, #222); }
-  code { background: var(--print-surface, #f5f5f5); color: var(--print-muted, #333); }
+  /* Media queries add no specificity, so these bare type selectors lose to every
+     component rule that colours a link or a code span (.code-link, .arch-block,
+     .btn-*, .footer-links ul li a, .hero-tagline code, …). !important is what
+     makes the print palette actually reach the page. */
+  a { color: var(--print-fg, #222) !important; }
+  code {
+    background: var(--print-surface, #f5f5f5) !important;
+    color: var(--print-muted, #333) !important;
+  }
+  /* Buttons carry light text on a coloured fill that most browsers drop when
+     printing, which would leave them blank on paper. */
+  .btn, .btn-primary, .btn-secondary {
+    color: var(--print-fg, #222) !important;
+    background: var(--print-bg, #fff) !important;
+    border: 1px solid var(--print-border, #ccc) !important;
+    box-shadow: none !important;
+  }
   pre { border-color: var(--print-border, #ccc); background: #f9f9f9; }
   .card, .feature-card, .tier, .threat-card, .quality-card {
     border-color: var(--print-border, #ccc);

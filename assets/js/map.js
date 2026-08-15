@@ -1466,7 +1466,9 @@
         var top = document.createElement("div");
         top.className = "interior-menu-column-top";
 
-        var heading = document.createElement("h4");
+        /* h2, not h4: map.html's only other heading is the page h1, so a level-4
+           heading here leaves a 1 -> 4 gap in the document outline. */
+        var heading = document.createElement("h2");
         heading.textContent = group.label;
         top.appendChild(heading);
 
