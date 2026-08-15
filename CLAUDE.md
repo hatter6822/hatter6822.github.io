@@ -138,6 +138,21 @@ every row overlapped its neighbour.
   over: `text-align: center` centres nothing once the element becomes a flex
   container sized to its content — that is `justify-content: center`.
 
+### `nav.*` locale values are layout-constrained
+
+The desktop menu is sized to its content and clamped by `.container`'s max-width,
+so the ten items share a hard **932px** ceiling that does not grow with the
+window — a locale that exceeds it wraps to two lines at every desktop width,
+2560px included. English sits at 816px. Check the menu at 1280px after touching
+any `nav.*` value; a wide window hides the defect rather than revealing it.
+
+- Keep a `nav.*` value in the nav. `run.html`'s footer once rendered from
+  `nav.code_map`, so compacting the menu label silently rewrote a footer that had
+  no width pressure. Surfaces with different constraints get different keys
+  (`footer.code_map`); share one only for locale-invariant strings like "GitHub".
+- Menu labels are independent of the section headings they link to in every
+  locale, so a shorter label costs no consistency.
+
 ### Security posture
 
 Both HTML pages enforce:

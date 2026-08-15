@@ -690,3 +690,70 @@ container overflow at any combination, the stat block centres on the container
 axis to within 0px, label lefts are identical across all four rows (175px at
 390px, was 108/111/108/108), and the layout resolves to 4 rows / 2x2 / one row
 at 390 / 500 / 800px. Desktop rendering is unchanged.
+
+## Desktop nav single-line budget (0.27.0)
+
+### The budget is fixed, not proportional to the window
+
+`.nav-inner` is `auto minmax(0, 1fr) auto` and `.nav-links` is `justify-self:
+center`, so the menu is sized to its content and clamped to the middle track.
+That track grows with the window only until `.container`'s max-width caps it:
+
+| viewport | 1024px | 1100px | 1152px | 1280px and above |
+|----------|--------|--------|--------|------------------|
+| track    | 804px  | 880px  | 932px  | 932px            |
+
+**932px is the ceiling.** A locale whose ten menu items exceed it wraps to two
+lines at *every* desktop width, including 2560px — widening the window cannot
+help. English occupies 816px, so it is single-line from 1035px up and has 116px
+of headroom against the cap.
+
+Measured before this pass, three locales overshot: `es` at 943px and `uk` at
+989px were both past the ceiling and wrapped everywhere, and `fr` at 902px only
+unwrapped above 1120px. The widest single item in any locale was Ukrainian
+`Карта кодової бази` at 139px — nearly triple English `About` at 53px.
+
+### Shortened where the label, not the layout, was the problem
+
+Menu labels are independent of the section headings they scroll to in every
+locale (English `Features` links to a section titled "Key Innovations"), so
+compacting them costs no consistency. Nine `nav.*` values changed:
+
+| locale | key | was | now | saved |
+|--------|-----|-----|-----|-------|
+| es | `features` | Características | Funciones | 29px |
+| es | `code_map` | Mapa del Código | Mapa | 71px |
+| es | `get_started` | Comenzar | Empezar | 9px |
+| es | `comparison` | Comparación | Comparativa | 4px |
+| fr | `features` | Fonctionnalités | Fonctions | 34px |
+| fr | `code_map` | Carte du code | Carte | 54px |
+| uk | `features` | Можливості | Функції | 30px |
+| uk | `code_map` | Карта кодової бази | Карта коду | 53px |
+| uk | `get_started` | Початок роботи | Початок | 49px |
+
+Ukrainian `Верифікація` and `Про проєкт` were deliberately kept: both are the
+precise terms, and trimming either was the only way to reach English's exact
+footprint. Ukrainian therefore lands at 857px — inside the 932px ceiling with
+75px to spare, single-line from 1077px — rather than at parity.
+
+Result, single-line from: `zh-CN` 799px, `ja` 995px, `fr` 1033px, `en` 1035px,
+`es` 1049px, `uk` 1077px. Every locale is now single-line at every common
+desktop width, where `es` and `uk` previously wrapped at all of them. `en`,
+`ja`, and `zh-CN` are untouched.
+
+### `nav.*` keys are width-constrained and must not be reused elsewhere
+
+`run.html`'s compact footer rendered its Code Map link from `nav.code_map`, the
+same key as the header menu. That is DRY, and it is exactly why shortening the
+menu label silently rewrote the footer too: the footer has no width pressure,
+and "Mapa" / "Carte" read worse there than "Mapa del Código" / "Carte du code".
+
+Split into a `footer.code_map` key carrying the descriptive label, leaving
+`nav.code_map` free to be as terse as the menu track demands. Ukrainian is
+identical in both (`Карта коду`) because that change was a translation
+improvement rather than a space compromise. `nav.github` stays shared by both
+surfaces: "GitHub" is a proper noun, identical in all six locales, and immune to
+the width pressure that makes the other keys diverge.
+
+Treat any `nav.*` value as a layout-constrained string. If a second surface
+needs the same words, give it its own key.

@@ -16,13 +16,13 @@
   "nav": {
     "about": "Acerca de",
     "architecture": "Arquitectura",
-    "comparison": "Comparación",
-    "features": "Características",
-    "code_map": "Mapa del Código",
+    "comparison": "Comparativa",
+    "features": "Funciones",
+    "code_map": "Mapa",
     "run": "Simulador",
     "security": "Seguridad",
     "verification": "Verificación",
-    "get_started": "Comenzar",
+    "get_started": "Empezar",
     "github": "GitHub",
     "skip_to_main": "Saltar al contenido principal",
     "home_label": "Inicio de seLe4n",
@@ -395,7 +395,8 @@
     "testing": "Pruebas",
     "threat_model": "Modelo de Amenazas",
     "claims_evidence": "Afirmaciones y Evidencia",
-    "back_to_home": "Volver al Inicio"
+    "back_to_home": "Volver al Inicio",
+    "code_map": "Mapa del Código"
   },
   "map": {
     "hero_label": "Inteligencia Arquitectónica de seLe4n",

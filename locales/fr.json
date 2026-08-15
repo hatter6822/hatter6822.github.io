@@ -17,8 +17,8 @@
     "about": "À propos",
     "architecture": "Architecture",
     "comparison": "Comparaison",
-    "features": "Fonctionnalités",
-    "code_map": "Carte du code",
+    "features": "Fonctions",
+    "code_map": "Carte",
     "run": "Simulateur",
     "security": "Sécurité",
     "verification": "Vérification",
@@ -395,7 +395,8 @@
     "testing": "Tests",
     "threat_model": "Modèle de menaces",
     "claims_evidence": "Assertions et preuves",
-    "back_to_home": "Retour à l'Accueil"
+    "back_to_home": "Retour à l'Accueil",
+    "code_map": "Carte du code"
   },
   "map": {
     "hero_label": "Intelligence architecturale seLe4n",

@@ -395,7 +395,8 @@
     "testing": "Testing",
     "threat_model": "Threat Model",
     "claims_evidence": "Claims & Evidence",
-    "back_to_home": "Back to Home"
+    "back_to_home": "Back to Home",
+    "code_map": "Code Map"
   },
   "map": {
     "hero_label": "seLe4n Architecture Intelligence",

@@ -17,12 +17,12 @@
     "about": "Про проєкт",
     "architecture": "Архітектура",
     "comparison": "Порівняння",
-    "features": "Можливості",
-    "code_map": "Карта кодової бази",
+    "features": "Функції",
+    "code_map": "Карта коду",
     "run": "Симулятор",
     "security": "Безпека",
     "verification": "Верифікація",
-    "get_started": "Початок роботи",
+    "get_started": "Початок",
     "github": "GitHub",
     "skip_to_main": "Перейти до основного вмісту",
     "home_label": "Головна seLe4n",
@@ -395,7 +395,8 @@
     "testing": "Тестування",
     "threat_model": "Модель загроз",
     "claims_evidence": "Твердження та докази",
-    "back_to_home": "На головну"
+    "back_to_home": "На головну",
+    "code_map": "Карта коду"
   },
   "map": {
     "hero_label": "Аналітика архітектури seLe4n",

@@ -395,7 +395,8 @@
     "testing": "テスト",
     "threat_model": "脅威モデル",
     "claims_evidence": "主張とエビデンス",
-    "back_to_home": "ホームに戻る"
+    "back_to_home": "ホームに戻る",
+    "code_map": "コードマップ"
   },
   "map": {
     "hero_label": "seLe4n アーキテクチャインテリジェンス",
