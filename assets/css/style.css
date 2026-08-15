@@ -485,7 +485,6 @@ a.arch-block {
   text-decoration: none;
   color: var(--text-bright);
   transition: transform 0.2s, box-shadow 0.2s;
-  display: block;
 }
 a.arch-block:hover {
   transform: translateY(-1px);
@@ -813,6 +812,11 @@ html:not([data-theme="light"]) .hero-subtitle {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  /* Track count for every block grid. Layers below re-declare it for their own
+     subtree; the responsive overrides re-declare it directly on .arch-blocks so
+     the consuming element always carries the winning value (an inherited value
+     can never outrank a declaration on the element itself). */
+  --arch-cols: 3;
 }
 
 .arch-layer {
@@ -832,13 +836,17 @@ html:not([data-theme="light"]) .hero-subtitle {
 }
 
 .arch-blocks {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(var(--arch-cols), minmax(0, 1fr));
   gap: 0.5rem;
-  flex-wrap: wrap;
-  justify-content: center;
 }
 
 .arch-block {
+  /* Column flexbox so a block with no .arch-stat still centres its label
+     against the row height set by its taller siblings. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 0.375rem;
@@ -847,13 +855,9 @@ html:not([data-theme="light"]) .hero-subtitle {
   font-weight: 600;
   color: var(--text-bright);
   text-align: center;
-  flex: 1 1 auto;
-  min-width: 6rem;
+  min-width: 0;
+  overflow-wrap: break-word;
   overflow: hidden;
-}
-
-.arch-blocks .arch-block {
-  max-width: calc(33.333% - 0.5rem);
 }
 
 /* File path hints inside architecture blocks */
@@ -889,31 +893,36 @@ html:not([data-theme="light"]) .hero-subtitle {
   opacity: 0.8;
 }
 
+/* Per-layer track counts, chosen so each layer's block count divides evenly:
+   rust 3, core 9, hw 6 over 3 tracks; security 4, platform 4 over 4 tracks.
+   Foundations (7 blocks) is handled by the span rule below. */
+.arch-security,
+.arch-model,
+.arch-platform {
+  --arch-cols: 4;
+}
+
+/* Foundations carries 7 blocks, so the final row is one track short. The last
+   block absorbs the spare track and both rows read as complete — this holds for
+   the 4-track and 2-track layouts alike (the 1-track layout resets it). */
+.arch-model .arch-block:last-child {
+  grid-column: span 2;
+}
+
 .arch-api { background: rgba(91, 160, 245, 0.06); }
 .arch-api .arch-block { border-color: rgba(91, 160, 245, 0.25); }
 
 .arch-core { background: rgba(78, 201, 137, 0.04); }
 .arch-core .arch-block { border-color: rgba(78, 201, 137, 0.2); }
-.arch-core .arch-blocks .arch-block {
-  max-width: calc(25% - 0.375rem);
-  min-width: 0;
-}
 
 .arch-security { background: rgba(229, 192, 123, 0.04); }
 .arch-security .arch-block { border-color: rgba(229, 192, 123, 0.2); }
 
 .arch-hw { background: rgba(224, 108, 117, 0.04); }
 .arch-hw .arch-block { border-color: rgba(224, 108, 117, 0.2); }
-.arch-hw .arch-blocks .arch-block {
-  min-width: 0;
-}
 
 .arch-model { background: rgba(91, 160, 245, 0.03); }
 .arch-model .arch-block { border-color: rgba(91, 160, 245, 0.15); }
-.arch-model .arch-blocks .arch-block {
-  max-width: calc(25% - 0.375rem);
-  min-width: 0;
-}
 
 .arch-platform { background: rgba(198, 120, 221, 0.04); }
 .arch-platform .arch-block { border-color: rgba(198, 120, 221, 0.2); }
@@ -1646,18 +1655,12 @@ html:not([data-theme="light"]) .hero-subtitle {
     padding: 0.75rem 0.875rem;
   }
   .arch-blocks {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    --arch-cols: 2;
     gap: 0.375rem;
   }
-  .arch-blocks .arch-block {
-    max-width: none;
-  }
   .arch-block {
-    min-width: 0;
     padding: 0.4375rem 0.625rem;
     font-size: 0.75rem;
-    word-break: break-word;
   }
   .arch-stat {
     font-size: 0.5rem;
@@ -1756,7 +1759,11 @@ html:not([data-theme="light"]) .hero-subtitle {
 
   /* Architecture: single column on very small screens */
   .arch-blocks {
-    grid-template-columns: 1fr;
+    --arch-cols: 1;
+  }
+  /* A 2-track span would add an implicit column to a 1-track grid. */
+  .arch-model .arch-block:last-child {
+    grid-column: auto;
   }
   .arch-layer {
     padding: 0.625rem 0.75rem;
