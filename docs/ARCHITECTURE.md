@@ -557,6 +557,47 @@ Recorded so the next pass does not re-derive them:
 
 Removed the X/Twitter link from the Resources list.
 
+## Animated background removal (0.27.0)
+
+The fixed-position WebGL layer behind all three pages rendered a large, moving,
+high-contrast fractal at full opacity. It competed with body copy for attention
+and made text harder to read, which is the opposite of what a background should
+do — so it was removed outright rather than tuned down.
+
+What stays: `--bg-pattern`, the soft two-radial-gradient wash that sat *under*
+the canvas. It carries the page's colour depth without any moving parts, and now
+paints directly on a single fixed `#bg-wash` div (previously `#bg-canvas-wrap` >
+`#bg-canvas-mover` > `canvas`, a three-element nest that existed only to host and
+position the canvas).
+
+Removed:
+
+- `assets/js/background-pattern.js` (884 lines: shader setup, RAF loop, noise
+  field, pointer/scroll reactivity, visibility handling).
+- The `#bg-animation-toggle` pause/resume control from the nav on all three
+  pages, and its `setupBackgroundAnimationToggle()` implementation duplicated
+  across `site.js`, `map.js`, and `run.js` — roughly 5 KB of near-identical
+  code, plus the `sele4n-bg-animation-paused-v1` localStorage key, the
+  `sele4n:bg-animation-toggle` custom event, and the `data-bg-animation` root
+  attribute that coordinated them.
+- `.math-bg-layer` and `.bg-animation-toggle` styles, including the
+  `prefers-reduced-motion` transition guard and the `prefers-reduced-data` rule
+  that hid the canvas — both existed solely to tame the animation.
+- `nav.pause_bg` / `nav.resume_bg` from all six locale bundles.
+
+The control was itself an accommodation for the animation being distracting; with
+the animation gone there is nothing to pause, so the accessibility and
+data-saver guards it needed disappear with it.
+
+Transfer per page drops by roughly 40 KB (the shader script), on top of the
+0.27.0 payload work: index.html 527 -> 358 KB, map.html 3,707 -> 2,094 KB,
+run.html 575 -> 406 KB against the 0.26.0 baseline.
+
+`THIRD_PARTY_NOTICES.md` previously covered an Ashima Arts / Stefan Gustavson
+simplex-noise GLSL implementation vendored inside the shader. That code is no
+longer distributed, so the notice was moved to a "Removed" section retained for
+the audit trail, and the repository now bundles no third-party code.
+
 ## Print palette neutralization (0.27.0)
 
 Follow-up to the print fixes above, from a review finding on the 0.27.0 pull

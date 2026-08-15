@@ -132,8 +132,8 @@ directly). The full design — schema, scenes, pipeline, and roadmap — is in
 
 ## Third-party notices
 
-This repository includes a third-party simplex-noise implementation used in `assets/js/background-pattern.js`.
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license text.
+This repository currently bundles no third-party code.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the record of previously included code and its license text.
 
 ## License
 

@@ -52,7 +52,7 @@ Owns:
 - script load order:
   1. `theme-init.js` (early, in `<head>`) to avoid theme flash.
   2. `i18n.js` (early, in `<head>`) for locale detection and DOM translation.
-  3. `header-nav.js`, `background-pattern.js`, `site.js` (deferred in body).
+  3. `header-nav.js`, `site.js` (deferred in body).
 
 The landing page includes documentation of the upstream seLe4n Rust syscall wrapper crates (`sele4n-types`, `sele4n-abi`, `sele4n-sys`, `sele4n-hal`) in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap sections.
 
@@ -68,7 +68,7 @@ Owns:
 - script load order:
   1. `theme-init.js` in head.
   2. `i18n.js` in head for locale detection and DOM translation.
-  3. `header-nav.js`, `background-pattern.js`, `map.js` deferred.
+  3. `header-nav.js`, `map.js` deferred.
 
 Edit this file when adding map controls or changing semantic structure of map UI regions.
 
@@ -131,19 +131,6 @@ Navigation stability controller shared by both pages. Responsibilities:
 - prevention of active-link oscillation in rapid click/scroll sequences.
 
 Use this file when changing same-page hash behavior or accessibility semantics of active nav state.
-
-### `assets/js/background-pattern.js`
-Canvas/WebGL animated background. Responsibilities:
-
-- shader setup + rendering loop with tracked RAF handle for proper cancellation.
-- theme-aware palette/alpha behavior.
-- scroll/mouse reactive geometry and motion.
-- page visibility detection to pause rendering when the tab is hidden.
-- manual background animation pause/resume state (`#bg-animation-toggle`) synchronized via `localStorage` and runtime event dispatch for responsive mobile battery savings.
-- graceful fallback behavior when graphics capabilities are constrained.
-- proper GPU resource cleanup (shader objects deleted after program linking).
-
-Contains third-party simplex-noise GLSL implementation (licensed and attributed in notices).
 
 ### `assets/js/map.js`
 Largest runtime module; owns map page data and rendering behavior. Responsibilities:

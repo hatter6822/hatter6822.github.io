@@ -40,7 +40,6 @@ node --check assets/js/run.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
 node --check assets/js/i18n.js
-node --check assets/js/background-pattern.js
 node --check assets/js/theme-init.js
 ```
 
@@ -75,7 +74,6 @@ Several files exceed 500 lines:
 | `assets/css/style.css` | ~1,999 | Global design system |
 | `assets/js/run.js` | ~1,964 | Simulator runtime (fold engine + SVG scenes) |
 | `assets/css/map.css` | ~818 | Map-specific styles |
-| `assets/js/background-pattern.js` | ~884 | WebGL shader; contains third-party noise code |
 | `assets/js/site.js` | ~844 | Landing page runtime |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
 
@@ -146,7 +144,6 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Static fallback sync | `scripts/apply-static-values.mjs`, `scripts/lib/static-values.mjs` |
 | Locale key parity | `scripts/lib/i18n-locales.test.mjs`, `locales/*.json` |
 | Internationalization | `assets/js/i18n.js`, `locales/*.json` |
-| Background animation | `assets/js/background-pattern.js` |
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |
 | Data validation | `scripts/lib/data-validation.mjs` |
 | Global styles | `assets/css/style.css` |

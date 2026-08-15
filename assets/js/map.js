@@ -38,7 +38,6 @@
   var FETCH_CONCURRENCY = 8;
   var FETCH_TIMEOUT_MS = 9000;
   var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
-  var BG_ANIMATION_KEY = "sele4n-bg-animation-paused-v1";
   var NODE_CACHE = Object.create(null);
   var LABEL_WRAP_CACHE = new Map();
   var LABEL_WRAP_CACHE_LIMIT = 1200;
@@ -3086,45 +3085,6 @@
     });
   }
 
-  function setupBackgroundAnimationToggle() {
-    var button = document.getElementById("bg-animation-toggle");
-    if (!button) return;
-
-    function readPausedState() {
-      try { return localStorage.getItem(BG_ANIMATION_KEY) === "1"; } catch (e) { return false; }
-    }
-
-    function applyState(paused) {
-      button.classList.toggle("is-paused", paused);
-      button.setAttribute("aria-pressed", paused ? "true" : "false");
-      var resumeLabel = (window.sele4nI18n && window.sele4nI18n.t("nav.resume_bg")) || "Resume background animation";
-      var pauseLabel = (window.sele4nI18n && window.sele4nI18n.t("nav.pause_bg")) || "Pause background animation";
-      if (resumeLabel === "nav.resume_bg") resumeLabel = "Resume background animation";
-      if (pauseLabel === "nav.pause_bg") pauseLabel = "Pause background animation";
-      button.setAttribute("aria-label", paused ? resumeLabel : pauseLabel);
-      button.title = paused ? resumeLabel : pauseLabel;
-      document.documentElement.setAttribute("data-bg-animation", paused ? "paused" : "running");
-      window.dispatchEvent(new CustomEvent("sele4n:bg-animation-toggle", { detail: { paused: paused } }));
-    }
-
-    applyState(readPausedState());
-
-    button.addEventListener("click", function () {
-      var nextPaused = button.getAttribute("aria-pressed") !== "true";
-      try { localStorage.setItem(BG_ANIMATION_KEY, nextPaused ? "1" : "0"); } catch (e) {}
-      applyState(nextPaused);
-    });
-
-    window.addEventListener("storage", function (event) {
-      if (event.key !== BG_ANIMATION_KEY) return;
-      applyState(readPausedState());
-    });
-
-    window.addEventListener("sele4n:locale-changed", function () {
-      applyState(readPausedState());
-    });
-  }
-
   function hardenExternalLinks() {
     var links = document.querySelectorAll('a[target="_blank"]');
     for (var i = 0; i < links.length; i++) {
@@ -4885,7 +4845,6 @@
   function boot() {
     cacheDomElements();
     setupTheme();
-    setupBackgroundAnimationToggle();
     if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();
     hardenExternalLinks();
     readUrlState();

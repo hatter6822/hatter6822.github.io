@@ -71,7 +71,6 @@ node --check assets/js/run.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
 node --check assets/js/i18n.js
-node --check assets/js/background-pattern.js
 node --check assets/js/theme-init.js
 ```
 
