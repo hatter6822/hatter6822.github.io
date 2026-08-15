@@ -4,9 +4,18 @@ This repository is licensed under GPL-3.0 (see `LICENSE`).
 
 ## Included third-party code
 
+**None.** All code currently distributed from this repository is first-party.
+
+## Removed
+
 ### Ashima Arts / Stefan Gustavson simplex-noise implementation (MIT)
 
-Portions of `assets/js/background-pattern.js` include a compact GLSL simplex-noise implementation attributed in-source as "3D Simplex Noise (Ashima Arts — MIT licence)".
+`assets/js/background-pattern.js` bundled a compact GLSL simplex-noise
+implementation attributed in-source as "3D Simplex Noise (Ashima Arts — MIT
+licence)". That file was removed in website release 0.27.0 along with the
+animated WebGL background, so the repository no longer distributes this code and
+the notice below no longer carries an obligation. It is retained for the audit
+trail of releases up to and including 0.26.0.
 
 Original upstream project references:
 - https://github.com/ashima/webgl-noise

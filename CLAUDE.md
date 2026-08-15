@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.26.0`
+**Website version:** `0.27.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -40,7 +40,6 @@ node --check assets/js/run.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
 node --check assets/js/i18n.js
-node --check assets/js/background-pattern.js
 node --check assets/js/theme-init.js
 ```
 
@@ -71,13 +70,12 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~4,850 | Largest runtime; read in chunks of ≤500 lines |
-| `assets/css/style.css` | ~1,833 | Global design system |
-| `assets/js/run.js` | ~1,810 | Simulator runtime (fold engine + SVG scenes) |
-| `assets/css/map.css` | ~874 | Map-specific styles |
-| `assets/js/background-pattern.js` | ~846 | WebGL shader; contains third-party noise code |
-| `assets/js/site.js` | ~788 | Landing page runtime |
-| `assets/js/header-nav.js` | ~738 | Shared navigation controller |
+| `assets/js/map.js` | ~5,019 | Largest runtime; read in chunks of ≤500 lines |
+| `assets/css/style.css` | ~1,999 | Global design system |
+| `assets/js/run.js` | ~1,964 | Simulator runtime (fold engine + SVG scenes) |
+| `assets/css/map.css` | ~818 | Map-specific styles |
+| `assets/js/site.js` | ~844 | Landing page runtime |
+| `assets/js/header-nav.js` | ~749 | Shared navigation controller |
 
 **Rules:**
 - Never read an entire large file in one operation. Use offset/limit (≤500 lines per read).
@@ -100,6 +98,26 @@ Several files exceed 500 lines:
 - Branch-ref metadata keys (e.g. `main`) are excluded from module inventories
 - Declaration-centric payloads (`modules[].declarations`) are projected into symbol buckets
 - Reverse import edges (`importsTo`) are always rebuilt from `importsFrom`
+
+### CSS override weight (media queries add no specificity)
+
+A rule inside `@media`, `@supports`, or `@media print` competes on ordinary
+specificity. A responsive override written with fewer classes than the base rule
+it means to replace silently loses, and the desktop value survives into the
+mobile layout. This has caused five separate visual defects in this codebase.
+
+- Write a responsive override with **at least** the weight of the base rule it
+  overrides. Prefer making the base rule *less* specific over making the
+  override *more* specific.
+- When both rules end up at equal weight (e.g. two `[data-theme="light"] .x`
+  rules), source order decides — put the fallback block last and say so in a
+  comment.
+- For values that change per breakpoint, prefer a custom property consumed by a
+  single rule (see `--arch-cols`). Re-declare the property on the element that
+  consumes it; a declaration on the element always beats a value inherited from
+  an ancestor, whatever the ancestor selector's specificity.
+- `@media print` colour resets are the one place `!important` is correct — a
+  bare `a` or `code` selector loses to every component rule on the page.
 
 ### Security posture
 
@@ -126,7 +144,6 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Static fallback sync | `scripts/apply-static-values.mjs`, `scripts/lib/static-values.mjs` |
 | Locale key parity | `scripts/lib/i18n-locales.test.mjs`, `locales/*.json` |
 | Internationalization | `assets/js/i18n.js`, `locales/*.json` |
-| Background animation | `assets/js/background-pattern.js` |
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |
 | Data validation | `scripts/lib/data-validation.mjs` |
 | Global styles | `assets/css/style.css` |

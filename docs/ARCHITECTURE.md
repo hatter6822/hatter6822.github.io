@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.26.0**.
+> Documentation baseline: website release **0.27.0**.
 
 ## Audit summary
 
@@ -448,3 +448,175 @@ The workspace contains four crates. Three form a layered user-space dependency c
 - Getting Started: Step 5 with `cargo build && cargo test` instructions
 - Roadmap: completed "Rust Syscall Wrappers" milestone entry
 - Meta tags: updated descriptions across both pages to mention Rust
+
+## Comprehensive audit and optimization pass (0.27.0)
+
+Started from a reported defect — the `.arch-stat` annotations in the Core
+Subsystems and Foundations layers rendered as mangled fragments — which turned
+out to be one instance of a repeating pattern. The pass generalized from there.
+
+### Architecture diagram grid rebuild
+
+The layer block grids sized themselves with `flex: 1 1 auto` plus percentage
+`max-width` caps. Core Subsystems and Foundations added per-layer caps as
+`.arch-core .arch-blocks .arch-block` / `.arch-model .arch-blocks .arch-block`
+(three classes). The responsive reset inside `@media (max-width: 48rem)` was
+written as `.arch-blocks .arch-block` (two classes), and media queries add no
+specificity, so the desktop quarter-width cap survived into the tablet and phone
+layouts. Blocks were pinned to 25% of the container inside half-width and
+full-width grid cells: labels broke mid-word ("Schedule/r", "FrozenSt/ate",
+"Concurre/ncy") and stat text collapsed into three cramped lines. Every other
+layer, which had no per-layer cap, rendered correctly — which is why the defect
+read as specific to those two layers.
+
+Replaced with a single grid mechanism:
+
+- `.arch-blocks` is `grid-template-columns: repeat(var(--arch-cols), minmax(0, 1fr))`.
+- Layers declare their own `--arch-cols`; the responsive overrides re-declare it
+  on `.arch-blocks` itself, so the element consuming the value always carries the
+  winning declaration and the specificity trap cannot recur.
+- Track counts divide each layer's block count evenly (rust 3, core 9, hw 6 over
+  3 tracks; security 4, platform 4 over 4 tracks). This also removed the orphaned
+  single-block row that Core Subsystems rendered on desktop, where 9 blocks over
+  4 tracks left "Concurrency" alone on a third row.
+- Foundations carries 7 blocks, so its last block spans the spare track; the
+  1-track layout resets the span, which would otherwise add an implicit column.
+- Blocks became column flex containers that centre their content, so a block with
+  no `.arch-stat` no longer pins its label to the top of a row stretched by a
+  taller sibling (visible in Information Flow, Foundations, Platform Bindings).
+- `overflow-wrap: break-word` now applies at every width, not only below 48rem.
+
+Verified with headless Chromium at 1440, 1024, 769, 768, 481, 480, 390, and
+360px: no block clips or overflows its box at any width.
+
+### Remaining specificity traps
+
+An automated sweep — walk the CSSOM at four viewports, match every rule against
+the live DOM, and flag any in-media rule outranked for a shared property by a
+non-media rule matching the same elements — found four more instances:
+
+- **Mobile nav CTA**: `.nav-links a.nav-cta` kept its desktop pill padding inside
+  `@media (max-width: 48rem)`, producing a 29.8px touch target in a menu where
+  every sibling row was 44.2px. All ten rows now measure 44.2px.
+- **Map declaration chips**: the `@media (max-width: 640px)` and landscape rules
+  used `.interior-menu-item` (0,1,0) against a base of
+  `.card .interior-menu-items .interior-menu-item` (0,3,0), so chips kept desktop
+  insets on phones. The `.card` prefix was unnecessary — two classes already
+  outrank `.card ul li` (0,1,2) — so dropping it lets the responsive rules win on
+  source order.
+- **Sticky map toolbar**: the `@supports not (backdrop-filter)` opaque fallback
+  was declared before the light-theme refinements and lost to them at equal
+  weight, so browsers without backdrop-filter fell back to a 90% translucent bar
+  with no blur in light theme. Moved to the end of `map.css` with a note that it
+  must stay last.
+- **Print**: `a` and `code` lost to roughly twenty component rules, so links
+  printed in accent blue and `.btn-primary` printed light-on-white — invisible
+  once browsers drop the background fill. Marked `!important`, the canonical use
+  for a print reset, and added explicit button normalization. All 320 links on
+  index.html now compute to `#222` under print media.
+
+`CLAUDE.md` gained a "CSS override weight" convention section so the pattern is
+documented rather than rediscovered.
+
+### Payload reduction
+
+- **`assets/images/favicon.png` 93.6 KB -> 27.3 KB** (-71%). It was the
+  second-largest asset on every page: the nav logo `<img>`, `rel="icon"`,
+  `rel="apple-touch-icon"`, and `og:image` all point at it. Palette-encoded;
+  measured against the original composited over white, mean channel delta is
+  0.75/255 with 92.7% of subpixels within 2/255 — no visible change at the 40px
+  and 16-32px sizes it renders at.
+- **`data/map-data.json` 3,092 KB -> 1,646 KB** (255 KB -> 153 KB gzipped), which
+  was 83% of map.html's transfer. `sync-map-data.mjs` now writes it compact so
+  refreshes stay minified. `site-data.json` and `execution-traces.json` stay
+  indented — they are small and people read them.
+
+### Accessibility
+
+- map.html's document outline jumped h1 -> h4 at the declaration-menu column
+  headings, the only other headings on the page. They are now h2, with the CSS
+  selectors updated; computed size, weight, colour, and margin are unchanged.
+- The mobile nav CTA touch-target fix above.
+
+### Audit findings with no action needed
+
+Recorded so the next pass does not re-derive them:
+
+- **No dead CSS.** Every class in all three stylesheets is referenced from HTML
+  or JS. The apparent orphans are constructed at runtime (`"assurance-" + level`)
+  or driven by values in `execution-traces.json` (`data-op`, `data-kind`).
+- **No console errors, duplicate IDs, dead internal anchors, unlabeled controls,
+  unhardened `target="_blank"` links, or horizontal overflow** on any of the four
+  pages.
+- `content-visibility: auto` on sections means `getComputedStyle` returns stale
+  values for offscreen subtrees. Any future style audit must force layout (or
+  disable the property via CSSOM insertion — CSP blocks `addStyleTag`) before
+  trusting computed styles below the fold.
+
+### Footer
+
+Removed the X/Twitter link from the Resources list.
+
+## Animated background removal (0.27.0)
+
+The fixed-position WebGL layer behind all three pages rendered a large, moving,
+high-contrast fractal at full opacity. It competed with body copy for attention
+and made text harder to read, which is the opposite of what a background should
+do — so it was removed outright rather than tuned down.
+
+What stays: `--bg-pattern`, the soft two-radial-gradient wash that sat *under*
+the canvas. It carries the page's colour depth without any moving parts, and now
+paints directly on a single fixed `#bg-wash` div (previously `#bg-canvas-wrap` >
+`#bg-canvas-mover` > `canvas`, a three-element nest that existed only to host and
+position the canvas).
+
+Removed:
+
+- `assets/js/background-pattern.js` (884 lines: shader setup, RAF loop, noise
+  field, pointer/scroll reactivity, visibility handling).
+- The `#bg-animation-toggle` pause/resume control from the nav on all three
+  pages, and its `setupBackgroundAnimationToggle()` implementation duplicated
+  across `site.js`, `map.js`, and `run.js` — roughly 5 KB of near-identical
+  code, plus the `sele4n-bg-animation-paused-v1` localStorage key, the
+  `sele4n:bg-animation-toggle` custom event, and the `data-bg-animation` root
+  attribute that coordinated them.
+- `.math-bg-layer` and `.bg-animation-toggle` styles, including the
+  `prefers-reduced-motion` transition guard and the `prefers-reduced-data` rule
+  that hid the canvas — both existed solely to tame the animation.
+- `nav.pause_bg` / `nav.resume_bg` from all six locale bundles.
+
+The control was itself an accommodation for the animation being distracting; with
+the animation gone there is nothing to pause, so the accessibility and
+data-saver guards it needed disappear with it.
+
+Transfer per page drops by roughly 40 KB (the shader script), on top of the
+0.27.0 payload work: index.html 527 -> 358 KB, map.html 3,707 -> 2,094 KB,
+run.html 575 -> 406 KB against the 0.26.0 baseline.
+
+`THIRD_PARTY_NOTICES.md` previously covered an Ashima Arts / Stefan Gustavson
+simplex-noise GLSL implementation vendored inside the shader. That code is no
+longer distributed, so the notice was moved to a "Removed" section retained for
+the audit trail, and the repository now bundles no third-party code.
+
+## Print palette neutralization (0.27.0)
+
+Follow-up to the print fixes above, from a review finding on the 0.27.0 pull
+request. Forcing link text to `#222` was only half the job: the print block
+patched individual components but never touched the palette tokens, so printing
+from the **dark** theme kept dark surfaces under the newly-dark text. Measured
+with `Background graphics` enabled, `.arch-block` printed #222 on #192338
+(1.01:1) and `.tier-script` #222 on #080c15 (1.23:1) — effectively invisible.
+With backgrounds disabled the same gap showed up in the other direction:
+`.comparison-table td` and `.api-table td` printed dark-theme greys on white.
+
+Fixed at the token level instead of per selector — `@media print` now redefines
+`--bg`, `--bg-alt`, `--surface`, `--surface-2`, `--border`, `--text`,
+`--text-muted`, `--text-bright`, and `--heading`, so every consumer inherits a
+print-safe value including ones added later. The screen accents (`--accent`,
+`--green`, `--yellow`, `--red`, `--purple`) sat at 2.1-2.7:1 on white and carry
+section labels, card headings, and badges, so they are darkened rather than
+flattened to black, preserving the colour coding. `.tier-badge` and
+`.step-number` join the buttons in the light-text-on-coloured-fill reset.
+
+A scan of every leaf text node under print emulation now reports zero elements
+below 4.5:1 against white, in both themes; filled links measure 14.6-15.9:1.

@@ -46,7 +46,6 @@
   var CACHE_SCHEMA_VERSION = 1;
   var CACHE_TTL_MS = 60 * 60 * 1000;
   var CACHE_MAX_STALE_MS = 30 * 24 * 60 * 60 * 1000;
-  var BG_ANIMATION_KEY = "sele4n-bg-animation-paused-v1";
   var SCHEMA_VERSION = 1;
 
   var PLAY_INTERVAL_MS = 1100;
@@ -1881,29 +1880,6 @@
     });
   }
 
-  function setupBackgroundAnimationToggle() {
-    var button = document.getElementById("bg-animation-toggle");
-    if (!button) return;
-    function readPaused() { try { return localStorage.getItem(BG_ANIMATION_KEY) === "1"; } catch (e) { return false; } }
-    function applyState(paused) {
-      button.classList.toggle("is-paused", paused);
-      button.setAttribute("aria-pressed", paused ? "true" : "false");
-      var resume = tt("nav.resume_bg", "Resume background animation");
-      var pause = tt("nav.pause_bg", "Pause background animation");
-      button.setAttribute("aria-label", paused ? resume : pause);
-      button.title = paused ? resume : pause;
-      document.documentElement.setAttribute("data-bg-animation", paused ? "paused" : "running");
-      window.dispatchEvent(new CustomEvent("sele4n:bg-animation-toggle", { detail: { paused: paused } }));
-    }
-    applyState(readPaused());
-    button.addEventListener("click", function () {
-      var nextPaused = button.getAttribute("aria-pressed") !== "true";
-      try { localStorage.setItem(BG_ANIMATION_KEY, nextPaused ? "1" : "0"); } catch (e) {}
-      applyState(nextPaused);
-    });
-    window.addEventListener("storage", function (e) { if (e.key === BG_ANIMATION_KEY) applyState(readPaused()); });
-  }
-
   function hardenExternalLinks() {
     var links = document.querySelectorAll('a[target="_blank"]');
     for (var i = 0; i < links.length; i++) {
@@ -1951,7 +1927,6 @@
   function init() {
     cacheDom();
     setupTheme();
-    setupBackgroundAnimationToggle();
     hardenExternalLinks();
     wireControls();
     applyUrlState();
