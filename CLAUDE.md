@@ -119,6 +119,40 @@ mobile layout. This has caused five separate visual defects in this codebase.
 - `@media print` colour resets are the one place `!important` is correct — a
   bare `a` or `code` selector loses to every component rule on the page.
 
+### A winning declaration can still do nothing (inline boxes)
+
+Specificity is only half of it — the box has to be able to accept the property.
+On an **inline** box, `width`, `height`, `min-height`, and vertical padding
+contribute nothing to layout, so a responsive rule that sets them applies and is
+silently inert. `.nav-links a` is the case that bit: its anchors are inline, so
+the mobile drop-down's `width: 100%` and `min-height: 2.75rem` did nothing and
+every row overlapped its neighbour.
+
+- Before setting a box property in a responsive override, check the element's
+  used `display`. Anything that must own a row needs `block` or `flex` first.
+- `getBoundingClientRect().height` on an inline box reports the union of its
+  *painted* fragments, vertical padding included. It is not the element's
+  contribution to flow, and it will confirm a row height the layout does not
+  have. Measure the offset between consecutive rows instead.
+- A property that only makes sense in one formatting context does not carry
+  over: `text-align: center` centres nothing once the element becomes a flex
+  container sized to its content — that is `justify-content: center`.
+
+### `nav.*` locale values are layout-constrained
+
+The desktop menu is sized to its content and clamped by `.container`'s max-width,
+so the ten items share a hard **932px** ceiling that does not grow with the
+window — a locale that exceeds it wraps to two lines at every desktop width,
+2560px included. English sits at 816px. Check the menu at 1280px after touching
+any `nav.*` value; a wide window hides the defect rather than revealing it.
+
+- Keep a `nav.*` value in the nav. `run.html`'s footer once rendered from
+  `nav.code_map`, so compacting the menu label silently rewrote a footer that had
+  no width pressure. Surfaces with different constraints get different keys
+  (`footer.code_map`); share one only for locale-invariant strings like "GitHub".
+- Menu labels are independent of the section headings they link to in every
+  locale, so a shorter label costs no consistency.
+
 ### Security posture
 
 Both HTML pages enforce:

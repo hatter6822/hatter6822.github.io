@@ -395,7 +395,8 @@
     "testing": "测试",
     "threat_model": "威胁模型",
     "claims_evidence": "声明与证据",
-    "back_to_home": "返回首页"
+    "back_to_home": "返回首页",
+    "code_map": "代码地图"
   },
   "map": {
     "hero_label": "seLe4n 架构智能",
