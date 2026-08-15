@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.26.0`
+- Website version: `0.27.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout

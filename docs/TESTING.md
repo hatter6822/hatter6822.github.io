@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.26.0**.
+> Documentation baseline: website release **0.27.0**.
 
 ## Automated checks
 

@@ -2,7 +2,7 @@
 
 Thanks for improving the seLe4n website.
 
-> Current release target: **0.26.0**
+> Current release target: **0.27.0**
 
 ## Repository principles
 
@@ -51,7 +51,12 @@ node --check assets/js/theme-init.js
 If you changed UI behavior or layout:
 
 1. Verify desktop rendering in `index.html`, `map.html`, and `run.html`.
-2. Verify mobile rendering at ~390px width.
+2. Verify mobile rendering at ~390px width, **and at each breakpoint boundary**
+   (1024/768/480px, both sides). Media queries add no specificity, so a
+   responsive rule written with fewer classes than the base rule it overrides
+   silently loses and the desktop value leaks into the mobile layout — the most
+   common source of layout defects in this repo. See the "CSS override weight"
+   section in `CLAUDE.md` before adding a rule inside `@media` or `@supports`.
 3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills).
 4. Confirm declaration context switching works (click declaration → flowchart shows calls/callers → breadcrumb navigation returns to module).
 5. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
