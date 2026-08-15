@@ -581,10 +581,15 @@ html:not([data-theme="light"]) .hero-subtitle {
 }
 
 .hero-stats {
-  display: flex;
+  --stat-cols: 4;
+  display: grid;
+  /* `max-content` keeps every column as wide as its widest stat so the columns
+     line up; the 0 minimum lets long localized labels ("Teoremas Demostrados",
+     "Припущень (admitted)") wrap rather than push the row past the container.
+     A wrapping flex row could only ever orphan the overflowing stat. */
+  grid-template-columns: repeat(var(--stat-cols), minmax(0, max-content));
   justify-content: center;
-  gap: 2rem;
-  flex-wrap: wrap;
+  gap: 1.75rem 2rem;
   margin-bottom: 3rem;
 }
 
@@ -1532,7 +1537,7 @@ html:not([data-theme="light"]) .hero-subtitle {
     flex-direction: column;
     padding: 1rem 1.5rem;
     border-bottom: 1px solid var(--border);
-    gap: 0;
+    gap: 0.125rem;
     max-height: calc(100vh - var(--nav-height));
     max-height: calc(100svh - var(--nav-height));
     overflow-y: auto;
@@ -1548,12 +1553,22 @@ html:not([data-theme="light"]) .hero-subtitle {
   .nav-links.open {
     display: flex;
   }
+  /* These anchors are inline in the base rule, where `width`, `min-height` and
+     vertical padding have no layout effect. In the drop-down panel that left
+     every row collapsed to its line box (~30px of flow for 44px of painted
+     box), so each background bled over its neighbours — most visibly the
+     `.nav-cta` pill, which covered the row above it. A block-level flex row
+     gives the padding somewhere to go and makes the full row the tap target. */
   .nav-links a {
-    padding: 0.85rem 0.2rem;
+    display: flex;
+    align-items: center;
+    padding: 0.85rem 0.75rem;
     min-height: 2.75rem;
-    width: 100%;
     font-size: 1rem;
     line-height: 1.35;
+    /* Base sets `nowrap` for the horizontal desktop bar; here a long localized
+       label ("Карта кодової бази") must be free to wrap. */
+    white-space: normal;
     overflow-wrap: anywhere;
   }
   .nav-links li {
@@ -1561,10 +1576,10 @@ html:not([data-theme="light"]) .hero-subtitle {
   }
   .nav-links a.nav-cta {
     margin-top: 0.5rem;
-    text-align: center;
-    /* `.nav-links a.nav-cta` and the `.nav-links a` rule above carry the same
-       weight, so the base pill padding would otherwise win here and leave the
-       CTA a ~30px target in a menu where every sibling row is 44px. */
+    justify-content: center;
+    /* The base `.nav-links a.nav-cta` rule outweighs the `.nav-links a` rule
+       above, so its pill padding would otherwise win here and leave the CTA a
+       ~30px target in a menu where every sibling row is 44px. */
     padding: 0.85rem 1rem;
     min-height: 2.75rem;
   }
@@ -1597,8 +1612,12 @@ html:not([data-theme="light"]) .hero-subtitle {
   .hero-logo {
     margin-bottom: 1.5rem;
   }
+  /* Four columns no longer fit here — the flex layout used to wrap 3 + 1 and
+     orphan the last stat. Re-declaring the column count on the element that
+     consumes it beats the inherited value without a more specific selector. */
   .hero-stats {
-    gap: 1.25rem;
+    --stat-cols: 2;
+    gap: 1.5rem 2rem;
   }
   .stat-value {
     font-size: 1.625rem;
@@ -1717,18 +1736,23 @@ html:not([data-theme="light"]) .hero-subtitle {
 }
 
 @media (max-width: 30rem) {
+  /* One stat per row. `display: contents` on `.stat` promotes the value and the
+     label to grid items, so all four rows share the same two columns: the
+     values right-align against a single seam sized to the widest live value
+     (a per-row `min-width` could not, the values are refreshed at runtime), and
+     `justify-content: center` centres the pair as one block. Stretched
+     full-width rows previously left the whole group flush against the
+     container's left padding inside an otherwise centred hero. */
   .hero-stats {
-    flex-direction: column;
-    gap: 1rem;
+    grid-template-columns: max-content minmax(0, max-content);
+    align-items: baseline;
+    gap: 1rem 0.75rem;
   }
   .stat {
-    flex-direction: row;
-    gap: 0.75rem;
-    min-width: auto;
+    display: contents;
   }
   .stat-value {
     font-size: 1.5rem;
-    min-width: 5rem;
     text-align: right;
   }
   .stat-label {

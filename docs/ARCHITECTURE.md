@@ -620,3 +620,73 @@ flattened to black, preserving the colour coding. `.tier-badge` and
 
 A scan of every leaf text node under print emulation now reports zero elements
 below 4.5:1 against white, in both themes; filled links measure 14.6-15.9:1.
+
+## Mobile hero stats and drop-down menu layout (0.27.0)
+
+Two reported mobile defects, both from a box-model assumption rather than a
+specificity conflict.
+
+### Drop-down menu rows never left the inline formatting context
+
+`.nav-links a` carries no `display` declaration, so the anchors stayed **inline**
+inside the `@media (max-width: 48rem)` panel. On an inline box `width`,
+`min-height`, and vertical padding contribute nothing to layout: the mobile rule
+set all three and none of them took effect. Measured at 390px before the fix,
+ten rows occupied 305px of flow — 30.5px each — while each anchor *painted* a
+44px box, so all nine consecutive pairs overlapped. The `.nav-cta` pill, being
+the only row with a filled background, made it obvious by covering the "Get
+Started" row above it. The tap target was the text width (48px for "About"), not
+the row.
+
+The 0.27.0 specificity sweep recorded this rule as fixed ("All ten rows now
+measure 44.2px"). That number is `getBoundingClientRect().height` on an inline
+box — the union of its painted fragments, which *does* include vertical padding.
+It is not the row's contribution to flow, so the padding fix it was meant to
+confirm had never landed. When auditing a row height, measure the gap between
+consecutive rows, not one element's own rect.
+
+`display: flex` on the mobile rule gives the padding and `min-height` somewhere
+to go. Rows now measure 49px of flow with zero overlapping pairs, and each
+anchor fills its `li` (358px at a 390px viewport) so the whole row is the target.
+`white-space: normal` joins it: the base rule sets `nowrap` for the horizontal
+desktop bar, which silently disabled the `overflow-wrap: anywhere` the mobile
+block already declared, and the longest localized entry ("Карта кодової бази")
+needs to be free to wrap. The CTA's `text-align: center` became
+`justify-content: center`, the flex-context equivalent.
+
+Verified on `index.html`, `map.html`, and `run.html` in `en` and `uk`: 0
+overlaps, 49px minimum row height, full-width rows, and the 547px panel fits a
+390x844 viewport without scrolling.
+
+### Hero stats sat flush left, and orphaned a stat between breakpoints
+
+Below 30rem `.hero-stats` switched to `flex-direction: column`. `justify-content:
+center` from the base rule then governed the *block* axis, and the unset
+`align-items` left each `.stat` stretched to full width with its row content
+packed at `flex-start` — so the block hugged the container's left padding inside
+an otherwise centred hero. The value column's fixed `min-width: 5rem` was also
+narrower than "255,085", so that row's label started 3px right of the other
+three (label lefts 108/111/108/108).
+
+Between 30rem and ~37rem the four flex items needed roughly 570px of content
+width against the 448-548px available, so the fourth stat wrapped alone onto a
+second row at every width from 481 to 580px.
+
+Rebuilt as one grid, following the `--arch-cols` convention:
+
+- `.hero-stats` is `repeat(var(--stat-cols), minmax(0, max-content))`, declared
+  `4` on the base rule and re-declared `2` on the element itself under 48rem.
+  The 0 track minimum lets long localized labels ("Teoremas Demostrados",
+  "Припущень (admitted)") wrap inside their track instead of pushing the row past
+  the container — the widest locale would otherwise have orphaned a stat at
+  769px, the one width the old flex layout had left to chance.
+- Under 30rem `.stat` becomes `display: contents`, promoting the value and the
+  label to grid items so all four rows share the same two columns. The seam is
+  sized to the widest *live* value, which a per-row `min-width` cannot be: the
+  numbers are refreshed at runtime from `site-data.json`.
+
+Verified across `en`/`es`/`uk`/`ja` at 390, 500, 800, and 1280px: no page or
+container overflow at any combination, the stat block centres on the container
+axis to within 0px, label lefts are identical across all four rows (175px at
+390px, was 108/111/108/108), and the layout resolves to 4 rows / 2x2 / one row
+at 390 / 500 / 800px. Desktop rendering is unchanged.

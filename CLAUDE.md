@@ -119,6 +119,25 @@ mobile layout. This has caused five separate visual defects in this codebase.
 - `@media print` colour resets are the one place `!important` is correct — a
   bare `a` or `code` selector loses to every component rule on the page.
 
+### A winning declaration can still do nothing (inline boxes)
+
+Specificity is only half of it — the box has to be able to accept the property.
+On an **inline** box, `width`, `height`, `min-height`, and vertical padding
+contribute nothing to layout, so a responsive rule that sets them applies and is
+silently inert. `.nav-links a` is the case that bit: its anchors are inline, so
+the mobile drop-down's `width: 100%` and `min-height: 2.75rem` did nothing and
+every row overlapped its neighbour.
+
+- Before setting a box property in a responsive override, check the element's
+  used `display`. Anything that must own a row needs `block` or `flex` first.
+- `getBoundingClientRect().height` on an inline box reports the union of its
+  *painted* fragments, vertical padding included. It is not the element's
+  contribution to flow, and it will confirm a row height the layout does not
+  have. Measure the offset between consecutive rows instead.
+- A property that only makes sense in one formatting context does not carry
+  over: `text-align: center` centres nothing once the element becomes a flex
+  container sized to its content — that is `justify-content: center`.
+
 ### Security posture
 
 Both HTML pages enforce:
