@@ -1860,6 +1860,38 @@ a.tier-script:hover {
     --print-surface: #f5f5f5;
   }
 
+  /* Neutralize the palette itself rather than patching each component. Printing
+     from the dark theme otherwise keeps dark surface/text tokens on paper: with
+     "Background graphics" on, `.arch-block` printed #222 on #192338 (1.01:1) and
+     `.tier-script` #222 on #080c15 (1.23:1); with it off, `.comparison-table td`
+     and `.api-table td` printed dark-theme greys on white. Overriding the tokens
+     fixes every consumer, including ones added later.
+     Weight (0,2,0) on the attribute forms beats both `:root` and
+     `[data-theme="light"]`, and this block is last in the file. */
+  :root,
+  :root[data-theme="light"],
+  :root[data-theme="dark"] {
+    --bg: #fff;
+    --bg-alt: #fff;
+    --surface: #fff;
+    --surface-2: var(--print-surface, #f5f5f5);
+    --border: var(--print-border, #ccc);
+    --text: var(--print-fg, #222);
+    --text-muted: var(--print-muted, #333);
+    --text-bright: #000;
+    --heading: #000;
+    /* Screen accents sit at 2.1-2.7:1 on white — they carry section labels,
+       card headings, and badges, so darken them rather than flatten them to
+       black and lose the colour coding. The translucent *-dim fills stay as-is;
+       they print near-white. */
+    --accent: #1a4f8f;
+    --accent-dim: #14406f;
+    --green: #146b45;
+    --yellow: #6f5210;
+    --red: #96262e;
+    --purple: #5f3a8f;
+  }
+
   .nav, .hero-bg, .skip-link, #bg-canvas-wrap {
     display: none;
   }
@@ -1884,9 +1916,9 @@ a.tier-script:hover {
     background: var(--print-surface, #f5f5f5) !important;
     color: var(--print-muted, #333) !important;
   }
-  /* Buttons carry light text on a coloured fill that most browsers drop when
-     printing, which would leave them blank on paper. */
-  .btn, .btn-primary, .btn-secondary {
+  /* Buttons and filled badges carry light text on a coloured fill that most
+     browsers drop when printing, which would leave them blank on paper. */
+  .btn, .btn-primary, .btn-secondary, .tier-badge, .step-number {
     color: var(--print-fg, #222) !important;
     background: var(--print-bg, #fff) !important;
     border: 1px solid var(--print-border, #ccc) !important;

@@ -556,3 +556,26 @@ Recorded so the next pass does not re-derive them:
 ### Footer
 
 Removed the X/Twitter link from the Resources list.
+
+## Print palette neutralization (0.27.0)
+
+Follow-up to the print fixes above, from a review finding on the 0.27.0 pull
+request. Forcing link text to `#222` was only half the job: the print block
+patched individual components but never touched the palette tokens, so printing
+from the **dark** theme kept dark surfaces under the newly-dark text. Measured
+with `Background graphics` enabled, `.arch-block` printed #222 on #192338
+(1.01:1) and `.tier-script` #222 on #080c15 (1.23:1) — effectively invisible.
+With backgrounds disabled the same gap showed up in the other direction:
+`.comparison-table td` and `.api-table td` printed dark-theme greys on white.
+
+Fixed at the token level instead of per selector — `@media print` now redefines
+`--bg`, `--bg-alt`, `--surface`, `--surface-2`, `--border`, `--text`,
+`--text-muted`, `--text-bright`, and `--heading`, so every consumer inherits a
+print-safe value including ones added later. The screen accents (`--accent`,
+`--green`, `--yellow`, `--red`, `--purple`) sat at 2.1-2.7:1 on white and carry
+section labels, card headings, and badges, so they are darkened rather than
+flattened to black, preserving the colour coding. `.tier-badge` and
+`.step-number` join the buttons in the light-text-on-coloured-fill reset.
+
+A scan of every leaf text node under print emulation now reports zero elements
+below 4.5:1 against white, in both themes; filled links measure 14.6-15.9:1.
