@@ -237,3 +237,61 @@ export function theoremCountFromCodebaseMap(codebaseMap) {
   const statsTheorems = Number(map.stats?.theorems);
   return Number.isFinite(statsTheorems) && statsTheorems > 0 ? statsTheorems : 0;
 }
+
+function positiveInteger(value) {
+  const number = typeof value === 'string' ? Number(value.replace(/,/g, '')) : Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : undefined;
+}
+
+/**
+ * Project landing-page statistics from the upstream codebase map.
+ *
+ * `docs/codebase_map.json` is generated alongside the kernel and is the
+ * canonical metrics artifact. Keep this projection deliberately independent
+ * from README wording and GitHub's byte-based language estimate: those are
+ * useful human-facing views, but must not silently disagree with the artifact.
+ */
+export function siteMetricsFromCodebaseMap(codebaseMap) {
+  const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
+  if (!map) return {};
+
+  const sync = map.readme_sync && typeof map.readme_sync === 'object' ? map.readme_sync : {};
+  const stats = map.stats && typeof map.stats === 'object' ? map.stats : {};
+  const metrics = {};
+  const firstInteger = (...values) => {
+    for (const value of values) {
+      const parsed = positiveInteger(value);
+      if (parsed !== undefined) return parsed;
+    }
+    return undefined;
+  };
+
+  if (typeof sync.version === 'string' && sync.version.trim()) metrics.version = sync.version.trim();
+  if (typeof sync.lean_version === 'string' && sync.lean_version.trim()) metrics.leanVersion = sync.lean_version.trim();
+
+  const lines = firstInteger(sync.production_loc, sync.lines, stats.production_loc, stats.lines);
+  if (lines !== undefined) metrics.lines = lines;
+
+  const theoremTotal = theoremCountFromCodebaseMap(map);
+  if (theoremTotal > 0) metrics.theorems = theoremTotal;
+
+  const explicitModules = firstInteger(sync.modules, sync.lean_modules, stats.modules);
+  if (explicitModules !== undefined) metrics.modules = explicitModules;
+  else if (Array.isArray(map.modules)) metrics.modules = map.modules.length;
+
+  const buildJobs = firstInteger(sync.build_jobs, sync.buildJobs, stats.build_jobs, stats.buildJobs);
+  if (buildJobs !== undefined) metrics.buildJobs = buildJobs;
+
+  const admitted = firstInteger(sync.admitted, sync.admitted_proofs, stats.admitted);
+  if (admitted !== undefined) metrics.admitted = admitted;
+
+  // Some canonical maps include the complete repository inventory. Derive
+  // these secondary counts from it rather than issuing a second tree request.
+  if (Array.isArray(map.files)) {
+    const paths = map.files.map((entry) => typeof entry === 'string' ? entry : entry?.path).filter(Boolean);
+    metrics.scripts = paths.filter((path) => /^scripts\/.*\.sh$/.test(path)).length;
+    metrics.docs = paths.filter((path) => /^docs\/.*\.(?:md|txt)$/.test(path)).length;
+  }
+
+  return metrics;
+}

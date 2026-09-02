@@ -217,12 +217,12 @@ Synced by `scripts/sync-trace-data.mjs`; validated by `scripts/validate-traces.m
 ## 7) Data-generation scripts (`scripts/`)
 
 ### `scripts/sync-site-data.mjs`
-Builds `data/site-data.json` by combining:
-- theorem totals derived from `docs/codebase_map.json` (prefers declaration/symbol-derived per-module counts from `modules[]` and `moduleMeta`; uses top-level aggregate theorem counts only as fallback),
-- repo metadata via GitHub APIs,
-- markdown metrics from upstream project docs,
-- repository tree-derived counts (modules/scripts/docs),
-- formatting/normalization.
+Builds `data/site-data.json` with landing-page statistics projected from the
+canonical upstream `docs/codebase_map.json` artifact. The sync fails rather than
+publishing stale values when required canonical metrics are absent. GitHub APIs are
+used only for commit timestamps and as a fallback for secondary script/document
+counts when an older map omits its file inventory; they are never used to estimate
+the theorem, production-LOC, or module headline values.
 
 Run when dashboard metrics need refreshing.
 
