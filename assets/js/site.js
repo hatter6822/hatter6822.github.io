@@ -639,6 +639,55 @@
     return Number.isFinite(statsTheorems) && statsTheorems > 0 ? statsTheorems : 0;
   }
 
+  function siteMetricsFromCodebaseMap(codebaseMap) {
+    var map = codebaseMap && typeof codebaseMap === "object" ? codebaseMap : null;
+    if (!map) return {};
+    var sync = map.readme_sync && typeof map.readme_sync === "object" ? map.readme_sync : {};
+    var stats = map.stats && typeof map.stats === "object" ? map.stats : {};
+    var metrics = {};
+
+    function integer() {
+      for (var i = 0; i < arguments.length; i++) {
+        var value = arguments[i];
+        var number = Number(typeof value === "string" ? value.replace(/,/g, "") : value);
+        if (Number.isInteger(number) && number >= 0) return number;
+      }
+      return undefined;
+    }
+
+    if (typeof sync.version === "string" && sync.version.trim()) metrics.version = sync.version.trim();
+    if (typeof sync.lean_version === "string" && sync.lean_version.trim()) metrics.leanVersion = sync.lean_version.trim();
+
+    var lines = integer(sync.production_loc, sync.lines, stats.production_loc, stats.lines);
+    if (lines !== undefined) metrics.lines = formatNumber(lines);
+    var theorems = theoremCountFromCodebaseMap(map);
+    if (theorems > 0) metrics.theorems = theorems;
+
+    var modules = integer(sync.modules, sync.lean_modules, stats.modules);
+    if (modules !== undefined) metrics.modules = modules;
+    else if (Array.isArray(map.modules)) metrics.modules = map.modules.length;
+
+    var buildJobs = integer(sync.build_jobs, sync.buildJobs, stats.build_jobs, stats.buildJobs);
+    if (buildJobs !== undefined) metrics.buildJobs = buildJobs;
+    var admitted = integer(sync.admitted, sync.admitted_proofs, stats.admitted);
+    if (admitted !== undefined) metrics.admitted = admitted;
+
+    if (Array.isArray(map.files)) {
+      var scripts = 0;
+      var docs = 0;
+      for (var i = 0; i < map.files.length; i++) {
+        var entry = map.files[i];
+        var path = typeof entry === "string" ? entry : entry && entry.path;
+        if (/^scripts\/.*\.sh$/.test(path || "")) scripts += 1;
+        if (/^docs\/.*\.(?:md|txt)$/.test(path || "")) docs += 1;
+      }
+      metrics.scripts = scripts;
+      metrics.docs = docs;
+    }
+
+    return metrics;
+  }
+
   function fetchText(url) {
     return fetchWithTimeout(url).then(function (r) {
       if (!r.ok) throw new Error(r.status);
@@ -691,23 +740,6 @@
         if (metrics.lines) data.lines = metrics.lines;
         if (typeof metrics.buildJobs === "number" && metrics.buildJobs > 0) data.buildJobs = metrics.buildJobs;
       }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] README fetch:", e.message || e); }),
-      fetchJSON(API + "/contents/" + CODEBASE_MAP_PATH + "?ref=" + encodeURIComponent(REF)).then(function (payload) {
-        if (!payload || payload.encoding !== "base64" || !payload.content) return;
-        var decoded = "";
-        try {
-          decoded = atob(String(payload.content).replace(/\n/g, ""));
-        } catch (e) {
-          return;
-        }
-        var parsed = null;
-        try {
-          parsed = JSON.parse(decoded);
-        } catch (e) {
-          return;
-        }
-        var theoremTotal = theoremCountFromCodebaseMap(parsed);
-        if (theoremTotal > 0) data.theorems = theoremTotal;
-      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] codebase-map fetch:", e.message || e); }),
       fetchText(RAW + REF + "/lean-toolchain").then(function (toolchainText) {
         var toolchainMatch = toolchainText && toolchainText.match(/(\d+\.\d+\.\d+)/);
         if (toolchainMatch) data.leanVersion = toolchainMatch[1];
@@ -719,7 +751,16 @@
       }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] lakefile fetch:", e.message || e); })
     ];
 
-    return Promise.all(tasks).then(function () { return data; });
+    // Resolve heuristic metadata first, then overlay the canonical artifact so
+    // completion order can never let README/tree/language estimates win.
+    return Promise.all(tasks).then(function () {
+      return fetchJSON(RAW + REF + "/" + CODEBASE_MAP_PATH).then(function (parsed) {
+        return mergeData(data, siteMetricsFromCodebaseMap(parsed));
+      }).catch(function (e) {
+        if (typeof console !== "undefined") console.warn("[seLe4n] codebase-map fetch:", e.message || e);
+        return data;
+      });
+    });
   }
 
   function refreshLiveData() {

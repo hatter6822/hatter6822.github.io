@@ -8,10 +8,48 @@ import {
   isLikelyModuleToken,
   normalizeSymbolName,
   parseCurrentStateMetrics,
+  siteMetricsFromCodebaseMap,
   theoremCount,
   theoremCountFromCodebaseMap,
   tokenizeImportSegment
 } from './lean-analysis.mjs';
+
+test('siteMetricsFromCodebaseMap projects canonical landing-page statistics', () => {
+  const map = {
+    readme_sync: {
+      version: '1.2.3',
+      lean_version: '4.28.0',
+      production_loc: 12345,
+      build_jobs: 6,
+      admitted: 0
+    },
+    modules: [
+      { name: 'A', declarations: [{ kind: 'theorem' }, { kind: 'def' }] },
+      { name: 'B', declarations: [{ kind: 'lemma' }] }
+    ],
+    files: ['SeLe4n/A.lean', 'scripts/test.sh', 'docs/guide.md', 'docs/data.json']
+  };
+
+  assert.deepEqual(siteMetricsFromCodebaseMap(map), {
+    version: '1.2.3',
+    leanVersion: '4.28.0',
+    lines: 12345,
+    theorems: 2,
+    modules: 2,
+    buildJobs: 6,
+    admitted: 0,
+    scripts: 1,
+    docs: 1
+  });
+});
+
+test('siteMetricsFromCodebaseMap prefers canonical aggregates over inventory fallbacks', () => {
+  assert.deepEqual(siteMetricsFromCodebaseMap({
+    readme_sync: { lean_modules: '9', production_loc: '20,001' },
+    stats: { buildJobs: 18, admitted: 0 },
+    modules: [{ name: 'A' }]
+  }), { lines: 20001, modules: 9, buildJobs: 18, admitted: 0 });
+});
 
 test('extractImportTokens handles inline and indented continuations', () => {
   const source = `
