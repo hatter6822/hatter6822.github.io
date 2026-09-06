@@ -1,6 +1,6 @@
 # Codebase Map: End-to-End Guide
 
-> Documentation baseline: website release **0.28.0**.
+> Documentation baseline: website release **0.29.0**.
 
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
@@ -8,6 +8,26 @@ The map page provides a single operational and proof-aware architecture view of 
 - theorem/proof pairing context,
 - module metadata,
 - and source-level symbol interior links.
+
+## Where the bundled snapshot comes from
+
+`data/map-data.json` is built by `scripts/sync-upstream.mjs`, the site's single
+data pipeline, from one verified checkout of seLe4n. It graphs exactly the
+production corpus the landing page counts — the canonical
+`docs/codebase_map.json` production module list — and takes its declarations
+from that artifact rather than re-parsing them, because the artifact's parser
+tracks nested block-comment depth and strips string literals. Only the import
+edges are read from the Lean sources, because only the import edges are missing
+from the artifact.
+
+`site-data.json` and `map-data.json` record the same `commitSha` and
+`sourceDigest`; `validate-data.mjs` fails when they disagree, or when their
+module or theorem totals do. See `docs/ARCHITECTURE.md` §"One pipeline, one
+revision".
+
+The steps below describe the **runtime** in `assets/js/map.js`, which still
+refreshes its larger payload from GitHub with the bundled snapshot as its
+fallback.
 
 ## End-to-end pipeline
 
@@ -142,8 +162,8 @@ Key structural features visible in the map:
 
 ## Troubleshooting checklist
 
-1. Run data sync scripts and commit refreshed snapshots.
+1. Run `node scripts/sync-upstream.mjs` and commit refreshed snapshots (`data/`, `index.html`, `locales/` move together).
 2. Validate snapshots with `node scripts/validate-data.mjs`.
-3. Run parser and runtime-map regression tests with `node scripts/lib/lean-analysis.test.mjs` and `node scripts/lib/map-runtime.test.mjs`.
+3. Run parser and runtime-map regression tests with `node scripts/lib/lean-analysis.test.mjs`, `node scripts/lib/canonical-map.test.mjs`, and `node scripts/lib/map-runtime.test.mjs`.
 4. Verify `map.html` references `assets/css/map.css` and `assets/js/map.js`.
 5. Validate reverse import-edge integrity with `node scripts/validate-data.mjs` (now includes graph symmetry checks).

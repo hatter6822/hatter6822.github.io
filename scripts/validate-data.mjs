@@ -26,11 +26,11 @@ async function validateMapDataAndCapture() {
 await validateSiteDataAndCapture();
 await validateMapDataAndCapture();
 
+// Cross-file disagreement is fatal, not advisory: it means the snapshots did
+// not come from one pipeline run, which is exactly how the landing page and the
+// code map ended up quoting different counts for the same kernel.
 if (siteData && mapData) {
-  const crossErrors = validateCrossFile(siteData, mapData);
-  for (const message of crossErrors) {
-    console.warn(`⚠️  ${message}`);
-  }
+  for (const message of validateCrossFile(siteData, mapData)) fail(message);
 }
 
 if (!process.exitCode) {

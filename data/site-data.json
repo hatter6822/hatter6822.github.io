@@ -3,17 +3,17 @@
   "leanVersion": "4.28.0",
   "modules": 311,
   "lines": "330,569",
-  "theorems": 11000,
+  "theorems": 10937,
   "scripts": 65,
   "docs": 252,
   "admitted": 0,
-  "commitSha": "bb61196",
-  "updatedAt": "2026-09-05T15:04:11.000Z",
+  "commitSha": "dcbd1dd",
+  "updatedAt": "2026-09-05T15:46:20.000Z",
   "sourceRepo": "hatter6822/seLe4n",
   "sourceRef": "main",
   "metricsSource": "docs/codebase_map.json",
   "metricsScope": "production",
   "schemaVersion": "1.0.0",
   "sourceDigest": "bdc85722687bda8b68127e35f5e49c2eb402455d940c6a95d75eb658263ab810",
-  "generatedAt": "2026-09-06T22:10:15.016Z"
+  "generatedAt": "2026-09-06T22:56:00.622Z"
 }

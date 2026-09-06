@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.28.0**.
+> Documentation baseline: website release **0.29.0**.
 
 ## Audit summary
 
@@ -527,7 +527,7 @@ documented rather than rediscovered.
   0.75/255 with 92.7% of subpixels within 2/255 — no visible change at the 40px
   and 16-32px sizes it renders at.
 - **`data/map-data.json` 3,092 KB -> 1,646 KB** (255 KB -> 153 KB gzipped), which
-  was 83% of map.html's transfer. `sync-map-data.mjs` now writes it compact so
+  was 83% of map.html's transfer. `sync-upstream.mjs` writes it compact so
   refreshes stay minified. `site-data.json` and `execution-traces.json` stay
   indented — they are small and people read them.
 
@@ -840,3 +840,100 @@ now as fresh as the last CI sync, which runs weekly and on every upstream
 release via `repository_dispatch` — in exchange, a visitor no longer downloads
 574 KB of canonical map to read six integers, and no render path can produce a
 figure the kernel never asserted.
+
+
+## One pipeline, one revision (0.29.0)
+
+`scripts/sync-upstream.mjs` replaced `sync-site-data.mjs`, `sync-map-data.mjs`
+and `sync-trace-data.mjs`. One shallow clone of seLe4n produces all three
+bundled snapshots.
+
+### What went wrong
+
+Three scripts fetched upstream independently, and they drifted apart on both
+axes.
+
+**Different revisions.** `site-data.json` was generated at one commit and
+`map-data.json` at another. Nothing detected it; `validateCrossFile` only warned
+when their `generatedAt` timestamps were more than fourteen days apart.
+
+**Different methods.** Both derived module and theorem counts, by different
+rules over different corpora. The map enumerated `SeLe4n/**/*.lean` and counted
+theorems with a line regex; the landing page read the canonical artifact. So the
+two pages quoted different figures for the same kernel — 287 modules and 9,698
+theorems on `map.html`, 311 and 11,000 on `index.html`.
+
+### The shape now
+
+```
+git clone --depth 1 seLe4n@main
+  └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
+     Lean sources            ─┤   data/map-data.json           (code map)
+     docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
+```
+
+- **The checkout is verified before anything is written.** The artifact is
+  generated at one commit and committed at another, so the tree it ships in can
+  contain Lean sources it never saw. `source_sync.source_digest` is recomputed
+  over the checkout; on a mismatch the sync fetches the commit the artifact
+  names and re-verifies there, and aborts if that fails too. Nothing is ever
+  built from a blend of two revisions.
+- **Reproducing that digest needs Python's path ordering.** `PurePath` compares
+  the parts tuple, so `SeLe4n/Kernel/API.lean` precedes `SeLe4n/Kernel.lean`; a
+  flat string compare reverses them because `.` is 0x2E and `/` is 0x2F. Every
+  digest mismatched plausibly until this was right, which is a good argument for
+  checking a reproduction against known-good data before trusting it.
+- **The map graphs the corpus the page counts.** `map-data.json` takes its
+  module list and declarations from the artifact's production modules, so both
+  snapshots describe the same 311 modules and 10,937 theorems.
+- **Each source is used for what it is authoritative about.** The artifact says
+  which lines are declarations — its parser tracks nested block-comment depth
+  and strips string literals. The Lean sources supply the import graph, which
+  the artifact does not record, and the full identifiers behind its truncated
+  names.
+- **Coherence is enforced, not assumed.** Both snapshots record the same
+  `commitSha` and `sourceDigest`, and `validateCrossFile` now fails the build —
+  rather than warning — when those, the metrics source, or the module and
+  theorem totals disagree.
+
+### Two upstream defects this surfaced
+
+**`readme_sync.proved_theorem_lemma_decls` over-counts.** The artifact states
+its theorem total twice by two methods. The declaration inventory is built with
+nested `/- -/` depth tracking and string stripping; the `readme_sync` figure is
+a bare per-line regex over raw lines that also accepts only `private` among the
+declaration modifiers. Reconciled against the sources at the artifact's own
+commit:
+
+```
+10,937  comment-aware production theorem/lemma declarations
+  + 78  prose lines inside doc comments, where a sentence wraps onto a line
+        beginning "theorem is retained for backward compatibility…"
+  - 15  real declarations the regex misses (protected/noncomputable, multi-line
+        attributes)
+= 11,000  readme_sync.proved_theorem_lemma_decls
+```
+
+All 78 sit inside block comments or docstrings. The site publishes the
+inventory: it is the accurate figure, it comes from the same artifact, and it is
+the only one the code map can also produce. `canonicalCrossChecks()` reports the
+divergence on every sync so it stays visible until upstream fixes the generator.
+
+**Declaration names are truncated.** `_extract_names` splits the head at the
+first `:` and tokenises with a class that excludes `?`, so
+`ofErrorLabel?_zero` and `ofErrorLabel?_none_of_lt_base` are both recorded as
+`ofErrorLabel` — 229 of 10,937 production theorems (2.1%), and 145 collisions
+that would have hidden one of each pair from the interior explorer. Since the
+digest has already proved the checkout is the artifact's corpus, the pipeline
+reads each identifier back from its own source line, adopting the result only
+when it *extends* the recorded name.
+
+### `Main` versus `main`
+
+`Main.lean` is the kernel entry module and part of the canonical production
+corpus, but `map.js` filtered module names case-insensitively against the git
+refs `main`/`master`/`trunk`/`refs`/`heads` and also required a dot. Both rules
+rejected `Main`, so the map graphed 310 modules while the page said 311. The
+guard is now case-sensitive — capitalisation is exactly what separates the Lean
+module from the branch it lives on — and a dotless name is accepted when it
+reads like a module. The branch-ref pseudo-modules are still filtered.

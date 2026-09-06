@@ -15,14 +15,14 @@ Audience: maintainers of `hatter6822/seLe4n` (the kernel) and of this website.
 ## 1. Goal and the one invariant that matters
 
 The website already has the complete consumer side (schema, fold engine, validator,
-`scripts/sync-trace-data.mjs`, six scenes). The only thing standing between "honest
+`scripts/sync-upstream.mjs`, six scenes). The only thing standing between "honest
 illustration" and "replay of a verified run" is an upstream artifact:
 
 ```
 hatter6822/seLe4n : docs/execution-traces.json   (source: "kernel")
 ```
 
-Once that file exists, `node scripts/sync-trace-data.mjs` fetches + validates it and
+Once that file exists, `node scripts/sync-upstream.mjs` reads + validates it and
 writes `data/execution-traces.json`; the website's source badge flips to **"verified
 kernel export"** with zero website code changes.
 
@@ -216,7 +216,7 @@ transitions the six bundled scenarios illustrate; the work is to thread a
 lake exe sele4n-trace-export > docs/execution-traces.json
 
 # in this website repo:
-node scripts/sync-trace-data.mjs      # fetches + validates + writes data/execution-traces.json
+node scripts/sync-upstream.mjs       # reads + validates + writes data/execution-traces.json
 node scripts/validate-traces.mjs      # schema + fold dry-run; now prints source=kernel (no fixture warning)
 node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs

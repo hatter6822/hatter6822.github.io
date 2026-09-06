@@ -140,6 +140,31 @@ test('normalizeMapData ignores branch-ref pseudo-modules and URL module paths', 
   assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, 'main'));
 });
 
+test('normalizeMapData keeps the dotless Main module while still dropping the main ref', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // `Main.lean` is the kernel's entry module and part of the canonical
+  // production corpus the landing page counts. A case-insensitive branch-ref
+  // guard dropped it, so the map graphed 310 modules while the page said 311.
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      'main',
+      'heads',
+      { name: 'Main', path: 'Main.lean' },
+      { name: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean' }
+    ],
+    importsFrom: { Main: ['SeLe4n.Kernel.API'] }
+  });
+
+  assert.deepEqual(Array.from(normalized.modules), ['Main', 'SeLe4n.Kernel.API']);
+  assert.equal(normalized.moduleMap.Main, 'Main.lean');
+  // map.js runs inside a vm context, so cross-realm arrays need converting.
+  assert.deepEqual(Array.from(normalized.importsFrom.Main), ['SeLe4n.Kernel.API']);
+  for (const ref of ['main', 'heads']) {
+    assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, ref), `${ref} must stay filtered`);
+  }
+});
+
 test('normalizeMapData rejects payloads that do not expose modules array data', async () => {
   const hooks = await loadMapTestHooks();
 

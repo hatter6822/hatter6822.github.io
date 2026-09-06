@@ -104,6 +104,15 @@ export function validateMapDataObject(data) {
   if (typeof data.commitSha !== 'string') errors.push('map-data.json: commitSha must be a string');
   if (typeof data.generatedAt !== 'string') errors.push('map-data.json: generatedAt must be a string');
 
+  // Provenance, so validateCrossFile can prove both snapshots came from one
+  // pipeline run rather than from two scripts that happened to agree.
+  if (data.metricsSource !== REQUIRED_PROVENANCE.metricsSource) {
+    errors.push(`map-data.json: metricsSource must be ${JSON.stringify(REQUIRED_PROVENANCE.metricsSource)}, got ${JSON.stringify(data.metricsSource)}`);
+  }
+  if (typeof data.sourceDigest !== 'string' || !/^[0-9a-f]{64}$/.test(data.sourceDigest)) {
+    errors.push('map-data.json: sourceDigest must be the canonical artifact\'s sha256 source digest');
+  }
+
   if (typeof data.generatedAt === 'string' && data.generatedAt && !isIsoDateString(data.generatedAt)) {
     errors.push('map-data.json: generatedAt must be empty or an ISO-8601 UTC timestamp');
   }
@@ -202,18 +211,47 @@ export function validateMapDataObject(data) {
   return errors;
 }
 
+/**
+ * Assert the bundled snapshots came out of one pipeline run.
+ *
+ * They used to be produced by separate scripts fetching upstream
+ * independently, and they drifted: site-data was generated at one commit and
+ * map-data at another, so the landing page and the code map quoted different
+ * module and theorem counts for the same kernel. Both snapshots now record the
+ * revision and the canonical source digest they were built from, which makes
+ * "one pipeline" a property CI can check rather than a convention.
+ */
 export function validateCrossFile(siteData, mapData) {
   const errors = [];
   if (!isObject(siteData) || !isObject(mapData)) return errors;
 
-  if (typeof siteData.generatedAt === 'string' && typeof mapData.generatedAt === 'string') {
-    const siteDt = Date.parse(siteData.generatedAt);
-    const mapDt = Date.parse(mapData.generatedAt);
-    if (!Number.isNaN(siteDt) && !Number.isNaN(mapDt)) {
-      const staleDays = Math.abs(siteDt - mapDt) / (1000 * 60 * 60 * 24);
-      if (staleDays > 14) {
-        errors.push(`cross-file: site-data and map-data generatedAt differ by ${Math.round(staleDays)} days — consider re-syncing`);
-      }
+  if (typeof siteData.commitSha === 'string' && typeof mapData.commitSha === 'string') {
+    // site-data abbreviates the commit for display; map-data keeps it in full.
+    if (!mapData.commitSha.startsWith(siteData.commitSha)) {
+      errors.push(`cross-file: site-data commitSha ${siteData.commitSha} does not match map-data ${mapData.commitSha.slice(0, 7)} — re-run scripts/sync-upstream.mjs`);
+    }
+  }
+
+  if (siteData.sourceDigest !== mapData.sourceDigest) {
+    errors.push('cross-file: site-data and map-data record different canonical source digests — they were not built from one checkout');
+  }
+
+  if (siteData.metricsSource !== mapData.metricsSource) {
+    errors.push('cross-file: site-data and map-data name different canonical metrics sources');
+  }
+
+  // The map graphs exactly the production corpus the landing page counts, so a
+  // divergence here is the two pages disagreeing about the same kernel.
+  if (Number.isInteger(siteData.modules) && Array.isArray(mapData.modules)
+      && siteData.modules !== mapData.modules.length) {
+    errors.push(`cross-file: site-data reports ${siteData.modules} modules but map-data graphs ${mapData.modules.length}`);
+  }
+
+  if (Number.isInteger(siteData.theorems) && isObject(mapData.moduleMeta)) {
+    const mapped = Object.values(mapData.moduleMeta)
+      .reduce((total, meta) => total + (isObject(meta) && Number.isInteger(meta.theorems) ? meta.theorems : 0), 0);
+    if (mapped !== siteData.theorems) {
+      errors.push(`cross-file: site-data reports ${siteData.theorems} theorems but map-data modules sum to ${mapped}`);
     }
   }
 

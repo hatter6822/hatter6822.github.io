@@ -3269,8 +3269,15 @@
     function isLikelyLeanModuleName(name) {
       var candidate = sanitizeModuleName(name);
       if (!candidate) return "";
-      if (!/\./.test(candidate)) return "";
-      if (/^(?:main|master|trunk|refs|heads)$/i.test(candidate)) return "";
+      /* Branch-ref pseudo-modules reach us as lowercase git refs in legacy
+         top-level payload maps. Match them case-sensitively: capitalisation is
+         exactly what separates the kernel's own `Main` entry module from the
+         `main` branch it lives on, and a case-insensitive test dropped `Main`
+         from the graph while the landing page still counted it. */
+      if (/^(?:main|master|trunk|refs|heads)$/.test(candidate)) return "";
+      /* A dotless name is a module only if it reads like one. `Main` qualifies;
+         a bare ref or path fragment does not. */
+      if (!/\./.test(candidate) && !/^[A-Z][A-Za-z0-9_]*$/.test(candidate)) return "";
       return candidate;
     }
 

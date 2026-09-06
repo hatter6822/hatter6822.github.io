@@ -23,19 +23,14 @@ jobs:
         with:
           node-version: 22
 
-      # The .mjs pipeline in scripts/ is the single source of truth for every
-      # bundled snapshot. This job must not re-derive any metric itself — the
-      # previous inline-bash version of this workflow drifted from the pipeline
-      # (different module filters, LOC estimation, theorem grep) and never
-      # refreshed map-data.json at all.
+      # One pipeline, one upstream checkout, one revision. This job must not
+      # re-derive any metric itself — the previous inline-bash version of this
+      # workflow drifted from the pipeline (different module filters, LOC
+      # estimation, theorem grep), and the three scripts that replaced it
+      # drifted from each other, syncing at different commits. sync-upstream.mjs
+      # uses the git protocol only, so it needs no token.
       - name: Refresh bundled data snapshots
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          node scripts/sync-site-data.mjs
-          node scripts/sync-map-data.mjs
-          node scripts/sync-trace-data.mjs
+        run: node scripts/sync-upstream.mjs
 
       # index.html and every locale bundle embed literal copies of the
       # metrics (data-i18n-html replaces innerHTML wholesale, so each locale
@@ -53,6 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/lib/lean-analysis.test.mjs
+          node scripts/lib/canonical-map.test.mjs
           node scripts/lib/data-validation.test.mjs
           node scripts/lib/map-runtime.test.mjs
           node scripts/lib/map-toolbar.test.mjs
@@ -86,7 +82,7 @@ jobs:
           git commit -m "sync: update bundled data from seLe4n v${VERSION}
 
           Automated sync from GitHub Actions.
-          Metrics projected from docs/codebase_map.json @ ${METRICS_SHA}.
+          Projected from docs/codebase_map.json at ${METRICS_SHA}.
           Theorems: ${THEOREMS}
           Modules: ${MODULES}"
           git push

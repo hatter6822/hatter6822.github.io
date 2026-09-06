@@ -32,6 +32,28 @@ function siteData(overrides = {}) {
   };
 }
 
+/**
+ * A well-formed map-data.json. `metricsSource` and `sourceDigest` are what let
+ * validateCrossFile prove both snapshots came from one pipeline run — they used
+ * to be produced by separate scripts and drifted to different commits.
+ */
+function mapData(overrides = {}) {
+  return {
+    files: [],
+    modules: [],
+    moduleMap: {},
+    moduleMeta: {},
+    importsTo: {},
+    importsFrom: {},
+    externalImportsFrom: {},
+    commitSha: '',
+    generatedAt: '',
+    metricsSource: 'docs/codebase_map.json',
+    sourceDigest: 'a'.repeat(64),
+    ...overrides
+  };
+}
+
 test('validateSiteDataObject accepts valid payload', () => {
   const errors = validateSiteDataObject(siteData());
 
@@ -63,19 +85,18 @@ test('validateMapDataObject checks edge symmetry and module coverage', () => {
 });
 
 test('validateMapDataObject accepts minimal empty snapshot', () => {
-  const errors = validateMapDataObject({
-    files: [],
-    modules: [],
-    moduleMap: {},
-    moduleMeta: {},
-    importsTo: {},
-    importsFrom: {},
-    externalImportsFrom: {},
-    commitSha: '',
-    generatedAt: ''
-  });
+  assert.deepEqual(validateMapDataObject(mapData()), []);
+});
 
-  assert.deepEqual(errors, []);
+test('validateMapDataObject requires canonical provenance', () => {
+  assert.ok(validateMapDataObject(mapData({ metricsSource: 'README.md' }))
+    .some((msg) => msg.includes('metricsSource')));
+  assert.ok(validateMapDataObject(mapData({ sourceDigest: 'short' }))
+    .some((msg) => msg.includes('sourceDigest')));
+
+  const missing = mapData();
+  delete missing.sourceDigest;
+  assert.ok(validateMapDataObject(missing).some((msg) => msg.includes('sourceDigest')));
 });
 
 
@@ -189,21 +210,40 @@ test('validateMapDataObject detects orphaned moduleMeta entries', () => {
   assert.ok(errors.some((msg) => msg.includes('orphaned entry A.Ghost')));
 });
 
-test('validateCrossFile warns on stale data gap', () => {
-  const errors = validateCrossFile(
-    { generatedAt: '2026-03-26T00:00:00Z' },
-    { generatedAt: '2026-02-01T00:00:00Z' }
-  );
-  assert.ok(errors.some((msg) => msg.includes('differ by')));
+test('validateCrossFile accepts snapshots from one pipeline run', () => {
+  assert.deepEqual(validateCrossFile(
+    siteData({ commitSha: 'dcbd1dd', modules: 2, theorems: 7 }),
+    mapData({
+      commitSha: 'dcbd1dd30d0e5447e89b693708d73d7102021893',
+      sourceDigest: 'a'.repeat(64),
+      modules: ['A', 'B'],
+      moduleMeta: { A: { theorems: 3 }, B: { theorems: 4 } }
+    })
+  ), []);
 });
 
-test('validateCrossFile passes for close timestamps', () => {
-  const errors = validateCrossFile(
-    { generatedAt: '2026-03-26T00:00:00Z' },
-    { generatedAt: '2026-03-20T00:00:00Z' }
-  );
-  assert.deepEqual(errors, []);
+test('validateCrossFile rejects snapshots built from different checkouts', () => {
+  // The defect this replaces: site-data generated at one commit, map-data at
+  // another, each re-deriving the same quantities by its own method.
+  const site = siteData({ commitSha: 'dcbd1dd', modules: 2, theorems: 7 });
+  const map = mapData({
+    commitSha: 'dcbd1dd30d0e5447e89b693708d73d7102021893',
+    modules: ['A', 'B'],
+    moduleMeta: { A: { theorems: 3 }, B: { theorems: 4 } }
+  });
+
+  assert.ok(validateCrossFile(siteData({ commitSha: '5c2616f' }), map)
+    .some((msg) => msg.includes('commitSha')));
+  assert.ok(validateCrossFile({ ...site, sourceDigest: 'b'.repeat(64) }, map)
+    .some((msg) => msg.includes('source digests')));
+  assert.ok(validateCrossFile({ ...site, metricsSource: 'README.md' }, map)
+    .some((msg) => msg.includes('metrics sources')));
+  assert.ok(validateCrossFile({ ...site, modules: 287 }, map)
+    .some((msg) => msg.includes('287 modules but map-data graphs 2')));
+  assert.ok(validateCrossFile({ ...site, theorems: 9698 }, map)
+    .some((msg) => msg.includes('9698 theorems but map-data modules sum to 7')));
 });
+
 
 test('validateSiteDataObject rejects float values in numeric fields', () => {
   const errors = validateSiteDataObject(siteData({ modules: 23.5 }));

@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.28.0`
+- Website version: `0.29.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -25,23 +25,34 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 ### 1) Refresh bundled data snapshots
 
 ```bash
-node scripts/sync-site-data.mjs
-node scripts/sync-map-data.mjs
-node scripts/sync-trace-data.mjs
+node scripts/sync-upstream.mjs
 node scripts/apply-static-values.mjs
 ```
 
-`sync-site-data.mjs` projects every landing-page statistic from the kernel's
-canonical `docs/codebase_map.json` — the artifact from which seLe4n's own README
-table is generated — and fails rather than publishing a partial projection when
-an expected key is missing. `apply-static-values.mjs` then stamps those values
-into `index.html` (the `data-live` spans, JSON-LD version, snapshot timestamp)
-and into every `locales/*.json` bundle, whose translated HTML carries its own
-copy of the same spans. The weekly `sync-sele4n-data.yml` workflow runs this
-same pipeline — the scripts here are the single source of truth for every
-published metric. `sync-trace-data.mjs` sends an `Authorization` header when a
-`GITHUB_TOKEN` environment variable is present; the site and map syncs use the
-git protocol and need no token.
+`sync-upstream.mjs` is the whole data pipeline: one shallow clone of seLe4n at
+one revision produces all three bundled snapshots.
+
+```
+git clone --depth 1 seLe4n@main
+  └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
+     Lean sources            ─┤   data/map-data.json           (code map)
+     docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
+```
+
+Every published statistic is projected from the canonical
+`docs/codebase_map.json` — the artifact from which seLe4n's own README table is
+generated — and the sync fails rather than publishing a partial projection when
+an expected key is missing. The Lean sources supply exactly one thing the
+artifact does not record, the import graph, and the artifact's
+`source_sync.source_digest` is verified over those sources first, so the
+snapshots cannot blend two revisions. The site and map snapshots record the same
+`commitSha` and `sourceDigest`; `validate-data.mjs` fails if they disagree.
+
+`apply-static-values.mjs` then stamps those values into `index.html` (the
+`data-live` spans, JSON-LD version, snapshot timestamp) and into every
+`locales/*.json` bundle, whose translated HTML carries its own copy of the same
+spans. The weekly `sync-sele4n-data.yml` workflow runs this same pipeline. It
+uses the git protocol only, so no `GITHUB_TOKEN` and no REST rate limit.
 
 ### 2) Validate snapshots
 
@@ -54,6 +65,7 @@ node scripts/validate-traces.mjs
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
@@ -81,7 +93,7 @@ a tree scan counting only `SeLe4n/Kernel`, a build-job count invented as
 `modules × 2`. Each was a second opinion the kernel never gave, and whenever one
 won a race or the canonical fetch failed, the page published a number no
 upstream source asserts and cached it for thirty days. The projection now
-happens once, offline, in `scripts/sync-site-data.mjs`, where it is reviewed,
+happens once, offline, in `scripts/sync-upstream.mjs`, where it is reviewed,
 tested and validated in CI.
 
 `map.html` and `run.html` still refresh their larger payloads from GitHub, with
