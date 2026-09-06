@@ -3,8 +3,14 @@ import assert from 'node:assert/strict';
 
 import { validateMapDataObject, validateSiteDataObject, validateCrossFile } from './data-validation.mjs';
 
-test('validateSiteDataObject accepts valid payload', () => {
-  const errors = validateSiteDataObject({
+/**
+ * A well-formed site-data.json, including the provenance fields that make
+ * "this came from docs/codebase_map.json" a checkable claim. The landing page
+ * once shipped README-parsed and byte-estimated figures while the schema
+ * validated cleanly, because nothing recorded where the numbers came from.
+ */
+function siteData(overrides = {}) {
+  return {
     version: '0.1.0',
     leanVersion: '4.28.0',
     modules: 23,
@@ -12,31 +18,28 @@ test('validateSiteDataObject accepts valid payload', () => {
     theorems: 734,
     scripts: 17,
     docs: 97,
-    buildJobs: 84,
     admitted: 0,
     commitSha: 'abc1234',
     updatedAt: '',
-    generatedAt: '2026-03-03T00:00:00Z'
-  });
+    generatedAt: '2026-03-03T00:00:00Z',
+    sourceRepo: 'hatter6822/seLe4n',
+    sourceRef: 'main',
+    metricsSource: 'docs/codebase_map.json',
+    metricsScope: 'production',
+    schemaVersion: '1.0.0',
+    sourceDigest: 'a'.repeat(64),
+    ...overrides
+  };
+}
+
+test('validateSiteDataObject accepts valid payload', () => {
+  const errors = validateSiteDataObject(siteData());
 
   assert.deepEqual(errors, []);
 });
 
 test('validateSiteDataObject rejects invalid timestamps', () => {
-  const errors = validateSiteDataObject({
-    version: '0.1.0',
-    leanVersion: '4.28.0',
-    modules: 23,
-    lines: '25,648',
-    theorems: 734,
-    scripts: 17,
-    docs: 97,
-    buildJobs: 84,
-    admitted: 0,
-    commitSha: 'abc1234',
-    updatedAt: 'yesterday',
-    generatedAt: 'not-a-date'
-  });
+  const errors = validateSiteDataObject(siteData({ updatedAt: 'yesterday', generatedAt: 'not-a-date' }));
 
   assert.ok(errors.some((msg) => msg.includes('generatedAt')));
   assert.ok(errors.some((msg) => msg.includes('updatedAt')));
@@ -104,38 +107,15 @@ test('validateMapDataObject validates symbols.byKind entries when present', () =
 });
 
 test('validateSiteDataObject accepts payload with undefined updatedAt', () => {
-  const errors = validateSiteDataObject({
-    version: '0.1.0',
-    leanVersion: '4.28.0',
-    modules: 23,
-    lines: '25,648',
-    theorems: 734,
-    scripts: 17,
-    docs: 97,
-    buildJobs: 84,
-    admitted: 0,
-    commitSha: 'abc1234',
-    generatedAt: '2026-03-03T00:00:00Z'
-  });
+  const payload = siteData();
+  delete payload.updatedAt;
+  const errors = validateSiteDataObject(payload);
 
   assert.ok(!errors.some((msg) => msg.includes('updatedAt')));
 });
 
 test('validateSiteDataObject accepts payload with valid ISO updatedAt', () => {
-  const errors = validateSiteDataObject({
-    version: '0.1.0',
-    leanVersion: '4.28.0',
-    modules: 23,
-    lines: '25,648',
-    theorems: 734,
-    scripts: 17,
-    docs: 97,
-    buildJobs: 84,
-    admitted: 0,
-    commitSha: 'abc1234',
-    updatedAt: '2026-03-05T12:00:00Z',
-    generatedAt: '2026-03-03T00:00:00Z'
-  });
+  const errors = validateSiteDataObject(siteData({ updatedAt: '2026-03-05T12:00:00Z' }));
 
   assert.deepEqual(errors, []);
 });
@@ -152,19 +132,7 @@ test('validateMapDataObject rejects null and non-object root', () => {
 });
 
 test('validateSiteDataObject rejects wrong types on numeric fields', () => {
-  const errors = validateSiteDataObject({
-    version: '0.1.0',
-    leanVersion: '4.28.0',
-    modules: '23',
-    lines: '25,648',
-    theorems: 'many',
-    scripts: 17,
-    docs: 97,
-    buildJobs: 84,
-    admitted: 0,
-    commitSha: 'abc1234',
-    generatedAt: '2026-03-03T00:00:00Z'
-  });
+  const errors = validateSiteDataObject(siteData({ modules: '23', theorems: 'many' }));
 
   assert.ok(errors.some((msg) => msg.includes('modules')));
   assert.ok(errors.some((msg) => msg.includes('theorems')));
@@ -238,18 +206,42 @@ test('validateCrossFile passes for close timestamps', () => {
 });
 
 test('validateSiteDataObject rejects float values in numeric fields', () => {
-  const errors = validateSiteDataObject({
-    version: '0.1.0',
-    leanVersion: '4.28.0',
-    modules: 23.5,
-    lines: '25,648',
-    theorems: 734,
-    scripts: 17,
-    docs: 97,
-    buildJobs: 84,
-    admitted: 0,
-    commitSha: 'abc1234',
-    generatedAt: '2026-03-03T00:00:00Z'
-  });
+  const errors = validateSiteDataObject(siteData({ modules: 23.5 }));
   assert.ok(errors.some((msg) => msg.includes('integer')));
+});
+
+test('validateSiteDataObject rejects a snapshot not sourced from the canonical map', () => {
+  // This is the check that would have caught the shipped defect: metrics that
+  // came from a README table and a bytes-per-line estimate, in a file whose
+  // every type was correct.
+  for (const [key, wrong] of [
+    ['metricsSource', 'README.md'],
+    ['metricsScope', 'repository'],
+    ['sourceRepo', 'someone/else'],
+    ['sourceRef', 'develop']
+  ]) {
+    const errors = validateSiteDataObject(siteData({ [key]: wrong }));
+    assert.ok(errors.some((msg) => msg.includes(key)), `expected ${key} to be rejected`);
+  }
+
+  for (const key of ['metricsSource', 'metricsScope', 'schemaVersion', 'sourceDigest']) {
+    const payload = siteData();
+    delete payload[key];
+    assert.ok(validateSiteDataObject(payload).length > 0, `expected a missing ${key} to be rejected`);
+  }
+});
+
+test('validateSiteDataObject rejects malformed provenance and metric formatting', () => {
+  assert.ok(validateSiteDataObject(siteData({ commitSha: 'main' }))
+    .some((msg) => msg.includes('commitSha')));
+  assert.ok(validateSiteDataObject(siteData({ sourceDigest: 'abc' }))
+    .some((msg) => msg.includes('sourceDigest')));
+  // `lines` is the one metric published pre-grouped so the no-JS fallback and
+  // the hydrated value render identically.
+  assert.ok(validateSiteDataObject(siteData({ lines: '330569' }))
+    .some((msg) => msg.includes('lines')));
+  assert.ok(validateSiteDataObject(siteData({ lines: '33,05,69' }))
+    .some((msg) => msg.includes('lines')));
+  assert.deepEqual(validateSiteDataObject(siteData({ lines: '330,569' })), []);
+  assert.deepEqual(validateSiteDataObject(siteData({ lines: '999' })), []);
 });

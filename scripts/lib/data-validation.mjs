@@ -17,15 +17,57 @@ function isValidSymbolEntry(entry) {
   return true;
 }
 
+/**
+ * Provenance the snapshot must carry, and the exact value each must hold.
+ *
+ * These are the fields that make "this came from the canonical artifact" a
+ * checkable claim rather than a comment. The landing page once shipped figures
+ * derived from a README table and a bytes-per-line estimate while the schema
+ * validated perfectly, because nothing asserted where the numbers came from.
+ */
+const REQUIRED_PROVENANCE = Object.freeze({
+  sourceRepo: 'hatter6822/seLe4n',
+  sourceRef: 'main',
+  metricsSource: 'docs/codebase_map.json',
+  // Production Lean only: theorems, lines and modules describe one corpus.
+  metricsScope: 'production'
+});
+
 export function validateSiteDataObject(data) {
   const errors = [];
   if (!isObject(data)) return ['site-data.json: root must be an object'];
 
-  const requiredString = ['version', 'leanVersion', 'lines', 'commitSha', 'generatedAt'];
-  const requiredNumber = ['modules', 'theorems', 'scripts', 'docs', 'buildJobs', 'admitted'];
+  const requiredString = [
+    'version', 'leanVersion', 'lines', 'commitSha', 'generatedAt',
+    'schemaVersion', 'sourceDigest'
+  ];
+  const requiredNumber = ['modules', 'theorems', 'scripts', 'docs', 'admitted'];
 
   for (const key of requiredString) {
     if (typeof data[key] !== 'string') errors.push(`site-data.json: expected string at ${key}`);
+  }
+
+  for (const [key, expected] of Object.entries(REQUIRED_PROVENANCE)) {
+    if (data[key] !== expected) {
+      errors.push(`site-data.json: ${key} must be ${JSON.stringify(expected)}, got ${JSON.stringify(data[key])}`);
+    }
+  }
+
+  // `lines` is the one metric published pre-grouped, so the no-JS fallback and
+  // the hydrated value render identically. Anything else means it was written
+  // by something other than the sync script.
+  if (typeof data.lines === 'string' && !/^\d{1,3}(?:,\d{3})*$/.test(data.lines)) {
+    errors.push(`site-data.json: lines must be a comma-grouped integer, got ${JSON.stringify(data.lines)}`);
+  }
+
+  // The commit the statistics were measured at, from the artifact's own
+  // repository.head — not whatever happened to be at the tip of the branch.
+  if (typeof data.commitSha === 'string' && !/^[0-9a-f]{7,40}$/.test(data.commitSha)) {
+    errors.push(`site-data.json: commitSha must be a hexadecimal commit id, got ${JSON.stringify(data.commitSha)}`);
+  }
+
+  if (typeof data.sourceDigest === 'string' && !/^[0-9a-f]{64}$/.test(data.sourceDigest)) {
+    errors.push('site-data.json: sourceDigest must be the artifact\'s sha256 source digest');
   }
   for (const key of requiredNumber) {
     if (typeof data[key] !== 'number' || Number.isNaN(data[key])) {

@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.27.0`
+**Website version:** `0.28.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -49,7 +49,7 @@ node --check assets/js/theme-init.js
 node scripts/sync-site-data.mjs
 node scripts/sync-map-data.mjs
 node scripts/sync-trace-data.mjs
-node scripts/apply-static-values.mjs   # rewrite index.html static fallbacks from site-data.json
+node scripts/apply-static-values.mjs   # stamp index.html + locales/*.json from site-data.json
 ```
 
 ## Validation Tiers
@@ -90,6 +90,39 @@ Several files exceed 500 lines:
 2. Hydrate from browser `localStorage` cache if newer
 3. Attempt live refresh from GitHub APIs (with cooldown + jitter)
 4. Fall back gracefully if network refresh fails
+
+**The landing page is exempt from steps 2-4 and must stay that way.** Its
+statistics come from `data/site-data.json` alone, which
+`scripts/sync-site-data.mjs` projects offline from the kernel's canonical
+`docs/codebase_map.json`; `index.html` ships with those same values stamped into
+the markup, so a failed fetch degrades to the correct numbers. `connect-src` is
+`'self'` on that page to keep it that way.
+
+### Landing-page metrics are canonical or absent
+
+`docs/codebase_map.json` is the source of truth for every published statistic —
+the kernel generates it, and seLe4n's own README table is rendered from its
+`readme_sync` block.
+
+- A metric may fall back to another key **of the same artifact**; it may never
+  fall back to a source outside it. A README parse, a `GET /languages` byte
+  estimate and a `modules × 2` build-job count all shipped as facts this way.
+- A missing key aborts the sync (`canonicalMetricsIssues`). Publishing a partial
+  projection is how the page drifted in the first place.
+- Scope is **production Lean** (`production_files` / `production_loc` /
+  `proved_theorem_lemma_decls`), so the three headline figures describe one
+  corpus. Recorded as `metricsScope` and pinned by `validate-data.mjs`.
+- Never write a metric into `index.html` or a locale by hand. Every literal copy
+  is stamped by `scripts/apply-static-values.mjs`; `static-values.test.mjs`
+  fails when the committed tree drifts.
+
+### Locale files embed live metrics
+
+`data-i18n-html` sets `el.innerHTML` wholesale, so each `locales/*.json` carries
+its own copy of the `data-live` spans **and the numbers inside them**. They
+silently drifted to `546` while `index.html` said `574`. Any change touching a
+metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
+`locales/` must be committed together.
 
 ### Map data normalization
 

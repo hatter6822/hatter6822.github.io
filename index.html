@@ -26,11 +26,17 @@
   <link rel="apple-touch-icon" href="assets/images/favicon.png">
   <link rel="preload" as="image" href="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" imagesrcset="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png 1x" fetchpriority="high">
 
+  <!-- raw.githubusercontent.com serves the logo only; the page makes no
+       api.github.com request, so no hint is warmed for it. -->
   <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
-  <link rel="dns-prefetch" href="https://api.github.com">
 
   <link rel="stylesheet" href="assets/css/style.css">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+  <!-- connect-src is 'self' alone: every statistic on this page comes from the
+       bundled data/site-data.json snapshot, so the runtime has no reason to
+       reach GitHub. Keeping the origins out of the policy makes that a rule the
+       browser enforces, not just a convention. img-src still allows
+       raw.githubusercontent.com for the logo. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()">
 
@@ -46,7 +52,7 @@
     "codeRepository": "https://github.com/hatter6822/seLe4n",
     "programmingLanguage": ["Lean 4", "Rust"],
     "license": "https://www.gnu.org/licenses/gpl-3.0.html",
-    "version": "0.34.41",
+    "version": "0.34.56",
     "author": {
       "@type": "Person",
       "name": "hatter6822",
@@ -116,15 +122,15 @@
 
       <div class="hero-stats">
         <div class="stat">
-          <span class="stat-value" data-live="theorems">8472</span>
+          <span class="stat-value" data-live="theorems">11,000</span>
           <span class="stat-label" data-i18n="hero.stat_theorems">Proven Theorems</span>
         </div>
         <div class="stat">
-          <span class="stat-value" data-live="lines">495,973</span>
+          <span class="stat-value" data-live="lines">330,569</span>
           <span class="stat-label" data-i18n="hero.stat_lines">Lines of Lean 4</span>
         </div>
         <div class="stat">
-          <span class="stat-value" data-live="modules">287</span>
+          <span class="stat-value" data-live="modules">311</span>
           <span class="stat-label" data-i18n="hero.stat_modules">Lean Modules</span>
         </div>
         <div class="stat">
@@ -139,7 +145,7 @@
         <a href="/map.html" class="btn btn-secondary" data-i18n="hero.explore_map">Explore Code Map</a>
       </div>
 
-      <p class="hero-version">v<span data-live="version">0.34.41</span> &middot; Lean <span data-live="lean-version">4.28.0</span> &middot; GPLv3+</p>
+      <p class="hero-version">v<span data-live="version">0.34.56</span> &middot; Lean <span data-live="lean-version">4.28.0</span> &middot; GPLv3+</p>
     </div>
   </header>
 
@@ -199,7 +205,7 @@
         <div class="card">
           <h3 data-i18n="about.status_title">Project Status</h3>
           <p data-i18n-html="about.status_text">
-            seLe4n is an active research project at version <strong data-live="version">0.34.41</strong>. The kernel
+            seLe4n is an active research project at version <strong data-live="version">0.34.56</strong>. The kernel
             model is feature-complete with 30 syscalls spanning IPC, scheduling, capabilities, memory management,
             notifications, information-flow control, and service orchestration.
             A companion <a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer" class="code-link">Rust workspace</a>
@@ -713,7 +719,7 @@
             <h3 data-i18n="verification.tier1_name">Build</h3>
           </div>
           <p data-i18n-html="verification.tier1_text">
-            Full Lean compilation across <span data-live="build-jobs">574</span> parallel build jobs. All <span data-live="theorems">8472</span> theorems are
+            Full Lean compilation of all <span data-live="modules">311</span> Lean modules. All <span data-live="theorems">11,000</span> theorems are
             type-checked. Every invariant proof, every bridge lemma, every preservation
             theorem is verified by the Lean type-checker. If it compiles, the proofs hold.
           </p>
@@ -861,8 +867,8 @@
     <div class="container">
       <h2 class="section-title" data-i18n="structure.title">Project Structure</h2>
       <p class="section-lead" data-i18n-html="structure.lead">
-        <span data-live="modules">287</span> Lean modules,
-        <span data-live="scripts">63</span> test and CI scripts, and <span data-live="docs">250</span> documentation files with specifications, ADRs, and roadmaps.
+        <span data-live="modules">311</span> Lean modules,
+        <span data-live="scripts">65</span> test and CI scripts, and <span data-live="docs">252</span> documentation files with specifications, ADRs, and roadmaps.
       </p>
 
       <div class="file-tree">
@@ -895,7 +901,7 @@
         </div>
         <div class="tree-group">
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/docs" target="_blank" rel="noopener noreferrer">docs/</a> <span class="tree-desc">&mdash; Living specifications, ADRs, threat model, IF roadmap, and claim index evidence.</span></div>
-          <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/scripts" target="_blank" rel="noopener noreferrer">scripts/</a> <span class="tree-desc">&mdash; <span data-live="scripts">63</span> test, CI, and documentation scripts</span></div>
+          <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/scripts" target="_blank" rel="noopener noreferrer">scripts/</a> <span class="tree-desc">&mdash; <span data-live="scripts">65</span> test, CI, and documentation scripts</span></div>
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/tests" target="_blank" rel="noopener noreferrer">tests/</a> <span class="tree-desc">&mdash; InformationFlowSuite, NegativeStateSuite, TraceSequenceProbe, RobinHoodSuite, RadixTreeSuite, FrozenStateSuite, FreezeProofSuite, FrozenOpsSuite, TwoPhaseArchSuite, OperationChainSuite, plus the Smp* per-core and lock-primitive suite families</span></div>
           <div class="tree-dir"><a href="https://github.com/hatter6822/seLe4n/tree/main/rust" target="_blank" rel="noopener noreferrer">rust/</a> <span class="tree-desc">&mdash; Rust workspace (4 crates, safe wrappers for 27 of 30 syscalls)</span></div>
           <div class="tree-children">
@@ -945,8 +951,8 @@ cd seLe4n</code></pre>
           <div class="step-content">
             <h3 data-i18n="getting_started.step3_title">Build &amp; Verify</h3>
             <p data-i18n-html="getting_started.step3_text">
-              Build the entire kernel. All <span data-live="theorems">8472</span> theorems are checked during compilation
-              across <span data-live="build-jobs">574</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.
+              Build the entire kernel. All <span data-live="theorems">11,000</span> theorems are checked during compilation
+              of all <span data-live="modules">311</span> Lean modules. Zero <code>sorry</code>, zero <code>axiom</code>.
             </p>
             <pre><code>lake build</code></pre>
           </div>
@@ -1148,7 +1154,7 @@ cargo test</code></pre>
             <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark" loading="lazy" width="160" height="64">
           </a>
           <p data-i18n="footer.brand_text">A microkernel written in Lean 4 with machine-checked proofs.</p>
-          <p class="footer-meta">v<span data-live="version">0.34.41</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
+          <p class="footer-meta">v<span data-live="version">0.34.56</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>
           <p class="footer-license">Licensed under <a href="https://github.com/hatter6822/seLe4n/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">GPLv3+</a></p>
         </div>
         <div class="footer-links">
@@ -1184,7 +1190,7 @@ cargo test</code></pre>
         <p>
           seLe4n &middot; Created thoughtfully with the help of Claude and Codex &middot;
           Commit <span data-live="commit-sha">main</span> &middot;
-          Updated <time data-live="updated-at" datetime="2026-08-31T00:27:29Z">live from repository</time>
+          Updated <time data-live="updated-at" datetime="2026-09-05T15:04:11.000Z">live from repository</time>
         </p>
       </div>
     </div>

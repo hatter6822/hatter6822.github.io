@@ -1,12 +1,12 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.27.0**.
+> Documentation baseline: website release **0.28.0**.
 
 ## Audit summary
 
 ### Strengths
 - Strict CSP/referrer/permissions policies are present on both pages.
-- Data hydration already supports bundled snapshots plus live refresh.
+- Data hydration already supports bundled snapshots plus live refresh (the landing page deliberately opts out — see "Landing-page statistics have one source").
 - The code map is feature rich and includes keyboard navigation, URL state sync, and caching.
 
 ### Primary growth constraints identified
@@ -40,7 +40,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - `map.html`: codebase map workspace with filtering, graphing, and interior-symbol inspection
 
 ### Data contracts
-- `data/site-data.json`: baseline for site metrics
+- `data/site-data.json`: the *only* source of landing-page metrics, projected offline from the kernel's canonical `docs/codebase_map.json`
 - `data/map-data.json`: baseline for codebase map
 
 ### Internationalization (i18n)
@@ -757,3 +757,86 @@ the width pressure that makes the other keys diverge.
 
 Treat any `nav.*` value as a layout-constrained string. If a second surface
 needs the same words, give it its own key.
+
+
+## Landing-page statistics have one source (0.28.0)
+
+Every figure on `index.html` — proven theorems, lines of Lean 4, Lean modules,
+admitted proofs, version, toolchain — is projected from one artifact:
+`docs/codebase_map.json` in the seLe4n repository. The kernel's
+`scripts/generate_codebase_map.py` emits it, and the kernel's own README
+"Current state" table is rendered from the same `readme_sync` block. Reading the
+artifact is what keeps the site and the kernel from contradicting each other.
+
+### What went wrong
+
+The site published `8,472` theorems, `495,973` lines and `287` modules while the
+artifact said `11,000`, `330,569` and `311`. Three independent faults stacked:
+
+1. **The projection was written against a schema that does not exist.** It read
+   `readme_sync.lean_version`, `readme_sync.build_jobs`, `stats.*` and a
+   top-level `files[]`. The artifact has never carried any of them; the real
+   keys are `lean_toolchain`, `production_files`, `production_loc`,
+   `proved_theorem_lemma_decls` and `summary.module_count`. Every miss fell
+   through to a fallback. Its unit tests passed because their fixtures were
+   built in the same invented shape.
+
+2. **The fallbacks were fabrications, not degradations.** `lines` came from
+   `GET /languages`, dividing Lean bytes by an empirical constant of 38.
+   `modules` came from a git-tree scan of `SeLe4n/Kernel/**` — a third
+   definition, 249, alongside the snapshot's 287 and the artifact's 311.
+   `buildJobs` was `modules × 2`, and "574 parallel build jobs" appeared twice
+   in the page's copy; upstream publishes no build-job count anywhere.
+   `admitted: 0` was a literal in the source.
+
+3. **Nothing asserted provenance.** `validate-data.mjs` checked that every field
+   had the right type, and it did. A snapshot assembled entirely from README
+   prose and byte estimates validated cleanly, so the drift was invisible in CI.
+   The fix commit that repaired the projection hand-edited
+   `metricsSource: docs/codebase_map.json` into the snapshot without re-running
+   the sync, and the wrong numbers shipped under a label claiming otherwise.
+
+A fourth fault was latent: each `locales/*.json` bakes the metric literals into
+its translated HTML, because `data-i18n-html` replaces an element's innerHTML
+wholesale. Those copies said `546` build jobs while `index.html` said `574`.
+
+### The invariants now
+
+- **The browser derives nothing.** `assets/js/site.js` fetches
+  `data/site-data.json` and renders it. The five GitHub endpoints, the README
+  parse, the byte estimate and the 30-day `localStorage` cache are gone; the
+  legacy cache key is purged on load so returning visitors stop carrying a
+  stored snapshot of the heuristics. `index.html` sets `connect-src 'self'`,
+  which makes this a rule the browser enforces rather than a convention.
+- **Substitution stays inside the artifact.** A metric may fall back to another
+  key of the same artifact; it may never fall back to a source outside it. When
+  a required key is missing, `canonicalMetricsIssues()` aborts the sync and
+  names the statistic it feeds, so an upstream schema change is a red build.
+- **Scope is production Lean.** `proved_theorem_lemma_decls` is production-only
+  by construction upstream, so modules (`production_files`) and lines
+  (`production_loc`) are taken production-only too. The three headline figures
+  describe one corpus and match the README exactly. `metricsScope: "production"`
+  records the decision in the data.
+- **Provenance is checkable.** The snapshot carries `metricsSource`,
+  `metricsScope`, `sourceRepo`, `sourceRef`, `schemaVersion` and `sourceDigest`,
+  and `validate-data.mjs` pins the first four to exact values. `commitSha` and
+  `updatedAt` come from the artifact's own `repository.head` — the commit the
+  statistics were *measured* at, not the tip of `main`.
+- **Every literal copy is stamped from the snapshot.**
+  `apply-static-values.mjs` rewrites `index.html` and all six locale bundles,
+  and `static-values.test.mjs` fails if the committed tree drifts. Counts are
+  comma-grouped identically on both sides so hydration does not visibly rewrite
+  a figure.
+- **`admitted` is derived, not asserted.** It counts `axiom` declarations plus
+  declarations whose `called` list reaches `sorry`/`sorryAx`, and returns
+  `undefined` rather than a published `0` when the artifact carries no
+  declaration inventory — an absent inventory is not evidence of zero.
+
+### Consequences accepted
+
+The page no longer states a build-job count; the Tier 1 and quick-start copy
+cite the canonical Lean-module count instead, in all six locales. Statistics are
+now as fresh as the last CI sync, which runs weekly and on every upstream
+release via `repository_dispatch` — in exchange, a visitor no longer downloads
+574 KB of canonical map to read six integers, and no render path can produce a
+figure the kernel never asserted.

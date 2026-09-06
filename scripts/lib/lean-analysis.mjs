@@ -135,41 +135,91 @@ export function extractImportTokens(sourceText) {
   return tokens;
 }
 
-export function parseCurrentStateMetrics(readmeText) {
-  if (!readmeText) return {};
 
-  const metrics = {};
-  const rows = readmeText.split(/\r?\n/);
+/**
+ * ── Canonical metrics projection ───────────────────────────────────────────
+ *
+ * `docs/codebase_map.json` in the seLe4n repository is the single source of
+ * truth for every landing-page statistic. The kernel's own
+ * `scripts/generate_codebase_map.py` emits it, and the upstream README's
+ * "Current state" table is itself rendered from the same `readme_sync` block —
+ * so reading the artifact is what keeps this site and that README from
+ * contradicting each other.
+ *
+ * Schema targeted (`schema_version` 1.0.0):
+ *
+ *   summary.module_count                      381   production + test modules
+ *   summary.declaration_count              19,039
+ *   readme_sync.version                  "0.34.56"
+ *   readme_sync.lean_toolchain            "v4.28.0"
+ *   readme_sync.production_files              311
+ *   readme_sync.production_loc            330,569
+ *   readme_sync.test_files                     70
+ *   readme_sync.test_loc                   68,907
+ *   readme_sync.proved_theorem_lemma_decls 11,000
+ *   modules[].declarations[]      { kind, name, line, called[] }
+ *
+ * Scope: the landing page reports *production* Lean — everything outside
+ * `tests/`. Upstream computes `proved_theorem_lemma_decls` over production
+ * files only, so modules and lines are taken production-only too. The three
+ * headline figures then describe one corpus and match the README exactly.
+ *
+ * Substitution rule: a metric may fall back to another key *of the same
+ * artifact*, never to a source outside it. Earlier revisions of this
+ * projection guessed at key names the artifact has never carried
+ * (`lean_version`, `build_jobs`, `stats.*`, `files[]`); the misses fell
+ * through to heuristics — a README table parse, a `GET /languages` byte
+ * estimate, a `modules × 2` build-job invention — and the page published
+ * figures no upstream source asserts. `canonicalMetricsIssues()` now fails the
+ * sync loudly when a required key goes missing, so a schema change upstream
+ * surfaces as a red build instead of a plausible-looking wrong number.
+ */
 
-  for (const row of rows) {
-    const cells = row.split('|').map((cell) => cell.trim());
-    if (cells.length < 3) continue;
+/** Required canonical keys, as dotted paths, with the metric each feeds. */
+const CANONICAL_KEYS = Object.freeze([
+  ['readme_sync.version', 'version'],
+  ['readme_sync.lean_toolchain', 'leanVersion'],
+  ['readme_sync.production_files', 'modules'],
+  ['readme_sync.production_loc', 'lines'],
+  ['readme_sync.proved_theorem_lemma_decls', 'theorems'],
+  ['repository.head.commit_sha', 'commitSha'],
+  ['repository.head.committed_at_utc', 'updatedAt']
+]);
 
-    const metric = cells[1]?.toLowerCase() ?? '';
-    const value = cells[2] ?? '';
+function readPath(root, dottedPath) {
+  let node = root;
+  for (const segment of dottedPath.split('.')) {
+    if (!node || typeof node !== 'object') return undefined;
+    node = node[segment];
+  }
+  return node;
+}
 
-    if (metric.includes('version')) {
-      const version = value.match(/\d+\.\d+\.\d+/);
-      if (version) metrics.version = version[0];
-    }
+/**
+ * Report every canonical key the landing page needs but the artifact lacks.
+ *
+ * Returns an empty array for a well-formed map. Callers are expected to treat
+ * a non-empty result as fatal: publishing a partially-projected snapshot is
+ * how the page drifted away from the artifact in the first place.
+ */
+export function canonicalMetricsIssues(codebaseMap) {
+  if (!codebaseMap || typeof codebaseMap !== 'object') {
+    return ['docs/codebase_map.json: expected a JSON object'];
+  }
 
-    if (metric.includes('production loc')) {
-      const loc = value.match(/\d[\d,]*/);
-      if (loc) metrics.lines = loc[0];
-    }
-
-    if (metric.includes('theorem')) {
-      const theoremMatch = value.match(/\d[\d,]*/);
-      if (theoremMatch) metrics.theorems = Number(theoremMatch[0].replace(/,/g, ''));
-    }
-
-    if (metric.includes('build job')) {
-      const buildJobsMatch = value.match(/\d[\d,]*/);
-      if (buildJobsMatch) metrics.buildJobs = Number(buildJobsMatch[0].replace(/,/g, ''));
+  const issues = [];
+  for (const [path, metric] of CANONICAL_KEYS) {
+    const value = readPath(codebaseMap, path);
+    if (value === undefined || value === null || value === '') {
+      issues.push(`docs/codebase_map.json: missing ${path} (feeds the "${metric}" statistic)`);
     }
   }
 
-  return metrics;
+  if (!Array.isArray(codebaseMap.modules) || codebaseMap.modules.length === 0) {
+    issues.push('docs/codebase_map.json: modules[] is empty — cannot verify the admitted-proof count');
+  }
+
+  return issues;
 }
 
 export function theoremCountFromCodebaseMap(codebaseMap) {
@@ -238,60 +288,135 @@ export function theoremCountFromCodebaseMap(codebaseMap) {
   return Number.isFinite(statsTheorems) && statsTheorems > 0 ? statsTheorems : 0;
 }
 
+/**
+ * Count admitted proofs recorded by the canonical artifact.
+ *
+ * Two declaration shapes qualify: an `axiom` (a proposition asserted rather
+ * than proved) and any declaration whose extracted call list reaches `sorry`
+ * or `sorryAx`. Both are recorded per declaration under
+ * `modules[].declarations`, which turns the hero's "Admitted Proofs" tile from
+ * a hand-written `0` into a figure the artifact actually supports.
+ *
+ * Returns `undefined` when the map carries no declaration inventory — an
+ * absent inventory is not evidence of zero, and the caller must not publish
+ * one as if it were.
+ */
+export function admittedCountFromCodebaseMap(codebaseMap) {
+  const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
+  if (!map || !Array.isArray(map.modules) || map.modules.length === 0) return undefined;
+
+  let admitted = 0;
+  let sawDeclarations = false;
+
+  for (const moduleInfo of map.modules) {
+    const declarations = moduleInfo?.declarations;
+    if (!Array.isArray(declarations)) continue;
+    sawDeclarations = true;
+
+    for (const declaration of declarations) {
+      if (String(declaration?.kind ?? '').toLowerCase() === 'axiom') {
+        admitted += 1;
+        continue;
+      }
+
+      const called = declaration?.called;
+      if (!Array.isArray(called)) continue;
+      if (called.some((name) => /^sorry(?:Ax)?$/.test(String(name ?? '')))) admitted += 1;
+    }
+  }
+
+  return sawDeclarations ? admitted : undefined;
+}
+
 function positiveInteger(value) {
   const number = typeof value === 'string' ? Number(value.replace(/,/g, '')) : Number(value);
   return Number.isInteger(number) && number >= 0 ? number : undefined;
 }
 
+function firstInteger(...values) {
+  for (const value of values) {
+    const parsed = positiveInteger(value);
+    if (parsed !== undefined) return parsed;
+  }
+  return undefined;
+}
+
 /**
- * Project landing-page statistics from the upstream codebase map.
+ * Project the landing page's statistics from the canonical codebase map.
  *
- * `docs/codebase_map.json` is generated alongside the kernel and is the
- * canonical metrics artifact. Keep this projection deliberately independent
- * from README wording and GitHub's byte-based language estimate: those are
- * useful human-facing views, but must not silently disagree with the artifact.
+ * Returns only the metrics the artifact supports; a caller that needs a
+ * complete set must check `canonicalMetricsIssues()` first rather than filling
+ * gaps from elsewhere.
  */
 export function siteMetricsFromCodebaseMap(codebaseMap) {
   const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
   if (!map) return {};
 
   const sync = map.readme_sync && typeof map.readme_sync === 'object' ? map.readme_sync : {};
-  const stats = map.stats && typeof map.stats === 'object' ? map.stats : {};
+  const summary = map.summary && typeof map.summary === 'object' ? map.summary : {};
   const metrics = {};
-  const firstInteger = (...values) => {
-    for (const value of values) {
-      const parsed = positiveInteger(value);
-      if (parsed !== undefined) return parsed;
-    }
-    return undefined;
-  };
 
   if (typeof sync.version === 'string' && sync.version.trim()) metrics.version = sync.version.trim();
-  if (typeof sync.lean_version === 'string' && sync.lean_version.trim()) metrics.leanVersion = sync.lean_version.trim();
 
-  const lines = firstInteger(sync.production_loc, sync.lines, stats.production_loc, stats.lines);
+  // `lean_toolchain` carries the toolchain tag ("v4.28.0"); the page renders a
+  // bare version after the word "Lean".
+  const toolchain = [sync.lean_toolchain, sync.lean_version].find((value) => typeof value === 'string' && value.trim());
+  if (toolchain) metrics.leanVersion = toolchain.trim().replace(/^v/i, '');
+
+  const lines = firstInteger(sync.production_loc);
   if (lines !== undefined) metrics.lines = lines;
 
-  const theoremTotal = theoremCountFromCodebaseMap(map);
-  if (theoremTotal > 0) metrics.theorems = theoremTotal;
-
-  const explicitModules = firstInteger(sync.modules, sync.lean_modules, stats.modules);
-  if (explicitModules !== undefined) metrics.modules = explicitModules;
-  else if (Array.isArray(map.modules)) metrics.modules = map.modules.length;
-
-  const buildJobs = firstInteger(sync.build_jobs, sync.buildJobs, stats.build_jobs, stats.buildJobs);
-  if (buildJobs !== undefined) metrics.buildJobs = buildJobs;
-
-  const admitted = firstInteger(sync.admitted, sync.admitted_proofs, stats.admitted);
-  if (admitted !== undefined) metrics.admitted = admitted;
-
-  // Some canonical maps include the complete repository inventory. Derive
-  // these secondary counts from it rather than issuing a second tree request.
-  if (Array.isArray(map.files)) {
-    const paths = map.files.map((entry) => typeof entry === 'string' ? entry : entry?.path).filter(Boolean);
-    metrics.scripts = paths.filter((path) => /^scripts\/.*\.sh$/.test(path)).length;
-    metrics.docs = paths.filter((path) => /^docs\/.*\.(?:md|txt)$/.test(path)).length;
+  // The artifact's own tally wins. theoremCountFromCodebaseMap measures a
+  // different thing — structured `kind` over every module, tests included —
+  // and stands in only for a map that predates `proved_theorem_lemma_decls`.
+  const theorems = firstInteger(sync.proved_theorem_lemma_decls);
+  if (theorems !== undefined) {
+    metrics.theorems = theorems;
+  } else {
+    const scanned = theoremCountFromCodebaseMap(map);
+    if (scanned > 0) metrics.theorems = scanned;
   }
 
+  // production_files is the production-scoped count the other two headline
+  // figures share; summary.module_count (which includes tests/) is the
+  // same-artifact stand-in, and canonicalMetricsIssues flags the substitution.
+  const modules = firstInteger(sync.production_files, summary.module_count);
+  if (modules !== undefined) metrics.modules = modules;
+
+  const admitted = admittedCountFromCodebaseMap(map);
+  if (admitted !== undefined) metrics.admitted = admitted;
+
   return metrics;
+}
+
+/**
+ * Extract the provenance of a canonical map: which commit the statistics were
+ * measured at, and when. Kept separate from the metrics so a snapshot always
+ * records the artifact revision it came from — `commitSha` names the commit
+ * the map was generated at, not whatever happens to be at the tip of `main`.
+ */
+export function canonicalProvenance(codebaseMap) {
+  const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
+  if (!map) return {};
+
+  const head = map.repository?.head;
+  const provenance = {};
+
+  if (typeof map.schema_version === 'string' && map.schema_version.trim()) {
+    provenance.schemaVersion = map.schema_version.trim();
+  }
+
+  if (typeof head?.commit_sha === 'string' && /^[0-9a-f]{7,40}$/i.test(head.commit_sha)) {
+    provenance.commitSha = head.commit_sha.slice(0, 7);
+  }
+
+  // The generator writes an offset timestamp ("+00:00"); the site's schema and
+  // the <time datetime> attribute both want a `Z`-suffixed instant.
+  const committedAt = Date.parse(head?.committed_at_utc ?? '');
+  if (!Number.isNaN(committedAt)) provenance.updatedAt = new Date(committedAt).toISOString();
+
+  const digest = map.source_sync?.source_digest;
+  if (typeof digest === 'string' && /^[0-9a-f]{64}$/i.test(digest)) provenance.sourceDigest = digest;
+
+  return provenance;
 }

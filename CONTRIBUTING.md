@@ -69,10 +69,17 @@ If you changed scripts or map data flow:
    - `node scripts/sync-site-data.mjs`
    - `node scripts/sync-map-data.mjs`
    - `node scripts/sync-trace-data.mjs`
-   - `node scripts/apply-static-values.mjs` (keeps index.html static fallbacks in lockstep)
+   - `node scripts/apply-static-values.mjs` (stamps index.html **and** every `locales/*.json` bundle)
 2. Run validation script.
-3. Ensure generated JSON is committed when intentionally updated.
+3. Ensure generated JSON is committed when intentionally updated — `index.html`,
+   `data/`, and `locales/` move together.
 4. Document behavior changes in `docs/`.
+
+Landing-page statistics are projected from the kernel's canonical
+`docs/codebase_map.json` and from nothing else. If a figure is missing from that
+artifact, the sync must fail rather than substitute an estimate — a
+README parse, a byte-count heuristic, or an arithmetic guess. See the scope and
+substitution rules in `scripts/lib/lean-analysis.mjs`.
 
 ## Documentation best practices
 

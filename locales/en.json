@@ -134,7 +134,7 @@
     "what_different_title": "What Makes It Different?",
     "what_different_text": "seLe4n <strong>unifies implementation and proof in a single language</strong> — no separate proof assistant, no translation layer, no semantic gap. Each subsystem follows an Operations/Invariant split: executable transitions live in <code>Operations.lean</code>, and their machine-checked proofs live alongside in <code>Invariant.lean</code>. The type-checker enforces that every invariant holds across every operation.",
     "status_title": "Project Status",
-    "status_text": "seLe4n is an active research project at version <strong data-live=\"version\">{{version}}</strong>. The kernel model is feature-complete with 30 syscalls spanning IPC, scheduling, capabilities, memory management, notifications, information-flow control, and service orchestration. A companion <a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">Rust workspace</a> provides safe, <code>no_std</code> wrappers for the kernel's syscall ABI. The hardware binding for the Raspberry Pi 5 is complete &mdash; HAL, GIC-400 interrupt controller, ARM Generic Timer, ARMv8 page tables, and QEMU boot &mdash; with SMP multi-core support as the active workstream.",
+    "status_text": "seLe4n is an active research project at version <strong data-live=\"version\">0.34.56</strong>. The kernel model is feature-complete with 30 syscalls spanning IPC, scheduling, capabilities, memory management, notifications, information-flow control, and service orchestration. A companion <a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">Rust workspace</a> provides safe, <code>no_std</code> wrappers for the kernel's syscall ABI. The hardware binding for the Raspberry Pi 5 is complete &mdash; HAL, GIC-400 interrupt controller, ARM Generic Timer, ARMv8 page tables, and QEMU boot &mdash; with SMP multi-core support as the active workstream.",
     "created_with": "Created thoughtfully with the help of Claude and Codex."
   },
   "architecture": {
@@ -293,7 +293,7 @@
     "use_full": "Full verification — invariant/theorem changes",
     "use_nightly": "Nightly CI — determinism + experimental",
     "tier0_text": "Forbidden-marker scans ensure zero <code>sorry</code> and zero <code>axiom</code> across all production code. Documentation link validation, sync checks, and formatting enforcement. The first line of defense.",
-    "tier1_text": "Full Lean compilation across <span data-live=\"build-jobs\">546</span> parallel build jobs. All <span data-live=\"theorems\">8472</span> theorems are type-checked. Every invariant proof, every bridge lemma, every preservation theorem is verified by the Lean type-checker. If it compiles, the proofs hold.",
+    "tier1_text": "Full Lean compilation of all <span data-live=\"modules\">311</span> Lean modules. All <span data-live=\"theorems\">11,000</span> theorems are type-checked. Every invariant proof, every bridge lemma, every preservation theorem is verified by the Lean type-checker. If it compiles, the proofs hold.",
     "tier2_text": "Trace sequence probes validate executable behavior against formal semantics. The negative-state suite tests malformed input rejection across IPC, capabilities, endpoints, and CSpace mutations. Determinism validation runs the trace executable twice and requires identical output. Information-flow runtime checks verify enforcement wrappers.",
     "tier3_text": "Anchors every named theorem and invariant to the proof surface. Verifies that all documented claims in the <a href=\"https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md\" target=\"_blank\" rel=\"noopener noreferrer\">Claim & Evidence Index</a> are backed by actual code. Ensures no proof regressions across refactoring. The full correctness gate for PRs.",
     "tier4_text": "Scenario-seed replay from the canonical catalog, staged experimental candidate validation, and long-running invariant probes. An opt-in Tier 5 harness cross-checks the Lean oracle against the Rust oracle. Catches subtle regressions that slip through faster tiers.",
@@ -318,7 +318,7 @@
   },
   "structure": {
     "title": "Project Structure",
-    "lead": "<span data-live=\"modules\">{{modules}}</span> Lean modules, <span data-live=\"scripts\">{{scripts}}</span> test and CI scripts, and <span data-live=\"docs\">{{docs}}</span> documentation files with specifications, ADRs, and roadmaps."
+    "lead": "<span data-live=\"modules\">311</span> Lean modules, <span data-live=\"scripts\">65</span> test and CI scripts, and <span data-live=\"docs\">252</span> documentation files with specifications, ADRs, and roadmaps."
   },
   "getting_started": {
     "title": "Getting Started",
@@ -329,7 +329,7 @@
     "step4_title": "Run Tests",
     "step5_title": "Build Rust Syscall Wrappers",
     "step2_text": "The setup script installs <a href=\"https://github.com/leanprover/elan\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>elan</code></a> (the Lean version manager) with <strong>SHA-256 checksum verification</strong> and the pinned Lean <span data-live=\"lean-version\">4.28.0</span> toolchain.",
-    "step3_text": "Build the entire kernel. All <span data-live=\"theorems\">8472</span> theorems are checked during compilation across <span data-live=\"build-jobs\">546</span> parallel build jobs. Zero <code>sorry</code>, zero <code>axiom</code>.",
+    "step3_text": "Build the entire kernel. All <span data-live=\"theorems\">11,000</span> theorems are checked during compilation of all <span data-live=\"modules\">311</span> Lean modules. Zero <code>sorry</code>, zero <code>axiom</code>.",
     "step4_text": "Start with the smoke test (minimum for PRs), then run the full suite for invariant work.",
     "step5_text": "The <a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>rust/</code></a> workspace provides safe, <code>no_std</code> wrappers around the seLe4n syscall surface (27 of the 30 syscalls). Builds on both ARM64 (real trap) and x86_64 (mock trap for host-based testing).",
     "contributing_title": "Contributing",

@@ -471,10 +471,12 @@ malformed remote data can never corrupt the view.
 - **Rendering** — hand-rolled **SVG** + the **Web Animations API**, consistent with
   `map.js`. SVG is accessible, theme-able via CSS custom properties, and crisp at any
   zoom. No frameworks, no D3, no bundler. WebGL is reserved for the background.
-- **Strict CSP** — identical to the other pages (`default-src 'self'`,
-  `script-src 'self'`, `connect-src` limited to `api.github.com` +
-  `raw.githubusercontent.com`). No inline scripts/styles, no `eval`, no `innerHTML`
-  from trace data (all data rendered via `textContent`/`createElement`).
+- **Strict CSP** — as on `map.html` (`default-src 'self'`, `script-src 'self'`,
+  `connect-src` limited to `api.github.com` + `raw.githubusercontent.com`, which
+  `run.html` needs for its trace refresh; `index.html` is tighter at
+  `connect-src 'self'` because it fetches nothing beyond its bundled snapshot).
+  No inline scripts/styles, no `eval`, no `innerHTML` from trace data (all data
+  rendered via `textContent`/`createElement`).
 - **Performance** — delta-fold with per-step snapshots precomputed on scenario load
   (O(1) seeking); `requestAnimationFrame`-batched renders; DOM lookups cached at boot;
   CSS `contain` on the stage; touched-entity highlighting computed from ops (no diff).
