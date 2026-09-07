@@ -2070,3 +2070,26 @@ test('assuranceForModule extension-only module gets extension-only strength', as
   assert.ok(result.detail.includes('extension declaration'),
     'detail should mention extension declarations');
 });
+
+test('normalizeCanonicalPayload scopes the live refresh to production modules', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // The artifact inventories production and test modules; the bundled snapshot
+  // graphs production alone, and the landing page counts the same set. Applying
+  // the artifact verbatim replaced a 311-module map with a 381-module one, so a
+  // networked visit disagreed with index.html.
+  const normalized = hooks.normalizeCanonicalPayload({
+    schema_version: '1.0.0',
+    modules: [
+      { module: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean', declarations: [{ kind: 'theorem', name: 'a', line: 1, called: [] }] },
+      { module: 'Main', path: 'Main.lean', declarations: [{ kind: 'def', name: 'main', line: 1, called: [] }] },
+      { module: 'Tests.Smoke', path: 'tests/Smoke.lean', declarations: [{ kind: 'theorem', name: 'smoke', line: 1, called: [] }] },
+      { module: 'Tests.Deep', path: 'tests/deep/Deep.lean', declarations: [{ kind: 'theorem', name: 'deep', line: 1, called: [] }] }
+    ]
+  });
+
+  assert.deepEqual(Array.from(normalized.modules).sort(), ['Main', 'SeLe4n.Kernel.API']);
+  for (const testModule of ['Tests.Smoke', 'Tests.Deep']) {
+    assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, testModule), `${testModule} must not be graphed`);
+  }
+});

@@ -180,8 +180,18 @@ export function canonicalMetricsIssues(codebaseMap) {
   const modules = productionModules(codebaseMap);
   if (!modules.length) {
     issues.push('docs/codebase_map.json: no production modules in modules[]');
-  } else if (!modules.some((moduleInfo) => Array.isArray(moduleInfo.declarations))) {
-    issues.push('docs/codebase_map.json: modules[] carries no declaration inventory');
+  } else {
+    // Every production module, not merely one: a module without a declarations
+    // array contributes zero theorems and zero admitted proofs, and both
+    // snapshots inherit the same undercount, so cross-file validation would
+    // still pass. A truncated or partially generated artifact has to fail here
+    // rather than publish a plausible total.
+    const withoutInventory = modules.filter((moduleInfo) => !Array.isArray(moduleInfo.declarations));
+    if (withoutInventory.length) {
+      const named = withoutInventory.slice(0, 3).map((moduleInfo) => moduleInfo.module || moduleInfo.path).join(', ');
+      const rest = withoutInventory.length > 3 ? ` (+${withoutInventory.length - 3} more)` : '';
+      issues.push(`docs/codebase_map.json: ${withoutInventory.length} production module(s) carry no declaration inventory: ${named}${rest}`);
+    }
   }
 
   return issues;

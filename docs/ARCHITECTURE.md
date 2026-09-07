@@ -896,6 +896,13 @@ git clone --depth 1 seLe4n@main
   `commitSha` and `sourceDigest`, and `validateCrossFile` now fails the build —
   rather than warning — when those, the metrics source, or the module and
   theorem totals disagree.
+- **The live refresh is scoped the same way.** `map.js` re-fetches the canonical
+  artifact for freshness, and the artifact inventories production *and* test
+  modules. Applying it verbatim replaced the 311-module bundle with a
+  381-module map — and cached it — so a networked visit to `map.html`
+  disagreed with `index.html` while an offline one did not.
+  `normalizeCanonicalPayload` now applies the same production scope the
+  pipeline does, before it scores candidate payloads.
 
 ### Two upstream defects this surfaced
 

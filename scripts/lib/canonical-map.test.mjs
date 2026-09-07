@@ -169,9 +169,27 @@ test('canonicalMetricsIssues rejects an artifact with no usable inventory', () =
   ]);
   assert.deepEqual(
     canonicalMetricsIssues(canonicalMap({ modules: [{ module: 'A', path: 'SeLe4n/A.lean' }] })),
-    ['docs/codebase_map.json: modules[] carries no declaration inventory']
+    ['docs/codebase_map.json: 1 production module(s) carry no declaration inventory: A']
   );
   assert.deepEqual(canonicalMetricsIssues(null), ['docs/codebase_map.json: expected a JSON object']);
+});
+
+test('canonicalMetricsIssues rejects a partial declaration inventory', () => {
+  // One module keeping its declarations is not enough. A module without the
+  // array contributes zero theorems and zero admitted proofs, both snapshots
+  // inherit the same undercount, and cross-file validation still passes — so a
+  // truncated artifact would publish a plausible wrong total.
+  const map = canonicalMap();
+  delete map.modules[1].declarations;
+
+  const issues = canonicalMetricsIssues(map);
+  assert.equal(issues.length, 1);
+  assert.match(issues[0], /1 production module\(s\) carry no declaration inventory: Main/);
+
+  // A module with an empty array is a real, inventoried module — 20 such
+  // import-only files exist upstream — and must stay valid.
+  map.modules[1].declarations = [];
+  assert.deepEqual(canonicalMetricsIssues(map), []);
 });
 
 test('admittedCountFromCodebaseMap counts axioms and sorry-reaching declarations', () => {

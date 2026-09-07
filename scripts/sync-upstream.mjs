@@ -110,6 +110,18 @@ function digestOf(work, files) {
  */
 async function acquire() {
   const work = await mkdtemp(join(tmpdir(), 'sele4n-sync-'));
+  try {
+    return await acquireInto(work);
+  } catch (error) {
+    // The caller's finally block only runs once acquire() has returned, so
+    // without this a failed clone, a malformed artifact or a digest mismatch
+    // would strand a ~64 MB checkout in the system temp directory.
+    await rm(work, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function acquireInto(work) {
   execFileSync('git', ['clone', '--quiet', '--depth', '1', '--branch', REF, CLONE_URL, work],
     { stdio: ['ignore', 'ignore', 'pipe'] });
 

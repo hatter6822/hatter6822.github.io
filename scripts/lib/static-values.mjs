@@ -23,7 +23,11 @@ const LIVE_KEYS = Object.freeze({
   modules: 'modules',
   scripts: 'scripts',
   docs: 'docs',
-  lines: 'lines'
+  lines: 'lines',
+  // Derived from the artifact (axiom declarations plus anything reaching
+  // sorry), so it is no longer the constant it used to be. Left unstamped, a
+  // no-JS view would keep claiming zero admitted proofs on the day it isn't.
+  admitted: 'admitted'
 });
 
 function hasValue(value) {

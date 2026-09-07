@@ -19,6 +19,7 @@ const SAMPLE = [
   '<span data-live="modules">3</span>',
   '<span data-live="scripts">4</span>',
   '<span data-live="docs">5</span>',
+  '<span data-live="admitted">0</span>',
   '<span data-live="version">0.0.1</span> and <strong data-live="version">0.0.1</strong>',
   '<span data-live="lean-version">4.0.0</span>',
   '<span data-live="commit-sha">main</span>',
@@ -33,6 +34,7 @@ const DATA = {
   modules: 273,
   scripts: 61,
   docs: 245,
+  admitted: 0,
   updatedAt: '2026-08-13T12:24:09Z'
 };
 
@@ -44,6 +46,14 @@ test('rewrites every mapped data-live fallback', () => {
   assert.match(out, /data-live="scripts">61</);
   assert.match(out, /data-live="docs">245</);
   assert.match(out, /data-live="lean-version">4.28.0</);
+});
+
+test('stamps the admitted-proof count, which is no longer a constant', () => {
+  // admitted is derived from the artifact (axiom declarations plus anything
+  // reaching sorry). Unstamped, a no-JS view would keep claiming zero on the
+  // day the kernel reports otherwise.
+  const out = applyStaticValues('<span data-live="admitted">0</span>', { admitted: 3 });
+  assert.match(out, /data-live="admitted">3</);
 });
 
 test('renders counts exactly as assets/js/site.js renders them', () => {
@@ -87,7 +97,7 @@ test('applies cleanly to the real index.html and hits every mapped span', async 
   const html = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
   const data = JSON.parse(await readFile(new URL('../../data/site-data.json', import.meta.url), 'utf8'));
   const out = applyStaticValues(html, data);
-  for (const key of ['version', 'lean-version', 'theorems', 'modules', 'scripts', 'docs', 'lines']) {
+  for (const key of ['version', 'lean-version', 'theorems', 'modules', 'scripts', 'docs', 'lines', 'admitted']) {
     const spans = out.match(new RegExp(`data-live="${key}">([^<]*)<`, 'g')) || [];
     assert.ok(spans.length > 0, `index.html has no data-live="${key}" span`);
   }

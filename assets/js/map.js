@@ -3618,6 +3618,28 @@
     });
   }
 
+  /* The canonical artifact inventories production AND test modules, while the
+     bundled snapshot graphs the production corpus alone — the same modules the
+     landing page counts. Applying the artifact verbatim replaced a 311-module
+     map with a 381-module one, so a networked visit silently disagreed with
+     index.html. Scope the live payload the way scripts/sync-upstream.mjs scopes
+     the bundled one. */
+  function productionScopedPayload(payload) {
+    if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return payload;
+
+    var scoped = {};
+    for (var key in payload) {
+      if (Object.prototype.hasOwnProperty.call(payload, key)) scoped[key] = payload[key];
+    }
+
+    scoped.modules = payload.modules.filter(function (entry) {
+      if (!entry || typeof entry !== "object") return true;
+      return String(entry.path || "").indexOf("tests/") !== 0;
+    });
+
+    return scoped;
+  }
+
   function normalizeCanonicalPayload(payload, fallbackGeneratedAt) {
     function extractCanonicalMapPayload(input) {
       if (!input || typeof input !== "object") return null;
@@ -3633,7 +3655,9 @@
       var best = null;
       var bestCount = -1;
       for (var i = 0; i < candidates.length; i++) {
-        var candidate = candidates[i];
+        /* Scope before scoring, so the candidate that wins is the one that
+           will actually be applied. */
+        var candidate = productionScopedPayload(candidates[i]);
         if (!Array.isArray(candidate.modules)) continue;
         var normalizedCandidate = normalizeMapData(candidate, { requireModulesArray: true });
         var moduleCount = normalizedCandidate && Array.isArray(normalizedCandidate.modules) ? normalizedCandidate.modules.length : 0;
