@@ -412,7 +412,7 @@ Proposed upstream work (in the `hatter6822/seLe4n` repo):
 4. **Determinism guarantee** — because transitions are pure, the exported trace is
    reproducible and diffable in CI (a regression in behavior shows up as a trace diff).
 
-The website side is already wired: `scripts/sync-trace-data.mjs` fetches and validates
+The website side is already wired: `scripts/sync-upstream.mjs` reads and validates
 this artifact (schema + a full fold dry-run) and 404s gracefully to the bundled fixture,
 so the only remaining work to reach `source: "kernel"` is upstream.
 
@@ -433,7 +433,7 @@ Mirrors the established map/site pipeline (local-first, cache, graceful live ref
 
 ```
 upstream docs/execution-traces.json  (source: "kernel")
-        │  scripts/sync-trace-data.mjs   (fetch + validate + write — shipped)
+        │  scripts/sync-upstream.mjs     (read + validate + write — shipped)
         ▼
 data/execution-traces.json            (bundled snapshot, committed)
         │  load order at runtime (assets/js/run.js):
@@ -456,7 +456,7 @@ malformed remote data can never corrupt the view.
 | `assets/js/run.js` | Runtime: fold engine, SVG stage, rail, inspector, log, transport, sandbox, data load. |
 | `assets/css/run.css` | Page styles (reuses `style.css` tokens). |
 | `data/execution-traces.json` | Bundled reference fixture (9 scenarios, 45 steps). |
-| `scripts/sync-trace-data.mjs` | Fetches + validates upstream `docs/execution-traces.json`; 404s gracefully to the bundled fixture. |
+| `scripts/sync-upstream.mjs` | Reads + validates upstream `docs/execution-traces.json` from the synced checkout; falls back to the bundled fixture while it does not exist. |
 | `scripts/lib/trace-analysis.mjs` | Canonical fold engine + validator (Node). |
 | `scripts/lib/trace-analysis.test.mjs` | Unit tests (14 tests, `node:test`). |
 | `scripts/validate-traces.mjs` | CLI validator (Tier 2). |
@@ -471,10 +471,12 @@ malformed remote data can never corrupt the view.
 - **Rendering** — hand-rolled **SVG** + the **Web Animations API**, consistent with
   `map.js`. SVG is accessible, theme-able via CSS custom properties, and crisp at any
   zoom. No frameworks, no D3, no bundler. WebGL is reserved for the background.
-- **Strict CSP** — identical to the other pages (`default-src 'self'`,
-  `script-src 'self'`, `connect-src` limited to `api.github.com` +
-  `raw.githubusercontent.com`). No inline scripts/styles, no `eval`, no `innerHTML`
-  from trace data (all data rendered via `textContent`/`createElement`).
+- **Strict CSP** — as on `map.html` (`default-src 'self'`, `script-src 'self'`,
+  `connect-src` limited to `api.github.com` + `raw.githubusercontent.com`, which
+  `run.html` needs for its trace refresh; `index.html` is tighter at
+  `connect-src 'self'` because it fetches nothing beyond its bundled snapshot).
+  No inline scripts/styles, no `eval`, no `innerHTML` from trace data (all data
+  rendered via `textContent`/`createElement`).
 - **Performance** — delta-fold with per-step snapshots precomputed on scenario load
   (O(1) seeking); `requestAnimationFrame`-batched renders; DOM lookups cached at boot;
   CSS `contain` on the stage; touched-entity highlighting computed from ops (no diff).
@@ -526,7 +528,7 @@ perturbation breaking a structural check — all without a browser.
 ## 12. Phased roadmap
 
 - **Phase 1 — Vertical slice (shipped).** Schema v1, fold engine + tests + validator +
-  headless runtime test + `sync-trace-data.mjs`, **all seven scenes** (System, Scheduler,
+  headless runtime test + `sync-upstream.mjs`, **all seven scenes** (System, Scheduler,
   Capability, Memory, VSpace, Information-flow, Services) covering every headline
   subsystem, with tab switching, the invariant rail, inspector, event log, transport,
   deep-link URL state (incl. `scene`), the clearly-labeled sandbox, full
@@ -537,7 +539,7 @@ perturbation breaking a structural check — all without a browser.
   provenance via the source badge + disclaimer.
 - **Phase 2 — Upstream truth.** Add `SeLe4n/Testing/TraceExport.lean` + a CI artifact in
   the kernel repo, then flip the bundled snapshot to `source: "kernel"` — the
-  website-side `sync-trace-data.mjs` and the headless runtime test are already in place.
+  website-side `sync-upstream.mjs` and the headless runtime test are already in place.
   Add a Playwright transport probe.
 - **Phase 3 — Scene depth.** A dedicated IPC scene (call/reply pairing, donation chains)
   beyond the System scene's structure; a CNode-slot grid alongside the CDT; per-domain

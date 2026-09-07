@@ -27,6 +27,7 @@ Run all checks below from repository root:
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
@@ -65,14 +66,23 @@ If you changed UI behavior or layout:
 
 If you changed scripts or map data flow:
 
-1. Run sync scripts if needed:
-   - `node scripts/sync-site-data.mjs`
-   - `node scripts/sync-map-data.mjs`
-   - `node scripts/sync-trace-data.mjs`
-   - `node scripts/apply-static-values.mjs` (keeps index.html static fallbacks in lockstep)
+1. Run the sync pipeline if needed:
+   - `node scripts/sync-upstream.mjs` (one clone → all three `data/*.json` snapshots)
+   - `node scripts/apply-static-values.mjs` (stamps index.html **and** every `locales/*.json` bundle)
 2. Run validation script.
-3. Ensure generated JSON is committed when intentionally updated.
+3. Ensure generated JSON is committed when intentionally updated — `index.html`,
+   `data/`, and `locales/` move together.
 4. Document behavior changes in `docs/`.
+
+Published statistics are projected from the kernel's canonical
+`docs/codebase_map.json` and from nothing else. If a figure is missing from that
+artifact, the sync must fail rather than substitute an estimate — a README
+parse, a byte-count heuristic, or an arithmetic guess. See the scope and
+substitution rules in `scripts/lib/canonical-map.mjs`.
+
+Keep it one pipeline. The landing page and the code map describe the same
+production corpus at the same revision, and `validate-data.mjs` enforces it: do
+not add a second script that fetches upstream on its own.
 
 ## Documentation best practices
 

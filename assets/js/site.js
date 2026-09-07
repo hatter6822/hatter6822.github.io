@@ -1,29 +1,39 @@
 (function () {
   "use strict";
 
-  var STATIC_FALLBACK = {
-    admitted: 0
-  };
-
+  /**
+   * Statistics shown on this page have exactly one source: data/site-data.json,
+   * which scripts/sync-site-data.mjs projects from the kernel's canonical
+   * docs/codebase_map.json and CI validates before publishing.
+   *
+   * This runtime deliberately derives nothing. It previously refreshed the
+   * figures from five GitHub endpoints and reconstructed them here — a README
+   * table parse, a `GET /languages` bytes-per-line estimate, a tree scan that
+   * counted only SeLe4n/Kernel, a build-job count invented as modules × 2.
+   * Each was a second opinion the kernel never gave, so whenever one of those
+   * requests won a race or the canonical fetch failed, the page published a
+   * number no upstream source asserts — and cached it for thirty days. The
+   * projection now happens once, offline, where it is reviewed and tested;
+   * the browser only renders the result.
+   */
   var DATA_ENDPOINT = "data/site-data.json";
 
-  var REPO = "hatter6822/seLe4n";
-  var API = "https://api.github.com/repos/" + REPO;
-  var RAW = "https://raw.githubusercontent.com/" + REPO + "/";
-  var REF = "main";
-  var CODEBASE_MAP_PATH = "docs/codebase_map.json";
-  var CACHE_KEY = "sele4n-live-v2";
-  var CACHE_TTL = 6 * 60 * 60 * 1000;
-  var CACHE_MAX_STALE = 30 * 24 * 60 * 60 * 1000;
-  var DATA_SCHEMA_VERSION = 4;
   var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
   var NAV_INTENT_MAX_AGE_MS = 60 * 1000;
+
+  // Cache key of the retired live-refresh layer. Nothing reads it now; it is
+  // purged on load so a returning visitor stops carrying a stored snapshot of
+  // the heuristics above.
+  var LEGACY_LIVE_CACHE_KEY = "sele4n-live-v2";
 
   var FETCH_TIMEOUT_MS = 8000;
   var FETCH_OPTIONS = {
     credentials: "omit",
     cache: "no-store",
-    mode: "cors",
+    // Same-origin by construction: the only fetch this file makes is the
+    // bundled snapshot. Stated here so a cross-origin URL fails loudly rather
+    // than quietly reintroducing a second source of truth.
+    mode: "same-origin",
     redirect: "error",
     referrerPolicy: "no-referrer"
   };
@@ -59,8 +69,14 @@
       LIVE_NODE_CACHE[key] = els;
     }
 
+    // Counts arrive as numbers and are grouped here; `lines` arrives
+    // pre-grouped as a string. Both must render exactly like the literal that
+    // scripts/apply-static-values.mjs stamps into the markup, or hydration
+    // visibly rewrites the figure.
+    var rendered = typeof value === "number" ? formatNumber(value) : String(value);
+
     for (var i = 0; i < els.length; i++) {
-      var next = String(value);
+      var next = rendered;
       if (els[i].textContent !== next) els[i].textContent = next;
 
       if (els[i].tagName === "TIME") {
@@ -98,7 +114,6 @@
     update("theorems", data.theorems);
     update("scripts", data.scripts);
     update("docs", data.docs);
-    update("build-jobs", data.buildJobs);
     update("admitted", data.admitted);
     update("commit-sha", data.commitSha);
 
@@ -426,33 +441,13 @@
     }
   }
 
-  function getCached() {
-    try {
-      var raw = localStorage.getItem(CACHE_KEY);
-      if (!raw) return null;
-      var obj = JSON.parse(raw);
-      if (obj.schema !== DATA_SCHEMA_VERSION) return null;
-      if (!obj.data || typeof obj.data !== "object") return null;
-
-      var age = Date.now() - Number(obj.ts || 0);
-      if (age > CACHE_MAX_STALE) return null;
-
-      return {
-        data: obj.data,
-        age: age,
-        isFresh: age <= CACHE_TTL
-      };
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function setCache(data) {
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({ schema: DATA_SCHEMA_VERSION, ts: Date.now(), data: data }));
-    } catch (e) {}
-  }
-
+  /**
+   * Keys the page renders, in the shape data/site-data.json publishes them.
+   *
+   * Listing them explicitly means a field the snapshot stops carrying shows up
+   * as a missing number rather than as a stale one left over from whatever was
+   * applied before.
+   */
   function normalizeBundledData(data) {
     if (!data || typeof data !== "object") return null;
 
@@ -464,46 +459,14 @@
       theorems: data.theorems,
       scripts: data.scripts,
       docs: data.docs,
-      buildJobs: data.buildJobs,
       admitted: data.admitted,
       commitSha: data.commitSha,
-      updatedAt: data.updatedAt,
-      generatedAt: data.generatedAt
+      updatedAt: data.updatedAt
     };
   }
 
   function formatNumber(n) {
     return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  }
-
-  function mergeData(base, patch) {
-    var out = {};
-    var key;
-
-    for (key in base) out[key] = base[key];
-    for (key in patch) {
-      if (patch[key] === undefined || patch[key] === null || patch[key] === "") continue;
-      out[key] = patch[key];
-    }
-
-    return out;
-  }
-
-  function getDataTimestamp(data) {
-    if (!data) return 0;
-    var gen = data.generatedAt ? new Date(data.generatedAt).getTime() : 0;
-    var upd = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
-    if (Number.isNaN(gen)) gen = 0;
-    if (Number.isNaN(upd)) upd = 0;
-    return Math.max(gen, upd);
-  }
-
-  function fetchBundledData() {
-    return fetchJSON(DATA_ENDPOINT).then(function (payload) {
-      var normalized = normalizeBundledData(payload);
-      if (!normalized) throw new Error("Invalid bundled data");
-      return normalized;
-    });
   }
 
   function fetchWithTimeout(url) {
@@ -531,273 +494,29 @@
     });
   }
 
-  function parseCurrentStateMetrics(readmeText) {
-    if (!readmeText) return {};
-
-    var metrics = {};
-    var rows = readmeText.split(/\r?\n/);
-    for (var i = 0; i < rows.length; i++) {
-      var cells = rows[i].split('|');
-      if (cells.length < 3) continue;
-
-      var metric = (cells[1] || '').trim().toLowerCase();
-      var value = (cells[2] || '').trim();
-
-      if (metric.indexOf('version') !== -1) {
-        var version = value.match(/\d+\.\d+\.\d+/);
-        if (version) metrics.version = version[0];
-      }
-
-      if (metric.indexOf('production loc') !== -1) {
-        var lines = value.match(/\d[\d,]*/);
-        if (lines) metrics.lines = lines[0];
-      }
-
-      if (metric.indexOf('theorem') !== -1) {
-        var theorems = value.match(/\d[\d,]*/);
-        if (theorems) metrics.theorems = Number(theorems[0].replace(/,/g, ''));
-      }
-
-      if (metric.indexOf('build job') !== -1) {
-        var buildJobs = value.match(/\d[\d,]*/);
-        if (buildJobs) metrics.buildJobs = Number(buildJobs[0].replace(/,/g, ''));
-      }
-    }
-
-    return metrics;
-  }
-
-
-  function theoremCountFromCodebaseMap(codebaseMap) {
-    var map = codebaseMap && typeof codebaseMap === "object" ? codebaseMap : null;
-    if (!map) return 0;
-
-    function countTheoremDeclarations(declarations) {
-      if (!Array.isArray(declarations)) return 0;
-
-      var total = 0;
-      for (var i = 0; i < declarations.length; i++) {
-        var declaration = declarations[i] || {};
-        var kind = String(declaration.kind || "").toLowerCase();
-        if (kind === "theorem" || kind === "lemma") total += 1;
-      }
-
-      return total;
-    }
-
-    function countTheoremSymbols(symbols) {
-      if (!symbols || typeof symbols !== "object") return 0;
-
-      var theoremEntries = Array.isArray(symbols.theorems) ? symbols.theorems.length : 0;
-      if (theoremEntries > 0) return theoremEntries;
-
-      var byKind = symbols.byKind && typeof symbols.byKind === "object" ? symbols.byKind : {};
-      var byKindTheorems = Array.isArray(byKind.theorem) ? byKind.theorem.length : 0;
-      var byKindLemmas = Array.isArray(byKind.lemma) ? byKind.lemma.length : 0;
-      return byKindTheorems + byKindLemmas;
-    }
-
-    function countModuleTheorems(moduleLike) {
-      if (!moduleLike || typeof moduleLike !== "object") return 0;
-
-      var fromDeclarations = countTheoremDeclarations(moduleLike.declarations);
-      if (fromDeclarations > 0) return fromDeclarations;
-
-      var fromSymbols = countTheoremSymbols(moduleLike.symbols);
-      if (fromSymbols > 0) return fromSymbols;
-
-      var explicit = Number(moduleLike.theorems || moduleLike.theoremCount || (moduleLike.stats && moduleLike.stats.theorems));
-      return Number.isFinite(explicit) && explicit > 0 ? explicit : 0;
-    }
-
-    var total = 0;
-    var counted = {};
-
-    if (Array.isArray(map.modules)) {
-      for (var i = 0; i < map.modules.length; i++) {
-        var mod = map.modules[i];
-        total += countModuleTheorems(mod);
-        if (mod && mod.name) counted[mod.name] = true;
-      }
-    }
-
-    var moduleMeta = map.moduleMeta;
-    if (moduleMeta && typeof moduleMeta === "object") {
-      var moduleNames = Object.keys(moduleMeta);
-      for (var j = 0; j < moduleNames.length; j++) {
-        if (counted[moduleNames[j]]) continue;
-        total += countModuleTheorems(moduleMeta[moduleNames[j]]);
-      }
-    }
-
-    if (total > 0) return total;
-
-    var topLevel = Number(map.theorems);
-    if (Number.isFinite(topLevel) && topLevel > 0) return topLevel;
-
-    var statsTheorems = Number(map.stats && map.stats.theorems);
-    return Number.isFinite(statsTheorems) && statsTheorems > 0 ? statsTheorems : 0;
-  }
-
-  function siteMetricsFromCodebaseMap(codebaseMap) {
-    var map = codebaseMap && typeof codebaseMap === "object" ? codebaseMap : null;
-    if (!map) return {};
-    var sync = map.readme_sync && typeof map.readme_sync === "object" ? map.readme_sync : {};
-    var stats = map.stats && typeof map.stats === "object" ? map.stats : {};
-    var metrics = {};
-
-    function integer() {
-      for (var i = 0; i < arguments.length; i++) {
-        var value = arguments[i];
-        var number = Number(typeof value === "string" ? value.replace(/,/g, "") : value);
-        if (Number.isInteger(number) && number >= 0) return number;
-      }
-      return undefined;
-    }
-
-    if (typeof sync.version === "string" && sync.version.trim()) metrics.version = sync.version.trim();
-    if (typeof sync.lean_version === "string" && sync.lean_version.trim()) metrics.leanVersion = sync.lean_version.trim();
-
-    var lines = integer(sync.production_loc, sync.lines, stats.production_loc, stats.lines);
-    if (lines !== undefined) metrics.lines = formatNumber(lines);
-    var theorems = theoremCountFromCodebaseMap(map);
-    if (theorems > 0) metrics.theorems = theorems;
-
-    var modules = integer(sync.modules, sync.lean_modules, stats.modules);
-    if (modules !== undefined) metrics.modules = modules;
-    else if (Array.isArray(map.modules)) metrics.modules = map.modules.length;
-
-    var buildJobs = integer(sync.build_jobs, sync.buildJobs, stats.build_jobs, stats.buildJobs);
-    if (buildJobs !== undefined) metrics.buildJobs = buildJobs;
-    var admitted = integer(sync.admitted, sync.admitted_proofs, stats.admitted);
-    if (admitted !== undefined) metrics.admitted = admitted;
-
-    if (Array.isArray(map.files)) {
-      var scripts = 0;
-      var docs = 0;
-      for (var i = 0; i < map.files.length; i++) {
-        var entry = map.files[i];
-        var path = typeof entry === "string" ? entry : entry && entry.path;
-        if (/^scripts\/.*\.sh$/.test(path || "")) scripts += 1;
-        if (/^docs\/.*\.(?:md|txt)$/.test(path || "")) docs += 1;
-      }
-      metrics.scripts = scripts;
-      metrics.docs = docs;
-    }
-
-    return metrics;
-  }
-
-  function fetchText(url) {
-    return fetchWithTimeout(url).then(function (r) {
-      if (!r.ok) throw new Error(r.status);
-      return r.text();
-    });
-  }
-
-  function fetchLiveData() {
-    var data = {};
-
-    var tasks = [
-      fetchJSON(API + "/commits/" + REF).then(function (commit) {
-        if (!commit) return;
-        if (commit.sha) data.commitSha = commit.sha.slice(0, 7);
-        if (commit.commit && commit.commit.author && commit.commit.author.date) {
-          data.updatedAt = commit.commit.author.date;
-        }
-      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] commit fetch:", e.message || e); }),
-      fetchJSON(API + "/git/trees/" + REF + "?recursive=1").then(function (treePayload) {
-        var tree = treePayload && treePayload.tree;
-        if (!Array.isArray(tree)) return;
-        // A truncated tree would undercount; keep the bundled/cached values.
-        if (treePayload.truncated) return;
-
-        var modules = 0;
-        var scripts = 0;
-        var docs = 0;
-        for (var i = 0; i < tree.length; i++) {
-          var item = tree[i];
-          if (!item || item.type !== "blob") continue;
-          var path = item.path || "";
-          if (/^SeLe4n\/Kernel\/.*\.lean$/.test(path)) modules += 1;
-          if (/^scripts\/.*\.sh$/.test(path)) scripts += 1;
-          if (/^docs\/.*\.(md|txt)$/.test(path)) docs += 1;
-        }
-
-        if (modules > 0) data.modules = modules;
-        if (scripts > 0) data.scripts = scripts;
-        if (docs > 0) data.docs = docs;
-      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] tree fetch:", e.message || e); }),
-      fetchJSON(API + "/languages").then(function (langs) {
-        if (!langs || typeof langs.Lean !== "number") return;
-        // GitHub Languages API reports bytes; ~38 bytes/line is the empirical
-        // average for the seLe4n Lean codebase (measured across snapshots).
-        data.lines = formatNumber(Math.round(langs.Lean / 38));
-      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] languages fetch:", e.message || e); }),
-      fetchText(RAW + REF + "/README.md").then(function (readmeText) {
-        var metrics = parseCurrentStateMetrics(readmeText);
-        if (metrics.version) data.version = metrics.version;
-        if (metrics.lines) data.lines = metrics.lines;
-        if (typeof metrics.buildJobs === "number" && metrics.buildJobs > 0) data.buildJobs = metrics.buildJobs;
-      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] README fetch:", e.message || e); }),
-      fetchText(RAW + REF + "/lean-toolchain").then(function (toolchainText) {
-        var toolchainMatch = toolchainText && toolchainText.match(/(\d+\.\d+\.\d+)/);
-        if (toolchainMatch) data.leanVersion = toolchainMatch[1];
-      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] toolchain fetch:", e.message || e); }),
-      fetchText(RAW + REF + "/lakefile.toml").then(function (lakefileText) {
-        if (data.version) return;
-        var versionMatch = lakefileText && lakefileText.match(/version\s*=\s*"([^"]+)"/);
-        if (versionMatch) data.version = versionMatch[1];
-      }).catch(function (e) { if (typeof console !== "undefined") console.warn("[seLe4n] lakefile fetch:", e.message || e); })
-    ];
-
-    // Resolve heuristic metadata first, then overlay the canonical artifact so
-    // completion order can never let README/tree/language estimates win.
-    return Promise.all(tasks).then(function () {
-      return fetchJSON(RAW + REF + "/" + CODEBASE_MAP_PATH).then(function (parsed) {
-        return mergeData(data, siteMetricsFromCodebaseMap(parsed));
-      }).catch(function (e) {
-        if (typeof console !== "undefined") console.warn("[seLe4n] codebase-map fetch:", e.message || e);
-        return data;
-      });
-    });
-  }
-
-  function refreshLiveData() {
-    var baseline = STATIC_FALLBACK;
-    var cachedRecord = getCached();
-    if (cachedRecord) {
-      baseline = mergeData(baseline, cachedRecord.data);
-      applyData(baseline);
-    }
-
-    fetchBundledData().then(function (bundled) {
-      var bundledTs = getDataTimestamp(bundled);
-      var cachedTs = getDataTimestamp(cachedRecord && cachedRecord.data);
-      if (cachedTs && bundledTs && bundledTs <= cachedTs) {
-        return;
-      }
-
-      baseline = mergeData(baseline, bundled);
-      setCache(baseline);
-      applyData(baseline);
+  /**
+   * Load the bundled snapshot and render it.
+   *
+   * On failure the markup keeps the literals apply-static-values.mjs stamped
+   * from the very same snapshot at build time, so a failed fetch degrades to
+   * the correct figures rather than to a guess at them.
+   */
+  function loadBundledData() {
+    return fetchJSON(DATA_ENDPOINT).then(function (payload) {
+      var data = normalizeBundledData(payload);
+      if (!data) throw new Error("Invalid bundled data");
+      applyData(data);
     }).catch(function (err) {
       if (typeof console !== "undefined" && console.warn) {
-        console.warn("[seLe4n] bundled data fetch failed:", err);
+        console.warn("[seLe4n] bundled data fetch failed, using static values:", err);
       }
-    }).then(function () {
-      // Cooldown: skip the live GitHub fetch while the cache is fresh.
-      if (cachedRecord && cachedRecord.isFresh) return;
-      return fetchLiveData().then(function (data) {
-        baseline = mergeData(baseline, data);
-        setCache(baseline);
-        applyData(baseline);
-      }).catch(function (err) {
-        if (typeof console !== "undefined" && console.warn) {
-          console.warn("[seLe4n] live data refresh failed, using bundled data");
-        }
-      });
     });
+  }
+
+  function purgeLegacyLiveCache() {
+    try {
+      localStorage.removeItem(LEGACY_LIVE_CACHE_KEY);
+    } catch (e) {}
   }
 
   function hardenExternalLinks() {
@@ -818,7 +537,7 @@
     }
   }
 
-  applyData(STATIC_FALLBACK);
+  purgeLegacyLiveCache();
   setupTheme();
   if (typeof window.sele4nSetupHeaderNav !== "function") {
     window.requestAnimationFrame(function () {
@@ -839,6 +558,9 @@
     if (lastAppliedData) applyData(lastAppliedData);
   });
 
-  if (typeof requestIdleCallback === "function") requestIdleCallback(refreshLiveData);
-  else setTimeout(refreshLiveData, 1);
+  // Safe to defer: the markup already carries this snapshot's values, stamped
+  // at build time from the same file, so the fetch only refreshes them in the
+  // window between a data sync and the next deploy.
+  if (typeof requestIdleCallback === "function") requestIdleCallback(loadBundledData);
+  else setTimeout(loadBundledData, 1);
 })();

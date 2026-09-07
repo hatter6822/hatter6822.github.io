@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.27.0`
+**Website version:** `0.29.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -21,6 +21,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 ```bash
 # Parser and validation tests (all must pass, zero warnings)
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
@@ -46,10 +47,8 @@ node --check assets/js/theme-init.js
 ### Data refresh (when upstream seLe4n repo changes)
 
 ```bash
-node scripts/sync-site-data.mjs
-node scripts/sync-map-data.mjs
-node scripts/sync-trace-data.mjs
-node scripts/apply-static-values.mjs   # rewrite index.html static fallbacks from site-data.json
+node scripts/sync-upstream.mjs         # one clone → site-data + map-data + traces
+node scripts/apply-static-values.mjs   # stamp index.html + locales/*.json from site-data.json
 ```
 
 ## Validation Tiers
@@ -70,12 +69,12 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~5,019 | Largest runtime; read in chunks of ≤500 lines |
-| `assets/css/style.css` | ~1,999 | Global design system |
-| `assets/js/run.js` | ~1,964 | Simulator runtime (fold engine + SVG scenes) |
+| `assets/js/map.js` | ~4,985 | Largest runtime; read in chunks of ≤500 lines |
+| `assets/css/style.css` | ~2,020 | Global design system |
+| `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
 | `assets/css/map.css` | ~818 | Map-specific styles |
-| `assets/js/site.js` | ~844 | Landing page runtime |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
+| `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
 - Never read an entire large file in one operation. Use offset/limit (≤500 lines per read).
@@ -91,12 +90,69 @@ Several files exceed 500 lines:
 3. Attempt live refresh from GitHub APIs (with cooldown + jitter)
 4. Fall back gracefully if network refresh fails
 
+**The landing page is exempt from steps 2-4 and must stay that way.** Its
+statistics come from `data/site-data.json` alone, which
+`scripts/sync-upstream.mjs` projects offline from the kernel's canonical
+`docs/codebase_map.json`; `index.html` ships with those same values stamped into
+the markup, so a failed fetch degrades to the correct numbers. `connect-src` is
+`'self'` on that page to keep it that way.
+
+### One pipeline, one revision
+
+`scripts/sync-upstream.mjs` is the only thing that fetches upstream. It clones
+seLe4n once and writes all three `data/*.json` snapshots from that single
+checkout, after verifying the canonical artifact's `source_sync.source_digest`
+over the Lean sources it ships with.
+
+Three separate sync scripts preceded it and drifted: `site-data.json` was
+generated at one commit and `map-data.json` at another, and each re-derived the
+same quantities by its own method, so the landing page and the code map quoted
+different module and theorem counts for the same kernel. Both snapshots now
+record the same `commitSha` and `sourceDigest`, and `validateCrossFile` fails
+the build when they disagree — including when the module or theorem totals
+diverge. Do not add a second fetcher.
+
+### Landing-page metrics are canonical or absent
+
+`docs/codebase_map.json` is the source of truth for every published statistic —
+the kernel generates it, and seLe4n's own README table is rendered from its
+`readme_sync` block.
+
+- A metric may fall back to another key **of the same artifact**; it may never
+  fall back to a source outside it. A README parse, a `GET /languages` byte
+  estimate and a `modules × 2` build-job count all shipped as facts this way.
+- A missing key aborts the sync (`canonicalMetricsIssues`). Publishing a partial
+  projection is how the page drifted in the first place.
+- Scope is **production Lean** (everything outside `tests/`), so the headline
+  figures describe one corpus. Recorded as `metricsScope` and pinned by
+  `validate-data.mjs`.
+- Theorem counts come from the artifact's comment-aware `modules[].declarations`
+  inventory, **not** from `readme_sync.proved_theorem_lemma_decls`. That field is
+  a bare per-line regex: on the current artifact it counts 78 prose lines inside
+  doc comments and misses 15 `protected`/`noncomputable` declarations. See the
+  reconciliation at the top of `scripts/lib/canonical-map.mjs`.
+- Never write a metric into `index.html` or a locale by hand. Every literal copy
+  is stamped by `scripts/apply-static-values.mjs`; `static-values.test.mjs`
+  fails when the committed tree drifts.
+
+### Locale files embed live metrics
+
+`data-i18n-html` sets `el.innerHTML` wholesale, so each `locales/*.json` carries
+its own copy of the `data-live` spans **and the numbers inside them**. They
+silently drifted to `546` while `index.html` said `574`. Any change touching a
+metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
+`locales/` must be committed together.
+
 ### Map data normalization
 
 - `modules[]` array is the canonical source of graph nodes
 - Legacy top-level maps (`moduleMap`, `importsFrom`, `moduleMeta`) are fallbacks only
 - Branch-ref metadata keys (e.g. `main`) are excluded from module inventories
 - Declaration-centric payloads (`modules[].declarations`) are projected into symbol buckets
+- `moduleMeta[].symbols.callGraph` ships in the bundled snapshot; every key must
+  also appear in that module's `byKind` lists (`validate-data.mjs` asserts it),
+  because the runtime resolves a declaration through one and its calls through
+  the other
 - Reverse import edges (`importsTo`) are always rebuilt from `importsFrom`
 
 ### CSS override weight (media queries add no specificity)
@@ -176,6 +232,8 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Navigation behavior | `assets/js/header-nav.js` |
 | Theme switching | `assets/js/theme-init.js` |
 | Static fallback sync | `scripts/apply-static-values.mjs`, `scripts/lib/static-values.mjs` |
+| Upstream data pipeline | `scripts/sync-upstream.mjs` |
+| Canonical artifact contract | `scripts/lib/canonical-map.mjs` |
 | Locale key parity | `scripts/lib/i18n-locales.test.mjs`, `locales/*.json` |
 | Internationalization | `assets/js/i18n.js`, `locales/*.json` |
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |

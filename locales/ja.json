@@ -113,7 +113,7 @@
     "subtitle_line2": "すべての不変条件はLean型チェッカーにより機械検査されます。",
     "tagline": "<code>sorry</code>ゼロ。<code>axiom</code>ゼロ。",
     "stat_theorems": "証明済み定理",
-    "stat_lines": "Lean 4コード行数",
+    "stat_lines": "本番Lean 4コード行数",
     "stat_modules": "Leanモジュール",
     "stat_admitted": "未証明の証明",
     "learn_more": "詳細を見る",
@@ -134,7 +134,7 @@
     "what_different_title": "何が違うのか？",
     "what_different_text": "seLe4nは<strong>実装と証明を単一言語で統合</strong>しています — 別の証明アシスタントも、変換層も、セマンティックギャップもありません。各サブシステムはOperations/Invariant分離パターンに従います。実行可能な遷移は<code>Operations.lean</code>に、機械検査済み証明は<code>Invariant.lean</code>に並んで配置されます。型チェッカーがすべての操作にわたるすべての不変条件の成立を保証します。",
     "status_title": "プロジェクト状況",
-    "status_text": "seLe4nはバージョン<strong data-live=\"version\">{{version}}</strong>の活発な研究プロジェクトです。カーネルモデルはIPC、スケジューリング、ケイパビリティ、メモリ管理、通知、情報フロー制御、サービスオーケストレーションにわたる30のsyscallで機能完成しています。コンパニオンの<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">Rustワークスペース</a>が、カーネルのsyscall ABIに安全な<code>no_std</code>ラッパーを提供しています。Raspberry Pi 5のハードウェアバインディングは完了しています &mdash; HAL、GIC-400割り込みコントローラ、ARMジェネリックタイマー、ARMv8ページテーブル、QEMUブート &mdash; 現在はSMPマルチコア対応が活発なワークストリームです。",
+    "status_text": "seLe4nはバージョン<strong data-live=\"version\">0.34.56</strong>の活発な研究プロジェクトです。カーネルモデルはIPC、スケジューリング、ケイパビリティ、メモリ管理、通知、情報フロー制御、サービスオーケストレーションにわたる30のsyscallで機能完成しています。コンパニオンの<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">Rustワークスペース</a>が、カーネルのsyscall ABIに安全な<code>no_std</code>ラッパーを提供しています。Raspberry Pi 5のハードウェアバインディングは完了しています &mdash; HAL、GIC-400割り込みコントローラ、ARMジェネリックタイマー、ARMv8ページテーブル、QEMUブート &mdash; 現在はSMPマルチコア対応が活発なワークストリームです。",
     "created_with": "ClaudeとCodexの助けを借りて丁寧に作成されました。"
   },
   "architecture": {
@@ -293,7 +293,7 @@
     "use_full": "完全検証 — インバリアント/定理の変更",
     "use_nightly": "ナイトリーCI — 決定性 + 実験的",
     "tier0_text": "禁止マーカースキャンにより、すべてのプロダクションコードで<code>sorry</code>ゼロ、<code>axiom</code>ゼロを保証します。ドキュメントリンク検証、同期チェック、フォーマットエンフォースメント。防御の最前線です。",
-    "tier1_text": "<span data-live=\"build-jobs\">546</span>の並列ビルドジョブにわたるフルLeanコンパイル。すべての<span data-live=\"theorems\">8472</span>件の定理が型チェックされます。すべての不変条件証明、すべてのブリッジ補題、すべての保存定理がLean型チェッカーにより検証されます。コンパイルが通れば、証明は成立します。",
+    "tier1_text": "全<span data-live=\"modules\">311</span>件のLeanモジュールのフルコンパイル。すべての<span data-live=\"theorems\">10,937</span>件の定理が型チェックされます。すべての不変条件証明、すべてのブリッジ補題、すべての保存定理がLean型チェッカーにより検証されます。コンパイルが通れば、証明は成立します。",
     "tier2_text": "トレースシーケンスプローブが形式セマンティクスに対して実行可能動作を検証します。ネガティブステートスイートがIPC、ケイパビリティ、エンドポイント、CSpace変異にわたる不正入力拒否をテストします。決定性検証はトレース実行ファイルを2回実行し、同一の出力を要求します。情報フローランタイムチェックがエンフォースメントラッパーを検証します。",
     "tier3_text": "すべての名前付き定理と不変条件を証明表面にアンカーします。<a href=\"https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md\" target=\"_blank\" rel=\"noopener noreferrer\">主張とエビデンスインデックス</a>に記載されたすべての主張が実際のコードに裏打ちされていることを検証します。リファクタリング全体で証明の回帰がないことを保証します。PRの完全な正当性ゲートです。",
     "tier4_text": "正規カタログからのシナリオシードリプレイ、段階的な実験的候補検証、長時間実行の不変条件プローブ。オプトインのTier 5ハーネスがLeanオラクルをRustオラクルと相互チェックします。より高速なティアをすり抜ける微妙な回帰を検出します。",
@@ -318,7 +318,7 @@
   },
   "structure": {
     "title": "プロジェクト構成",
-    "lead": "<span data-live=\"modules\">{{modules}}</span>のLeanモジュール、<span data-live=\"scripts\">{{scripts}}</span>のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む<span data-live=\"docs\">{{docs}}</span>のドキュメントファイル。"
+    "lead": "<span data-live=\"modules\">311</span>のLeanモジュール、<span data-live=\"scripts\">65</span>のテスト・CIスクリプト、仕様書・ADR・ロードマップを含む<span data-live=\"docs\">252</span>のドキュメントファイル。"
   },
   "getting_started": {
     "title": "はじめに",
@@ -334,7 +334,7 @@
     "documentation_title": "ドキュメント",
     "documentation_intro": "包括的なドキュメントは <a href=\"https://github.com/hatter6822/seLe4n/tree/main/docs\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>docs/</code></a> ディレクトリにあります：",
     "step2_text": "セットアップスクリプトは<a href=\"https://github.com/leanprover/elan\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>elan</code></a>（Leanバージョンマネージャー）を<strong>SHA-256チェックサム検証</strong>付きでインストールし、ピン留めされたLean <span data-live=\"lean-version\">4.28.0</span>ツールチェーンを導入します。",
-    "step3_text": "カーネル全体をビルドします。すべての<span data-live=\"theorems\">8472</span>件の定理が<span data-live=\"build-jobs\">546</span>の並列ビルドジョブでコンパイル中にチェックされます。<code>sorry</code>ゼロ、<code>axiom</code>ゼロ。",
+    "step3_text": "カーネル全体をビルドします。すべての<span data-live=\"theorems\">10,937</span>件の定理が全<span data-live=\"modules\">311</span>件のLeanモジュールのコンパイル中にチェックされます。<code>sorry</code>ゼロ、<code>axiom</code>ゼロ。",
     "step5_text": "<a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>rust/</code></a>ワークスペースはseLe4nのsyscall表面に安全な<code>no_std</code>ラッパーを提供します（30のsyscallのうち27）。ARM64（実トラップ）とx86_64（ホストベーステスト用モックトラップ）の両方でビルドできます。",
     "contributing_item1": "<a href=\"https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md\" target=\"_blank\" rel=\"noopener noreferrer\">コントリビューションガイド</a>と<a href=\"https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md\" target=\"_blank\" rel=\"noopener noreferrer\">開発ドキュメント</a>をお読みください",
     "contributing_item2": "変更が対象とするプロジェクト領域を特定してください",

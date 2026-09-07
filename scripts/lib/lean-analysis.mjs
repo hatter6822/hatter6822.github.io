@@ -1,3 +1,20 @@
+/**
+ * Lean source parsing.
+ *
+ * Two consumers, two roles:
+ *
+ * - `extractImportTokens` is used by the sync pipeline. Import edges are the
+ *   one thing the canonical `docs/codebase_map.json` does not record, so the
+ *   dependency graph has to be read from the Lean sources themselves.
+ * - the declaration parsers below mirror the copies inside `assets/js/map.js`,
+ *   which the map runtime uses when it fetches an individual `.lean` file. The
+ *   pipeline no longer calls them: declarations come from the canonical
+ *   artifact, whose generator tracks nested `/- -/` depth and strips string
+ *   literals, which a line-oriented regex cannot. Keeping them here keeps the
+ *   runtime's logic under test.
+ *
+ * Everything about the canonical artifact itself lives in ./canonical-map.mjs.
+ */
 export function normalizeSymbolName(name) {
   return String(name || '').replace(/`/g, '').trim();
 }
@@ -135,163 +152,3 @@ export function extractImportTokens(sourceText) {
   return tokens;
 }
 
-export function parseCurrentStateMetrics(readmeText) {
-  if (!readmeText) return {};
-
-  const metrics = {};
-  const rows = readmeText.split(/\r?\n/);
-
-  for (const row of rows) {
-    const cells = row.split('|').map((cell) => cell.trim());
-    if (cells.length < 3) continue;
-
-    const metric = cells[1]?.toLowerCase() ?? '';
-    const value = cells[2] ?? '';
-
-    if (metric.includes('version')) {
-      const version = value.match(/\d+\.\d+\.\d+/);
-      if (version) metrics.version = version[0];
-    }
-
-    if (metric.includes('production loc')) {
-      const loc = value.match(/\d[\d,]*/);
-      if (loc) metrics.lines = loc[0];
-    }
-
-    if (metric.includes('theorem')) {
-      const theoremMatch = value.match(/\d[\d,]*/);
-      if (theoremMatch) metrics.theorems = Number(theoremMatch[0].replace(/,/g, ''));
-    }
-
-    if (metric.includes('build job')) {
-      const buildJobsMatch = value.match(/\d[\d,]*/);
-      if (buildJobsMatch) metrics.buildJobs = Number(buildJobsMatch[0].replace(/,/g, ''));
-    }
-  }
-
-  return metrics;
-}
-
-export function theoremCountFromCodebaseMap(codebaseMap) {
-  const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
-  if (!map) return 0;
-
-  const countTheoremDeclarations = (declarations) => {
-    if (!Array.isArray(declarations)) return 0;
-
-    let total = 0;
-    for (const declaration of declarations) {
-      const kind = String(declaration?.kind ?? '').toLowerCase();
-      if (kind === 'theorem' || kind === 'lemma') total += 1;
-    }
-
-    return total;
-  };
-
-  const countTheoremSymbols = (symbols) => {
-    if (!symbols || typeof symbols !== 'object') return 0;
-
-    const theoremEntries = Array.isArray(symbols.theorems) ? symbols.theorems.length : 0;
-    if (theoremEntries > 0) return theoremEntries;
-
-    const byKindTheorems = Array.isArray(symbols.byKind?.theorem) ? symbols.byKind.theorem.length : 0;
-    const byKindLemmas = Array.isArray(symbols.byKind?.lemma) ? symbols.byKind.lemma.length : 0;
-    return byKindTheorems + byKindLemmas;
-  };
-
-  const countModuleTheorems = (moduleLike) => {
-    if (!moduleLike || typeof moduleLike !== 'object') return 0;
-
-    const fromDeclarations = countTheoremDeclarations(moduleLike.declarations);
-    if (fromDeclarations > 0) return fromDeclarations;
-
-    const fromSymbols = countTheoremSymbols(moduleLike.symbols);
-    if (fromSymbols > 0) return fromSymbols;
-
-    const explicit = Number(moduleLike.theorems ?? moduleLike.theoremCount ?? moduleLike.stats?.theorems);
-    return Number.isFinite(explicit) && explicit > 0 ? explicit : 0;
-  };
-
-  let total = 0;
-  const counted = new Set();
-
-  if (Array.isArray(map.modules)) {
-    for (const moduleInfo of map.modules) {
-      total += countModuleTheorems(moduleInfo);
-      if (moduleInfo && moduleInfo.name) counted.add(moduleInfo.name);
-    }
-  }
-
-  if (map.moduleMeta && typeof map.moduleMeta === 'object') {
-    for (const [name, moduleInfo] of Object.entries(map.moduleMeta)) {
-      if (counted.has(name)) continue;
-      total += countModuleTheorems(moduleInfo);
-    }
-  }
-
-  if (total > 0) return total;
-
-  const topLevel = Number(map.theorems);
-  if (Number.isFinite(topLevel) && topLevel > 0) return topLevel;
-
-  const statsTheorems = Number(map.stats?.theorems);
-  return Number.isFinite(statsTheorems) && statsTheorems > 0 ? statsTheorems : 0;
-}
-
-function positiveInteger(value) {
-  const number = typeof value === 'string' ? Number(value.replace(/,/g, '')) : Number(value);
-  return Number.isInteger(number) && number >= 0 ? number : undefined;
-}
-
-/**
- * Project landing-page statistics from the upstream codebase map.
- *
- * `docs/codebase_map.json` is generated alongside the kernel and is the
- * canonical metrics artifact. Keep this projection deliberately independent
- * from README wording and GitHub's byte-based language estimate: those are
- * useful human-facing views, but must not silently disagree with the artifact.
- */
-export function siteMetricsFromCodebaseMap(codebaseMap) {
-  const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
-  if (!map) return {};
-
-  const sync = map.readme_sync && typeof map.readme_sync === 'object' ? map.readme_sync : {};
-  const stats = map.stats && typeof map.stats === 'object' ? map.stats : {};
-  const metrics = {};
-  const firstInteger = (...values) => {
-    for (const value of values) {
-      const parsed = positiveInteger(value);
-      if (parsed !== undefined) return parsed;
-    }
-    return undefined;
-  };
-
-  if (typeof sync.version === 'string' && sync.version.trim()) metrics.version = sync.version.trim();
-  if (typeof sync.lean_version === 'string' && sync.lean_version.trim()) metrics.leanVersion = sync.lean_version.trim();
-
-  const lines = firstInteger(sync.production_loc, sync.lines, stats.production_loc, stats.lines);
-  if (lines !== undefined) metrics.lines = lines;
-
-  const theoremTotal = theoremCountFromCodebaseMap(map);
-  if (theoremTotal > 0) metrics.theorems = theoremTotal;
-
-  const explicitModules = firstInteger(sync.modules, sync.lean_modules, stats.modules);
-  if (explicitModules !== undefined) metrics.modules = explicitModules;
-  else if (Array.isArray(map.modules)) metrics.modules = map.modules.length;
-
-  const buildJobs = firstInteger(sync.build_jobs, sync.buildJobs, stats.build_jobs, stats.buildJobs);
-  if (buildJobs !== undefined) metrics.buildJobs = buildJobs;
-
-  const admitted = firstInteger(sync.admitted, sync.admitted_proofs, stats.admitted);
-  if (admitted !== undefined) metrics.admitted = admitted;
-
-  // Some canonical maps include the complete repository inventory. Derive
-  // these secondary counts from it rather than issuing a second tree request.
-  if (Array.isArray(map.files)) {
-    const paths = map.files.map((entry) => typeof entry === 'string' ? entry : entry?.path).filter(Boolean);
-    metrics.scripts = paths.filter((path) => /^scripts\/.*\.sh$/.test(path)).length;
-    metrics.docs = paths.filter((path) => /^docs\/.*\.(?:md|txt)$/.test(path)).length;
-  }
-
-  return metrics;
-}

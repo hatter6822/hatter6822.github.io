@@ -1,12 +1,12 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.27.0**.
+> Documentation baseline: website release **0.29.0**.
 
 ## Audit summary
 
 ### Strengths
 - Strict CSP/referrer/permissions policies are present on both pages.
-- Data hydration already supports bundled snapshots plus live refresh.
+- Data hydration already supports bundled snapshots plus live refresh (the landing page deliberately opts out — see "Landing-page statistics have one source").
 - The code map is feature rich and includes keyboard navigation, URL state sync, and caching.
 
 ### Primary growth constraints identified
@@ -40,7 +40,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - `map.html`: codebase map workspace with filtering, graphing, and interior-symbol inspection
 
 ### Data contracts
-- `data/site-data.json`: baseline for site metrics
+- `data/site-data.json`: the *only* source of landing-page metrics, projected offline from the kernel's canonical `docs/codebase_map.json`
 - `data/map-data.json`: baseline for codebase map
 
 ### Internationalization (i18n)
@@ -527,8 +527,9 @@ documented rather than rediscovered.
   0.75/255 with 92.7% of subpixels within 2/255 — no visible change at the 40px
   and 16-32px sizes it renders at.
 - **`data/map-data.json` 3,092 KB -> 1,646 KB** (255 KB -> 153 KB gzipped), which
-  was 83% of map.html's transfer. `sync-map-data.mjs` now writes it compact so
-  refreshes stay minified. `site-data.json` and `execution-traces.json` stay
+  was 83% of map.html's transfer. `sync-upstream.mjs` writes it compact so
+  refreshes stay minified (it now carries the declaration call graph too — see
+  "Bundling the declaration call graph" below). `site-data.json` and `execution-traces.json` stay
   indented — they are small and people read them.
 
 ### Accessibility
@@ -757,3 +758,247 @@ the width pressure that makes the other keys diverge.
 
 Treat any `nav.*` value as a layout-constrained string. If a second surface
 needs the same words, give it its own key.
+
+
+## Landing-page statistics have one source (0.28.0)
+
+Every figure on `index.html` — proven theorems, lines of Lean 4, Lean modules,
+admitted proofs, version, toolchain — is projected from one artifact:
+`docs/codebase_map.json` in the seLe4n repository. The kernel's
+`scripts/generate_codebase_map.py` emits it, and the kernel's own README
+"Current state" table is rendered from the same `readme_sync` block. Reading the
+artifact is what keeps the site and the kernel from contradicting each other.
+
+### What went wrong
+
+The site published `8,472` theorems, `495,973` lines and `287` modules while the
+artifact said `11,000`, `330,569` and `311`. Three independent faults stacked:
+
+1. **The projection was written against a schema that does not exist.** It read
+   `readme_sync.lean_version`, `readme_sync.build_jobs`, `stats.*` and a
+   top-level `files[]`. The artifact has never carried any of them; the real
+   keys are `lean_toolchain`, `production_files`, `production_loc`,
+   `proved_theorem_lemma_decls` and `summary.module_count`. Every miss fell
+   through to a fallback. Its unit tests passed because their fixtures were
+   built in the same invented shape.
+
+2. **The fallbacks were fabrications, not degradations.** `lines` came from
+   `GET /languages`, dividing Lean bytes by an empirical constant of 38.
+   `modules` came from a git-tree scan of `SeLe4n/Kernel/**` — a third
+   definition, 249, alongside the snapshot's 287 and the artifact's 311.
+   `buildJobs` was `modules × 2`, and "574 parallel build jobs" appeared twice
+   in the page's copy; upstream publishes no build-job count anywhere.
+   `admitted: 0` was a literal in the source.
+
+3. **Nothing asserted provenance.** `validate-data.mjs` checked that every field
+   had the right type, and it did. A snapshot assembled entirely from README
+   prose and byte estimates validated cleanly, so the drift was invisible in CI.
+   The fix commit that repaired the projection hand-edited
+   `metricsSource: docs/codebase_map.json` into the snapshot without re-running
+   the sync, and the wrong numbers shipped under a label claiming otherwise.
+
+A fourth fault was latent: each `locales/*.json` bakes the metric literals into
+its translated HTML, because `data-i18n-html` replaces an element's innerHTML
+wholesale. Those copies said `546` build jobs while `index.html` said `574`.
+
+### The invariants now
+
+- **The browser derives nothing.** `assets/js/site.js` fetches
+  `data/site-data.json` and renders it. The five GitHub endpoints, the README
+  parse, the byte estimate and the 30-day `localStorage` cache are gone; the
+  legacy cache key is purged on load so returning visitors stop carrying a
+  stored snapshot of the heuristics. `index.html` sets `connect-src 'self'`,
+  which makes this a rule the browser enforces rather than a convention.
+- **Substitution stays inside the artifact.** A metric may fall back to another
+  key of the same artifact; it may never fall back to a source outside it. When
+  a required key is missing, `canonicalMetricsIssues()` aborts the sync and
+  names the statistic it feeds, so an upstream schema change is a red build.
+- **Scope is production Lean.** `proved_theorem_lemma_decls` is production-only
+  by construction upstream, so modules (`production_files`) and lines
+  (`production_loc`) are taken production-only too. The three headline figures
+  describe one corpus and match the README exactly. `metricsScope: "production"`
+  records the decision in the data.
+- **Provenance is checkable.** The snapshot carries `metricsSource`,
+  `metricsScope`, `sourceRepo`, `sourceRef`, `schemaVersion` and `sourceDigest`,
+  and `validate-data.mjs` pins the first four to exact values. `commitSha` and
+  `updatedAt` come from the artifact's own `repository.head` — the commit the
+  statistics were *measured* at, not the tip of `main`.
+- **Every literal copy is stamped from the snapshot.**
+  `apply-static-values.mjs` rewrites `index.html` and all six locale bundles,
+  and `static-values.test.mjs` fails if the committed tree drifts. Counts are
+  comma-grouped identically on both sides so hydration does not visibly rewrite
+  a figure.
+- **`admitted` is derived, not asserted.** It counts `axiom` declarations plus
+  declarations whose `called` list reaches `sorry`/`sorryAx`, and returns
+  `undefined` rather than a published `0` when the artifact carries no
+  declaration inventory — an absent inventory is not evidence of zero.
+
+### Consequences accepted
+
+The page no longer states a build-job count; the Tier 1 and quick-start copy
+cite the canonical Lean-module count instead, in all six locales. Statistics are
+now as fresh as the last CI sync, which runs weekly and on every upstream
+release via `repository_dispatch` — in exchange, a visitor no longer downloads
+574 KB of canonical map to read six integers, and no render path can produce a
+figure the kernel never asserted.
+
+
+## One pipeline, one revision (0.29.0)
+
+`scripts/sync-upstream.mjs` replaced `sync-site-data.mjs`, `sync-map-data.mjs`
+and `sync-trace-data.mjs`. One shallow clone of seLe4n produces all three
+bundled snapshots.
+
+### What went wrong
+
+Three scripts fetched upstream independently, and they drifted apart on both
+axes.
+
+**Different revisions.** `site-data.json` was generated at one commit and
+`map-data.json` at another. Nothing detected it; `validateCrossFile` only warned
+when their `generatedAt` timestamps were more than fourteen days apart.
+
+**Different methods.** Both derived module and theorem counts, by different
+rules over different corpora. The map enumerated `SeLe4n/**/*.lean` and counted
+theorems with a line regex; the landing page read the canonical artifact. So the
+two pages quoted different figures for the same kernel — 287 modules and 9,698
+theorems on `map.html`, 311 and 11,000 on `index.html`.
+
+### The shape now
+
+```
+git clone --depth 1 seLe4n@main
+  └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
+     Lean sources            ─┤   data/map-data.json           (code map)
+     docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
+```
+
+- **The checkout is verified before anything is written.** The artifact is
+  generated at one commit and committed at another, so the tree it ships in can
+  contain Lean sources it never saw. `source_sync.source_digest` is recomputed
+  over the checkout; on a mismatch the sync fetches the commit the artifact
+  names and re-verifies there, and aborts if that fails too. Nothing is ever
+  built from a blend of two revisions.
+- **Reproducing that digest needs Python's path ordering.** `PurePath` compares
+  the parts tuple, so `SeLe4n/Kernel/API.lean` precedes `SeLe4n/Kernel.lean`; a
+  flat string compare reverses them because `.` is 0x2E and `/` is 0x2F. Every
+  digest mismatched plausibly until this was right, which is a good argument for
+  checking a reproduction against known-good data before trusting it.
+- **The map graphs the corpus the page counts.** `map-data.json` takes its
+  module list and declarations from the artifact's production modules, so both
+  snapshots describe the same 311 modules and 10,937 theorems.
+- **Each source is used for what it is authoritative about.** The artifact says
+  which lines are declarations — its parser tracks nested block-comment depth
+  and strips string literals. The Lean sources supply the import graph, which
+  the artifact does not record, and the full identifiers behind its truncated
+  names.
+- **Coherence is enforced, not assumed.** Both snapshots record the same
+  `commitSha` and `sourceDigest`, and `validateCrossFile` now fails the build —
+  rather than warning — when those, the metrics source, or the module and
+  theorem totals disagree.
+- **The live refresh is scoped the same way.** `map.js` re-fetches the canonical
+  artifact for freshness, and the artifact inventories production *and* test
+  modules. Applying it verbatim replaced the 311-module bundle with a
+  381-module map — and cached it — so a networked visit to `map.html`
+  disagreed with `index.html` while an offline one did not.
+  `normalizeCanonicalPayload` now applies the same production scope the
+  pipeline does, before it scores candidate payloads.
+
+### Two upstream defects this surfaced
+
+**`readme_sync.proved_theorem_lemma_decls` over-counts.** The artifact states
+its theorem total twice by two methods. The declaration inventory is built with
+nested `/- -/` depth tracking and string stripping; the `readme_sync` figure is
+a bare per-line regex over raw lines that also accepts only `private` among the
+declaration modifiers. Reconciled against the sources at the artifact's own
+commit:
+
+```
+10,937  comment-aware production theorem/lemma declarations
+  + 78  prose lines inside doc comments, where a sentence wraps onto a line
+        beginning "theorem is retained for backward compatibility…"
+  - 15  real declarations the regex misses (protected/noncomputable, multi-line
+        attributes)
+= 11,000  readme_sync.proved_theorem_lemma_decls
+```
+
+All 78 sit inside block comments or docstrings. The site publishes the
+inventory: it is the accurate figure, it comes from the same artifact, and it is
+the only one the code map can also produce. `canonicalCrossChecks()` reports the
+divergence on every sync so it stays visible until upstream fixes the generator.
+
+**Declaration names are truncated.** `_extract_names` splits the head at the
+first `:` and tokenises with a class that excludes `?`, so
+`ofErrorLabel?_zero` and `ofErrorLabel?_none_of_lt_base` are both recorded as
+`ofErrorLabel` — 229 of 10,937 production theorems (2.1%), and 145 collisions
+that would have hidden one of each pair from the interior explorer. Since the
+digest has already proved the checkout is the artifact's corpus, the pipeline
+reads each identifier back from its own source line, adopting the result only
+when it *extends* the recorded name.
+
+### `Main` versus `main`
+
+`Main.lean` is the kernel entry module and part of the canonical production
+corpus, but `map.js` filtered module names case-insensitively against the git
+refs `main`/`master`/`trunk`/`refs`/`heads` and also required a dot. Both rules
+rejected `Main`, so the map graphed 310 modules while the page said 311. The
+guard is now case-sensitive — capitalisation is exactly what separates the Lean
+module from the branch it lives on — and a dotless name is accepted when it
+reads like a module. The branch-ref pseudo-modules are still filtered.
+
+## Bundling the declaration call graph (0.29.0)
+
+`data/map-data.json` now carries `moduleMeta[].symbols.callGraph` — each
+declaration mapped to the identifiers it references. 14,405 entries, 119,506
+edges.
+
+The runtime already read that field in three places (`normalizeMapData`, the
+incremental refresh path, and the `localStorage` round-trip); the bundled
+snapshot simply never populated it. So the declaration-context flowchart — the
+map's outgoing-calls and incoming-callers view — was empty until a live GitHub
+fetch of the 574 KB canonical map completed, and empty for good with no network.
+Deep-linking to a declaration offline rendered one node and "This theorem has no
+detected internal call relationships."
+
+### Why inline, and not something cleverer
+
+The graph adds 2.60 MB raw / 262 KB gzipped. Three encodings were measured on
+the real corpus before choosing:
+
+| encoding | added raw | added gzip | parse |
+|---|---|---|---|
+| inline `callGraph` (the shape the runtime reads) | 2.60 MB | 262 KB | 32 ms |
+| global string table + integer rows | 1.09 MB | 239 KB | 23 ms |
+| interned call targets only | 1.31 MB | 252 KB | 28 ms |
+
+Interning more than halves the raw file, and it does cut parse time, but it
+saves only **23 KB gzipped** — gzip already captures the repetition, because the
+graph is 119,506 references to about 10,000 distinct names. Dropping the derived
+`symbols.theorems`/`functions` arrays (which the runtime reconstructs from
+`byKind` when absent) saves another 21 KB on the same principle.
+
+Neither buys enough to justify inventing a format, writing a decoder in
+`map.js`, and keeping writer and reader in sync — particularly when the plain
+shape is one the runtime already consumes and no code has to change. The
+measurement is recorded here so the next person does not re-derive it, or worse,
+assume interning would help and ship the decoder.
+
+Set against what it replaces, the trade is favourable: 262 KB gzipped bundled,
+versus a 574 KB gzipped live fetch that only arrived after page load and not at
+all offline.
+
+### Two details the data forced
+
+- **The graph is keyed by the recovered names.** Call-graph keys and symbol-list
+  names come out of the same pass over the same declaration, and
+  `validate-data.mjs` asserts every key appears in its module's `byKind` lists.
+  The runtime resolves a declaration through `byKind` (`declarationIndex`) and
+  its calls through `callGraph` (`declarationGraph`), so a name in only one is a
+  lookup that silently dies.
+- **Name collisions collapse, and that is correct here.** The artifact records
+  short names, so `refl` in three namespaces of one file is three declarations
+  under one key — 177 such collisions. Later wins. `map.js` keys its merged
+  graph by bare name globally and collapses them the same way, and its own live
+  path assigns last-wins too, so bundled and live agree. Qualifying the names is
+  not available: the `called` targets are recorded unqualified as well, and
+  every lookup would miss.

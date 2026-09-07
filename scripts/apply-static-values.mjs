@@ -1,24 +1,39 @@
 #!/usr/bin/env node
 /**
- * Rewrite index.html's static fallback values from data/site-data.json.
+ * Rewrite the landing page's static fallback values from data/site-data.json.
  *
- * Run after scripts/sync-site-data.mjs so the no-JS fallbacks and JSON-LD
+ * Run after scripts/sync-site-data.mjs so the no-JS fallbacks, the JSON-LD
+ * block, and the metric literals baked into every locale's translated HTML all
  * stay in lockstep with the bundled snapshot. Idempotent: re-running with
  * unchanged data produces byte-identical output.
  */
-import { readFile, writeFile } from 'node:fs/promises';
-import { applyStaticValues } from './lib/static-values.mjs';
+import { readFile, writeFile, readdir } from 'node:fs/promises';
+import { applyStaticValues, applyLocaleStaticValues } from './lib/static-values.mjs';
 
-const DATA_FILE = new URL('../data/site-data.json', import.meta.url);
-const HTML_FILE = new URL('../index.html', import.meta.url);
+const ROOT = new URL('../', import.meta.url);
+const DATA_FILE = new URL('data/site-data.json', ROOT);
+const HTML_FILE = new URL('index.html', ROOT);
+const LOCALES_DIR = new URL('locales/', ROOT);
 
 const data = JSON.parse(await readFile(DATA_FILE, 'utf8'));
-const html = await readFile(HTML_FILE, 'utf8');
-const next = applyStaticValues(html, data);
+const updated = [];
 
-if (next === html) {
-  console.log('index.html static values already in sync');
-} else {
-  await writeFile(HTML_FILE, next);
-  console.log('Updated index.html static fallback values from data/site-data.json');
+const html = await readFile(HTML_FILE, 'utf8');
+const nextHtml = applyStaticValues(html, data);
+if (nextHtml !== html) {
+  await writeFile(HTML_FILE, nextHtml);
+  updated.push('index.html');
 }
+
+for (const name of (await readdir(LOCALES_DIR)).filter((f) => f.endsWith('.json')).sort()) {
+  const file = new URL(name, LOCALES_DIR);
+  const json = await readFile(file, 'utf8');
+  const next = applyLocaleStaticValues(json, data);
+  if (next === json) continue;
+  JSON.parse(next); // a substitution must never break the locale bundle
+  await writeFile(file, next);
+  updated.push(`locales/${name}`);
+}
+
+if (updated.length) console.log(`Updated static fallback values in ${updated.join(', ')}`);
+else console.log('Static fallback values already in sync');

@@ -113,7 +113,7 @@
     "subtitle_line2": "Cada invariante es verificado por máquina mediante el verificador de tipos de Lean.",
     "tagline": "Cero <code>sorry</code>. Cero <code>axiom</code>.",
     "stat_theorems": "Teoremas Demostrados",
-    "stat_lines": "Líneas de Lean 4",
+    "stat_lines": "Líneas de Lean 4 de producción",
     "stat_modules": "Módulos Lean",
     "stat_admitted": "Pruebas Admitidas",
     "learn_more": "Más Información",
@@ -134,7 +134,7 @@
     "what_different_title": "¿Qué lo Hace Diferente?",
     "what_different_text": "seLe4n <strong>unifica implementación y prueba en un único lenguaje</strong> — sin un asistente de pruebas separado, sin capa de traducción, sin brecha semántica. Cada subsistema sigue una separación Operations/Invariant: las transiciones ejecutables residen en <code>Operations.lean</code>, y sus pruebas verificadas por máquina residen junto a ellas en <code>Invariant.lean</code>. El verificador de tipos garantiza que cada invariante se cumple en cada operación.",
     "status_title": "Estado del Proyecto",
-    "status_text": "seLe4n es un proyecto de investigación activo en la versión <strong data-live=\"version\">{{version}}</strong>. El modelo del kernel está completo funcionalmente con 30 syscalls que abarcan IPC, planificación, capacidades, gestión de memoria, notificaciones, control de flujo de información y orquestación de servicios. Un <a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">espacio de trabajo complementario en Rust</a> proporciona wrappers seguros, <code>no_std</code>, para la ABI de syscalls del kernel. El enlace de hardware para el Raspberry Pi 5 está completo &mdash; HAL, controlador de interrupciones GIC-400, temporizador genérico ARM, tablas de páginas ARMv8 y arranque en QEMU &mdash; con el soporte SMP multinúcleo como línea de trabajo activa.",
+    "status_text": "seLe4n es un proyecto de investigación activo en la versión <strong data-live=\"version\">0.34.56</strong>. El modelo del kernel está completo funcionalmente con 30 syscalls que abarcan IPC, planificación, capacidades, gestión de memoria, notificaciones, control de flujo de información y orquestación de servicios. Un <a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\">espacio de trabajo complementario en Rust</a> proporciona wrappers seguros, <code>no_std</code>, para la ABI de syscalls del kernel. El enlace de hardware para el Raspberry Pi 5 está completo &mdash; HAL, controlador de interrupciones GIC-400, temporizador genérico ARM, tablas de páginas ARMv8 y arranque en QEMU &mdash; con el soporte SMP multinúcleo como línea de trabajo activa.",
     "created_with": "Creado con dedicación con la ayuda de Claude y Codex."
   },
   "architecture": {
@@ -293,7 +293,7 @@
     "use_full": "Verificación completa — cambios en invariantes/teoremas",
     "use_nightly": "CI nocturno — determinismo + experimental",
     "tier0_text": "Escaneos de marcadores prohibidos aseguran cero <code>sorry</code> y cero <code>axiom</code> en todo el código de producción. Validación de enlaces de documentación, verificaciones de sincronización y aplicación de formato. La primera línea de defensa.",
-    "tier1_text": "Compilación completa de Lean en <span data-live=\"build-jobs\">546</span> trabajos de compilación en paralelo. Los <span data-live=\"theorems\">8472</span> teoremas son verificados por el verificador de tipos. Cada prueba de invariante, cada lema puente, cada teorema de preservación es verificado por el verificador de tipos de Lean. Si compila, las pruebas se cumplen.",
+    "tier1_text": "Compilación completa de Lean de los <span data-live=\"modules\">311</span> módulos Lean. Los <span data-live=\"theorems\">10,937</span> teoremas son verificados por el verificador de tipos. Cada prueba de invariante, cada lema puente, cada teorema de preservación es verificado por el verificador de tipos de Lean. Si compila, las pruebas se cumplen.",
     "tier2_text": "Las sondas de secuencias de traza validan el comportamiento ejecutable contra la semántica formal. La suite de estados negativos prueba el rechazo de entradas malformadas en IPC, capacidades, endpoints y mutaciones de CSpace. La validación de determinismo ejecuta el ejecutable de trazas dos veces y requiere una salida idéntica. Las verificaciones en tiempo de ejecución del flujo de información validan los wrappers de aplicación.",
     "tier3_text": "Ancla cada teorema e invariante nombrado a la superficie de pruebas. Verifica que todas las afirmaciones documentadas en el <a href=\"https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md\" target=\"_blank\" rel=\"noopener noreferrer\">Índice de Afirmaciones y Evidencia</a> estén respaldadas por código real. Asegura que no haya regresiones de pruebas durante la refactorización. La puerta de corrección completa para PRs.",
     "tier4_text": "Repetición de semillas de escenario desde el catálogo canónico, validación escalonada de candidatos experimentales y sondas de invariantes de larga duración. Un arnés opcional de Tier 5 contrasta el oráculo de Lean con el oráculo de Rust. Detecta regresiones sutiles que escapan a los niveles más rápidos.",
@@ -318,7 +318,7 @@
   },
   "structure": {
     "title": "Estructura del Proyecto",
-    "lead": "<span data-live=\"modules\">{{modules}}</span> módulos Lean, <span data-live=\"scripts\">{{scripts}}</span> scripts de pruebas y CI, y <span data-live=\"docs\">{{docs}}</span> archivos de documentación con especificaciones, ADRs y hojas de ruta."
+    "lead": "<span data-live=\"modules\">311</span> módulos Lean, <span data-live=\"scripts\">65</span> scripts de pruebas y CI, y <span data-live=\"docs\">252</span> archivos de documentación con especificaciones, ADRs y hojas de ruta."
   },
   "getting_started": {
     "title": "Primeros Pasos",
@@ -334,7 +334,7 @@
     "documentation_title": "Documentación",
     "documentation_intro": "La documentación completa se encuentra en el directorio <a href=\"https://github.com/hatter6822/seLe4n/tree/main/docs\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>docs/</code></a>:",
     "step2_text": "El script de configuración instala <a href=\"https://github.com/leanprover/elan\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>elan</code></a> (el gestor de versiones de Lean) con <strong>verificación de suma de comprobación SHA-256</strong> y el toolchain de Lean <span data-live=\"lean-version\">4.28.0</span> fijado.",
-    "step3_text": "Compile el kernel completo. Los <span data-live=\"theorems\">8472</span> teoremas son verificados durante la compilación en <span data-live=\"build-jobs\">546</span> trabajos de compilación en paralelo. Cero <code>sorry</code>, cero <code>axiom</code>.",
+    "step3_text": "Compile el kernel completo. Los <span data-live=\"theorems\">10,937</span> teoremas son verificados durante la compilación de los <span data-live=\"modules\">311</span> módulos Lean. Cero <code>sorry</code>, cero <code>axiom</code>.",
     "step5_text": "El espacio de trabajo <a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>rust/</code></a> proporciona wrappers seguros, <code>no_std</code>, alrededor de la superficie de syscalls de seLe4n (27 de las 30 syscalls). Compila tanto en ARM64 (trampa real) como en x86_64 (trampa simulada para pruebas en el host).",
     "contributing_item1": "Lea la <a href=\"https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md\" target=\"_blank\" rel=\"noopener noreferrer\">Guía de Contribuciones</a> y la <a href=\"https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md\" target=\"_blank\" rel=\"noopener noreferrer\">Documentación de Desarrollo</a>",
     "contributing_item2": "Identifique qué área del proyecto aborda su cambio",

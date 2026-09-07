@@ -140,6 +140,31 @@ test('normalizeMapData ignores branch-ref pseudo-modules and URL module paths', 
   assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, 'main'));
 });
 
+test('normalizeMapData keeps the dotless Main module while still dropping the main ref', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // `Main.lean` is the kernel's entry module and part of the canonical
+  // production corpus the landing page counts. A case-insensitive branch-ref
+  // guard dropped it, so the map graphed 310 modules while the page said 311.
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      'main',
+      'heads',
+      { name: 'Main', path: 'Main.lean' },
+      { name: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean' }
+    ],
+    importsFrom: { Main: ['SeLe4n.Kernel.API'] }
+  });
+
+  assert.deepEqual(Array.from(normalized.modules), ['Main', 'SeLe4n.Kernel.API']);
+  assert.equal(normalized.moduleMap.Main, 'Main.lean');
+  // map.js runs inside a vm context, so cross-realm arrays need converting.
+  assert.deepEqual(Array.from(normalized.importsFrom.Main), ['SeLe4n.Kernel.API']);
+  for (const ref of ['main', 'heads']) {
+    assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, ref), `${ref} must stay filtered`);
+  }
+});
+
 test('normalizeMapData rejects payloads that do not expose modules array data', async () => {
   const hooks = await loadMapTestHooks();
 
@@ -576,6 +601,47 @@ test('normalizeMapData preserves callGraph on module symbols for declaration-cen
   const runCallers = Array.from(normalized.declarationReverseGraph['run'] || []).sort();
   assert.deepEqual(runCallers, ['run_safe']);
   assert.ok(!normalized.declarationReverseGraph['nonexistent'], 'nonexistent declarations have no reverse entry');
+});
+
+test('normalizeMapData builds declaration graphs from a bundled symbols.callGraph', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // The shape data/map-data.json ships. Before the pipeline baked the call
+  // graph in, this field was absent and the declaration flowchart stayed empty
+  // until a live GitHub fetch completed — or forever, offline.
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { module: 'SeLe4n.Core.Main', path: 'SeLe4n/Core/Main.lean' },
+      { module: 'SeLe4n.Core.Helper', path: 'SeLe4n/Core/Helper.lean' }
+    ],
+    moduleMeta: {
+      'SeLe4n.Core.Main': {
+        symbols: {
+          byKind: { def: [{ name: 'run', line: 20 }], theorem: [{ name: 'run_safe', line: 30 }] },
+          callGraph: { run: ['step'], run_safe: ['run', 'step'] }
+        }
+      },
+      'SeLe4n.Core.Helper': {
+        symbols: {
+          byKind: { def: [{ name: 'helper', line: 5 }] },
+          callGraph: { helper: ['step'] }
+        }
+      }
+    }
+  });
+
+  assert.equal(normalized.declarationGraph.run.module, 'SeLe4n.Core.Main');
+  assert.deepEqual(Array.from(normalized.declarationGraph.run_safe.calls), ['run', 'step']);
+  assert.equal(normalized.declarationGraph.helper.module, 'SeLe4n.Core.Helper');
+
+  // The reverse index is what the "callers" lane renders.
+  assert.deepEqual(Array.from(normalized.declarationReverseGraph.step).sort(), ['helper', 'run', 'run_safe']);
+  assert.deepEqual(Array.from(normalized.declarationReverseGraph.run), ['run_safe']);
+
+  // declarationIndex comes from byKind, so a name reachable through the graph
+  // resolves to its kind and line for the flowchart node.
+  assert.equal(normalized.declarationIndex.run_safe.kind, 'theorem');
+  assert.equal(normalized.declarationIndex.run_safe.line, 30);
 });
 
 test('declarationModuleOf resolves module for declarations not in declarationGraph via moduleMeta', async () => {
@@ -2003,4 +2069,27 @@ test('assuranceForModule extension-only module gets extension-only strength', as
     'module with only extension declarations should be extension-only');
   assert.ok(result.detail.includes('extension declaration'),
     'detail should mention extension declarations');
+});
+
+test('normalizeCanonicalPayload scopes the live refresh to production modules', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // The artifact inventories production and test modules; the bundled snapshot
+  // graphs production alone, and the landing page counts the same set. Applying
+  // the artifact verbatim replaced a 311-module map with a 381-module one, so a
+  // networked visit disagreed with index.html.
+  const normalized = hooks.normalizeCanonicalPayload({
+    schema_version: '1.0.0',
+    modules: [
+      { module: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean', declarations: [{ kind: 'theorem', name: 'a', line: 1, called: [] }] },
+      { module: 'Main', path: 'Main.lean', declarations: [{ kind: 'def', name: 'main', line: 1, called: [] }] },
+      { module: 'Tests.Smoke', path: 'tests/Smoke.lean', declarations: [{ kind: 'theorem', name: 'smoke', line: 1, called: [] }] },
+      { module: 'Tests.Deep', path: 'tests/deep/Deep.lean', declarations: [{ kind: 'theorem', name: 'deep', line: 1, called: [] }] }
+    ]
+  });
+
+  assert.deepEqual(Array.from(normalized.modules).sort(), ['Main', 'SeLe4n.Kernel.API']);
+  for (const testModule of ['Tests.Smoke', 'Tests.Deep']) {
+    assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, testModule), `${testModule} must not be graphed`);
+  }
 });

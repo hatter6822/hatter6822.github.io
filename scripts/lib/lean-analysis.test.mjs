@@ -7,49 +7,9 @@ import {
   INTERIOR_KIND_GROUPS,
   isLikelyModuleToken,
   normalizeSymbolName,
-  parseCurrentStateMetrics,
-  siteMetricsFromCodebaseMap,
   theoremCount,
-  theoremCountFromCodebaseMap,
   tokenizeImportSegment
 } from './lean-analysis.mjs';
-
-test('siteMetricsFromCodebaseMap projects canonical landing-page statistics', () => {
-  const map = {
-    readme_sync: {
-      version: '1.2.3',
-      lean_version: '4.28.0',
-      production_loc: 12345,
-      build_jobs: 6,
-      admitted: 0
-    },
-    modules: [
-      { name: 'A', declarations: [{ kind: 'theorem' }, { kind: 'def' }] },
-      { name: 'B', declarations: [{ kind: 'lemma' }] }
-    ],
-    files: ['SeLe4n/A.lean', 'scripts/test.sh', 'docs/guide.md', 'docs/data.json']
-  };
-
-  assert.deepEqual(siteMetricsFromCodebaseMap(map), {
-    version: '1.2.3',
-    leanVersion: '4.28.0',
-    lines: 12345,
-    theorems: 2,
-    modules: 2,
-    buildJobs: 6,
-    admitted: 0,
-    scripts: 1,
-    docs: 1
-  });
-});
-
-test('siteMetricsFromCodebaseMap prefers canonical aggregates over inventory fallbacks', () => {
-  assert.deepEqual(siteMetricsFromCodebaseMap({
-    readme_sync: { lean_modules: '9', production_loc: '20,001' },
-    stats: { buildJobs: 18, admitted: 0 },
-    modules: [{ name: 'A' }]
-  }), { lines: 20001, modules: 9, buildJobs: 18, admitted: 0 });
-});
 
 test('extractImportTokens handles inline and indented continuations', () => {
   const source = `
@@ -141,24 +101,6 @@ noncomputable def notCounted := 0
   assert.equal(theoremCount(source), 3);
 });
 
-test('parseCurrentStateMetrics extracts dashboard values from markdown table', () => {
-  const readme = `
-| Metric | Value |
-| --- | --- |
-| Version | 1.2.3 |
-| Production LOC | 12,345 |
-| Theorems | 789 |
-| Build Jobs | 22 |
-`;
-
-  assert.deepEqual(parseCurrentStateMetrics(readme), {
-    version: '1.2.3',
-    lines: '12,345',
-    theorems: 789,
-    buildJobs: 22
-  });
-});
-
 test('extractImportTokens stops continuation when non-module tokens appear', () => {
   const source = `
 import SeLe4n.Kernel.Core
@@ -170,27 +112,6 @@ import SeLe4n.Kernel.Core
     'SeLe4n.Kernel.Core'
   ]);
 });
-
-test('parseCurrentStateMetrics tolerates unrelated table rows', () => {
-  const readme = `
-| Metric | Value |
-| --- | --- |
-| Coverage | n/a |
-| Version | 2.3.4-alpha |
-| Production LOC | 55,001 lines |
-| Theorems | 1,250 total |
-| Build Jobs | 18 pipelines |
-`;
-
-  assert.deepEqual(parseCurrentStateMetrics(readme), {
-    version: '2.3.4',
-    lines: '55,001',
-    theorems: 1250,
-    buildJobs: 18
-  });
-});
-
-
 
 
 test('extractInteriorCodeItems provides all supported kind buckets', () => {
@@ -220,85 +141,6 @@ test('tokenizeImportSegment extracts valid module-like tokens only', () => {
   assert.deepEqual(tokenizeImportSegment('foo.bar _Hidden lower.case'), []);
 });
 
-test('parseCurrentStateMetrics returns empty object for missing table', () => {
-  assert.deepEqual(parseCurrentStateMetrics('No metrics here'), {});
-});
-
-
-test('theoremCountFromCodebaseMap derives from module-level data before top-level aggregates', () => {
-  assert.equal(theoremCountFromCodebaseMap({ theorems: 987, moduleMeta: { A: { theorems: 1 } } }), 1);
-});
-
-test('theoremCountFromCodebaseMap falls back to stats aggregate theorem count', () => {
-  assert.equal(theoremCountFromCodebaseMap({ stats: { theorems: 222 } }), 222);
-});
-
-test('theoremCountFromCodebaseMap counts declaration-centric modules payloads', () => {
-  const codebaseMap = {
-    modules: [
-      {
-        name: 'Core',
-        declarations: [
-          { kind: 'theorem', name: 'core_ok' },
-          { kind: 'lemma', name: 'core_safe' },
-          { kind: 'def', name: 'helper' }
-        ]
-      },
-      {
-        name: 'Sched',
-        symbols: {
-          byKind: {
-            theorem: [{ name: 'sched_ok' }]
-          }
-        }
-      }
-    ],
-    theorems: 999
-  };
-
-  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 3);
-});
-
-test('theoremCountFromCodebaseMap prefers declaration counts over explicit stale per-module values', () => {
-  const codebaseMap = {
-    moduleMeta: {
-      Core: {
-        theorems: 12,
-        declarations: [
-          { kind: 'theorem', name: 'core_ok' },
-          { kind: 'lemma', name: 'core_safe' }
-        ]
-      }
-    }
-  };
-
-  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 2);
-});
-
-test('theoremCountFromCodebaseMap derives theorem totals from module meta and symbols', () => {
-  const codebaseMap = {
-    moduleMeta: {
-      Core: { theorems: 3 },
-      API: { theoremCount: 4 },
-      Model: { stats: { theorems: 5 } },
-      Sched: {
-        symbols: {
-          theorems: [{ name: 'a' }, { name: 'b' }]
-        }
-      },
-      Device: {
-        symbols: {
-          byKind: {
-            theorem: [{ name: 'c' }],
-            lemma: [{ name: 'd' }, { name: 'e' }]
-          }
-        }
-      }
-    }
-  };
-
-  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 17);
-});
 
 test('isLikelyModuleToken accepts valid module paths and rejects invalid ones', () => {
   assert.ok(isLikelyModuleToken('SeLe4n.Kernel.Core'));
@@ -318,44 +160,9 @@ test('theoremCount returns zero for source with no theorems', () => {
   assert.equal(theoremCount(null), 0);
 });
 
-test('theoremCountFromCodebaseMap deduplicates modules appearing in both modules[] and moduleMeta', () => {
-  const codebaseMap = {
-    modules: [
-      { name: 'Core', declarations: [{ kind: 'theorem', name: 't1' }] }
-    ],
-    moduleMeta: {
-      Core: { declarations: [{ kind: 'theorem', name: 't1' }] }
-    }
-  };
-  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 1);
-});
-
-test('theoremCountFromCodebaseMap returns zero for null or non-object input', () => {
-  assert.equal(theoremCountFromCodebaseMap(null), 0);
-  assert.equal(theoremCountFromCodebaseMap(undefined), 0);
-  assert.equal(theoremCountFromCodebaseMap('string'), 0);
-});
-
 test('extractImportTokens returns empty array for source with no imports', () => {
   assert.deepEqual(extractImportTokens('def x := 1'), []);
   assert.deepEqual(extractImportTokens(''), []);
-});
-
-test('theoremCountFromCodebaseMap returns zero for module with empty declarations array', () => {
-  const codebaseMap = {
-    modules: [{ name: 'Empty', declarations: [] }]
-  };
-  assert.equal(theoremCountFromCodebaseMap(codebaseMap), 0);
-});
-
-test('parseCurrentStateMetrics returns empty metrics for non-numeric value cells', () => {
-  const readme = `
-| Metric | Value |
-| --- | --- |
-| Theorems | unknown count |
-| Build Jobs | pending |
-`;
-  assert.deepEqual(parseCurrentStateMetrics(readme), {});
 });
 
 test('extractImportTokens handles comment-only continuation lines', () => {

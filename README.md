@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.27.0`
+- Website version: `0.29.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -25,19 +25,34 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 ### 1) Refresh bundled data snapshots
 
 ```bash
-node scripts/sync-site-data.mjs
-node scripts/sync-map-data.mjs
-node scripts/sync-trace-data.mjs
+node scripts/sync-upstream.mjs
 node scripts/apply-static-values.mjs
 ```
 
-`apply-static-values.mjs` rewrites the static fallback values in `index.html`
-(the `data-live` spans, JSON-LD version, and snapshot timestamp) from
-`data/site-data.json`, so the no-JS view matches the bundled snapshot. The
-weekly `sync-sele4n-data.yml` workflow runs this same pipeline — the scripts
-here are the single source of truth for every published metric. The sync
-scripts send an `Authorization` header when a `GITHUB_TOKEN` environment
-variable is present, which avoids anonymous API rate limits in CI.
+`sync-upstream.mjs` is the whole data pipeline: one shallow clone of seLe4n at
+one revision produces all three bundled snapshots.
+
+```
+git clone --depth 1 seLe4n@main
+  └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
+     Lean sources            ─┤   data/map-data.json           (code map)
+     docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
+```
+
+Every published statistic is projected from the canonical
+`docs/codebase_map.json` — the artifact from which seLe4n's own README table is
+generated — and the sync fails rather than publishing a partial projection when
+an expected key is missing. The Lean sources supply exactly one thing the
+artifact does not record, the import graph, and the artifact's
+`source_sync.source_digest` is verified over those sources first, so the
+snapshots cannot blend two revisions. The site and map snapshots record the same
+`commitSha` and `sourceDigest`; `validate-data.mjs` fails if they disagree.
+
+`apply-static-values.mjs` then stamps those values into `index.html` (the
+`data-live` spans, JSON-LD version, snapshot timestamp) and into every
+`locales/*.json` bundle, whose translated HTML carries its own copy of the same
+spans. The weekly `sync-sele4n-data.yml` workflow runs this same pipeline. It
+uses the git protocol only, so no `GITHUB_TOKEN` and no REST rate limit.
 
 ### 2) Validate snapshots
 
@@ -50,6 +65,7 @@ node scripts/validate-traces.mjs
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
 node scripts/lib/map-toolbar.test.mjs
@@ -62,14 +78,26 @@ node scripts/lib/i18n-locales.test.mjs
 
 ## Runtime data strategy
 
-The site is intentionally local-first:
+The site is intentionally local-first: pages render bundled snapshots from
+`data/*.json` and never re-derive a published figure in the browser.
 
-1. Load bundled snapshot from `data/*.json`.
-2. Optionally hydrate from browser cache if newer.
-3. Attempt live refresh from GitHub.
-4. Fall back to bundled/cached values on fetch failure.
+The landing page is the strict case. Its statistics come from
+`data/site-data.json` alone, and `index.html` ships with those same values
+already stamped into the markup, so a failed fetch degrades to the correct
+numbers rather than to a guess at them. `connect-src` is `'self'`, which makes
+that a rule the browser enforces.
 
-This keeps rendering deterministic while still allowing low-latency live updates.
+That page once refreshed its figures from five GitHub endpoints and rebuilt them
+client-side — a README table parse, a `GET /languages` bytes-per-line estimate,
+a tree scan counting only `SeLe4n/Kernel`, a build-job count invented as
+`modules × 2`. Each was a second opinion the kernel never gave, and whenever one
+won a race or the canonical fetch failed, the page published a number no
+upstream source asserts and cached it for thirty days. The projection now
+happens once, offline, in `scripts/sync-upstream.mjs`, where it is reviewed,
+tested and validated in CI.
+
+`map.html` and `run.html` still refresh their larger payloads from GitHub, with
+the bundled snapshot as the fallback.
 
 ## Code map declaration context and interior explorer
 
@@ -91,7 +119,7 @@ The code map interior panel supports declaration-first navigation:
 - Clicking any declaration in the interior panel switches the flowchart to declaration context, showing outgoing calls and incoming callers with kind-colored nodes and chaining navigation; declarations with zero relationships display a centered node with an informative empty-state hint; lanes with more than 12 entries are sorted by module relevance (same-module first) before collapsing to show the first 10 with an interactive "+N more" expand button that fully expands the lane, with a "Return to Compact" button to collapse back; the currently selected declaration is highlighted in the interior menu
 - Breadcrumb navigation (semantic `<nav>` with `aria-label`) allows free bidirectional traversal between module and declaration contexts, with URL persistence via `decl` parameter and robust module resolution on data load; the generalized context search bar displays `Module.Declaration` in dot-append format with dynamic label updates ("Context search — module" / "Context search — declaration") per context; `flowchart-wrap` `aria-label` updates dynamically per context; declaration flowchart preserves scroll position across re-renders; the Reset button returns from declaration context to module context
 - The unified context search bar supports both module and declaration search using a dot-append approach (e.g., `SeLe4n.Kernel.API.apiInvariantBundle` resolves to `SeLe4n.Kernel.API`'s internal `apiInvariantBundle` declaration) via two complementary strategies: (1) progressive module-prefix resolution with declaration suffix matching, and (2) global cross-module search via a pre-built `declarationSearchList` index when no exact module prefix matches; when a declaration is selected via the context search, the flowchart automatically syncs to declaration context; results are ranked by exact/prefix/substring scoring and multiple suggestions appear as styled dropdown entries selectable via keyboard or mouse
-- Derives homepage theorem totals from declaration/symbol payloads in `docs/codebase_map.json` first, using top-level theorem aggregates only as a last-resort fallback; deduplicates modules appearing in both `modules[]` and `moduleMeta` to prevent double-counting
+- Derives theorem totals from declaration/symbol payloads in `docs/codebase_map.json`, using top-level aggregates only as a last-resort fallback; deduplicates modules appearing in both `modules[]` and `moduleMeta` to prevent double-counting. The landing page does not use this scan — it publishes the artifact's own `readme_sync.proved_theorem_lemma_decls`, which upstream computes over production files only
 
 ## Simulator (kernel in action)
 
