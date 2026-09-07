@@ -122,15 +122,18 @@ The **Rust production crates** section renders one card per workspace crate
 (`sele4n-types`, `sele4n-abi`, `sele4n-sys`, `sele4n-hal`) from
 `data/map-data.json#rust`: description and edition from `Cargo.toml`, internal
 and external dependencies, feature flags, per-file item lists with visibility and
-line anchors, and `unsafe` usage read from the sources (three crates declare
-`#![deny(unsafe_code)]`; the HAL's unsafe sites are counted per file). Test
+line anchors, and `unsafe` usage read from the sources. The counted sites and
+the crate-level `#![deny(unsafe_code)]` lint are shown as separate facts, so
+`sele4n-abi`'s three exception sites under its lint stay visible and the HAL's
+sites are counted per file. Test
 items are bundled too and listed behind a per-crate toggle, so the cards
 describe the production surface by default. A small dependency diagram shows
 the `sys → abi → types` chain and the standalone HAL.
 
 The **repository inventory** lists every file in the seLe4n tree, grouped:
 production Lean (by subsystem, each module opening in the workspace), production
-Rust (linking to the crate cards), then tests, scripts, documentation and project
+Rust (linking to the crate cards, with each crate's manifest, linker script and
+assembly files listed beneath), then tests, scripts, documentation and project
 tooling as closed, muted groups whose file lists render on first open and link to
 the source at the snapshot commit.
 

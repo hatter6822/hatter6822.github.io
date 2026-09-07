@@ -3275,6 +3275,45 @@
     });
   }
 
+  /* The crate-level lint and the counted sites are two facts, not one. A
+     `#![deny(unsafe_code)]` crate can still carry sites under an item-level
+     `#[allow(unsafe_code)]` — sele4n-abi does, for its syscall trap — so every
+     surface reads both from here and none can call such a crate "no unsafe". */
+  function rustUnsafeSummary(crate) {
+    var counts = crate && crate.unsafe && typeof crate.unsafe === "object" ? crate.unsafe : {};
+    var fns = Number(counts.fns) || 0;
+    var impls = Number(counts.impls) || 0;
+    var blocks = Number(counts.blocks) || 0;
+    var deniesUnsafe = Boolean(crate && crate.deniesUnsafe);
+    var sites = fns + impls + blocks;
+    return { fns: fns, impls: impls, blocks: blocks, sites: sites, deniesUnsafe: deniesUnsafe, exceptions: deniesUnsafe && sites > 0 };
+  }
+
+  function crateDirectory(crate) {
+    return String(crate && crate.path || "").replace(/^\/+|\/+$/g, "");
+  }
+
+  /* Files under a crate directory that its card does not list — the manifest,
+     linker scripts, assembly sources — so that every path in the tree has one
+     entry: the card owns the Rust sources, the inventory owns the rest. */
+  function crateSupportFiles(group, crate) {
+    var dir = crateDirectory(crate);
+    if (!dir) return [];
+    var listed = Object.create(null);
+    var files = Array.isArray(crate.files) ? crate.files : [];
+    for (var i = 0; i < files.length; i++) if (files[i] && files[i].path) listed[files[i].path] = true;
+    var out = [];
+    var subgroups = group && Array.isArray(group.subgroups) ? group.subgroups : [];
+    for (var s = 0; s < subgroups.length; s++) {
+      var paths = Array.isArray(subgroups[s].files) ? subgroups[s].files : [];
+      for (var p = 0; p < paths.length; p++) {
+        if (paths[p].indexOf(dir + "/") === 0 && !listed[paths[p]]) out.push(paths[p]);
+      }
+    }
+    out.sort();
+    return out;
+  }
+
   function repositoryGroupLabel(id) {
     var fallback = { lean: "Production Lean", rust: "Production Rust", tests: "Tests", scripts: "Scripts", docs: "Documentation", project: "Project & tooling" };
     return t("map.group_" + id) || fallback[id] || id;
@@ -3282,9 +3321,9 @@
 
   function repositoryGroupDescription(id) {
     var fallback = {
-      lean: "Kernel, model, platform and testing-framework modules — the corpus every published statistic describes.",
+      lean: "Kernel, model and platform modules — the corpus every published statistic describes.",
       rust: "The user-space syscall crates and the bare-metal HAL, inventoried from the same checkout.",
-      tests: "Lean test suites, fixtures and scenarios outside the production corpus.",
+      tests: "Lean test suites, fixtures and scenarios, plus the in-tree testing framework — all outside the production corpus.",
       scripts: "Shell and Python tooling that builds, checks and audits the kernel.",
       docs: "Specifications, audits, planning notes and development history.",
       project: "CI workflows, toolchain pins, build manifests and other repository plumbing."
@@ -3513,12 +3552,26 @@
     return list;
   }
 
+  function renderInventoryFileLinks(paths, prefix, className) {
+    var span = document.createElement("span");
+    span.className = className;
+    for (var e = 0; e < paths.length; e++) {
+      if (e) span.appendChild(document.createTextNode(" · "));
+      var label = paths[e].indexOf(prefix) === 0 ? paths[e].slice(prefix.length) : paths[e];
+      span.appendChild(createExternalLink(githubBlobHref(paths[e], 0, state.rustCommit || state.commitSha), label, "inventory-file-link"));
+    }
+    return span;
+  }
+
   function renderRustGroupBody(group) {
     var list = document.createElement("ul");
     list.className = "inventory-crate-list";
     var crates = state.rust.crates;
+    var crateDirs = [];
     for (var i = 0; i < crates.length; i++) {
       var crate = crates[i];
+      var dir = crateDirectory(crate);
+      if (dir) crateDirs.push(dir + "/");
       var li = document.createElement("li");
       li.className = "inventory-crate";
       var link = document.createElement("a");
@@ -3530,26 +3583,41 @@
       meta.className = "inventory-subgroup-meta";
       meta.textContent = fileCountLabel(crate.sourceFiles) + " · " + formatCount(crate.lines) + " " + (t("map.lines_short") || "lines");
       li.appendChild(meta);
+      /* The card lists the Rust sources; the manifest, linker script and
+         assembly files would otherwise appear nowhere on the page. */
+      var support = crateSupportFiles(group, crate);
+      if (support.length) {
+        var supportRow = document.createElement("span");
+        supportRow.className = "inventory-crate-support";
+        var supportLabel = document.createElement("span");
+        supportLabel.className = "inventory-crate-support-label";
+        supportLabel.textContent = t("map.rust_support_files") || "support files";
+        supportRow.appendChild(supportLabel);
+        supportRow.appendChild(renderInventoryFileLinks(support, dir + "/", "inventory-file-links"));
+        li.appendChild(supportRow);
+      }
       list.appendChild(li);
     }
+    /* Whatever no crate directory covers — the workspace manifest, lockfile,
+       toolchain pin — is listed once here, so the group omits no file. */
     var extras = [];
     for (var s = 0; s < group.subgroups.length; s++) {
-      if (group.subgroups[s].key === "workspace") extras = extras.concat(group.subgroups[s].files);
+      var paths = group.subgroups[s].files;
+      for (var p = 0; p < paths.length; p++) {
+        var covered = false;
+        for (var c = 0; c < crateDirs.length && !covered; c++) covered = paths[p].indexOf(crateDirs[c]) === 0;
+        if (!covered) extras.push(paths[p]);
+      }
     }
     if (extras.length) {
+      extras.sort();
       var workspaceItem = document.createElement("li");
       workspaceItem.className = "inventory-crate";
       var wsLabel = document.createElement("span");
       wsLabel.className = "inventory-crate-link";
       wsLabel.textContent = t("map.rust_workspace_files") || "workspace files";
       workspaceItem.appendChild(wsLabel);
-      var wsList = document.createElement("span");
-      wsList.className = "inventory-subgroup-meta";
-      for (var e = 0; e < extras.length; e++) {
-        if (e) wsList.appendChild(document.createTextNode(" · "));
-        wsList.appendChild(createExternalLink(githubBlobHref(extras[e], 0, state.rustCommit || state.commitSha), extras[e].replace(/^rust\//, ""), "inventory-file-link"));
-      }
-      workspaceItem.appendChild(wsList);
+      workspaceItem.appendChild(renderInventoryFileLinks(extras, (state.rust.root || "rust") + "/", "inventory-subgroup-meta inventory-file-links"));
       list.appendChild(workspaceItem);
     }
     return list;
@@ -3639,15 +3707,16 @@
       var crate = crates[n];
       var pos = positions[crate.name];
       var link = createSvgNode("a", { href: "#crate-" + crate.name, "aria-label": crate.name });
-      var group = createSvgNode("g", { "class": "rust-dependency-node" + (crate.deniesUnsafe ? " rust-safe" : " rust-unsafe") });
+      var siteSummary = rustUnsafeSummary(crate);
+      var group = createSvgNode("g", { "class": "rust-dependency-node" + (siteSummary.sites ? " rust-unsafe" : " rust-safe") });
       group.appendChild(createSvgNode("rect", { x: pos.x, y: pos.y, width: pos.w, height: pos.h, rx: 9, ry: 9 }));
       var name = createSvgNode("text", { x: pos.x + pos.w / 2, y: pos.y + 22, "text-anchor": "middle", "class": "rust-dependency-name" });
       name.textContent = crate.name;
       group.appendChild(name);
       var sub = createSvgNode("text", { x: pos.x + pos.w / 2, y: pos.y + 40, "text-anchor": "middle", "class": "rust-dependency-sub" });
-      sub.textContent = crate.deniesUnsafe
-        ? (t("map.rust_no_unsafe_short") || "no unsafe")
-        : ((t("map.rust_unsafe_short", { count: crate.unsafe.fns + crate.unsafe.blocks }) || (crate.unsafe.fns + crate.unsafe.blocks) + " unsafe sites"));
+      sub.textContent = siteSummary.sites
+        ? (t("map.rust_unsafe_short", { count: siteSummary.sites }) || (siteSummary.sites + " unsafe sites"))
+        : (t("map.rust_no_unsafe_short") || "no unsafe");
       group.appendChild(sub);
       link.appendChild(group);
       nodeLayer.appendChild(link);
@@ -3705,15 +3774,22 @@
     pubNote.textContent = (t("map.rust_pub_count", { count: formatCount(crate.publicItems) }) || (formatCount(crate.publicItems) + " pub"));
     itemsValue.appendChild(pubNote);
     stats.appendChild(rustStat(t("map.rust_stat_items") || "Items", itemsValue));
+    var unsafeSummary = rustUnsafeSummary(crate);
     var unsafeValue = document.createElement("span");
-    var unsafeSites = crate.unsafe.fns + crate.unsafe.impls + crate.unsafe.blocks;
-    if (crate.deniesUnsafe) {
-      unsafeValue.textContent = t("map.rust_unsafe_denied") || "none · deny(unsafe_code)";
-    } else {
-      unsafeValue.textContent = t("map.rust_unsafe_sites", { fns: crate.unsafe.fns, blocks: crate.unsafe.blocks, impls: crate.unsafe.impls })
-        || (crate.unsafe.fns + " fn · " + crate.unsafe.blocks + " blocks · " + crate.unsafe.impls + " impl");
+    unsafeValue.appendChild(document.createTextNode(unsafeSummary.sites
+      ? (t("map.rust_unsafe_sites", { fns: unsafeSummary.fns, blocks: unsafeSummary.blocks, impls: unsafeSummary.impls })
+        || (unsafeSummary.fns + " fn · " + unsafeSummary.blocks + " blocks · " + unsafeSummary.impls + " impl"))
+      : (t("map.rust_unsafe_none") || "none")));
+    if (unsafeSummary.exceptions) {
+      /* Sites under a crate-level deny compile only through an item-level
+         `#[allow(unsafe_code)]`; say so instead of hiding them behind the lint,
+         which is stated on its own in the facts line below. */
+      unsafeValue.appendChild(document.createTextNode(" "));
+      var exceptionNote = document.createElement("small");
+      exceptionNote.textContent = t("map.rust_unsafe_exceptions") || "allowed by exception";
+      unsafeValue.appendChild(exceptionNote);
     }
-    stats.appendChild(rustStat("unsafe", unsafeValue, crate.deniesUnsafe ? "rust-stat-safe" : (unsafeSites ? "rust-stat-unsafe" : "")));
+    stats.appendChild(rustStat("unsafe", unsafeValue, unsafeSummary.sites ? "rust-stat-unsafe" : "rust-stat-safe"));
     card.appendChild(stats);
 
     /* Test items are bundled but hidden until asked for: the production surface
@@ -3740,6 +3816,7 @@
     var facts = document.createElement("p");
     facts.className = "rust-crate-facts";
     var factParts = [];
+    if (unsafeSummary.deniesUnsafe) factParts.push("#![deny(unsafe_code)]");
     if (crate.internalDependencies && crate.internalDependencies.length) {
       factParts.push((t("map.rust_depends_on") || "depends on") + " " + crate.internalDependencies.join(", "));
     } else {
@@ -6182,6 +6259,8 @@
       visibleRustItems: visibleRustItems,
       rustItemColor: rustItemColor,
       sortRustItems: sortRustItems,
+      rustUnsafeSummary: rustUnsafeSummary,
+      crateSupportFiles: crateSupportFiles,
       pickInteriorMenuGroup: pickInteriorMenuGroup,
       formatCount: formatCount,
       applyTestState: function (patch) {

@@ -186,12 +186,20 @@ fallback.
 `renderRustCrates()` paints the section from `state.rust` alone. The dependency
 strip is a small inline SVG: one node per crate in workspace order, arrows from
 a crate to each internal dependency it declares (`sele4n-sys → sele4n-abi →
-sele4n-types`; `sele4n-hal` stands alone), green when the crate declares
-`#![deny(unsafe_code)]`. Each card shows the crate's description, source-file
-and line counts, item count with the public share, and an `unsafe` cell that
-reads `none · deny(unsafe_code)` or the counted `fn`/`blocks`/`impl` sites;
-below it the manifest facts (internal and external dependencies, features,
-edition, test-item count) and one `<details>` per source file — crate root
+sele4n-types`; `sele4n-hal` stands alone), green when no unsafe site is
+recorded and yellow with the site count (`fn` + `blocks` + `impl`) otherwise.
+The SVG keeps its intrinsic width and scrolls sideways inside
+`.rust-dependency-scroll` on narrow screens instead of shrinking its labels.
+Each card shows the crate's description, source-file and line counts, item
+count with the public share, and an `unsafe` cell that reads `none` or the
+counted `fn`/`blocks`/`impl` sites. The crate-level lint is a separate fact,
+and `rustUnsafeSummary()` is the one reader of both: a `#![deny(unsafe_code)]`
+crate can still carry sites under an item-level `#[allow(unsafe_code)]` —
+`sele4n-abi` does, for its syscall trap — and then shows its counts with an
+"allowed by exception" note rather than claiming "no unsafe". Below the stats
+sit the manifest facts (`#![deny(unsafe_code)]` when declared, internal and
+external dependencies, features, edition, test-item count) and one `<details>`
+per source file — crate root
 first, then modules, binaries, build scripts, integration tests — whose item
 list renders on first open, sorted types-before-functions-before-impls and by
 line within a kind, each item linking to its line at the snapshot commit.
@@ -219,9 +227,14 @@ top level, by directory below), `docs` (`docs/**` plus root Markdown and
 manifests). `buildRepositoryInventory()` attaches module names to Lean
 subgroups so the production Lean group can list modules with their theorem
 count and assurance dot, each a button that selects the module and scrolls the
-workspace into view. Every other list is plain file links to the source at the
-inventory commit. Lists render on the first `toggle` of their `<details>`, so
-866 anchors are not built for a section most visitors never expand.
+workspace into view. The Rust group lists each crate with a link to its card
+and, beneath it, the files the card does not own — `Cargo.toml`, `link.ld`,
+the `.S` sources — as a "support files" row (`crateSupportFiles()`), then
+whatever no crate directory covers as workspace files, so the cards and the
+inventory together account for every path under `rust/`. Every other list is
+plain file links to the source at the inventory commit. Lists render on the
+first `toggle` of their `<details>`, so 866 anchors are not built for a
+section most visitors never expand.
 
 ## Accessibility and mobile
 

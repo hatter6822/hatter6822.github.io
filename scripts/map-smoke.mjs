@@ -202,6 +202,15 @@ async function shot(page, name) {
     testItems: document.querySelectorAll('#crate-sele4n-sys .rust-item-test').length
   }));
   check(toggled.pressed === 'true' && toggled.open === 2 && toggled.items > productionItems && toggled.testItems > 0, `the test-item toggle keeps the open file open and lists flagged test items ${JSON.stringify(toggled)}`);
+  const rustFacts = await page.evaluate(() => ({
+    abiUnsafeCell: (document.querySelector('#crate-sele4n-abi .rust-stat-unsafe dd') || {}).textContent || '',
+    abiStripNode: (document.querySelector('a[href="#crate-sele4n-abi"] .rust-dependency-node') || { getAttribute: () => '' }).getAttribute('class') || '',
+    lintFacts: Array.from(document.querySelectorAll('.rust-crate-facts')).filter((p) => /deny\(unsafe_code\)/.test(p.textContent)).length,
+    supportLinks: document.querySelectorAll('.inventory-crate-support .inventory-file-link').length
+  }));
+  check(/2 fn/.test(rustFacts.abiUnsafeCell) && /rust-unsafe/.test(rustFacts.abiStripNode), `sele4n-abi shows its counted unsafe sites despite its deny lint ${JSON.stringify(rustFacts)}`);
+  check(rustFacts.lintFacts === 3, `three crates state #![deny(unsafe_code)] as a separate fact (${rustFacts.lintFacts})`);
+  check(rustFacts.supportLinks >= 4, `crate support files are linked from the inventory (${rustFacts.supportLinks})`);
   check(errors.length === 0, `still no console errors after interactions ${JSON.stringify(errors)}`);
   await context.close();
 }
@@ -232,6 +241,13 @@ async function shot(page, name) {
   const m = await metrics(page);
   check(m.scrollWidth <= m.innerWidth, 'no horizontal page overflow at 390');
   check(m.search === 'SeLe4n.Kernel.API', 'default module (phone)');
+  const strip = await page.evaluate(() => {
+    const scroller = document.querySelector('.rust-dependency-scroll');
+    const svg = document.querySelector('.rust-dependency-svg');
+    if (!scroller || !svg) return null;
+    return { scrollWidth: scroller.scrollWidth, clientWidth: scroller.clientWidth, svgWidth: Math.round(svg.getBoundingClientRect().width), svgAttr: Number(svg.getAttribute('width')) };
+  });
+  check(Boolean(strip) && strip.svgWidth >= strip.svgAttr - 1 && strip.scrollWidth > strip.clientWidth, `dependency strip keeps its width and scrolls sideways at 390 ${JSON.stringify(strip)}`);
   check(errors.length === 0, 'no console errors (phone)');
   await shot(page, 'phone');
   await context.close();

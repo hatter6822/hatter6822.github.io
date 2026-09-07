@@ -762,6 +762,7 @@
 }
 .rust-dependency-strip {
   grid-column: 1 / -1;
+  min-width: 0; /* the grid item must not grow to the SVG; the scroller below takes the overflow */
   margin: 0;
   display: grid;
   gap: 0.35rem;
@@ -770,8 +771,11 @@
   padding: 0.7rem 0.85rem 0.6rem;
   background: linear-gradient(180deg, var(--rust-soft), transparent 70%), color-mix(in oklab, var(--surface) 82%, transparent);
 }
+/* The diagram keeps its intrinsic width and scrolls sideways on narrow screens.
+   `max-width: 100%` on the SVG once scaled the 798px four-crate diagram to phone
+   width, shrinking its 10–12px labels to 4–5px, and the scroller never scrolled. */
 .rust-dependency-scroll { overflow-x: auto; overflow-y: hidden; }
-.rust-dependency-svg { display: block; max-width: 100%; height: auto; }
+.rust-dependency-svg { display: block; }
 .rust-dependency-caption { color: var(--text-muted); font-size: 0.74rem; }
 .rust-dependency-edge { fill: none; stroke: var(--rust); stroke-width: 1.6; color: var(--rust); opacity: 0.85; }
 .rust-dependency-node rect {
@@ -1081,6 +1085,9 @@
 .inventory-file-link:hover { color: var(--accent); }
 .inventory-crate { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
 .inventory-crate-link { color: var(--heading); font-weight: 600; }
+.inventory-crate-support { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.15rem 0.5rem; padding-left: 0.9rem; font-size: 0.7rem; }
+.inventory-crate-support-label { color: var(--text-muted); }
+.inventory-file-links { min-width: 0; overflow-wrap: anywhere; }
 
 .panel-note { margin: 0; color: var(--text-muted); font-size: 0.8rem; }
 

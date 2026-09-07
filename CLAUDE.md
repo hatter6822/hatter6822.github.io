@@ -178,6 +178,17 @@ visually secondary (closed `<details>`, muted chrome).
   (`#[test]`, `#[cfg(test)]`, integration-test files) are bundled with
   `test: true` and shown only behind each card's toggle; `crate.items` counts
   production items alone.
+- A crate's `deniesUnsafe` lint and its counted `unsafe` sites are two facts.
+  `rustUnsafeSummary()` is the one reader of both: `sele4n-abi` declares
+  `#![deny(unsafe_code)]` and still carries three sites under item-level
+  `allow`, so the lint never stands in for the counts (the card once read
+  "none · deny(unsafe_code)" for it). The strip sums all three counters.
+- Every file under `rust/` has one entry on the page: the crate cards own the
+  `.rs` sources and `crateSupportFiles()` lists the rest (`Cargo.toml`,
+  `link.ld`, `.S`) per crate in the inventory, then the workspace files.
+- The dependency strip SVG keeps its `width` attribute and scrolls inside
+  `.rust-dependency-scroll`; `max-width: 100%` scaled it to phone width and
+  made the labels unreadable.
 - Imports the graph does not contain are "external" to the production corpus.
   In-repository ones (`SeLe4n`, the library root Main imports, and
   `SeLe4n.Testing.*`) are labelled "in-repo · outside production scope", never

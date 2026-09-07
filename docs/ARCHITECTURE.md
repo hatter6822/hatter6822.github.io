@@ -1066,16 +1066,22 @@ items), so it rides in `map-data.json` without a format of its own.
 kind/visibility/line, and that per-crate totals equal the per-file sums.
 
 Three crates declare `#![deny(unsafe_code)]`; the map reads that from the
-crate root rather than copying the claim from a README, and shows the HAL's
-unsafe sites per file. The block is descriptive and feeds no landing-page
-statistic — that page remains canonical-or-absent.
+crate root rather than copying the claim from a README. The lint and the
+counted sites are two facts, and the page never derives one from the other:
+`sele4n-abi` declares the lint and still carries three sites in `src/trap.rs`
+under item-level `#[allow(unsafe_code)]`, so its card shows the counts with an
+"allowed by exception" note, the dependency strip colours it by its sites, and
+the lint stands on its own in the facts line. The HAL's unsafe sites are shown
+per file. The block is descriptive and feeds no landing-page statistic — that
+page remains canonical-or-absent.
 
 ### Repository inventory and retention
 
 `classifyRepositoryPath()` files each of the 866 paths into six groups; the
 production groups (Lean by subsystem with module buttons, Rust linking to the
-cards) open by default and carry a badge, the rest are closed and muted. Lists
-render on first open. Two live-refresh paths would otherwise empty the section:
+cards plus each crate's support files — manifest, linker script, assembly —
+that no card lists) open by default and carry a badge, the rest are closed and
+muted. Lists render on first open. Two live-refresh paths would otherwise empty the section:
 a canonical refresh arrives with `files[]` reduced to Lean module paths, and no
 refresh ever carries a Rust inventory. `retainInventory()` keeps the previous
 tree and crates in those cases and records the commit each was taken at, and

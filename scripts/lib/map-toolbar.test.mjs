@@ -258,4 +258,14 @@ assert(/verifiableSurfaceArea:\s*verifiableSurfaceArea/.test(mapJs), "verifiable
 // CSS: cross-module declaration nodes should have dashed border
 assert(/\.flow-node\.cross-module\s+rect\s*\{[^}]*stroke-dasharray/s.test(css), "cross-module declaration nodes should have dashed stroke");
 
+// Review round on the 0.30.0 redesign: the dependency strip must scroll on
+// phones rather than shrink, and the unsafe lint never stands in for the
+// counted sites.
+assert(/\.rust-dependency-svg\s*\{[^}]*\}/.test(css) && !/\.rust-dependency-svg\s*\{[^}]*max-width/.test(css), "the dependency SVG keeps its intrinsic width so .rust-dependency-scroll can scroll");
+assert(/\.rust-dependency-strip\s*\{[^}]*min-width:\s*0/.test(css), ".rust-dependency-strip needs min-width: 0 so the grid item does not grow to the SVG");
+assert(/\.inventory-crate-support\b/.test(css), "map.css should style the crate support-file rows of the inventory");
+assert(!/rust_unsafe_denied/.test(mapJs), "the unsafe cell shows the counted sites; the deny lint is a separate fact");
+assert(/function rustUnsafeSummary\(/.test(mapJs) && /function crateSupportFiles\(/.test(mapJs), "rustUnsafeSummary and crateSupportFiles should exist");
+assert(!/testing-framework modules/.test(mapJs), "the production Lean description must not claim the testing framework");
+
 console.log("map-toolbar.test: ok");

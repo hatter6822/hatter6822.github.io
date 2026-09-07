@@ -176,8 +176,8 @@ Map-page-only styles:
 - workspace grid: single column by default, chart + sticky declaration sidebar at `min-width: 75rem`.
 - tabbed declaration sidebar (`.interior-menu-tabs`, `.interior-menu-tab[aria-selected]`).
 - flowchart workspace and toolbar layout; subsystem group nodes (`.flow-node.lane-group`, `.lane-member`, `.lane-guide`).
-- Rust section: dependency strip SVG, crate cards, per-file `<details>`, item chips coloured by kind via `--rust-kind-color`.
-- repository inventory: group and subgroup `<details>`, production highlighting via `[data-production="true"]`, lazy file/module lists.
+- Rust section: dependency strip SVG (intrinsic width, scrolling inside `.rust-dependency-scroll`), crate cards, per-file `<details>`, item chips coloured by kind via `--rust-kind-color`.
+- repository inventory: group and subgroup `<details>`, production highlighting via `[data-production="true"]`, lazy file/module lists, crate support-file rows (`.inventory-crate-support`).
 - graph node/edge visual semantics.
 - interior declaration panel styling with flex layout, hover states, CSS transitions, and kind label right-alignment.
 - `.sr-only` / `.visually-hidden` screen-reader utility class.

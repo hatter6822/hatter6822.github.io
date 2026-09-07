@@ -2424,3 +2424,44 @@ test('seedBundledInventory fills a newer cache from the bundle when the cache la
   assert.equal(hooks.seedBundledInventory(null, bundled), null);
   assert.equal(hooks.seedBundledInventory(cached, null), cached);
 });
+
+/* ── Review round: the unsafe lint vs. counted sites, crate support files ── */
+
+test('rustUnsafeSummary keeps the lint and the counted sites apart', async () => {
+  const hooks = await loadMapTestHooks();
+  // sele4n-abi: `#![deny(unsafe_code)]` at the crate root and three sites in
+  // src/trap.rs under item-level `#[allow(unsafe_code)]`.
+  const abi = hooks.rustUnsafeSummary({ name: 'sele4n-abi', deniesUnsafe: true, unsafe: { fns: 2, impls: 0, blocks: 1 } });
+  assert.equal(abi.sites, 3, 'a deny lint is not proof of zero sites');
+  assert.equal(abi.deniesUnsafe, true);
+  assert.equal(abi.exceptions, true);
+  const hal = hooks.rustUnsafeSummary({ name: 'sele4n-hal', deniesUnsafe: false, unsafe: { fns: 8, impls: 3, blocks: 107 } });
+  assert.equal(hal.sites, 118, 'impl blocks count alongside fns and blocks');
+  assert.equal(hal.exceptions, false);
+  const types = hooks.rustUnsafeSummary({ name: 'sele4n-types', deniesUnsafe: true, unsafe: { fns: 0, impls: 0, blocks: 0 } });
+  assert.deepEqual([types.sites, types.deniesUnsafe, types.exceptions], [0, true, false]);
+  assert.deepEqual([hooks.rustUnsafeSummary({}).sites, hooks.rustUnsafeSummary(null).sites], [0, 0], 'a crate without counters reads as zero sites');
+});
+
+test('crateSupportFiles lists the crate files the card does not own', async () => {
+  const hooks = await loadMapTestHooks();
+  const files = [
+    'rust/Cargo.toml', 'rust/rust-toolchain.toml',
+    'rust/sele4n-hal/Cargo.toml', 'rust/sele4n-hal/link.ld', 'rust/sele4n-hal/src/boot.S', 'rust/sele4n-hal/src/lib.rs', 'rust/sele4n-hal/src/mmu.rs',
+    'rust/sele4n-types/Cargo.toml', 'rust/sele4n-types/src/lib.rs',
+    'SeLe4n/Kernel/API.lean'
+  ];
+  const inventory = hooks.buildRepositoryInventory(files, { 'SeLe4n.Kernel.API': 'SeLe4n/Kernel/API.lean' });
+  const rustGroup = inventory.find((group) => group.id === 'rust');
+  const hal = { name: 'sele4n-hal', path: 'rust/sele4n-hal', files: [{ path: 'rust/sele4n-hal/src/lib.rs' }, { path: 'rust/sele4n-hal/src/mmu.rs' }] };
+  assert.deepEqual(Array.from(hooks.crateSupportFiles(rustGroup, hal)), ['rust/sele4n-hal/Cargo.toml', 'rust/sele4n-hal/link.ld', 'rust/sele4n-hal/src/boot.S'],
+    'the manifest, linker script and assembly source belong to the crate but not to its card');
+  const types = { name: 'sele4n-types', path: 'rust/sele4n-types', files: [{ path: 'rust/sele4n-types/src/lib.rs' }] };
+  assert.deepEqual(Array.from(hooks.crateSupportFiles(rustGroup, types)), ['rust/sele4n-types/Cargo.toml']);
+  assert.deepEqual(Array.from(hooks.crateSupportFiles(rustGroup, { name: 'ghost', files: [] })), [], 'a crate without a path owns nothing');
+
+  const onCards = new Set([...hal.files, ...types.files].map((file) => file.path));
+  const covered = new Set([...hooks.crateSupportFiles(rustGroup, hal), ...hooks.crateSupportFiles(rustGroup, types), ...onCards]);
+  const leftover = files.filter((path) => path.startsWith('rust/') && !covered.has(path)).sort();
+  assert.deepEqual(leftover, ['rust/Cargo.toml', 'rust/rust-toolchain.toml'], 'only workspace-level files remain for the workspace row');
+});
