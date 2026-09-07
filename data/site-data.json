@@ -1,9 +1,9 @@
 {
   "version": "0.34.56",
   "leanVersion": "4.28.0",
-  "modules": 311,
-  "lines": "330,569",
-  "theorems": 10937,
+  "modules": 303,
+  "lines": "325,346",
+  "theorems": 10929,
   "scripts": 65,
   "docs": 252,
   "admitted": 0,
@@ -15,5 +15,5 @@
   "metricsScope": "production",
   "schemaVersion": "1.0.0",
   "sourceDigest": "bdc85722687bda8b68127e35f5e49c2eb402455d940c6a95d75eb658263ab810",
-  "generatedAt": "2026-09-07T02:43:49.241Z"
+  "generatedAt": "2026-09-07T04:43:02.216Z"
 }

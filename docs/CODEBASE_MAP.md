@@ -1,20 +1,76 @@
 # Codebase Map: End-to-End Guide
 
-> Documentation baseline: website release **0.29.0**.
+> Documentation baseline: website release **0.30.0**.
 
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
 - import dependency flow,
 - theorem/proof pairing context,
 - module metadata,
-- and source-level symbol interior links.
+- source-level symbol interior links,
+- the production Rust crates (user-space syscall wrappers and the HAL),
+- and an inventory of every file in the repository.
+
+## Page structure (0.30.0)
+
+Three sections, in this order (asserted by `scripts/lib/map-toolbar.test.mjs`):
+
+1. **Lean module workspace** — the toolbar (context search + reset), the flow
+   chart, and the declaration sidebar. The section carries a `production ·
+   Lean 4` badge.
+2. **Rust production crates** — a dependency strip and one card per workspace
+   crate, rendered from `map-data.json#rust`.
+3. **Repository inventory** — every file in the tree, grouped as production
+   Lean, production Rust, tests, scripts, documentation, and project tooling.
+   The two production groups open by default and carry a badge; the others are
+   closed and muted, and their file lists render on first open.
+
+The hero above them is one compact block: title, lead, live status, the
+snapshot timestamp, a one-line stats strip (`Lean modules`, `Theorems`,
+`Import edges`, `Ops/Inv pairs`, `Linked pairs`, `Rust crates`, `Files`) and
+jump links to the three sections. Every count is thousands-grouped by
+`formatCount()`.
+
+### Default view
+
+With no `module=` in the URL the workspace opens on **`SeLe4n.Kernel.API`**,
+the syscall surface every other subsystem composes into. `DEFAULT_MODULE` is
+declared once in `assets/js/map.js`; `defaultModuleName()` returns it when the
+snapshot carries it and the first module in inventory order otherwise. Reset
+returns to the same view. The previous default — the module with the highest
+degree/theorem score — landed visitors on
+`SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership`.
+
+### Subsystem-grouped lanes
+
+`SeLe4n.Kernel.API` imports 46 modules; a lane budget of eight used to show
+eight of them and a "+38 more imports" node. Over budget, a lane now groups its
+modules by `moduleSubsystem()` — the parent namespace capped at three segments,
+so `SeLe4n.Kernel.IPC.Invariant.Defs` files under `SeLe4n.Kernel.IPC` and
+`SeLe4n.Kernel.API` under `SeLe4n.Kernel` — and renders one node per group
+(largest first; singletons stay plain module nodes). Clicking a group opens it
+in place: its members render indented below it on a dotted guide rail and the
+scroll position is kept. Group state is transient and resets on module change.
+Expanded flow mode (`fullflow=1`) still lists every module flat.
+
+### Declaration sidebar
+
+The interior declaration explorer is a sidebar beside the chart on viewports of
+75rem and up (sticky, so a click in it always shows its effect on the chart) and
+stacks below it otherwise. It shows the module name with a source link and a
+one-line summary (declarations, theorems, fan-in/out, assurance), the filter
+box, three tabs (`Objects`, `Contexts/Inits`, `Extensions`, each with its
+count) and, for the active tab, the kind selector and the declaration list.
+The active tab is remembered across module changes; the first non-empty group
+opens by default. Tabs are a `role="tablist"` with Arrow/Home/End roving focus.
 
 ## Where the bundled snapshot comes from
 
 `data/map-data.json` is built by `scripts/sync-upstream.mjs`, the site's single
 data pipeline, from one verified checkout of seLe4n. It graphs exactly the
 production corpus the landing page counts — the canonical
-`docs/codebase_map.json` production module list — and takes its declarations
+`docs/codebase_map.json` production module list minus the in-tree testing
+framework under `SeLe4n/Testing/` (see `docs/ARCHITECTURE.md` §"Scope") — and takes its declarations
 from that artifact rather than re-parsing them, because the artifact's parser
 tracks nested block-comment depth and strips string literals. Only the import
 edges are read from the Lean sources, because only the import edges are missing
@@ -23,6 +79,22 @@ from the artifact.
 The snapshot also carries the declaration call graph
 (`moduleMeta[].symbols.callGraph`), so the declaration-context flowchart works
 from bundled data on first paint and offline.
+
+It also carries the **Rust crate inventory** (`rust`), built from the same
+checkout by `scripts/lib/rust-analysis.mjs`: workspace members and inherited
+package fields from `rust/Cargo.toml`; per crate the description, edition,
+internal/external/dev/build dependencies and features from its manifest, plus
+every `.rs` file with its role (crate root, module, binary, build script,
+integration test), Rust module path, line count, item list (`fn`, `struct`,
+`enum`, `union`, `trait`, `type`, `const`, `static`, `mod`, `impl`, `macro`;
+visibility; `unsafe`; inline-module path), public-item count, test-item count,
+and `unsafe` sites (`fns`, `impls`, `blocks`). Items under `#[cfg(test)]` /
+`#[test]` and in integration-test files are listed with `test: true` and
+counted apart from the production items; the cards list them only behind a
+per-crate toggle. `validate-data.mjs` checks the block against `files[]`, its
+own totals, and that the flagged items match the test counts.
+The Rust workspace is outside the artifact's digest, so the block is descriptive
+only and feeds no landing-page statistic.
 
 `site-data.json` and `map-data.json` record the same `commitSha` and
 `sourceDigest`; `validate-data.mjs` fails when they disagree, when their module
@@ -67,10 +139,24 @@ fallback.
   - Sparse import reconstruction is only triggered when a new canonical commit is detected, preventing repeated per-module source fetches during no-op polling cycles.
 
 5. **Rendering lifecycle**
-   - Updates stat cards and status text.
+   - `applyData()` merges the incoming inventory through `retainInventory()`,
+     rebuilds indices and pairs, selects the default module, renders the Rust
+     crate cards and the repository inventory once (`renderInventory()`), then
+     renders the workspace (`renderAll()`).
+   - Updates the stats strip and status text.
    - Renders a compact in-panel control toolbar (context search with search-key hint and reset in a density-compact form).
-   - Builds flow chart with an integrated upper-right legend, three-kind dropdown interior menu (Object, Context/Init, Extension), compact filter controls, and traversal trail.
-   - Interior declaration normalization now reuses a per-module cache keyed by symbol payload identity, avoiding repeated symbol-list normalization during dense flowchart rerenders while preserving deterministic output.
+   - Builds the flow chart with an integrated upper-right legend and subsystem-grouped lanes, and the tabbed declaration sidebar.
+   - Interior declaration normalization reuses a per-module cache keyed by symbol payload identity, avoiding repeated symbol-list normalization during dense flowchart rerenders while preserving deterministic output.
+   - A locale switch (`sele4n:locale-changed`) repaints the inventory and the workspace; every label is looked up through `t()` at render time.
+
+5.1 **Inventory retention across live refresh**
+   - The canonical artifact lists Lean modules only, so a canonical refresh
+     arrives with a `files[]` made of module paths and no `rust` block. A tree
+     rebuild (`fetchAndBuildData`) carries every file but still no Rust
+     inventory. `retainInventory()` keeps whichever the previous data had and
+     records `inventoryCommit` / `rustCommit`; the inventory section's
+     provenance line says which commit each was taken at when it differs from
+     the module graph's. The `localStorage` cache (schema 4) round-trips both.
 
 ## Interaction model
 
@@ -84,18 +170,58 @@ fallback.
 
 - **Declaration context:** clicking any declaration item in the interior panel switches the flowchart to declaration context, showing the selected declaration as a center node with outgoing calls (left lane) and incoming callers (right lane). Declarations with zero relationships display a centered node with an informative empty-state hint. Each callee/caller node is color-coded by declaration kind. Navigable declarations (those with forward or reverse call-graph entries) can be clicked to chain into further declaration contexts. A breadcrumb trail (semantic `<nav>` element with `aria-label`) at the top of the flowchart provides a module-name link to return to the module-level flowchart. The module-search bar updates contextually: in declaration context it displays `ModuleName › DeclarationName` and the label changes to "Current declaration context"; selecting a module via search returns to module context. Declaration context is persisted in the URL via a `decl` parameter. The `flowchart-wrap` container `aria-label` updates dynamically to reflect the current context. The context search bar syncs to `Module.Declaration` dot-append format when a declaration is selected (from any entry point: interior menu, search bar, or node click). Caller lookups use a precomputed reverse graph index for O(1) performance. When a lane exceeds 12 entries, declarations are sorted by module relevance (same-module first, then alphabetically) before the first 10 are shown with a "+N more" expand button. Clicking this button fully expands the lane to show all declarations, and a "Return to Compact" button appears to collapse back. The expansion state is transient and resets when navigating to a new declaration or returning to module context. Scroll position is preserved across declaration flowchart re-renders (lane expand/compact). The interior menu highlights the currently selected declaration with an accent-colored visual indicator.
 
-- **Interior declaration explorer:** the flow chart context now exposes all interior Lean declaration kinds via three dropdowns:
+- **Interior declaration explorer (sidebar):** the declaration sidebar exposes all interior Lean declaration kinds in three tabs:
   - Objects (`inductive`, `structure`, `class`, `def`, `theorem`, `lemma`, `example`, `instance`, `opaque`, `abbrev`, `axiom`, `constant`, `constants`)
   - Contexts/Inits (`universe`, `universes`, `variable`, `variables`, `parameter`, `parameters`, `section`, `namespace`, `end`, `initialize`)
   - Extensions (`declare_syntax_cat`, `syntax_cat`, `syntax`, `macro`, `macro_rules`, `notation`, `infix`, `infixl`, `infixr`, `prefix`, `postfix`, `elab`, `elab_rules`, `term_elab`, `command_elab`, `tactic`)
-  - Each dropdown now defaults to `All (N)` so Object, Context/Init, and Extension scrollboxes are populated with the full declaration inventory on first render.
-  - Interior selector options and declaration list chips are color-coded by declaration kind so the selector acts as a visual key for the panel.
+  - The active tab's kind selector defaults to `All (N)` so the list opens with the full group inventory; each group remembers its selected kind while filtering.
+  - Selector options and declaration chips are color-coded by declaration kind so the selector acts as a visual key for the list.
   - Declaration lists are sorted case-insensitively by name (with line-number tiebreakers), including aggregated `All` views.
-  - Users can still switch to individual kinds, and each dropdown remembers that selected kind while filtering so analysts can refine queries without losing active context.
-  - The interior declaration search box now preserves focus and caret position during live filtering rerenders, preventing one-character input stalls while users type longer symbol queries.
-  - The interior declaration panel no longer renders a dedicated header row; declaration filtering controls now anchor the panel start directly.
-  - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.
+  - The filter box preserves focus and caret position during live filtering rerenders, preventing one-character input stalls while users type longer symbol queries.
+  - Re-selecting the already active module repaints the sidebar only when it shows another module. An unconditional repaint rebuilt the list under the pointer — the search field's `change` event fires on blur, i.e. on the mousedown of a declaration click — so the click never landed.
   - All declarations display a clickable name that enters declaration context, providing uniform navigation regardless of call-graph presence.
+
+## Rust production crates
+
+`renderRustCrates()` paints the section from `state.rust` alone. The dependency
+strip is a small inline SVG: one node per crate in workspace order, arrows from
+a crate to each internal dependency it declares (`sele4n-sys → sele4n-abi →
+sele4n-types`; `sele4n-hal` stands alone), green when the crate declares
+`#![deny(unsafe_code)]`. Each card shows the crate's description, source-file
+and line counts, item count with the public share, and an `unsafe` cell that
+reads `none · deny(unsafe_code)` or the counted `fn`/`blocks`/`impl` sites;
+below it the manifest facts (internal and external dependencies, features,
+edition, test-item count) and one `<details>` per source file — crate root
+first, then modules, binaries, build scripts, integration tests — whose item
+list renders on first open, sorted types-before-functions-before-impls and by
+line within a kind, each item linking to its line at the snapshot commit.
+Item kinds reuse the Lean declaration palette so one colour means one thing
+across both halves of the production code. Each card with test code carries a
+"Show N test items" toggle (`aria-pressed`); switching it re-renders that card
+alone, keeps the files the reader had open, and lists the flagged items with a
+`test` tag. Integration-test files, whose every item is test code, show a
+"test items hidden" note until the toggle is on.
+
+External imports — tokens the production graph does not contain — read
+"external dependency" for Lean/Std libraries and "in-repo · outside production
+scope" for in-repository modules the scope leaves out: the `SeLe4n` library
+root that `Main` imports, and the `SeLe4n.Testing.*` framework.
+
+## Repository inventory
+
+`classifyRepositoryPath()` files every path into one of six groups and a
+subgroup: `lean` (`SeLe4n/**/*.lean` except the testing framework, `Main.lean`,
+`SeLe4n.lean`; subgroup = `moduleSubsystem()` of the module name), `rust`
+(`rust/**`; subgroup = crate directory or `workspace`), `tests` (`tests/**` and
+the in-tree framework `SeLe4n/Testing/**`), `scripts` (subgrouped by language at the
+top level, by directory below), `docs` (`docs/**` plus root Markdown and
+`LICENSE`), and `project` (`.github`, `.claude`, `assets`, toolchain and build
+manifests). `buildRepositoryInventory()` attaches module names to Lean
+subgroups so the production Lean group can list modules with their theorem
+count and assurance dot, each a button that selects the module and scrolls the
+workspace into view. Every other list is plain file links to the source at the
+inventory commit. Lists render on the first `toggle` of their `<details>`, so
+866 anchors are not built for a section most visitors never expand.
 
 ## Accessibility and mobile
 
@@ -106,6 +232,10 @@ fallback.
 - Center declaration node is keyboard-focusable for tab navigation.
 - Interior menu filter label uses `.sr-only` (aliased with `.visually-hidden`) for screen-reader accessibility.
 - Interior menu panel hides via `:empty` pseudo-class before a module is selected, preventing a visible empty box.
+- The declaration group switcher is a `role="tablist"` of `role="tab"` buttons with `aria-selected`, `aria-controls` and Arrow/Home/End roving focus; the list panel is the `role="tabpanel"`.
+- Subsystem group nodes are `role="button"` flow nodes (Enter/Space toggle them); the member guide rail lives in the `aria-hidden` edge layer.
+- The Rust and inventory sections use native `<details>`/`<summary>` for every collapsible, so keyboard and screen-reader behaviour comes from the browser; every summary has a `focus-visible` outline.
+- The three sections are `aria-labelledby` their headings and reachable from jump links in the hero.
 - On small screens, touch targets are enlarged and a usage hint is shown.
 - Chart scrolling uses touch-optimized overflow behavior.
 - Flow-node text wrapping uses viewport-aware character width estimates (7.0px on mobile vs 6.4px on desktop) to prevent content overflow when CSS scales SVG text to 12–12.5px.
@@ -148,14 +278,15 @@ Declaration search suggestions are rendered with distinct styling (italic text, 
 
 ## Upstream module structure (reflected in map data)
 
-The seLe4n codebase now comprises 273 total modules across 4 layers:
+The published production corpus comprises 303 modules across 4 layers (the
+eight `SeLe4n.Testing.*` framework modules are inventoried under Tests):
 
 | Layer | Module count | Description |
 |-------|-------------|-------------|
-| kernel | 236 | Core kernel subsystems |
+| kernel | 268 | Core kernel subsystems |
 | platform | 17 | Simulator and RPi5 bindings |
-| model | 12 | Object types, structures, state |
-| other | 8 | Testing framework and root modules |
+| model | 14 | Object types, structures, state |
+| other | 4 | `Main`, `SeLe4n.Prelude`, `SeLe4n.Machine`, `SeLe4n.PackedString` |
 
 Key structural features visible in the map:
 
@@ -168,6 +299,7 @@ Key structural features visible in the map:
 
 1. Run `node scripts/sync-upstream.mjs` and commit refreshed snapshots (`data/`, `index.html`, `locales/` move together).
 2. Validate snapshots with `node scripts/validate-data.mjs`.
-3. Run parser and runtime-map regression tests with `node scripts/lib/lean-analysis.test.mjs`, `node scripts/lib/canonical-map.test.mjs`, and `node scripts/lib/map-runtime.test.mjs`.
+3. Run parser and runtime-map regression tests with `node scripts/lib/lean-analysis.test.mjs`, `node scripts/lib/rust-analysis.test.mjs`, `node scripts/lib/canonical-map.test.mjs`, `node scripts/lib/map-runtime.test.mjs`, and `node scripts/lib/map-toolbar.test.mjs`.
+   For a browser-level check, serve the repository root and run `node scripts/map-smoke.mjs` (needs `playwright-core`).
 4. Verify `map.html` references `assets/css/map.css` and `assets/js/map.js`.
 5. Validate reverse import-edge integrity with `node scripts/validate-data.mjs` (now includes graph symmetry checks).
