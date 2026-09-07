@@ -126,9 +126,17 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   estimate and a `modules × 2` build-job count all shipped as facts this way.
 - A missing key aborts the sync (`canonicalMetricsIssues`). Publishing a partial
   projection is how the page drifted in the first place.
-- Scope is **production Lean** (everything outside `tests/`), so the headline
-  figures describe one corpus. Recorded as `metricsScope` and pinned by
-  `validate-data.mjs`.
+- Scope is **production Lean**: the artifact's production set (everything
+  outside `tests/`) **minus the in-tree testing framework** `SeLe4n/Testing/`,
+  so the headline figures describe one corpus. `modules` and `theorems` are
+  counted over that inventory; `lines` is the artifact's `production_loc` minus
+  the framework files' physical lines, measured on the digest-verified sources
+  (the same count reproduces `production_loc` exactly, and
+  `canonicalCrossChecks` says so if it ever stops). Recorded as `metricsScope`
+  and pinned by `validate-data.mjs`, which also rejects any map module under
+  `tests/` or `SeLe4n/Testing/`. The scope lives in
+  `scripts/lib/canonical-map.mjs` (`isProductionModule`) and is mirrored by the
+  runtime's `isOutsideProductionScope`/`isLeanModulePath` for live refreshes.
 - Theorem counts come from the artifact's comment-aware `modules[].declarations`
   inventory, **not** from `readme_sync.proved_theorem_lemma_decls`. That field is
   a bare per-line regex: on the current artifact it counts 78 prose lines inside
@@ -166,7 +174,14 @@ visually secondary (closed `<details>`, muted chrome).
 - `map-data.json#rust` is built by `scripts/lib/rust-analysis.mjs` from the same
   pinned checkout as the Lean snapshot. It is **descriptive** (files, items,
   visibility, `unsafe` sites, manifests) and must never feed a landing-page
-  statistic; the landing page's metrics remain canonical-or-absent.
+  statistic; the landing page's metrics remain canonical-or-absent. Test items
+  (`#[test]`, `#[cfg(test)]`, integration-test files) are bundled with
+  `test: true` and shown only behind each card's toggle; `crate.items` counts
+  production items alone.
+- Imports the graph does not contain are "external" to the production corpus.
+  In-repository ones (`SeLe4n`, the library root Main imports, and
+  `SeLe4n.Testing.*`) are labelled "in-repo · outside production scope", never
+  "external dependency".
 - A live refresh may carry no repository tree (the canonical artifact lists
   only Lean modules) and never carries a Rust inventory. `retainInventory()`
   keeps the previous tree and crates in that case and records the commit each

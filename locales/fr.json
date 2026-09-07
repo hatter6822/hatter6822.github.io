@@ -293,7 +293,7 @@
     "use_full": "Vérification complète — changements d'invariants/théorèmes",
     "use_nightly": "CI nocturne — déterminisme + expérimental",
     "tier0_text": "Les analyses de marqueurs interdits garantissent zéro <code>sorry</code> et zéro <code>axiom</code> dans tout le code de production. Validation des liens de documentation, vérifications de synchronisation et application du formatage. La première ligne de défense.",
-    "tier1_text": "Compilation Lean complète des <span data-live=\"modules\">311</span> modules Lean. Les <span data-live=\"theorems\">10,937</span> théorèmes sont vérifiés par le typage. Chaque preuve d'invariant, chaque lemme pont, chaque théorème de préservation est vérifié par le vérificateur de types de Lean. Si cela compile, les preuves tiennent.",
+    "tier1_text": "Compilation Lean complète des <span data-live=\"modules\">303</span> modules Lean. Les <span data-live=\"theorems\">10,929</span> théorèmes sont vérifiés par le typage. Chaque preuve d'invariant, chaque lemme pont, chaque théorème de préservation est vérifié par le vérificateur de types de Lean. Si cela compile, les preuves tiennent.",
     "tier2_text": "Les sondes de séquences de traces valident le comportement exécutable par rapport à la sémantique formelle. La suite d'états négatifs teste le rejet des entrées malformées à travers l'IPC, les capacités, les points d'accès et les mutations CSpace. La validation du déterminisme exécute deux fois l'exécutable de traces et exige une sortie identique. Les vérifications à l'exécution du flux d'information valident les wrappers d'application.",
     "tier3_text": "Ancre chaque théorème et invariant nommé à la surface de preuve. Vérifie que toutes les assertions documentées dans l'<a href=\"https://github.com/hatter6822/seLe4n/blob/main/docs/CLAIM_EVIDENCE_INDEX.md\" target=\"_blank\" rel=\"noopener noreferrer\">index des assertions et preuves</a> sont adossées à du code réel. Garantit l'absence de régressions de preuves lors des refactorisations. La porte de correction complète pour les PRs.",
     "tier4_text": "Rejeu des scénarios à graine depuis le catalogue canonique, validation par étapes des candidats expérimentaux et sondes d'invariants de longue durée. Un harnais de niveau 5 en opt-in recoupe l'oracle Lean avec l'oracle Rust. Détecte les régressions subtiles qui échappent aux niveaux plus rapides.",
@@ -318,7 +318,7 @@
   },
   "structure": {
     "title": "Structure du projet",
-    "lead": "<span data-live=\"modules\">311</span> modules Lean, <span data-live=\"scripts\">65</span> scripts de test et d'intégration continue, et <span data-live=\"docs\">252</span> fichiers de documentation avec spécifications, ADR et feuilles de route."
+    "lead": "<span data-live=\"modules\">303</span> modules Lean, <span data-live=\"scripts\">65</span> scripts de test et d'intégration continue, et <span data-live=\"docs\">252</span> fichiers de documentation avec spécifications, ADR et feuilles de route."
   },
   "getting_started": {
     "title": "Démarrage",
@@ -334,7 +334,7 @@
     "documentation_title": "Documentation",
     "documentation_intro": "La documentation complète se trouve dans le répertoire <a href=\"https://github.com/hatter6822/seLe4n/tree/main/docs\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>docs/</code></a> :",
     "step2_text": "Le script de configuration installe <a href=\"https://github.com/leanprover/elan\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>elan</code></a> (le gestionnaire de versions Lean) avec <strong>vérification de somme de contrôle SHA-256</strong> et la chaîne d'outils Lean <span data-live=\"lean-version\">4.28.0</span> épinglée.",
-    "step3_text": "Compilez l'intégralité du noyau. Les <span data-live=\"theorems\">10,937</span> théorèmes sont vérifiés lors de la compilation des <span data-live=\"modules\">311</span> modules Lean. Zéro <code>sorry</code>, zéro <code>axiom</code>.",
+    "step3_text": "Compilez l'intégralité du noyau. Les <span data-live=\"theorems\">10,929</span> théorèmes sont vérifiés lors de la compilation des <span data-live=\"modules\">303</span> modules Lean. Zéro <code>sorry</code>, zéro <code>axiom</code>.",
     "step5_text": "L'espace de travail <a href=\"https://github.com/hatter6822/seLe4n/tree/main/rust\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"code-link\"><code>rust/</code></a> fournit des wrappers sûrs, <code>no_std</code>, autour de la surface d'appels système seLe4n (27 des 30 appels système). Compile sur ARM64 (trap réel) et x86_64 (trap simulé pour les tests sur machine hôte).",
     "contributing_item1": "Lisez le <a href=\"https://github.com/hatter6822/seLe4n/blob/main/CONTRIBUTING.md\" target=\"_blank\" rel=\"noopener noreferrer\">guide de contribution</a> et la <a href=\"https://github.com/hatter6822/seLe4n/blob/main/docs/DEVELOPMENT.md\" target=\"_blank\" rel=\"noopener noreferrer\">documentation de développement</a>",
     "contributing_item2": "Identifiez le domaine du projet concerné par votre modification",
@@ -524,6 +524,12 @@
     "count_modules": "{{count}} modules",
     "count_theorems": "{{count}} théorèmes",
     "count_crates": "{{count}} crates",
-    "open_in_workspace": "Ouvrir {{module}} dans l'espace de travail"
+    "open_in_workspace": "Ouvrir {{module}} dans l'espace de travail",
+    "rust_show_tests": "Afficher {{count}} éléments de test",
+    "rust_hide_tests": "Masquer les éléments de test",
+    "rust_tests_hidden": "{{count}} éléments de test masqués",
+    "rust_test_tag": "test",
+    "external_in_repo": "dans le dépôt · hors du périmètre de production",
+    "external_dependency": "dépendance externe"
   }
 }

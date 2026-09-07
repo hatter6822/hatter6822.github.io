@@ -20,6 +20,11 @@
  * crates advertise: three of the four declare `#![deny(unsafe_code)]`, and the
  * map shows that as a fact read from the sources rather than a claim copied
  * from a README.
+ *
+ * Test code — `#[test]` functions, anything under `#[cfg(test)]`, and every
+ * item of an integration-test file — is listed with `test: true` so the map
+ * can show it behind a per-crate toggle, and counted apart from the production
+ * items so the cards' headline figures describe the production surface.
  */
 
 export const RUST_ITEM_KINDS = Object.freeze([
@@ -475,22 +480,23 @@ export function buildRustInventory(files, readText, options = {}) {
       if (role === 'lib' || role === 'bin') {
         if (/^\s*#!\[(?:deny|forbid)\(unsafe_code\)\]/m.test(text)) deniesUnsafe = true;
       }
-      // Test code is counted but not listed: `#[cfg(test)] mod tests` blocks
-      // and integration-test files hold most of the HAL's functions, and they
-      // are not the surface the map is highlighting. The counts stay so the
-      // page can still say how much test code each file carries.
+      // Test code is listed but flagged: `#[cfg(test)] mod tests` blocks and
+      // integration-test files hold most of the HAL's functions, and they are
+      // not the surface the map highlights, so the page keeps them behind a
+      // toggle and counts them apart from the production items.
       const isTestFile = role === 'test';
-      const productionItems = scan.items.filter((item) => !item.test && !isTestFile);
-      const testItems = scan.items.length - productionItems.length;
-      const items = productionItems.map((item) => ({
+      const items = scan.items.map((item) => ({
         kind: item.kind,
         name: item.name,
         line: item.line,
         visibility: item.visibility,
         ...(item.unsafe ? { unsafe: true } : {}),
-        ...(item.module ? { module: item.module } : {})
+        ...(item.module ? { module: item.module } : {}),
+        ...(item.test || isTestFile ? { test: true } : {})
       }));
-      const publicItems = items.filter((item) => item.visibility === 'pub' && !item.module).length;
+      const testItems = items.filter((item) => item.test).length;
+      const productionCount = items.length - testItems;
+      const publicItems = items.filter((item) => item.visibility === 'pub' && !item.module && !item.test).length;
       crateFiles.push({
         path,
         relativePath: relative,
@@ -503,7 +509,7 @@ export function buildRustInventory(files, readText, options = {}) {
         unsafe: scan.unsafe
       });
       lines += scan.lines;
-      itemTotal += items.length;
+      itemTotal += productionCount;
       publicTotal += publicItems;
       testTotal += testItems;
       unsafeTotal.fns += scan.unsafe.fns;

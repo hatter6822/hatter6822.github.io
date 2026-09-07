@@ -1008,7 +1008,7 @@ all offline.
 The map page was a single workspace whose default module was whichever scored
 highest on a degree/theorem heuristic, whose declaration explorer sat between
 the toolbar and the chart as three side-by-side scroll boxes, and which showed
-nothing of the repository beyond the 311 Lean modules — not the Rust crates the
+nothing of the repository beyond the Lean modules — not the Rust crates the
 meta description promised, not the other 555 files the snapshot already listed.
 The redesign makes the production code the subject and keeps everything else
 one click away.
@@ -1081,6 +1081,52 @@ refresh ever carries a Rust inventory. `retainInventory()` keeps the previous
 tree and crates in those cases and records the commit each was taken at, and
 the section says so when it differs from the module graph's commit. The
 `localStorage` cache schema moved to 4 so caches without the block are dropped.
+
+### Scope: the in-tree testing framework is not production
+
+The artifact's production definition is every module outside `tests/`, which
+includes `SeLe4n/Testing/` — eight modules of harness, fixtures, invariant
+checks and state builders that ship in the library tree. Asked directly, the
+project owner chose to exclude them from production for the map and the landing
+page together, accepting the change to the published figures:
+
+| | before | after |
+|---|---|---|
+| modules | 311 | 303 |
+| theorems | 10,937 | 10,929 |
+| lines | 330,569 | 325,346 |
+
+`lines` needed care. The artifact records `production_loc` for its own scope
+and nothing per module, and the rule is that a metric never comes from outside
+the artifact. The subtraction is anchored to the canonical figure: the eight
+files' physical lines are measured on the digest-verified sources — the corpus
+the artifact describes — and subtracted from `production_loc`. That is sound
+only if the artifact's count uses the same method, so `canonicalCrossChecks`
+recomputes `production_loc` over the artifact's own files with the same
+counter and reports if it ever stops matching (today it matches exactly:
+330,569). Without a line counter, `siteMetricsFromCodebaseMap` omits `lines`
+and the sync refuses to publish, rather than quoting the wider scope.
+
+The artifact's self-consistency notes keep reading the artifact against its
+own scope (`production_files` 311, the 11,000 regex tally against 10,937), so
+the narrowing shows up as a documented subtraction rather than as a
+disagreement. `validate-data.mjs` rejects any map module under `tests/` or
+`SeLe4n/Testing/`; the runtime scopes live payloads and the tree-rebuild path
+the same way (and the latter now includes `Main.lean`, which it had always
+dropped). The one production edge into the framework, `Main →
+SeLe4n.Testing.MainTraceHarness`, renders in the external lane labelled
+"in-repo · outside production scope", not "external dependency"; the same
+label covers the `SeLe4n` library root that `Main` imports.
+
+### Rust test items behind a toggle
+
+The owner asked for Rust test code to be viewable rather than only counted.
+Test items are now bundled with `test: true` (273 KB raw, 38 KB gzipped, up
+from 106/16) and each card with test code carries a "Show N test items" toggle.
+The headline counts still describe the production surface; the toggle
+re-renders that card alone and re-opens the files the reader had open, and
+`validate-data.mjs` reconciles the flagged items with the per-file and
+per-crate `testItems` counts.
 
 ### Two defects the browser pass found
 

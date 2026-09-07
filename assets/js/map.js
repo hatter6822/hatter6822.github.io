@@ -207,7 +207,9 @@
     inventoryCommit: "",
     rustCommit: "",
     interiorMenuGroup: "object",
-    laneGroupsExpanded: { imports: Object.create(null), importers: Object.create(null) }
+    laneGroupsExpanded: { imports: Object.create(null), importers: Object.create(null) },
+    /* Per-crate: whether the cards list test items (transient, off by default). */
+    rustShowTests: Object.create(null)
   };
 
   var renderScheduled = false;
@@ -1442,6 +1444,28 @@
     ];
   }
 
+  /* Import tokens the graph does not contain are external to the production
+     corpus. Most are Lean/Std libraries; a few are in-repository modules the
+     published scope leaves out — the SeLe4n library root and the
+     SeLe4n.Testing framework — and saying "external dependency" of those
+     would be wrong. */
+  function isInRepoOutsideScope(name) {
+    return /^SeLe4n(?:\.|$)/.test(String(name || ""));
+  }
+
+  function externalImportSubtitle(name) {
+    return isInRepoOutsideScope(name)
+      ? (t("map.external_in_repo") || "in-repo \u00B7 outside production scope")
+      : (t("map.external_dependency") || "external dependency");
+  }
+
+  function externalImportTooltip(name, importer) {
+    var role = isInRepoOutsideScope(name)
+      ? "In-repository module outside the published production scope: " + name
+      : "External import: " + name;
+    return role + "\nImported by " + importer;
+  }
+
   function flowLaneLabelVisibility(options) {
     var source = options || {};
     var importsVisible = Number(source.importCount || 0) > 0;
@@ -2480,7 +2504,7 @@
       var externalNodeHeights = [];
       for (var ex = 0; ex < external.length; ex++) {
         var exRow = Math.floor(ex / externalPerRow);
-        var exH = nodeContentHeight(external[ex], "external dependency", externalWidth, true, "", false);
+        var exH = nodeContentHeight(external[ex], externalImportSubtitle(external[ex]), externalWidth, true, "", false);
         externalNodeHeights.push(exH);
         externalRowHeights[exRow] = Math.max(externalRowHeights[exRow] || 0, exH);
       }
@@ -2661,8 +2685,8 @@
       for (var z = 0; z < externalItems.length; z++) {
         var externalItem = externalItems[z];
         var isMorePlaceholder = externalItem.name.charAt(0) === "+";
-        var extSubtitle = isMorePlaceholder ? "" : "external dependency";
-        var extNode = createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", extSubtitle, isMorePlaceholder ? "" : "External import: " + externalItem.name + "\nImported by " + selected, false, true, "");
+        var extSubtitle = isMorePlaceholder ? "" : externalImportSubtitle(externalItem.name);
+        var extNode = createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", extSubtitle, isMorePlaceholder ? "" : externalImportTooltip(externalItem.name, selected), false, true, "");
         if (!isMorePlaceholder) externalEdgeNodes.push(extNode);
       }
       /* Draw subtle edges from center to each external import node */
@@ -3112,6 +3136,10 @@
     var parts = p.split("/");
     var top = parts.length > 1 ? parts[0] : "";
 
+    /* The in-tree testing framework is test code by the published scope. */
+    if (p.indexOf("SeLe4n/Testing/") === 0) {
+      return { group: "tests", subgroup: "SeLe4n/Testing" };
+    }
     if ((top === "SeLe4n" && /\.lean$/.test(p)) || p === "Main.lean" || p === "SeLe4n.lean") {
       return { group: "lean", subgroup: moduleSubsystem(moduleFromPath(p)) || "SeLe4n" };
     }
@@ -3688,6 +3716,27 @@
     stats.appendChild(rustStat("unsafe", unsafeValue, crate.deniesUnsafe ? "rust-stat-safe" : (unsafeSites ? "rust-stat-unsafe" : "")));
     card.appendChild(stats);
 
+    /* Test items are bundled but hidden until asked for: the production surface
+       is what the card describes. The toggle re-renders this card only. */
+    if (crate.testItems) {
+      var tools = document.createElement("div");
+      tools.className = "rust-crate-tools";
+      var showTests = Boolean(state.rustShowTests[crate.name]);
+      var toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "rust-tests-toggle";
+      toggle.setAttribute("aria-pressed", showTests ? "true" : "false");
+      toggle.textContent = showTests
+        ? (t("map.rust_hide_tests") || "Hide test items")
+        : (t("map.rust_show_tests", { count: formatCount(crate.testItems) }) || ("Show " + formatCount(crate.testItems) + " test items"));
+      toggle.addEventListener("click", function () {
+        state.rustShowTests[crate.name] = !state.rustShowTests[crate.name];
+        rerenderRustCrateCard(card, crate);
+      });
+      tools.appendChild(toggle);
+      card.appendChild(tools);
+    }
+
     var facts = document.createElement("p");
     facts.className = "rust-crate-facts";
     var factParts = [];
@@ -3723,9 +3772,33 @@
     return card;
   }
 
+  function rerenderRustCrateCard(card, crate) {
+    var openPaths = Object.create(null);
+    var wasOpen = card.querySelectorAll(".rust-file-details[open]");
+    for (var i = 0; i < wasOpen.length; i++) openPaths[wasOpen[i].dataset.path] = true;
+    var next = renderRustCrateCard(crate);
+    if (card.parentNode) card.parentNode.replaceChild(next, card);
+    /* Re-open the files the reader had open; setting `open` fires `toggle`,
+       which renders their lists lazily as on a click. */
+    var details = next.querySelectorAll(".rust-file-details");
+    for (var d = 0; d < details.length; d++) {
+      if (openPaths[details[d].dataset.path]) details[d].open = true;
+    }
+    var toggle = next.querySelector(".rust-tests-toggle");
+    if (toggle) toggle.focus();
+  }
+
   function rustRoleLabel(role) {
     var fallback = { lib: "crate root", bin: "binary", build: "build script", test: "integration test", module: "module" };
     return t("map.rust_role_" + role) || fallback[role] || role;
+  }
+
+  function visibleRustItems(crate, file) {
+    var items = Array.isArray(file.items) ? file.items : [];
+    if (state.rustShowTests[crate.name]) return items;
+    var production = [];
+    for (var i = 0; i < items.length; i++) if (!items[i].test) production.push(items[i]);
+    return production;
   }
 
   function renderRustFile(crate, file) {
@@ -3734,6 +3807,8 @@
     li.dataset.role = file.role;
     var details = document.createElement("details");
     details.className = "rust-file-details";
+    details.dataset.path = file.relativePath;
+    var visibleItems = visibleRustItems(crate, file);
     var summary = document.createElement("summary");
     summary.className = "rust-file-summary";
     var path = document.createElement("code");
@@ -3747,7 +3822,8 @@
     /* "module" is the default role; naming it on every row is noise. */
     if (file.role !== "module") metaParts.push(rustRoleLabel(file.role));
     metaParts.push(formatCount(file.lines) + " " + (t("map.lines_short") || "lines"));
-    if (file.items.length) metaParts.push(formatCount(file.items.length) + " " + (t("map.items_short") || "items") + (file.publicItems ? " (" + formatCount(file.publicItems) + " pub)" : ""));
+    var productionItemCount = file.items.length - (file.testItems || 0);
+    if (productionItemCount > 0) metaParts.push(formatCount(productionItemCount) + " " + (t("map.items_short") || "items") + (file.publicItems ? " (" + formatCount(file.publicItems) + " pub)" : ""));
     if (file.testItems) metaParts.push(formatCount(file.testItems) + " " + (t("map.test_items_short") || "test"));
     var unsafeSites = (file.unsafe.fns || 0) + (file.unsafe.blocks || 0) + (file.unsafe.impls || 0);
     if (unsafeSites) {
@@ -3761,26 +3837,29 @@
     summary.appendChild(meta);
     details.appendChild(summary);
 
-    if (!file.items.length) {
+    if (!visibleItems.length) {
       var openLink = document.createElement("p");
       openLink.className = "rust-file-empty";
       openLink.appendChild(createExternalLink(githubBlobHref(file.path, 0, state.rustCommit || state.commitSha), t("map.open_source") || "Source ↗"));
+      if (file.testItems) {
+        openLink.appendChild(document.createTextNode(" \u00B7 " + (t("map.rust_tests_hidden", { count: formatCount(file.testItems) }) || (formatCount(file.testItems) + " test items hidden"))));
+      }
       details.appendChild(openLink);
     } else {
       details.addEventListener("toggle", function () {
         if (!details.open || details.dataset.rendered === "1") return;
         details.dataset.rendered = "1";
-        details.appendChild(renderRustItemList(file));
+        details.appendChild(renderRustItemList(file, visibleItems));
       });
     }
     li.appendChild(details);
     return li;
   }
 
-  function renderRustItemList(file) {
+  function renderRustItemList(file, itemsToList) {
     var list = document.createElement("ul");
     list.className = "rust-item-list";
-    var items = sortRustItems(file.items);
+    var items = sortRustItems(Array.isArray(itemsToList) ? itemsToList : file.items);
     var fragment = document.createDocumentFragment();
     var ref = state.rustCommit || state.commitSha;
     for (var i = 0; i < items.length; i++) {
@@ -3790,6 +3869,7 @@
       li.dataset.kind = item.kind;
       li.style.setProperty("--rust-kind-color", rustItemColor(item.kind));
       if (item.visibility !== "pub") li.classList.add("rust-item-private");
+      if (item.test) li.classList.add("rust-item-test");
       var kind = document.createElement("span");
       kind.className = "rust-item-kind";
       kind.textContent = item.kind;
@@ -3814,6 +3894,12 @@
         unsafeTag.className = "rust-unsafe-tag";
         unsafeTag.textContent = "unsafe";
         li.appendChild(unsafeTag);
+      }
+      if (item.test) {
+        var testTag = document.createElement("span");
+        testTag.className = "rust-test-tag";
+        testTag.textContent = t("map.rust_test_tag") || "test";
+        li.appendChild(testTag);
       }
       var line = document.createElement("span");
       line.className = "rust-item-line";
@@ -4276,8 +4362,11 @@
     });
   }
 
+  /* Production Lean by the published scope: the library tree without the
+     in-tree testing framework, plus the kernel entry module. */
   function isLeanModulePath(path) {
-    return /^SeLe4n\/.*\.lean$/.test(path || "");
+    var candidate = String(path || "");
+    return /^SeLe4n\/(?!Testing\/).*\.lean$/.test(candidate) || candidate === "Main.lean";
   }
 
   function moduleInventoryFromTree(tree) {
@@ -4679,11 +4768,17 @@
   }
 
   /* The canonical artifact inventories production AND test modules, while the
-     bundled snapshot graphs the production corpus alone — the same modules the
-     landing page counts. Applying the artifact verbatim replaced a 311-module
-     map with a 381-module one, so a networked visit silently disagreed with
-     index.html. Scope the live payload the way scripts/sync-upstream.mjs scopes
-     the bundled one. */
+     bundled snapshot graphs the published production scope alone — the same
+     modules the landing page counts. Applying the artifact verbatim replaced a
+     311-module map with a 381-module one, so a networked visit silently
+     disagreed with index.html. Scope the live payload the way
+     scripts/sync-upstream.mjs scopes the bundled one: nothing under tests/, and
+     nothing from the in-tree testing framework under SeLe4n/Testing/. */
+  function isOutsideProductionScope(path) {
+    var candidate = String(path || "");
+    return candidate.indexOf("tests/") === 0 || candidate.indexOf("SeLe4n/Testing/") === 0;
+  }
+
   function productionScopedPayload(payload) {
     if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return payload;
 
@@ -4694,7 +4789,7 @@
 
     scoped.modules = payload.modules.filter(function (entry) {
       if (!entry || typeof entry !== "object") return true;
-      return String(entry.path || "").indexOf("tests/") !== 0;
+      return !isOutsideProductionScope(entry.path);
     });
 
     return scoped;
@@ -6081,6 +6176,10 @@
       retainInventory: retainInventory,
       seedBundledInventory: seedBundledInventory,
       normalizeRustInventory: normalizeRustInventory,
+      isOutsideProductionScope: isOutsideProductionScope,
+      isLeanModulePath: isLeanModulePath,
+      isInRepoOutsideScope: isInRepoOutsideScope,
+      visibleRustItems: visibleRustItems,
       rustItemColor: rustItemColor,
       sortRustItems: sortRustItems,
       pickInteriorMenuGroup: pickInteriorMenuGroup,
@@ -6107,6 +6206,7 @@
         if (patch.laneGroupsExpanded) state.laneGroupsExpanded = patch.laneGroupsExpanded;
         if (patch.files) state.files = patch.files;
         if ("rust" in patch) state.rust = patch.rust;
+        if (patch.rustShowTests) state.rustShowTests = patch.rustShowTests;
         if (typeof patch.commitSha === "string") state.commitSha = patch.commitSha;
         // Rebuild declarationIndex from moduleMeta when moduleMeta is patched
         if (patch.moduleMeta && !patch.declarationIndex) {

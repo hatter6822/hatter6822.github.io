@@ -2083,15 +2083,52 @@ test('normalizeCanonicalPayload scopes the live refresh to production modules', 
     modules: [
       { module: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean', declarations: [{ kind: 'theorem', name: 'a', line: 1, called: [] }] },
       { module: 'Main', path: 'Main.lean', declarations: [{ kind: 'def', name: 'main', line: 1, called: [] }] },
+      { module: 'SeLe4n.Testing.Helpers', path: 'SeLe4n/Testing/Helpers.lean', declarations: [{ kind: 'def', name: 'mkState', line: 1, called: [] }] },
       { module: 'Tests.Smoke', path: 'tests/Smoke.lean', declarations: [{ kind: 'theorem', name: 'smoke', line: 1, called: [] }] },
       { module: 'Tests.Deep', path: 'tests/deep/Deep.lean', declarations: [{ kind: 'theorem', name: 'deep', line: 1, called: [] }] }
     ]
   });
 
   assert.deepEqual(Array.from(normalized.modules).sort(), ['Main', 'SeLe4n.Kernel.API']);
-  for (const testModule of ['Tests.Smoke', 'Tests.Deep']) {
+  // The in-tree testing framework is outside the published scope too.
+  for (const testModule of ['Tests.Smoke', 'Tests.Deep', 'SeLe4n.Testing.Helpers']) {
     assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, testModule), `${testModule} must not be graphed`);
   }
+  assert.equal(hooks.isOutsideProductionScope('SeLe4n/Testing/Helpers.lean'), true);
+  assert.equal(hooks.isOutsideProductionScope('tests/Smoke.lean'), true);
+  assert.equal(hooks.isOutsideProductionScope('SeLe4n/Kernel/API.lean'), false);
+});
+
+test('the live tree path takes the same scope as the bundle and includes the entry module', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.isLeanModulePath('SeLe4n/Kernel/API.lean'), true);
+  assert.equal(hooks.isLeanModulePath('Main.lean'), true, 'Main.lean is a production module the tree path must not drop');
+  assert.equal(hooks.isLeanModulePath('SeLe4n/Testing/Helpers.lean'), false);
+  assert.equal(hooks.isLeanModulePath('tests/Smoke.lean'), false);
+  assert.equal(hooks.isLeanModulePath('SeLe4n.lean'), false, 'the library root is not in the canonical inventory');
+  assert.equal(hooks.isLeanModulePath('docs/notes.lean.md'), false);
+});
+
+test('in-repository imports outside the scope are not labelled external dependencies', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.isInRepoOutsideScope('SeLe4n.Testing.MainTraceHarness'), true);
+  assert.equal(hooks.isInRepoOutsideScope('SeLe4n'), true, 'the library root Main imports');
+  assert.equal(hooks.isInRepoOutsideScope('Std.Data.List'), false);
+  assert.equal(hooks.isInRepoOutsideScope('SeLe4nExtra.Thing'), false);
+});
+
+test('Rust test items stay hidden until the crate toggle is on', async () => {
+  const hooks = await loadMapTestHooks();
+  const crate = { name: 'sele4n-sys' };
+  const file = { items: [
+    { kind: 'fn', name: 'send', line: 5, visibility: 'pub' },
+    { kind: 'fn', name: 'send_roundtrip', line: 50, visibility: 'private', test: true }
+  ] };
+  hooks.applyTestState({ rustShowTests: {} });
+  assert.deepEqual(Array.from(hooks.visibleRustItems(crate, file), (item) => item.name), ['send']);
+  hooks.applyTestState({ rustShowTests: { 'sele4n-sys': true } });
+  assert.deepEqual(Array.from(hooks.visibleRustItems(crate, file), (item) => item.name), ['send', 'send_roundtrip']);
+  assert.deepEqual(Array.from(hooks.visibleRustItems({ name: 'other' }, file), (item) => item.name), ['send'], 'the toggle is per crate');
 });
 
 /* ── Redesign: default module, subsystem grouping, repository inventory ─── */
@@ -2198,6 +2235,7 @@ test('classifyRepositoryPath files every path into a group and subgroup', async 
   expect('SeLe4n/Kernel/IPC/CrossCore/Fault.lean', 'lean', 'SeLe4n.Kernel.IPC');
   expect('Main.lean', 'lean', 'Main');
   expect('SeLe4n.lean', 'lean', 'SeLe4n');
+  expect('SeLe4n/Testing/Helpers.lean', 'tests', 'SeLe4n/Testing');
   expect('SeLe4n/Prelude.lean', 'lean', 'SeLe4n');
   expect('rust/sele4n-sys/src/ipc.rs', 'rust', 'sele4n-sys');
   expect('rust/Cargo.toml', 'rust', 'workspace');

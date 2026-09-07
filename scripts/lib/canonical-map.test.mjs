@@ -13,7 +13,10 @@ import { createHash } from 'node:crypto';
 
 import {
   admittedCountFromCodebaseMap,
+  artifactProductionModules,
   canonicalCrossChecks,
+  excludedFrameworkModules,
+  isArtifactProductionModule,
   canonicalMetricsIssues,
   canonicalSourceDigest,
   canonicalSourcePaths,
@@ -127,6 +130,75 @@ test('siteMetricsFromCodebaseMap omits metrics the artifact does not supply', ()
   assert.deepEqual(siteMetricsFromCodebaseMap({ readme_sync: {} }), {});
   assert.deepEqual(siteMetricsFromCodebaseMap(null), {});
   assert.deepEqual(siteMetricsFromCodebaseMap('nonsense'), {});
+});
+
+/** The base fixture plus the in-tree testing framework module. */
+function mapWithFramework() {
+  const map = canonicalMap();
+  map.modules.splice(2, 0, {
+    module: 'SeLe4n.Testing.Helpers',
+    path: 'SeLe4n/Testing/Helpers.lean',
+    declaration_count: 2,
+    declarations: [
+      { kind: 'theorem', name: 'helper_sound', line: 3, called: [] },
+      { kind: 'def', name: 'mkState', line: 8, called: [] }
+    ]
+  });
+  map.summary.module_count = 4;
+  map.readme_sync.production_files = 3;
+  map.readme_sync.production_loc = 1000;
+  return map;
+}
+
+/** Physical line counts for the fixture's files, the way the sync script supplies them. */
+const FIXTURE_LINES = { 'SeLe4n/Kernel/API.lean': 700, 'SeLe4n/Testing/Helpers.lean': 120, 'Main.lean': 180, 'tests/Smoke.lean': 40 };
+const lineCount = (path) => FIXTURE_LINES[path];
+
+test('the site scope is the artifact scope minus the in-tree testing framework', () => {
+  const map = mapWithFramework();
+  assert.equal(isArtifactProductionModule({ path: 'SeLe4n/Testing/Helpers.lean' }), true, 'production by the artifact\'s definition');
+  assert.equal(isProductionModule({ path: 'SeLe4n/Testing/Helpers.lean' }), false, 'test code by the site\'s');
+  assert.deepEqual(artifactProductionModules(map).map((m) => m.module), ['SeLe4n.Kernel.API', 'Main', 'SeLe4n.Testing.Helpers']);
+  assert.deepEqual(productionModules(map).map((m) => m.module), ['SeLe4n.Kernel.API', 'Main']);
+  assert.deepEqual(excludedFrameworkModules(map).map((m) => m.module), ['SeLe4n.Testing.Helpers']);
+  assert.deepEqual(excludedFrameworkModules(canonicalMap()), []);
+});
+
+test('siteMetricsFromCodebaseMap subtracts the framework files from production_loc', () => {
+  const map = mapWithFramework();
+  const metrics = siteMetricsFromCodebaseMap(map, { lineCount });
+  assert.equal(metrics.modules, 2, 'the framework module is not published');
+  assert.equal(metrics.theorems, 1, 'nor is its theorem');
+  assert.equal(metrics.lines, 880, 'production_loc 1000 minus the 120-line framework file');
+
+  const withoutSources = siteMetricsFromCodebaseMap(map);
+  assert.equal('lines' in withoutSources, false, 'no line counter: lines is omitted, never published over the wrong scope');
+  assert.equal(withoutSources.modules, 2);
+
+  const unreadable = siteMetricsFromCodebaseMap(map, { lineCount: () => undefined });
+  assert.equal('lines' in unreadable, false, 'an unreadable framework file omits lines too');
+
+  // With nothing to exclude, production_loc is published as is and needs no sources.
+  assert.equal(siteMetricsFromCodebaseMap(canonicalMap()).lines, 330569);
+});
+
+test('canonicalCrossChecks reads the artifact against its own scope and checks the line method', () => {
+  const map = mapWithFramework();
+  map.readme_sync.proved_theorem_lemma_decls = 2;
+  assert.deepEqual(canonicalCrossChecks(map, { lineCount }), [], 'production_files 3 and 2 theorems match the artifact scope; 700 + 120 + 180 reproduces production_loc');
+
+  map.readme_sync.proved_theorem_lemma_decls = 3;
+  const theoremNote = canonicalCrossChecks(map, { lineCount });
+  assert.equal(theoremNote.length, 1);
+  assert.match(theoremNote[0], /says 3; the comment-aware declaration inventory has 2 \(difference 1\) — publishing the inventory \(1 over the site scope\)/);
+  map.readme_sync.proved_theorem_lemma_decls = 2;
+
+  map.readme_sync.production_loc = 999;
+  const notes = canonicalCrossChecks(map, { lineCount });
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /production_loc says 999; the sources at this revision count 1000 physical lines/);
+
+  assert.deepEqual(canonicalCrossChecks(map), [], 'without a line counter the line method is not checked');
 });
 
 test('productionModules excludes the tests/ corpus', () => {

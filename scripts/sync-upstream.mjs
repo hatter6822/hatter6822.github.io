@@ -75,6 +75,29 @@ function moduleFromPath(path) {
   return path.replace(/\.lean$/, '').replace(/\//g, '.');
 }
 
+/**
+ * Physical lines the way `wc -l` counts them, plus one for an unterminated
+ * last line. Reproduces the artifact's `production_loc` exactly over its own
+ * files (canonicalCrossChecks says so if it ever stops), which is what makes
+ * subtracting the framework files from that figure sound.
+ */
+function physicalLineCount(buffer) {
+  if (!buffer.length) return 0;
+  let count = 0;
+  for (const byte of buffer) if (byte === 0x0a) count += 1;
+  return buffer[buffer.length - 1] === 0x0a ? count : count + 1;
+}
+
+function lineCounter(work) {
+  return (path) => {
+    try {
+      return physicalLineCount(readFileSync(join(work, path)));
+    } catch {
+      return undefined;
+    }
+  };
+}
+
 function classifyLayer(moduleName) {
   if (/\.Model\./.test(moduleName)) return 'model';
   if (/\.Kernel\./.test(moduleName)) return 'kernel';
@@ -170,8 +193,11 @@ async function acquireInto(work) {
 
 // ── Snapshot builders ──────────────────────────────────────────────────────
 
-function buildSiteData(codebaseMap, head, sourceDigest) {
-  const metrics = siteMetricsFromCodebaseMap(codebaseMap);
+function buildSiteData(codebaseMap, head, sourceDigest, work) {
+  const metrics = siteMetricsFromCodebaseMap(codebaseMap, { lineCount: lineCounter(work) });
+  if (metrics.lines === undefined) {
+    throw new Error('lines could not be projected: the framework files to subtract from readme_sync.production_loc were not readable');
+  }
   return {
     version: metrics.version,
     leanVersion: metrics.leanVersion,
@@ -186,7 +212,8 @@ function buildSiteData(codebaseMap, head, sourceDigest) {
     sourceRepo: REPO,
     sourceRef: REF,
     metricsSource: METRICS_PATH,
-    // Production Lean only — see the scope note in lib/canonical-map.mjs.
+    // Production Lean only: the artifact's production scope minus the in-tree
+    // testing framework — see the scope note in lib/canonical-map.mjs.
     metricsScope: 'production',
     schemaVersion: codebaseMap.schema_version,
     sourceDigest,
@@ -298,9 +325,9 @@ async function writeTraces(work) {
 const { work, codebaseMap, head, sourceDigest, currentWithRef } = await acquire();
 
 try {
-  for (const note of canonicalCrossChecks(codebaseMap)) console.warn(`⚠️  ${note}`);
+  for (const note of canonicalCrossChecks(codebaseMap, { lineCount: lineCounter(work) })) console.warn(`⚠️  ${note}`);
 
-  const siteData = buildSiteData(codebaseMap, head, sourceDigest);
+  const siteData = buildSiteData(codebaseMap, head, sourceDigest, work);
   const mapData = buildMapData(codebaseMap, head, sourceDigest, work);
 
   await writeFile(SITE_FILE, JSON.stringify(siteData, null, 2) + '\n');

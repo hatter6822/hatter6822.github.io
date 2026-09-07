@@ -122,6 +122,7 @@ function validateRustInventory(rust, files) {
     let publicTotal = 0;
     let testTotal = 0;
     let lineTotal = 0;
+    let flaggedTotal = 0;
     crate.files.forEach((file, fileIndex) => {
       const fileLabel = `${label}.files[${fileIndex}]`;
       if (!isObject(file)) { errors.push(`${fileLabel} must be an object`); return; }
@@ -137,6 +138,7 @@ function validateRustInventory(rust, files) {
         if (!isNonNegativeInteger(file[key])) errors.push(`${fileLabel}.${key} must be a non-negative integer`);
       }
       if (!Array.isArray(file.items)) { errors.push(`${fileLabel}.items must be an array`); return; }
+      let flagged = 0;
       file.items.forEach((item, itemIndex) => {
         const itemLabel = `${fileLabel}.items[${itemIndex}]`;
         if (!isObject(item)) { errors.push(`${itemLabel} must be an object`); return; }
@@ -146,14 +148,23 @@ function validateRustInventory(rust, files) {
         if (typeof item.visibility !== 'string' || !/^(?:private|pub|pub\([^)]+\))$/.test(item.visibility)) {
           errors.push(`${itemLabel}.visibility ${JSON.stringify(item.visibility)} is not a visibility`);
         }
+        if (item.test !== undefined && item.test !== true) errors.push(`${itemLabel}.test must be true when present`);
+        if (item.test === true) flagged += 1;
       });
-      itemTotal += file.items.length;
+      // Test items are listed (behind a toggle) and flagged; the counts the
+      // cards show must agree with the flags.
+      if (isNonNegativeInteger(file.testItems) && file.testItems !== flagged) {
+        errors.push(`${fileLabel}.testItems says ${file.testItems} but ${flagged} item(s) are flagged test`);
+      }
+      itemTotal += file.items.length - flagged;
+      flaggedTotal += flagged;
       publicTotal += isNonNegativeInteger(file.publicItems) ? file.publicItems : 0;
       testTotal += isNonNegativeInteger(file.testItems) ? file.testItems : 0;
       lineTotal += isNonNegativeInteger(file.lines) ? file.lines : 0;
     });
 
     if (isNonNegativeInteger(crate.items) && crate.items !== itemTotal) errors.push(`${label}.items says ${crate.items} but files list ${itemTotal}`);
+    if (isNonNegativeInteger(crate.testItems) && crate.testItems !== flaggedTotal) errors.push(`${label}.testItems says ${crate.testItems} but ${flaggedTotal} item(s) are flagged test`);
     if (isNonNegativeInteger(crate.publicItems) && crate.publicItems !== publicTotal) errors.push(`${label}.publicItems says ${crate.publicItems} but files sum to ${publicTotal}`);
     if (isNonNegativeInteger(crate.testItems) && crate.testItems !== testTotal) errors.push(`${label}.testItems says ${crate.testItems} but files sum to ${testTotal}`);
     if (isNonNegativeInteger(crate.lines) && crate.lines !== lineTotal) errors.push(`${label}.lines says ${crate.lines} but files sum to ${lineTotal}`);
@@ -286,6 +297,13 @@ export function validateMapDataObject(data) {
     for (const moduleName of data.modules) {
       if (!(moduleName in data.moduleMap)) {
         errors.push(`map-data.json: moduleMap missing entry for ${moduleName}`);
+        continue;
+      }
+      // The map graphs exactly the published production scope: nothing under
+      // tests/, and nothing from the in-tree testing framework.
+      const path = String(data.moduleMap[moduleName] ?? '');
+      if (path.startsWith('tests/') || path.startsWith('SeLe4n/Testing/')) {
+        errors.push(`map-data.json: module ${moduleName} (${path}) lies outside the production scope`);
       }
     }
   }

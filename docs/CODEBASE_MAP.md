@@ -69,7 +69,8 @@ opens by default. Tabs are a `role="tablist"` with Arrow/Home/End roving focus.
 `data/map-data.json` is built by `scripts/sync-upstream.mjs`, the site's single
 data pipeline, from one verified checkout of seLe4n. It graphs exactly the
 production corpus the landing page counts — the canonical
-`docs/codebase_map.json` production module list — and takes its declarations
+`docs/codebase_map.json` production module list minus the in-tree testing
+framework under `SeLe4n/Testing/` (see `docs/ARCHITECTURE.md` §"Scope") — and takes its declarations
 from that artifact rather than re-parsing them, because the artifact's parser
 tracks nested block-comment depth and strips string literals. Only the import
 edges are read from the Lean sources, because only the import edges are missing
@@ -88,8 +89,10 @@ integration test), Rust module path, line count, item list (`fn`, `struct`,
 `enum`, `union`, `trait`, `type`, `const`, `static`, `mod`, `impl`, `macro`;
 visibility; `unsafe`; inline-module path), public-item count, test-item count,
 and `unsafe` sites (`fns`, `impls`, `blocks`). Items under `#[cfg(test)]` /
-`#[test]` and in integration-test files are counted but not listed.
-`validate-data.mjs` checks the block against `files[]` and its own totals.
+`#[test]` and in integration-test files are listed with `test: true` and
+counted apart from the production items; the cards list them only behind a
+per-crate toggle. `validate-data.mjs` checks the block against `files[]`, its
+own totals, and that the flagged items match the test counts.
 The Rust workspace is outside the artifact's digest, so the block is descriptive
 only and feeds no landing-page statistic.
 
@@ -193,14 +196,24 @@ first, then modules, binaries, build scripts, integration tests — whose item
 list renders on first open, sorted types-before-functions-before-impls and by
 line within a kind, each item linking to its line at the snapshot commit.
 Item kinds reuse the Lean declaration palette so one colour means one thing
-across both halves of the production code.
+across both halves of the production code. Each card with test code carries a
+"Show N test items" toggle (`aria-pressed`); switching it re-renders that card
+alone, keeps the files the reader had open, and lists the flagged items with a
+`test` tag. Integration-test files, whose every item is test code, show a
+"test items hidden" note until the toggle is on.
+
+External imports — tokens the production graph does not contain — read
+"external dependency" for Lean/Std libraries and "in-repo · outside production
+scope" for in-repository modules the scope leaves out: the `SeLe4n` library
+root that `Main` imports, and the `SeLe4n.Testing.*` framework.
 
 ## Repository inventory
 
 `classifyRepositoryPath()` files every path into one of six groups and a
-subgroup: `lean` (`SeLe4n/**/*.lean`, `Main.lean`, `SeLe4n.lean`; subgroup =
-`moduleSubsystem()` of the module name), `rust` (`rust/**`; subgroup = crate
-directory or `workspace`), `tests`, `scripts` (subgrouped by language at the
+subgroup: `lean` (`SeLe4n/**/*.lean` except the testing framework, `Main.lean`,
+`SeLe4n.lean`; subgroup = `moduleSubsystem()` of the module name), `rust`
+(`rust/**`; subgroup = crate directory or `workspace`), `tests` (`tests/**` and
+the in-tree framework `SeLe4n/Testing/**`), `scripts` (subgrouped by language at the
 top level, by directory below), `docs` (`docs/**` plus root Markdown and
 `LICENSE`), and `project` (`.github`, `.claude`, `assets`, toolchain and build
 manifests). `buildRepositoryInventory()` attaches module names to Lean
@@ -265,14 +278,15 @@ Declaration search suggestions are rendered with distinct styling (italic text, 
 
 ## Upstream module structure (reflected in map data)
 
-The seLe4n codebase now comprises 273 total modules across 4 layers:
+The published production corpus comprises 303 modules across 4 layers (the
+eight `SeLe4n.Testing.*` framework modules are inventoried under Tests):
 
 | Layer | Module count | Description |
 |-------|-------------|-------------|
-| kernel | 236 | Core kernel subsystems |
+| kernel | 268 | Core kernel subsystems |
 | platform | 17 | Simulator and RPi5 bindings |
-| model | 12 | Object types, structures, state |
-| other | 8 | Testing framework and root modules |
+| model | 14 | Object types, structures, state |
+| other | 4 | `Main`, `SeLe4n.Prelude`, `SeLe4n.Machine`, `SeLe4n.PackedString` |
 
 Key structural features visible in the map:
 

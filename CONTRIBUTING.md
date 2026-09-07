@@ -60,7 +60,7 @@ If you changed UI behavior or layout:
    section in `CLAUDE.md` before adding a rule inside `@media` or `@supports`.
 3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills, Arrow keys across the declaration tabs).
 4. Confirm declaration context switching works (click declaration → flowchart shows calls/callers → breadcrumb navigation returns to module).
-5. On `map.html` with no URL state: the workspace opens on `SeLe4n.Kernel.API`, over-budget lanes are grouped by subsystem and open in place, the Rust crate cards and the repository inventory render from the bundled snapshot, and the production groups are the open ones. `node scripts/map-smoke.mjs` checks all of this in headless Chromium if `playwright-core` is available.
+5. On `map.html` with no URL state: the workspace opens on `SeLe4n.Kernel.API`, over-budget lanes are grouped by subsystem and open in place, the Rust crate cards and the repository inventory render from the bundled snapshot, the production groups are the open ones, and a crate's "Show test items" toggle reveals its test code. `node scripts/map-smoke.mjs` checks all of this in headless Chromium if `playwright-core` is available.
 6. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
 7. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
 

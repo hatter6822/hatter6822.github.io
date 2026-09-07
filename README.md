@@ -43,7 +43,12 @@ git clone --depth 1 seLe4n@main
 Every published statistic is projected from the canonical
 `docs/codebase_map.json` — the artifact from which seLe4n's own README table is
 generated — and the sync fails rather than publishing a partial projection when
-an expected key is missing. The Lean sources supply exactly one thing the
+an expected key is missing. The published scope is production Lean: the
+artifact's production set (everything outside `tests/`) minus the in-tree
+testing framework under `SeLe4n/Testing/`, whose eight modules are framework
+code rather than kernel. Modules and theorems are counted over that inventory;
+lines are the artifact's `production_loc` minus the framework files, measured on
+the digest-verified sources. The Lean sources supply exactly one thing the
 artifact does not record, the import graph, and the artifact's
 `source_sync.source_digest` is verified over those sources first, so the
 snapshots cannot blend two revisions. The site and map snapshots record the same
@@ -118,8 +123,10 @@ The **Rust production crates** section renders one card per workspace crate
 `data/map-data.json#rust`: description and edition from `Cargo.toml`, internal
 and external dependencies, feature flags, per-file item lists with visibility and
 line anchors, and `unsafe` usage read from the sources (three crates declare
-`#![deny(unsafe_code)]`; the HAL's unsafe sites are counted per file). A small
-dependency diagram shows the `sys → abi → types` chain and the standalone HAL.
+`#![deny(unsafe_code)]`; the HAL's unsafe sites are counted per file). Test
+items are bundled too and listed behind a per-crate toggle, so the cards
+describe the production surface by default. A small dependency diagram shows
+the `sys → abi → types` chain and the standalone HAL.
 
 The **repository inventory** lists every file in the seLe4n tree, grouped:
 production Lean (by subsystem, each module opening in the workspace), production

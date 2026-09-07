@@ -187,7 +187,21 @@ async function shot(page, name) {
 
   await page.click('#crate-sele4n-sys .rust-file-summary');
   await page.waitForTimeout(200);
-  check((await page.evaluate(() => document.querySelectorAll('#crate-sele4n-sys .rust-item').length)) > 0, 'a crate file expands into its item list');
+  const productionItems = await page.evaluate(() => document.querySelectorAll('#crate-sele4n-sys .rust-item').length);
+  check(productionItems > 0, 'a crate file expands into its item list');
+  check((await page.evaluate(() => document.querySelectorAll('#crate-sele4n-sys .rust-item-test').length)) === 0, 'test items are hidden by default');
+  await page.click('#crate-sele4n-sys .rust-tests-toggle');
+  await page.waitForTimeout(300);
+  // The crate root has no test code; open a module file that does.
+  await page.click('#crate-sele4n-sys .rust-file[data-role="module"] .rust-file-summary');
+  await page.waitForTimeout(300);
+  const toggled = await page.evaluate(() => ({
+    pressed: document.querySelector('#crate-sele4n-sys .rust-tests-toggle').getAttribute('aria-pressed'),
+    open: document.querySelectorAll('#crate-sele4n-sys .rust-file-details[open]').length,
+    items: document.querySelectorAll('#crate-sele4n-sys .rust-item').length,
+    testItems: document.querySelectorAll('#crate-sele4n-sys .rust-item-test').length
+  }));
+  check(toggled.pressed === 'true' && toggled.open === 2 && toggled.items > productionItems && toggled.testItems > 0, `the test-item toggle keeps the open file open and lists flagged test items ${JSON.stringify(toggled)}`);
   check(errors.length === 0, `still no console errors after interactions ${JSON.stringify(errors)}`);
   await context.close();
 }

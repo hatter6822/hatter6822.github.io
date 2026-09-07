@@ -329,12 +329,13 @@ test('buildRustInventory assembles crates in workspace order with per-file scans
   assert.deepEqual(sys.unsafe, { fns: 1, impls: 0, blocks: 1 });
   const smoke = sys.files.find((file) => file.relativePath === 'tests/smoke.rs');
   assert.equal(smoke.role, 'test');
-  assert.deepEqual(smoke.items, [], 'integration-test files list no items');
-  assert.equal(smoke.testItems, 1, 'but their test functions are counted');
+  assert.deepEqual(smoke.items.map((item) => [item.name, item.test]), [['smoke', true]], 'integration-test items are listed, flagged test');
+  assert.equal(smoke.testItems, 1);
+  assert.equal(smoke.publicItems, 0);
   const lib = sys.files.find((file) => file.relativePath === 'src/lib.rs');
-  assert.deepEqual(lib.items.map((item) => item.name), ['raw'], 'the cfg(test) module and its test are counted, not listed');
+  assert.deepEqual(lib.items.map((item) => [item.name, item.test === true]), [['raw', false], ['tests', true], ['t', true]], 'the cfg(test) module and its test are listed and flagged');
   assert.equal(lib.testItems, 2);
-  assert.equal(sys.items, 1);
+  assert.equal(sys.items, 1, 'production items only');
   assert.equal(sys.testItems, 3);
 });
 

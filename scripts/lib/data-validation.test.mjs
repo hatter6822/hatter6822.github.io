@@ -377,6 +377,42 @@ function rustInventory(overrides = {}) {
 
 const RUST_FILES = ['rust/Cargo.toml', 'rust/sele4n-sys/Cargo.toml', 'rust/sele4n-sys/src/lib.rs'];
 
+test('validateMapDataObject rejects modules outside the published production scope', () => {
+  const errors = validateMapDataObject(mapData({
+    modules: ['SeLe4n.Kernel.API', 'SeLe4n.Testing.Helpers', 'Tests.Smoke'],
+    moduleMap: {
+      'SeLe4n.Kernel.API': 'SeLe4n/Kernel/API.lean',
+      'SeLe4n.Testing.Helpers': 'SeLe4n/Testing/Helpers.lean',
+      'Tests.Smoke': 'tests/Smoke.lean'
+    },
+    moduleMeta: {
+      'SeLe4n.Kernel.API': { symbols: { theorems: [], functions: [], byKind: {}, callGraph: { a: ['b'] } } },
+      'SeLe4n.Testing.Helpers': {},
+      'Tests.Smoke': {}
+    }
+  }));
+  assert.ok(errors.some((m) => m.includes('SeLe4n.Testing.Helpers (SeLe4n/Testing/Helpers.lean) lies outside the production scope')), errors.join('\n'));
+  assert.ok(errors.some((m) => m.includes('Tests.Smoke (tests/Smoke.lean) lies outside the production scope')), errors.join('\n'));
+  assert.ok(!errors.some((m) => m.includes('SeLe4n.Kernel.API (')), 'the production module is not flagged');
+});
+
+test('validateMapDataObject reconciles flagged test items with the counts', () => {
+  const rust = rustInventory();
+  rust.crates[0].files[0].items.push({ kind: 'fn', name: 'roundtrip', line: 30, visibility: 'private', test: true });
+  rust.crates[0].files[0].testItems = 1;
+  rust.crates[0].testItems = 1;
+  assert.deepEqual(validateMapDataObject(mapData({ files: RUST_FILES, rust })), [], 'one flagged item, counted once at file and crate level');
+
+  rust.crates[0].files[0].testItems = 0;
+  rust.crates[0].testItems = 0;
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(errors.some((m) => m.includes('testItems says 0 but 1 item(s) are flagged test')), errors.join('\n'));
+
+  rust.crates[0].files[0].items[1].test = 'yes';
+  const typed = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(typed.some((m) => m.includes('.test must be true when present')), typed.join('\n'));
+});
+
 test('validateMapDataObject accepts a snapshot without a rust block and one with a consistent block', () => {
   const withoutRust = validateMapDataObject(mapData({ modules: [] }));
   assert.deepEqual(withoutRust, []);
