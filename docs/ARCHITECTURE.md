@@ -528,7 +528,8 @@ documented rather than rediscovered.
   and 16-32px sizes it renders at.
 - **`data/map-data.json` 3,092 KB -> 1,646 KB** (255 KB -> 153 KB gzipped), which
   was 83% of map.html's transfer. `sync-upstream.mjs` writes it compact so
-  refreshes stay minified. `site-data.json` and `execution-traces.json` stay
+  refreshes stay minified (it now carries the declaration call graph too — see
+  "Bundling the declaration call graph" below). `site-data.json` and `execution-traces.json` stay
   indented — they are small and people read them.
 
 ### Accessibility
@@ -937,3 +938,60 @@ rejected `Main`, so the map graphed 310 modules while the page said 311. The
 guard is now case-sensitive — capitalisation is exactly what separates the Lean
 module from the branch it lives on — and a dotless name is accepted when it
 reads like a module. The branch-ref pseudo-modules are still filtered.
+
+## Bundling the declaration call graph (0.29.0)
+
+`data/map-data.json` now carries `moduleMeta[].symbols.callGraph` — each
+declaration mapped to the identifiers it references. 14,405 entries, 119,506
+edges.
+
+The runtime already read that field in three places (`normalizeMapData`, the
+incremental refresh path, and the `localStorage` round-trip); the bundled
+snapshot simply never populated it. So the declaration-context flowchart — the
+map's outgoing-calls and incoming-callers view — was empty until a live GitHub
+fetch of the 574 KB canonical map completed, and empty for good with no network.
+Deep-linking to a declaration offline rendered one node and "This theorem has no
+detected internal call relationships."
+
+### Why inline, and not something cleverer
+
+The graph adds 2.60 MB raw / 262 KB gzipped. Three encodings were measured on
+the real corpus before choosing:
+
+| encoding | added raw | added gzip | parse |
+|---|---|---|---|
+| inline `callGraph` (the shape the runtime reads) | 2.60 MB | 262 KB | 32 ms |
+| global string table + integer rows | 1.09 MB | 239 KB | 23 ms |
+| interned call targets only | 1.31 MB | 252 KB | 28 ms |
+
+Interning more than halves the raw file, and it does cut parse time, but it
+saves only **23 KB gzipped** — gzip already captures the repetition, because the
+graph is 119,506 references to about 10,000 distinct names. Dropping the derived
+`symbols.theorems`/`functions` arrays (which the runtime reconstructs from
+`byKind` when absent) saves another 21 KB on the same principle.
+
+Neither buys enough to justify inventing a format, writing a decoder in
+`map.js`, and keeping writer and reader in sync — particularly when the plain
+shape is one the runtime already consumes and no code has to change. The
+measurement is recorded here so the next person does not re-derive it, or worse,
+assume interning would help and ship the decoder.
+
+Set against what it replaces, the trade is favourable: 262 KB gzipped bundled,
+versus a 574 KB gzipped live fetch that only arrived after page load and not at
+all offline.
+
+### Two details the data forced
+
+- **The graph is keyed by the recovered names.** Call-graph keys and symbol-list
+  names come out of the same pass over the same declaration, and
+  `validate-data.mjs` asserts every key appears in its module's `byKind` lists.
+  The runtime resolves a declaration through `byKind` (`declarationIndex`) and
+  its calls through `callGraph` (`declarationGraph`), so a name in only one is a
+  lookup that silently dies.
+- **Name collisions collapse, and that is correct here.** The artifact records
+  short names, so `refl` in three namespaces of one file is three declarations
+  under one key — 177 such collisions. Later wins. `map.js` keys its merged
+  graph by bare name globally and collapses them the same way, and its own live
+  path assigns last-wins too, so bundled and live agree. Qualifying the names is
+  not available: the `called` targets are recorded unqualified as well, and
+  every lookup would miss.

@@ -26,6 +26,14 @@ import {
   theoremDeclarationCount
 } from './canonical-map.mjs';
 
+/**
+ * The symbol maps are null-prototype objects — their keys are arbitrary Lean
+ * identifiers, and a declaration named `toString` or `constructor` must not
+ * collide with Object.prototype. deepEqual compares prototypes, so spread
+ * before asserting.
+ */
+const plain = (value) => ({ ...value });
+
 /** A faithful miniature of docs/codebase_map.json at schema_version 1.0.0. */
 function canonicalMap(overrides = {}) {
   return {
@@ -299,6 +307,50 @@ test('symbolsFromDeclarations keeps distinct declarations that share a name', ()
   ], '').theorems.length, 1);
 });
 
+test('symbolsFromDeclarations builds the call graph under recovered names', () => {
+  // The graph and the symbol lists must agree on names: the runtime resolves a
+  // declaration through byKind (declarationIndex) and its calls through
+  // callGraph (declarationGraph), so a name in only one yields a dead lookup.
+  const source = [
+    'theorem ofErrorLabel?_zero : True := trivial',
+    'def dispatch : Nat := 0',
+    'namespace SeLe4n'
+  ].join('\n');
+  const symbols = symbolsFromDeclarations([
+    { kind: 'theorem', name: 'ofErrorLabel', line: 1, called: ['trivial', 'True'] },
+    { kind: 'def', name: 'dispatch', line: 2, called: [] },
+    { kind: 'namespace', name: 'SeLe4n', line: 3 }
+  ], source);
+
+  assert.deepEqual(plain(symbols.callGraph), { 'ofErrorLabel?_zero': ['trivial', 'True'] });
+  assert.equal(symbols.theorems[0].name, 'ofErrorLabel?_zero');
+  // An empty or absent `called` produces no entry, matching what the map
+  // runtime builds from the artifact directly.
+  assert.equal('dispatch' in symbols.callGraph, false);
+  assert.equal('SeLe4n' in symbols.callGraph, false);
+});
+
+test('symbolsFromDeclarations trims call targets and drops empties', () => {
+  const symbols = symbolsFromDeclarations([
+    { kind: 'theorem', name: 'a', line: 1, called: ['  x  ', '', null, 'y'] },
+    { kind: 'theorem', name: 'b', line: 2, called: ['', '   '] }
+  ], '');
+  assert.deepEqual(plain(symbols.callGraph), { a: ['x', 'y'] });
+});
+
+test('symbolsFromDeclarations collapses a name collision the way the runtime does', () => {
+  // The artifact records short names, so `refl` in two namespaces of one file
+  // is two declarations under one key. The runtime's merged graph is keyed by
+  // bare name globally and collapses them identically; later wins.
+  const symbols = symbolsFromDeclarations([
+    { kind: 'theorem', name: 'refl', line: 1605, called: ['first'] },
+    { kind: 'theorem', name: 'refl', line: 1846, called: ['second'] }
+  ], '');
+  assert.deepEqual(plain(symbols.callGraph), { refl: ['second'] });
+  // Both declarations still appear in the symbol lists, keyed by line.
+  assert.deepEqual(symbols.theorems.map((t) => t.line), [1605, 1846]);
+});
+
 test('symbolsFromDeclarations keeps a kind the interior UI does not group', () => {
   const symbols = symbolsFromDeclarations([{ kind: 'future_kind', name: 'x', line: 3 }], '');
   assert.deepEqual(symbols.byKind.future_kind, [{ name: 'x', line: 3 }]);
@@ -308,6 +360,7 @@ test('symbolsFromDeclarations tolerates a missing inventory', () => {
   const symbols = symbolsFromDeclarations(undefined, undefined);
   assert.deepEqual(symbols.theorems, []);
   assert.deepEqual(symbols.functions, []);
+  assert.deepEqual(plain(symbols.callGraph), {});
 });
 
 test('canonicalCrossChecks reports the artifact disagreeing with itself', () => {

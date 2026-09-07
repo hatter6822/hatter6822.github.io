@@ -149,6 +149,10 @@ metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
 - Legacy top-level maps (`moduleMap`, `importsFrom`, `moduleMeta`) are fallbacks only
 - Branch-ref metadata keys (e.g. `main`) are excluded from module inventories
 - Declaration-centric payloads (`modules[].declarations`) are projected into symbol buckets
+- `moduleMeta[].symbols.callGraph` ships in the bundled snapshot; every key must
+  also appear in that module's `byKind` lists (`validate-data.mjs` asserts it),
+  because the runtime resolves a declaration through one and its calls through
+  the other
 - Reverse import edges (`importsTo`) are always rebuilt from `importsFrom`
 
 ### CSS override weight (media queries add no specificity)

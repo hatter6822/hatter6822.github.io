@@ -285,3 +285,41 @@ test('validateSiteDataObject rejects malformed provenance and metric formatting'
   assert.deepEqual(validateSiteDataObject(siteData({ lines: '330,569' })), []);
   assert.deepEqual(validateSiteDataObject(siteData({ lines: '999' })), []);
 });
+
+test('validateMapDataObject validates the declaration call graph', () => {
+  const withGraph = (callGraph, byKind = { theorem: [{ name: 'a', line: 1 }] }) => mapData({
+    modules: ['A'],
+    moduleMap: { A: 'A.lean' },
+    moduleMeta: { A: { symbols: { theorems: [], functions: [], byKind, callGraph } } },
+    importsFrom: { A: [] }
+  });
+
+  assert.deepEqual(validateMapDataObject(withGraph({ a: ['x', 'y'] })), []);
+
+  assert.ok(validateMapDataObject(withGraph({ a: [] }))
+    .some((m) => m.includes('must be a non-empty array')));
+  assert.ok(validateMapDataObject(withGraph({ a: ['ok', ''] }))
+    .some((m) => m.includes('non-empty declaration names')));
+  assert.ok(validateMapDataObject(withGraph('nope'))
+    .some((m) => m.includes('callGraph must be an object')));
+
+  // The invariant that matters: a caller the module's symbol lists do not
+  // carry means the two projections drifted, and every lookup through it dies.
+  assert.ok(validateMapDataObject(withGraph({ ghost: ['x'] }))
+    .some((m) => m.includes("is not a declaration in this module's symbol lists")));
+});
+
+test('validateMapDataObject rejects a snapshot with no call graph at all', () => {
+  const errors = validateMapDataObject(mapData({
+    modules: ['A'],
+    moduleMap: { A: 'A.lean' },
+    moduleMeta: { A: { symbols: { theorems: [], functions: [], byKind: {} } } },
+    importsFrom: { A: [] }
+  }));
+  // Without it the map still renders modules and imports, so the regression
+  // would only surface when someone clicked a declaration.
+  assert.ok(errors.some((m) => m.includes('declaration call graph is missing')));
+
+  // An empty snapshot has nothing to graph and must stay valid.
+  assert.deepEqual(validateMapDataObject(mapData()), []);
+});

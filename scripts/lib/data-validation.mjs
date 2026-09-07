@@ -9,6 +9,51 @@ function isIsoDateString(value) {
   return /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/.test(value);
 }
 
+/**
+ * Validate one module's declaration call graph.
+ *
+ * Beyond the shape, this asserts that every caller key is a declaration the
+ * same module's `byKind` lists carry. The runtime looks a declaration up in one
+ * and then the other — `declarationIndex` comes from `byKind`, `declarationGraph`
+ * from `callGraph` — so a name that appears in only one silently yields a node
+ * with no calls or a call lane with no navigable target. Both projections are
+ * built from the same declaration in the same pass, which is what makes this
+ * checkable rather than merely hoped for.
+ */
+function validateCallGraph(moduleName, symbols) {
+  const errors = [];
+  const graph = symbols.callGraph;
+  const where = `map-data.json: moduleMeta.${moduleName}.symbols.callGraph`;
+
+  if (!isObject(graph)) return [`${where} must be an object`];
+
+  const declared = new Set();
+  if (isObject(symbols.byKind)) {
+    for (const entries of Object.values(symbols.byKind)) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        const name = typeof entry === 'string' ? entry : entry?.name;
+        if (typeof name === 'string' && name) declared.add(name);
+      }
+    }
+  }
+
+  for (const [caller, calls] of Object.entries(graph)) {
+    if (!Array.isArray(calls) || !calls.length) {
+      errors.push(`${where}.${caller} must be a non-empty array`);
+      continue;
+    }
+    if (calls.some((target) => typeof target !== 'string' || !target.trim())) {
+      errors.push(`${where}.${caller} must contain non-empty declaration names`);
+    }
+    if (declared.size && !declared.has(caller)) {
+      errors.push(`${where}.${caller} is not a declaration in this module's symbol lists`);
+    }
+  }
+
+  return errors;
+}
+
 function isValidSymbolEntry(entry) {
   if (typeof entry === 'string') return entry.trim().length > 0;
   if (!isObject(entry)) return false;
@@ -156,6 +201,8 @@ export function validateMapDataObject(data) {
   }
 
   if (isObject(data.moduleMeta)) {
+    let modulesWithCallGraph = 0;
+
     for (const moduleName of data.modules) {
       const meta = data.moduleMeta[moduleName];
       if (!isObject(meta)) {
@@ -197,6 +244,19 @@ export function validateMapDataObject(data) {
           }
         }
       }
+
+      if (meta.symbols.callGraph !== undefined) {
+        errors.push(...validateCallGraph(moduleName, meta.symbols));
+        if (Object.keys(meta.symbols.callGraph || {}).length) modulesWithCallGraph += 1;
+      }
+    }
+
+    // The declaration flowchart is driven entirely by these graphs. Without
+    // them the map still renders modules and imports, so a regression that
+    // dropped the field would be invisible until someone clicked a
+    // declaration and got an empty lane.
+    if (data.modules.length && !modulesWithCallGraph) {
+      errors.push('map-data.json: no module carries symbols.callGraph — the declaration call graph is missing');
     }
   }
 

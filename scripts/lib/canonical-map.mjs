@@ -234,19 +234,33 @@ export function resolveDeclarationName(declaration, sourceLine) {
 }
 
 /**
- * Project a module's declarations into the interior symbol buckets the code map
- * renders: one array per interior kind, plus the theorem and function
- * shortcuts.
+ * Project a module's declarations into the shape the code map renders: one
+ * array per interior kind, the theorem and function shortcuts, and the
+ * declaration call graph.
  *
  * `sourceText` is the module's own Lean source, used only to recover truncated
  * identifiers; the declaration set itself always comes from the artifact.
  * Entries are keyed by name *and* line, so two genuinely distinct declarations
  * are both listed — deduplicating by name alone hid 145 production theorems.
+ *
+ * `callGraph` maps a declaration to the identifiers it references, which is
+ * what drives the map's declaration-context flowchart (outgoing calls, and
+ * incoming callers via the reverse index the runtime builds from it). It is
+ * keyed by the same recovered names as the symbol lists, so a lookup from one
+ * always lands in the other.
+ *
+ * The graph is stored inline rather than in an interned table. Measured on the
+ * real corpus — 119,973 edges over 10,112 distinct targets — interning halves
+ * the raw file (2.60 MB → 1.09 MB of added JSON) but saves only 23 KB gzipped,
+ * because gzip already captures the repetition. That is not worth a bespoke
+ * format and a decoder in the runtime, especially since `symbols.callGraph` is
+ * a shape `assets/js/map.js` already reads in three places.
  */
 export function symbolsFromDeclarations(declarations, sourceText) {
   const lines = typeof sourceText === 'string' ? sourceText.split(/\r?\n/) : [];
   const byKind = Object.create(null);
   const seen = Object.create(null);
+  const callGraph = Object.create(null);
   for (const kind of ALL_INTERIOR_KINDS) {
     byKind[kind] = [];
     seen[kind] = Object.create(null);
@@ -272,12 +286,29 @@ export function symbolsFromDeclarations(declarations, sourceText) {
     seen[kind][key] = true;
 
     byKind[kind].push(hasLine ? { name, line } : { name });
+
+    // Recorded after the de-duplication check, so every call-graph key is a
+    // name the symbol lists above also carry — an invariant validate-data.mjs
+    // asserts, because a drift between the two would break every lookup.
+    //
+    // Later declarations win a name collision. The artifact records short
+    // names, so `refl` in three namespaces of one file is three entries under
+    // one key (177 such collisions across the corpus). The runtime keys its
+    // merged graph by bare name globally and collapses them the same way, and
+    // its own live path assigns last-wins too — so this matches what the map
+    // does either way. Qualifying the names is not an option: the `called`
+    // targets are recorded unqualified as well, and every lookup would miss.
+    const called = Array.isArray(declaration?.called)
+      ? declaration.called.map((target) => String(target ?? '').trim()).filter(Boolean)
+      : [];
+    if (called.length) callGraph[name] = called;
   }
 
   return {
     byKind,
     theorems: [...byKind.theorem, ...byKind.lemma],
-    functions: [...byKind.def, ...byKind.abbrev, ...byKind.opaque, ...byKind.instance]
+    functions: [...byKind.def, ...byKind.abbrev, ...byKind.opaque, ...byKind.instance],
+    callGraph
   };
 }
 

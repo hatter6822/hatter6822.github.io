@@ -20,10 +20,14 @@ tracks nested block-comment depth and strips string literals. Only the import
 edges are read from the Lean sources, because only the import edges are missing
 from the artifact.
 
+The snapshot also carries the declaration call graph
+(`moduleMeta[].symbols.callGraph`), so the declaration-context flowchart works
+from bundled data on first paint and offline.
+
 `site-data.json` and `map-data.json` record the same `commitSha` and
-`sourceDigest`; `validate-data.mjs` fails when they disagree, or when their
-module or theorem totals do. See `docs/ARCHITECTURE.md` §"One pipeline, one
-revision".
+`sourceDigest`; `validate-data.mjs` fails when they disagree, when their module
+or theorem totals do, or when the call graph is missing entirely. See
+`docs/ARCHITECTURE.md` §"One pipeline, one revision".
 
 The steps below describe the **runtime** in `assets/js/map.js`, which still
 refreshes its larger payload from GitHub with the bundled snapshot as its

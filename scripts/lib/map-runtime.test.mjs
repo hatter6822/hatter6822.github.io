@@ -603,6 +603,47 @@ test('normalizeMapData preserves callGraph on module symbols for declaration-cen
   assert.ok(!normalized.declarationReverseGraph['nonexistent'], 'nonexistent declarations have no reverse entry');
 });
 
+test('normalizeMapData builds declaration graphs from a bundled symbols.callGraph', async () => {
+  const hooks = await loadMapTestHooks();
+
+  // The shape data/map-data.json ships. Before the pipeline baked the call
+  // graph in, this field was absent and the declaration flowchart stayed empty
+  // until a live GitHub fetch completed — or forever, offline.
+  const normalized = hooks.normalizeMapData({
+    modules: [
+      { module: 'SeLe4n.Core.Main', path: 'SeLe4n/Core/Main.lean' },
+      { module: 'SeLe4n.Core.Helper', path: 'SeLe4n/Core/Helper.lean' }
+    ],
+    moduleMeta: {
+      'SeLe4n.Core.Main': {
+        symbols: {
+          byKind: { def: [{ name: 'run', line: 20 }], theorem: [{ name: 'run_safe', line: 30 }] },
+          callGraph: { run: ['step'], run_safe: ['run', 'step'] }
+        }
+      },
+      'SeLe4n.Core.Helper': {
+        symbols: {
+          byKind: { def: [{ name: 'helper', line: 5 }] },
+          callGraph: { helper: ['step'] }
+        }
+      }
+    }
+  });
+
+  assert.equal(normalized.declarationGraph.run.module, 'SeLe4n.Core.Main');
+  assert.deepEqual(Array.from(normalized.declarationGraph.run_safe.calls), ['run', 'step']);
+  assert.equal(normalized.declarationGraph.helper.module, 'SeLe4n.Core.Helper');
+
+  // The reverse index is what the "callers" lane renders.
+  assert.deepEqual(Array.from(normalized.declarationReverseGraph.step).sort(), ['helper', 'run', 'run_safe']);
+  assert.deepEqual(Array.from(normalized.declarationReverseGraph.run), ['run_safe']);
+
+  // declarationIndex comes from byKind, so a name reachable through the graph
+  // resolves to its kind and line for the flowchart node.
+  assert.equal(normalized.declarationIndex.run_safe.kind, 'theorem');
+  assert.equal(normalized.declarationIndex.run_safe.line, 30);
+});
+
 test('declarationModuleOf resolves module for declarations not in declarationGraph via moduleMeta', async () => {
   const hooks = await loadMapTestHooks();
 
