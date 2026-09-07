@@ -86,45 +86,60 @@
   <main id="main-content" class="code-map-page">
     <header class="section code-map-hero" id="map-overview">
       <div class="container code-map-hero-shell">
-        <div class="code-map-hero-main section-lead">
+        <div class="code-map-hero-main">
           <p class="hero-label" data-i18n="map.hero_label">seLe4n Architecture Intelligence</p>
           <h1 data-i18n="map.hero_title">Adaptive Codebase Navigator</h1>
-          <p class="section-lead" data-i18n="map.hero_lead">Navigate module-by-module with one integrated flow map: dependencies, impact edges, proof links, and external boundaries are shown in one canonical graph.</p>
+          <p class="section-lead code-map-lead" data-i18n="map.hero_lead">The production kernel, module by module: dependencies, impact edges, proof links and declarations for every Lean module, the Rust user-space crates beside them, and the rest of the repository one click away.</p>
         </div>
         <div class="code-map-header-meta" role="status" aria-live="polite">
           <p id="map-status" class="map-status" data-i18n="map.loading">Loading codebase map…</p>
           <p id="module-results" class="results-note" data-i18n="map.modules_shown_zero">0 modules shown</p>
+          <p class="snapshot-note"><span data-i18n="map.stat_generated">Generated</span> <span data-map="generatedAt">-</span></p>
         </div>
-        <div class="map-stats" aria-live="polite">
-          <div class="stat-card"><span class="stat-title" data-i18n="map.stat_files">Files</span><strong data-map="files">-</strong></div>
-          <div class="stat-card"><span class="stat-title" data-i18n="map.stat_lean_modules">Lean Modules</span><strong data-map="leanModules">-</strong></div>
-          <div class="stat-card"><span class="stat-title" data-i18n="map.stat_import_edges">Import Edges</span><strong data-map="importEdges">-</strong></div>
-          <div class="stat-card"><span class="stat-title" data-i18n="map.stat_theorems">Theorems</span><strong data-map="theorems">-</strong></div>
-          <div class="stat-card"><span class="stat-title" data-i18n="map.stat_ops_inv_pairs">Ops/Inv Pairs</span><strong data-map="proofPairs">-</strong></div>
-          <div class="stat-card"><span class="stat-title" data-i18n="map.stat_linked_pairs">Linked Pairs</span><strong data-map="linkedPairs">-</strong></div>
-          <div class="stat-card"><span class="stat-title" data-i18n="map.stat_generated">Generated</span><strong data-map="generatedAt">-</strong></div>
+        <div class="map-stats-row">
+          <dl class="map-stats" aria-live="polite">
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_lean_modules">Lean Modules</dt><dd data-map="leanModules">-</dd></div>
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_theorems">Theorems</dt><dd data-map="theorems">-</dd></div>
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_import_edges">Import Edges</dt><dd data-map="importEdges">-</dd></div>
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_ops_inv_pairs">Ops/Inv Pairs</dt><dd data-map="proofPairs">-</dd></div>
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_linked_pairs">Linked Pairs</dt><dd data-map="linkedPairs">-</dd></div>
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_rust_crates">Rust Crates</dt><dd data-map="rustCrates">-</dd></div>
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_files">Files</dt><dd data-map="files">-</dd></div>
+          </dl>
+          <nav class="map-section-nav" aria-label="Page sections" data-i18n-aria-label="map.section_nav_label">
+            <a href="#module-graph" data-i18n="map.nav_workspace">Lean workspace</a>
+            <a href="#rust-crates" data-i18n="map.nav_rust">Rust crates</a>
+            <a href="#repository-inventory" data-i18n="map.nav_inventory">Repository inventory</a>
+          </nav>
         </div>
       </div>
     </header>
 
-    <section class="section section-alt" id="module-graph" aria-label="Module graph workspace">
+    <section class="section section-alt map-section" id="module-graph" aria-labelledby="workspace-title">
       <div class="container map-workspace">
-        <div class="navigator-layout">
-          <article class="card constellation-panel">
-            <form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">
-              <div class="control-group control-group-wide">
-                <label for="module-search" data-i18n="map.context_search">Context search</label>
-                <input id="module-search" type="text" placeholder="Module or Module.declaration" data-i18n-placeholder="map.search_placeholder" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="module-search-options" aria-describedby="module-search-feedback">
-                <ul id="module-search-options" class="module-search-options" role="listbox" hidden></ul>
-                <p id="module-search-feedback" class="search-feedback" aria-live="polite"></p>
-              </div>
-              <div class="toolbar-actions">
-                <button id="reset-view" class="btn btn-secondary" type="button" data-i18n="map.reset">Reset</button>
-              </div>
-            </form>
-            <div id="flow-node-interior-menu" class="flow-node-interior-menu" aria-live="polite"></div>
+        <div class="map-section-heading">
+          <div class="map-section-heading-text">
+            <h2 id="workspace-title" data-i18n="map.workspace_title">Lean module workspace</h2>
+            <p data-i18n="map.workspace_lead">Imports, dependents, proof pair and declarations for every production Lean module. Opens on SeLe4n.Kernel.API, the syscall surface the rest of the kernel composes into.</p>
+          </div>
+          <span class="production-badge production-badge-static"><span data-i18n="map.production_badge">production</span> · Lean 4</span>
+        </div>
+        <article class="card constellation-panel">
+          <form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">
+            <div class="control-group control-group-wide">
+              <label for="module-search" data-i18n="map.context_search">Context search</label>
+              <input id="module-search" type="text" placeholder="Module or Module.declaration" data-i18n-placeholder="map.search_placeholder" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="module-search-options" aria-describedby="module-search-feedback">
+              <ul id="module-search-options" class="module-search-options" role="listbox" hidden></ul>
+              <p id="module-search-feedback" class="search-feedback" aria-live="polite"></p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="reset-view" class="btn btn-secondary" type="button" data-i18n="map.reset">Reset</button>
+            </div>
+          </form>
+          <div class="workspace-grid">
             <div class="flowchart-shell">
               <p class="flowchart-mobile-hint" aria-hidden="true" data-i18n="map.mobile_hint">Tip: On mobile, drag to pan, pinch to zoom, and tap a node to inspect details.</p>
+              <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite" role="region" aria-label="Dependency and proof flow chart" tabindex="0"></div>
               <details class="keyboard-shortcuts-hint">
                 <summary data-i18n="map.keyboard_shortcuts">Keyboard shortcuts</summary>
                 <dl class="shortcut-list">
@@ -133,10 +148,38 @@
                   <div><dt><kbd>Esc</kbd></dt><dd data-i18n="map.shortcut_close">Close search</dd></div>
                 </dl>
               </details>
-              <div id="flowchart-wrap" class="flowchart-wrap" aria-live="polite" role="region" aria-label="Dependency and proof flow chart" tabindex="0"></div>
             </div>
-          </article>
+            <aside class="declaration-explorer" aria-label="Interior declarations" data-i18n-aria-label="map.declarations_aria">
+              <div id="flow-node-interior-menu" class="flow-node-interior-menu" aria-live="polite"></div>
+            </aside>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section map-section" id="rust-crates" aria-labelledby="rust-crates-title">
+      <div class="container map-workspace">
+        <div class="map-section-heading">
+          <div class="map-section-heading-text">
+            <h2 id="rust-crates-title" data-i18n="map.rust_title">Rust production crates</h2>
+            <p data-i18n="map.rust_lead">The user-space syscall wrappers and the bare-metal HAL, inventoried from the same seLe4n checkout as the Lean map: every source file with its items, their visibility, and where unsafe code lives.</p>
+          </div>
+          <span class="production-badge production-badge-static"><span data-i18n="map.production_badge">production</span> · Rust</span>
         </div>
+        <div id="rust-crate-grid" class="rust-crate-grid"></div>
+      </div>
+    </section>
+
+    <section class="section section-alt map-section" id="repository-inventory" aria-labelledby="inventory-title">
+      <div class="container map-workspace">
+        <div class="map-section-heading">
+          <div class="map-section-heading-text">
+            <h2 id="inventory-title" data-i18n="map.inventory_title">Repository inventory</h2>
+            <p data-i18n="map.inventory_lead">Every file in the seLe4n repository, grouped by what it is. The production code opens by default; tests, scripts, documentation and tooling are one click away, each file linked to its source at the snapshot commit.</p>
+          </div>
+          <p id="inventory-provenance" class="inventory-provenance"></p>
+        </div>
+        <div id="repository-inventory-groups" class="inventory-groups"></div>
       </div>
     </section>
   </main>

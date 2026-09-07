@@ -4,13 +4,13 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.29.0`
+- Website version: `0.30.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
 
 - `index.html`: main marketing page
-- `map.html`: interactive codebase map
+- `map.html`: interactive codebase map — Lean module workspace, Rust production crates, repository inventory
 - `run.html`: Simulator — replay the kernel in action with the proven invariants
 - `404.html`: not-found page served by GitHub Pages
 - `robots.txt` / `sitemap.xml`: crawler policy and page inventory
@@ -36,6 +36,7 @@ one revision produces all three bundled snapshots.
 git clone --depth 1 seLe4n@main
   └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
      Lean sources            ─┤   data/map-data.json           (code map)
+     rust/ workspace         ─┘     └─ #rust: crate inventory
      docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
 ```
 
@@ -65,6 +66,7 @@ node scripts/validate-traces.mjs
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
@@ -99,6 +101,32 @@ tested and validated in CI.
 `map.html` and `run.html` still refresh their larger payloads from GitHub, with
 the bundled snapshot as the fallback.
 
+## Code map layout (0.30.0)
+
+`map.html` is three sections. The **Lean module workspace** comes first and opens
+on `SeLe4n.Kernel.API` — the syscall surface the rest of the kernel composes into
+— whenever the URL carries no `module=`. Its flow chart shows the selected
+module's imports, dependents, proof pair, nearest linked-proof path and external
+imports; a lane with more modules than the detail budget is grouped by subsystem
+(`SeLe4n.Kernel.IPC`, `SeLe4n.Kernel.Architecture`, …) and each group opens in
+place. The declaration sidebar beside the chart lists the module's interior
+declarations in three tabs (Objects, Contexts/Inits, Extensions) and follows the
+scroll on desktop so a click in it always shows its effect on the chart.
+
+The **Rust production crates** section renders one card per workspace crate
+(`sele4n-types`, `sele4n-abi`, `sele4n-sys`, `sele4n-hal`) from
+`data/map-data.json#rust`: description and edition from `Cargo.toml`, internal
+and external dependencies, feature flags, per-file item lists with visibility and
+line anchors, and `unsafe` usage read from the sources (three crates declare
+`#![deny(unsafe_code)]`; the HAL's unsafe sites are counted per file). A small
+dependency diagram shows the `sys → abi → types` chain and the standalone HAL.
+
+The **repository inventory** lists every file in the seLe4n tree, grouped:
+production Lean (by subsystem, each module opening in the workspace), production
+Rust (linking to the crate cards), then tests, scripts, documentation and project
+tooling as closed, muted groups whose file lists render on first open and link to
+the source at the snapshot commit.
+
 ## Code map declaration context and interior explorer
 
 The map flowchart renders its legend in the chart’s upper-right corner so semantic meaning stays attached to the graph during interaction and screenshots while preserving workspace for core flow nodes. Both module-context and declaration-context flowcharts share six extracted helpers (`createFlowSvg`, `createFlowLegend`, `flowLaneLabel`, `applyFlowScrollTarget`, `computeFlowLayout`, `buildFlowNodeGroup`) to eliminate duplication. Node heights are pre-computed during layout passes to avoid redundant recalculation. Flow nodes have smooth CSS transitions on hover and focus for polished visual feedback.
@@ -107,8 +135,8 @@ The code map interior panel supports declaration-first navigation:
 
 - Parses theorem-style declarations (`theorem`, `lemma`)
 - Parses function-style declarations (`def`, `abbrev`, `opaque`, `instance`)
-- Populates all interior declaration groupings used by the UI (`Objects`, `Contexts/Inits`, `Extensions`)
-- Defaults each interior kind selector to `All (N)` so Object/Context-Init/Extension scrollboxes open with complete group coverage
+- Populates all interior declaration groupings used by the UI (`Objects`, `Contexts/Inits`, `Extensions`) as tabs in the declaration sidebar; the active tab is remembered across module changes
+- Defaults the active tab's kind selector to `All (N)` so the list opens with complete group coverage
 - Color-codes interior kind selector options and declaration chips by declaration kind with standardized `color-mix` saturation, smooth CSS transitions, and robust plural-kind fallback resolution so the selector doubles as a visual key for list entries
 - Sorts interior declaration results case-insensitively (including `All`) for stable alphabetical scanning
 - Keeps the interior declaration filter input focused while typing, preserving caret position across panel rerenders so multi-character filters can be entered reliably

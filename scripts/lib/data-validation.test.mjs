@@ -323,3 +323,98 @@ test('validateMapDataObject rejects a snapshot with no call graph at all', () =>
   // An empty snapshot has nothing to graph and must stay valid.
   assert.deepEqual(validateMapDataObject(mapData()), []);
 });
+
+/**
+ * A well-formed `rust` inventory as scripts/lib/rust-analysis.mjs emits it:
+ * one crate, one source file, one public function.
+ */
+function rustInventory(overrides = {}) {
+  const file = {
+    path: 'rust/sele4n-sys/src/lib.rs',
+    relativePath: 'src/lib.rs',
+    modulePath: '',
+    role: 'lib',
+    lines: 3,
+    items: [{ kind: 'fn', name: 'endpoint_send', line: 2, visibility: 'pub' }],
+    publicItems: 1,
+    testItems: 0,
+    unsafe: { fns: 0, impls: 0, blocks: 0 }
+  };
+  const crate = {
+    name: 'sele4n-sys',
+    path: 'rust/sele4n-sys',
+    manifest: 'rust/sele4n-sys/Cargo.toml',
+    description: 'Safe wrappers',
+    edition: '2021',
+    version: '0.1.0',
+    dependencies: [],
+    internalDependencies: [],
+    externalDependencies: [],
+    devDependencies: [],
+    buildDependencies: [],
+    features: [],
+    deniesUnsafe: true,
+    files: [file],
+    sourceFiles: 1,
+    lines: 3,
+    items: 1,
+    publicItems: 1,
+    testItems: 0,
+    unsafe: { fns: 0, impls: 0, blocks: 0 }
+  };
+  return {
+    root: 'rust',
+    workspaceManifest: 'rust/Cargo.toml',
+    members: ['sele4n-sys'],
+    edition: '2021',
+    version: '0.1.0',
+    rustVersion: '1.94',
+    workspaceFiles: ['rust/Cargo.toml'],
+    crates: [crate],
+    ...overrides
+  };
+}
+
+const RUST_FILES = ['rust/Cargo.toml', 'rust/sele4n-sys/Cargo.toml', 'rust/sele4n-sys/src/lib.rs'];
+
+test('validateMapDataObject accepts a snapshot without a rust block and one with a consistent block', () => {
+  const withoutRust = validateMapDataObject(mapData({ modules: [] }));
+  assert.deepEqual(withoutRust, []);
+
+  const withRust = validateMapDataObject(mapData({ files: RUST_FILES, rust: rustInventory() }));
+  assert.deepEqual(withRust, []);
+});
+
+test('validateMapDataObject rejects crate files the snapshot tree does not list', () => {
+  const rust = rustInventory();
+  rust.crates[0].files[0].path = 'rust/sele4n-sys/src/ghost.rs';
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(errors.some((message) => message.includes('ghost.rs is not in files[]')), errors.join('\n'));
+});
+
+test('validateMapDataObject rejects crate totals that disagree with the per-file scans', () => {
+  const rust = rustInventory();
+  rust.crates[0].items = 5;
+  rust.crates[0].publicItems = 0;
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(errors.some((message) => message.includes('items says 5 but files list 1')), errors.join('\n'));
+  assert.ok(errors.some((message) => message.includes('publicItems says 0 but files sum to 1')), errors.join('\n'));
+});
+
+test('validateMapDataObject rejects malformed rust items, roles, visibilities and internal dependencies', () => {
+  const rust = rustInventory();
+  rust.crates[0].files[0].role = 'header';
+  rust.crates[0].files[0].items[0].kind = 'closure';
+  rust.crates[0].files[0].items[0].visibility = 'public';
+  rust.crates[0].files[0].items[0].line = 0;
+  rust.crates[0].internalDependencies = ['sele4n-nope'];
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  for (const fragment of ['role "header"', 'kind "closure"', 'visibility "public"', 'line must be a positive integer', 'unknown crate sele4n-nope']) {
+    assert.ok(errors.some((message) => message.includes(fragment)), `expected an error mentioning ${fragment}:\n${errors.join('\n')}`);
+  }
+});
+
+test('validateMapDataObject rejects a rust block that is not an inventory', () => {
+  assert.deepEqual(validateMapDataObject(mapData({ rust: 'yes' })), ['map-data.json: rust must be an object']);
+  assert.deepEqual(validateMapDataObject(mapData({ rust: { crates: 'none' } })), ['map-data.json: rust.crates must be an array']);
+});

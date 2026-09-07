@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.29.0**.
+> Documentation baseline: website release **0.30.0**.
 
 ## Automated checks
 
@@ -10,6 +10,7 @@ This repository uses lightweight Node-based checks.
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
@@ -27,6 +28,10 @@ Validates:
 - CSP compliance (`csp-html.test.mjs`): static guard asserting `index.html`, `map.html`, `run.html`, and `404.html` carry no inline `style="…"` attributes. The pages ship `style-src 'self'` with no `'unsafe-inline'`, so an inline style is blocked at runtime and silently fails to apply — this catches that regression class at build time (it was found in the wild via a Playwright render: the status-legend swatches rendered colourless until their colours were moved to a CSS class)
 - Simulator runtime (`run-runtime.test.mjs`): boots the real `assets/js/run.js` inside a `vm` context backed by a minimal DOM shim and asserts the end-to-end pipeline — bundled data loads, the SVG stage renders thread chips and boxes, the invariant rail lists the full catalog, the event log lists every step, the inspector populates, transport stepping advances the counter, deep-link URL state (`scenario`/`step`) is restored, and a sandbox perturbation flips a client-side structural check to "violated". Per-scene coverage spans all seven scenes (System, Scheduler, Capability, Memory, VSpace, Information-flow, Services), scene-tab gating, SMP per-core CPU columns in the System and Scheduler scenes, and the VSpace TLB row (a map caches both pages; an unmap shoots down the stale entry with a `⚡ shootdown` marker)
 - Simulator trace analysis (`trace-analysis.mjs`): schema validation (schemaVersion/source/ISO timestamp, invariant catalog shape and uniqueness, sequential step indices, allowed step kinds and op names, `invariants.allHold`/`checked`/`failed` consistency, `checked` ids resolving in the catalog); the deterministic fold engine (`reconstructState`/`scenarioStates` produce one state per step without mutating input, `rqInsert` keeps the run queue priority-ordered and idempotent, `applyOp` throws on dangling thread/endpoint/queue references, `message`/`note` ops are state-neutral); `touchedEntities` categorization; and a full integrity pass over the bundled `data/execution-traces.json` (validates clean + folds every scenario)
+- Rust crate inventory (`rust-analysis.test.mjs`): comment and string stripping that keeps line numbers (nested block comments, raw and byte strings, character literals such as `'"'`), item scanning at item scope with visibility, `unsafe`, inline-module paths, `#[test]`/`#[cfg(test)]` marking and nested-body exclusion, multi-line signatures and `where` clauses, `static mut` naming, manifest parsing (workspace-inherited fields, `[dependencies]`/`[dev-dependencies]`/`[build-dependencies]`/target-scoped tables, `[[bin]]`), file roles and module paths, and `buildRustInventory` assembling crates in workspace order with test items counted but not listed
+- Rust inventory validation (`validateMapDataObject`): the optional `rust` block must name files the snapshot's own `files[]` lists, use known item kinds, visibilities and positive lines, and carry per-crate totals equal to the per-file sums; a malformed block is rejected with a message naming the field
+- Code map redesign (`map-runtime.test.mjs`): the workspace defaults to `SeLe4n.Kernel.API` and falls back to the first module only when the snapshot lacks it; `moduleSubsystem` caps at three segments; over-budget lanes group by subsystem (largest first, singletons plain, members listed nested when a group is open, flat within budget and in expanded mode); `classifyRepositoryPath` files every path into a group and subgroup; `buildRepositoryInventory` keeps production groups first and attaches modules to Lean subgroups; `retainInventory` keeps the tree and Rust inventory across canonical and tree refreshes with their commits; a malformed `rust` block is dropped on normalization; Rust item colouring and ordering; tab selection; thousands grouping
+- Page structure (`map-toolbar.test.mjs`): the workspace grid is single-column by default and gains the sticky sidebar column only at desktop widths, the declaration explorer is a tablist, the Rust crate grid and inventory containers exist, the three sections appear in order, the default module constant and the lane-grouping functions exist, and production inventory groups have their own style
 - Lean import token extraction
 - interior symbol extraction across all supported declaration kinds and line tracking
 - theorem counting behavior over Lean source text (`theoremCount`, mirroring the copy in `assets/js/map.js`)
@@ -100,16 +105,24 @@ node --check assets/js/theme-init.js
 - Repeat both of the above in a long-label locale (`es` or `uk`): menu entries and stat labels should wrap inside their row or track, never widen the page.
 - Switch through every locale at a desktop width and confirm the header menu stays on one line. The centre track caps at 932px once the window reaches 1152px, so a locale whose ten items exceed that wraps at *every* desktop width and widening the window will not reveal the problem — check at 1280px, not 1920px. Current footprints: `zh-CN` 581px, `ja` 777px, `fr` 815px, `en` 816px, `es` 831px, `uk` 857px.
 - When adding or retranslating a `nav.*` label, measure the menu afterwards: these values are layout-constrained. If another surface needs the same words, give it its own key rather than reusing the `nav.*` one (see `footer.code_map`).
+- Confirm `map.html` with no URL state opens on `SeLe4n.Kernel.API`, the URL stays clean until the first selection, and Reset returns to the same view.
+- Confirm the imports lane of `SeLe4n.Kernel.API` shows subsystem group nodes (`SeLe4n.Kernel.IPC`, `SeLe4n.Kernel.Architecture`, …) instead of "+38 more imports"; clicking a group opens its members in place on a dotted guide rail without moving the scroll position, and clicking a member selects that module.
+- Confirm the declaration sidebar sits beside the chart at 1200px and above and stays visible while the page scrolls; below that width it stacks under the chart.
+- Confirm the Rust section shows the dependency strip (`sys → abi → types`, HAL standalone) and four crate cards, that three cards read `none · deny(unsafe_code)` while `sele4n-hal` lists unsafe sites, and that opening a file renders its item list with line links.
+- Confirm the repository inventory opens the two production groups by default, that a Lean subgroup lists modules with theorem counts and assurance dots whose buttons select the module and scroll the workspace into view, and that the other groups render their file lists on first open.
+- Confirm switching the locale re-labels the sidebar tabs, crate cards and inventory groups without a reload.
+- `node scripts/map-smoke.mjs` runs these checks in headless Chromium (desktop dark/light, tablet, phone, Spanish deep link) when `playwright-core` is installed and the repository root is served on port 4173.
 - Confirm the compact toolbar is rendered before the interior declaration panel and contains only current module context search and reset, with compact-density toolbar semantics.
 - Confirm map context-search keyboard navigation (Arrow/Home/End) and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
 - Confirm reset clears any search validity errors and preserves a minimal toolbar footprint across desktop/mobile breakpoints.
 - On `index.html`, verify the background animation toggle in the header pauses the WebGL background immediately, updates `aria-pressed`, and resumes animation when toggled again (test on desktop and ~390px mobile viewport).
-- Confirm each interior dropdown (Object, Context/Init, Extension) defaults to `All (N)`, can switch kinds, and deep-link declarations to source lines.
+- Confirm the declaration sidebar's three tabs (Objects, Contexts/Inits, Extensions) carry counts, that Arrow/Home/End move between them, that the active tab's kind selector defaults to `All (N)` and can switch kinds, and that declarations deep-link to source lines.
 - Confirm interior declaration chips and kind-select options are color-coded consistently by declaration kind (selector serves as key for chip colors).
-- Confirm interior declaration ordering is case-insensitive alphabetical within each dropdown selection, including `All` aggregation.
+- Confirm interior declaration ordering is case-insensitive alphabetical within each kind selection, including `All` aggregation.
 - Confirm the `Filter declarations across all kinds…` search box accepts multi-character typing without dropping focus/caret after each keystroke.
-- Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Context-Init/Extension) to the newly selected module.
+- Confirm selecting a different module node in the flow chart updates the sidebar to the newly selected module while keeping the active tab.
+- Confirm typing a module name in the context search, pressing Enter, then immediately clicking a declaration in the sidebar enters declaration context on the first click.
 - Confirm modules-array payload compatibility by testing both string and object module entries, including branch-wrapper payloads where top-level `main` metadata must not become a module node.
 - Confirm legacy symbol compatibility with snapshots that use `symbols.by_kind` and/or `constant` declaration keys.
 - Confirm map live status messaging remains coherent during load/refresh.

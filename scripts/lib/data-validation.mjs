@@ -54,6 +54,114 @@ function validateCallGraph(moduleName, symbols) {
   return errors;
 }
 
+const RUST_ITEM_KINDS = new Set(['fn', 'struct', 'enum', 'union', 'trait', 'type', 'const', 'static', 'mod', 'impl', 'macro']);
+const RUST_FILE_ROLES = new Set(['lib', 'bin', 'build', 'test', 'module']);
+
+function isNonNegativeInteger(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * Validate the bundled Rust crate inventory (`map-data.json#rust`).
+ *
+ * The block is optional — a snapshot produced before the inventory existed, or
+ * a live canonical refresh, carries none — but when present it must be
+ * internally consistent and must describe files the snapshot's own `files`
+ * inventory lists. The runtime renders the crates from this block alone, so a
+ * crate pointing at a path outside the tree would render a link to nothing.
+ */
+function validateRustInventory(rust, files) {
+  const errors = [];
+  const where = 'map-data.json: rust';
+  if (!isObject(rust)) return [`${where} must be an object`];
+  if (!Array.isArray(rust.crates)) return [`${where}.crates must be an array`];
+  if (!Array.isArray(rust.members)) errors.push(`${where}.members must be an array`);
+  if (rust.workspaceManifest !== undefined && typeof rust.workspaceManifest !== 'string') {
+    errors.push(`${where}.workspaceManifest must be a string`);
+  }
+
+  const knownFiles = new Set(Array.isArray(files) ? files : []);
+  const seenNames = new Set();
+  const crateNames = new Set(rust.crates.map((crate) => crate?.name).filter((name) => typeof name === 'string'));
+
+  rust.crates.forEach((crate, index) => {
+    const label = `${where}.crates[${index}]`;
+    if (!isObject(crate)) { errors.push(`${label} must be an object`); return; }
+    if (typeof crate.name !== 'string' || !crate.name.trim()) { errors.push(`${label}.name must be a non-empty string`); return; }
+    if (seenNames.has(crate.name)) errors.push(`${label}: duplicate crate ${crate.name}`);
+    seenNames.add(crate.name);
+
+    if (typeof crate.path !== 'string' || !crate.path.trim()) errors.push(`${label}.path must be a non-empty string`);
+    if (typeof crate.manifest !== 'string' || !crate.manifest.trim()) errors.push(`${label}.manifest must be a non-empty string`);
+    else if (knownFiles.size && !knownFiles.has(crate.manifest)) errors.push(`${label}.manifest ${crate.manifest} is not in files[]`);
+
+    for (const key of ['sourceFiles', 'lines', 'items', 'publicItems', 'testItems']) {
+      if (!isNonNegativeInteger(crate[key])) errors.push(`${label}.${key} must be a non-negative integer`);
+    }
+    if (typeof crate.deniesUnsafe !== 'boolean') errors.push(`${label}.deniesUnsafe must be a boolean`);
+    if (!isObject(crate.unsafe) || !['fns', 'impls', 'blocks'].every((key) => isNonNegativeInteger(crate.unsafe[key]))) {
+      errors.push(`${label}.unsafe must carry integer fns/impls/blocks counts`);
+    }
+    for (const key of ['dependencies', 'internalDependencies', 'externalDependencies', 'devDependencies', 'buildDependencies', 'features']) {
+      if (!Array.isArray(crate[key]) || crate[key].some((entry) => typeof entry !== 'string')) {
+        errors.push(`${label}.${key} must be an array of strings`);
+      }
+    }
+    if (Array.isArray(crate.internalDependencies)) {
+      for (const dep of crate.internalDependencies) {
+        if (!crateNames.has(dep)) errors.push(`${label}.internalDependencies names unknown crate ${dep}`);
+      }
+    }
+
+    if (!Array.isArray(crate.files)) { errors.push(`${label}.files must be an array`); return; }
+    if (isNonNegativeInteger(crate.sourceFiles) && crate.sourceFiles !== crate.files.length) {
+      errors.push(`${label}.sourceFiles says ${crate.sourceFiles} but files[] has ${crate.files.length}`);
+    }
+
+    let itemTotal = 0;
+    let publicTotal = 0;
+    let testTotal = 0;
+    let lineTotal = 0;
+    crate.files.forEach((file, fileIndex) => {
+      const fileLabel = `${label}.files[${fileIndex}]`;
+      if (!isObject(file)) { errors.push(`${fileLabel} must be an object`); return; }
+      if (typeof file.path !== 'string' || !file.path.trim()) { errors.push(`${fileLabel}.path must be a non-empty string`); return; }
+      if (knownFiles.size && !knownFiles.has(file.path)) errors.push(`${fileLabel}.path ${file.path} is not in files[]`);
+      if (typeof crate.path === 'string' && !file.path.startsWith(`${crate.path}/`)) {
+        errors.push(`${fileLabel}.path ${file.path} lies outside crate ${crate.path}`);
+      }
+      if (typeof file.relativePath !== 'string') errors.push(`${fileLabel}.relativePath must be a string`);
+      if (typeof file.modulePath !== 'string') errors.push(`${fileLabel}.modulePath must be a string`);
+      if (!RUST_FILE_ROLES.has(file.role)) errors.push(`${fileLabel}.role ${JSON.stringify(file.role)} is not a known role`);
+      for (const key of ['lines', 'publicItems', 'testItems']) {
+        if (!isNonNegativeInteger(file[key])) errors.push(`${fileLabel}.${key} must be a non-negative integer`);
+      }
+      if (!Array.isArray(file.items)) { errors.push(`${fileLabel}.items must be an array`); return; }
+      file.items.forEach((item, itemIndex) => {
+        const itemLabel = `${fileLabel}.items[${itemIndex}]`;
+        if (!isObject(item)) { errors.push(`${itemLabel} must be an object`); return; }
+        if (!RUST_ITEM_KINDS.has(item.kind)) errors.push(`${itemLabel}.kind ${JSON.stringify(item.kind)} is not a known item kind`);
+        if (typeof item.name !== 'string' || !item.name.trim()) errors.push(`${itemLabel}.name must be a non-empty string`);
+        if (!Number.isInteger(item.line) || item.line < 1) errors.push(`${itemLabel}.line must be a positive integer`);
+        if (typeof item.visibility !== 'string' || !/^(?:private|pub|pub\([^)]+\))$/.test(item.visibility)) {
+          errors.push(`${itemLabel}.visibility ${JSON.stringify(item.visibility)} is not a visibility`);
+        }
+      });
+      itemTotal += file.items.length;
+      publicTotal += isNonNegativeInteger(file.publicItems) ? file.publicItems : 0;
+      testTotal += isNonNegativeInteger(file.testItems) ? file.testItems : 0;
+      lineTotal += isNonNegativeInteger(file.lines) ? file.lines : 0;
+    });
+
+    if (isNonNegativeInteger(crate.items) && crate.items !== itemTotal) errors.push(`${label}.items says ${crate.items} but files list ${itemTotal}`);
+    if (isNonNegativeInteger(crate.publicItems) && crate.publicItems !== publicTotal) errors.push(`${label}.publicItems says ${crate.publicItems} but files sum to ${publicTotal}`);
+    if (isNonNegativeInteger(crate.testItems) && crate.testItems !== testTotal) errors.push(`${label}.testItems says ${crate.testItems} but files sum to ${testTotal}`);
+    if (isNonNegativeInteger(crate.lines) && crate.lines !== lineTotal) errors.push(`${label}.lines says ${crate.lines} but files sum to ${lineTotal}`);
+  });
+
+  return errors;
+}
+
 function isValidSymbolEntry(entry) {
   if (typeof entry === 'string') return entry.trim().length > 0;
   if (!isObject(entry)) return false;
@@ -267,6 +375,8 @@ export function validateMapDataObject(data) {
       }
     }
   }
+
+  if (data.rust !== undefined) errors.push(...validateRustInventory(data.rust, data.files));
 
   return errors;
 }

@@ -5,13 +5,13 @@
 This repository is the static website for **seLe4n**, a formally verified microkernel written in Lean 4. It consists of two pages and a data pipeline:
 
 - `index.html` — Marketing/overview landing page
-- `map.html` — Interactive codebase map with dependency graph, theorem coupling, and declaration explorer
+- `map.html` — Interactive codebase map: Lean module workspace (dependency graph, theorem coupling, declaration sidebar), Rust production crate cards, and a grouped inventory of every repository file
 - `data/*.json` — Bundled snapshots consumed by the browser runtime
 - `scripts/*.mjs` — Node.js tooling to regenerate and validate those snapshots
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.29.0`
+**Website version:** `0.30.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -21,6 +21,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 ```bash
 # Parser and validation tests (all must pass, zero warnings)
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
@@ -69,11 +70,13 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~4,985 | Largest runtime; read in chunks of ≤500 lines |
+| `assets/js/map.js` | ~6,110 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~2,360 | Map runtime tests |
 | `assets/css/style.css` | ~2,020 | Global design system |
 | `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
-| `assets/css/map.css` | ~818 | Map-specific styles |
+| `assets/css/map.css` | ~1,330 | Map-specific styles (workspace, Rust cards, inventory) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
+| `scripts/lib/rust-analysis.mjs` | ~570 | Rust crate inventory scanner |
 | `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
@@ -142,6 +145,35 @@ its own copy of the `data-live` spans **and the numbers inside them**. They
 silently drifted to `546` while `index.html` said `574`. Any change touching a
 metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
 `locales/` must be committed together.
+
+### Code map page structure (0.30.0)
+
+`map.html` is three sections, in this order, and the order is asserted by
+`map-toolbar.test.mjs`: the **Lean module workspace** (toolbar, flow chart,
+declaration sidebar), the **Rust production crates**, and the **repository
+inventory**. Production code is the subject; everything else is viewable but
+visually secondary (closed `<details>`, muted chrome).
+
+- The workspace opens on `SeLe4n.Kernel.API` whenever the URL carries no
+  `module=`. `DEFAULT_MODULE` in `map.js` is the one place that says so;
+  `defaultModuleName()` falls back to the first module only when the snapshot
+  lacks the API module. Never reintroduce the highest-score heuristic as the
+  default — it picked `IPC.Invariant.Structural.DualQueueMembership`.
+- A lane with more modules than the detail budget groups them by
+  `moduleSubsystem()` (the parent namespace, capped at three segments) and opens
+  each group in place. The budget cut ("+38 more imports") is kept only for
+  expanded flow mode.
+- `map-data.json#rust` is built by `scripts/lib/rust-analysis.mjs` from the same
+  pinned checkout as the Lean snapshot. It is **descriptive** (files, items,
+  visibility, `unsafe` sites, manifests) and must never feed a landing-page
+  statistic; the landing page's metrics remain canonical-or-absent.
+- A live refresh may carry no repository tree (the canonical artifact lists
+  only Lean modules) and never carries a Rust inventory. `retainInventory()`
+  keeps the previous tree and crates in that case and records the commit each
+  was taken at, so the inventory sections do not empty out on a networked visit.
+- Re-selecting the current module must not repaint the declaration sidebar
+  unless it shows another module: the search field's `change` fires on blur,
+  and rebuilding the list under the pointer swallowed the click that caused it.
 
 ### Map data normalization
 
@@ -227,7 +259,7 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Change area | Primary file(s) |
 |-------------|-----------------|
 | Map graph behavior | `assets/js/map.js` |
-| Map controls/layout | `map.html`, `assets/css/map.css` |
+| Map controls/layout/sections | `map.html`, `assets/css/map.css` |
 | Landing page metrics | `assets/js/site.js`, `index.html` |
 | Navigation behavior | `assets/js/header-nav.js` |
 | Theme switching | `assets/js/theme-init.js` |
@@ -237,6 +269,8 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Locale key parity | `scripts/lib/i18n-locales.test.mjs`, `locales/*.json` |
 | Internationalization | `assets/js/i18n.js`, `locales/*.json` |
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |
+| Rust crate inventory (map) | `scripts/lib/rust-analysis.mjs` |
+| Map browser smoke probe | `scripts/map-smoke.mjs` |
 | Data validation | `scripts/lib/data-validation.mjs` |
 | Global styles | `assets/css/style.css` |
 | Simulator (kernel-in-action) | `run.html`, `assets/js/run.js`, `assets/css/run.css` |

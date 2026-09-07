@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.29.0**.
+> Documentation baseline: website release **0.30.0**.
 
 ## Audit summary
 
@@ -37,7 +37,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 
 ### Pages
 - `index.html`: marketing and live repository metrics
-- `map.html`: codebase map workspace with filtering, graphing, and interior-symbol inspection
+- `map.html`: codebase map — Lean module workspace (graphing, interior-symbol inspection), Rust production crate cards, repository inventory
 
 ### Data contracts
 - `data/site-data.json`: the *only* source of landing-page metrics, projected offline from the kernel's canonical `docs/codebase_map.json`
@@ -1002,3 +1002,97 @@ all offline.
   path assigns last-wins too, so bundled and live agree. Qualifying the names is
   not available: the `called` targets are recorded unqualified as well, and
   every lookup would miss.
+
+## Code map redesign (0.30.0)
+
+The map page was a single workspace whose default module was whichever scored
+highest on a degree/theorem heuristic, whose declaration explorer sat between
+the toolbar and the chart as three side-by-side scroll boxes, and which showed
+nothing of the repository beyond the 311 Lean modules — not the Rust crates the
+meta description promised, not the other 555 files the snapshot already listed.
+The redesign makes the production code the subject and keeps everything else
+one click away.
+
+### Default view
+
+The workspace opens on `SeLe4n.Kernel.API` when the URL carries no `module=`.
+It is the syscall surface every subsystem composes into and the module the
+landing page's architecture diagram points at, so it is the right first thing
+to see; the heuristic had been landing visitors on
+`IPC.Invariant.Structural.DualQueueMembership`. The rule lives in one constant
+(`DEFAULT_MODULE`) consulted by data application, the context chooser, the
+tree-rebuild path and Reset. The first-load URL stays clean; the parameter is
+written on the first selection change, as before.
+
+### Page structure
+
+Hero → Lean module workspace → Rust production crates → repository inventory.
+The hero was compacted so the API graph starts inside the first desktop
+viewport (its top moved from 733px to 572px at 1440×900): the snapshot stamp
+joined the status column, the section jump links share the stats row, and the
+keyboard-shortcut hint moved under the chart. The declaration explorer became
+a tabbed sidebar beside the chart at 75rem and up, sticky so a click in it
+always shows its effect; below that width it stacks under the chart. Section
+order and the containers are asserted by `map-toolbar.test.mjs`.
+
+### Subsystem-grouped lanes
+
+A lane over its budget used to be cut at the budget with a "+N more" node that
+switched the whole chart to expanded mode. For the API module that meant eight
+of 46 imports. Now `buildLaneEntries()` groups an over-budget lane by
+`moduleSubsystem()` — the parent namespace capped at three segments — and
+renders one node per group, largest first, singletons as plain modules. A group
+opens in place (`toggleLaneGroup`), its members indented below it on a dotted
+guide rail rather than fanned into the centre node, and the scroll position is
+kept. Group state resets on module change and is not persisted in the URL.
+Expanded flow mode is unchanged and still lists everything flat.
+
+### Rust crate inventory
+
+The canonical artifact's digest covers Lean sources only, so nothing upstream
+describes the Rust workspace. `scripts/lib/rust-analysis.mjs` reads it from the
+same pinned checkout the pipeline already has: a comment- and string-aware
+line scanner that recognises item headers at item scope (bodies are skipped by
+brace depth; inline `mod` blocks open a new item scope and tag their items),
+records visibility and `unsafe`, counts `unsafe` sites, and reads `Cargo.toml`
+package fields, workspace inheritance, dependency tables and features. It is
+deliberately not a Rust parser; it lists a crate's surface the way rustdoc's
+sidebar does. Test code — `#[test]`, anything under `#[cfg(test)]`, and
+integration-test files — is counted but not listed: it held 1,408 of the
+HAL's items and is not what the map highlights. Measured on the real
+workspace the block is 106 KB raw and 16 KB gzipped (255 KB / ~45 KB with test
+items), so it rides in `map-data.json` without a format of its own.
+`validate-data.mjs` checks every crate file against `files[]`, every item's
+kind/visibility/line, and that per-crate totals equal the per-file sums.
+
+Three crates declare `#![deny(unsafe_code)]`; the map reads that from the
+crate root rather than copying the claim from a README, and shows the HAL's
+unsafe sites per file. The block is descriptive and feeds no landing-page
+statistic — that page remains canonical-or-absent.
+
+### Repository inventory and retention
+
+`classifyRepositoryPath()` files each of the 866 paths into six groups; the
+production groups (Lean by subsystem with module buttons, Rust linking to the
+cards) open by default and carry a badge, the rest are closed and muted. Lists
+render on first open. Two live-refresh paths would otherwise empty the section:
+a canonical refresh arrives with `files[]` reduced to Lean module paths, and no
+refresh ever carries a Rust inventory. `retainInventory()` keeps the previous
+tree and crates in those cases and records the commit each was taken at, and
+the section says so when it differs from the module graph's commit. The
+`localStorage` cache schema moved to 4 so caches without the block are dropped.
+
+### Two defects the browser pass found
+
+- A declaration click made right after a search was swallowed. The search
+  field's `change` fires on blur — on the mousedown of that click — and ran
+  `choose()` → `selectModule()` on the already-selected module, which
+  unconditionally repainted the declaration list, so the button under the
+  pointer was replaced before mouseup. Re-selecting the current module now
+  repaints the sidebar only when it shows another module.
+- The same blur path re-resolved the declaration already shown and re-rendered
+  and re-scrolled the chart for nothing; `selectDeclaration()` now returns
+  early for the declaration it is already on.
+
+Both were pre-existing; the headless probe (`scripts/map-smoke.mjs`) that
+found them is checked in so the sequence stays covered.

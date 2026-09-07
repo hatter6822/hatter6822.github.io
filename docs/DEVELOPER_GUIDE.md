@@ -9,10 +9,11 @@ It is intended to help a new contributor answer two questions quickly:
 
 ## 1) Mental model of the project
 
-The repository is a static website with two pages and a data pipeline:
+The repository is a static website with three pages and a data pipeline:
 
 - `index.html` is the marketing/overview page.
-- `map.html` is the interactive codebase map page.
+- `map.html` is the interactive codebase map page: Lean module workspace, Rust production crates, repository inventory.
+- `run.html` is the Simulator.
 - `data/*.json` stores local snapshots consumed by the browser.
 - `scripts/*.mjs` regenerates and validates those snapshots.
 
@@ -62,10 +63,10 @@ Edit this file when adding/removing a section, changing metadata defaults, or wi
 ### `map.html` (interactive map page)
 Owns:
 
-- map-specific hero, summary stats, and toolbar shell.
-- `#flowchart-wrap` rendering target for graph content.
+- compact hero: status column with the snapshot stamp, one-line stats strip (`data-map="..."` placeholders, including `rustCrates`), section jump links.
+- the three page sections in the order tests assert: `#module-graph` (toolbar shell, `.workspace-grid` with `#flowchart-wrap` and the `.declaration-explorer` sidebar holding `#flow-node-interior-menu`), `#rust-crates` (`#rust-crate-grid`, rendered by JS), `#repository-inventory` (`#repository-inventory-groups` and `#inventory-provenance`, rendered by JS).
 - compact control surface (context search + reset).
-- map status and stat placeholders (`data-map="..."`).
+- map status and stat placeholders.
 - script load order:
   1. `theme-init.js` in head.
   2. `i18n.js` in head for locale detection and DOM translation.
@@ -146,7 +147,11 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - both flowchart renderers share six extracted helpers (`createFlowSvg`, `createFlowLegend`, `flowLaneLabel`, `applyFlowScrollTarget`, `computeFlowLayout`, `buildFlowNodeGroup`) to eliminate SVG setup, legend, layout, scroll-target, and node construction duplication. Node heights for proof and external sections are pre-computed during layout to avoid redundant recalculation. `buildFlowNodeGroup` clips all text content to the node rect via SVG `<clipPath>` to prevent overflow on mobile viewports.
 - sorts large declaration lanes by module relevance (same-module first) before collapsing to keep contextually relevant declarations visible; collapsed "+N more" nodes are interactive expand buttons that fully reveal all declarations, with "Return to Compact" buttons to collapse back.
 - declaration flow-node `flow-meta` line numbers now render as clickable links to the exact upstream source line in `hatter6822/seLe4n` (using current `commitSha` when available, else fallback ref), opening in a new tab with keyboard-accessible focus behavior.
-- builds interior declaration panels (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration in declaration context with a visual accent indicator.
+- builds the tabbed declaration sidebar (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration with a visual accent indicator; remembers the active tab across module changes.
+- opens on `DEFAULT_MODULE` (`SeLe4n.Kernel.API`) when the URL names no module (`defaultModuleName()`), on load, after a tree rebuild, and on Reset.
+- groups over-budget lanes by subsystem (`moduleSubsystem`, `groupLaneModules`, `buildLaneEntries`, `toggleLaneGroup`, `drawLaneGuide`) and opens groups in place.
+- renders the Rust crate section (`renderRustCrates`, `renderRustDependencyStrip`, `renderRustCrateCard`, `renderRustFile`, `renderRustItemList`) and the repository inventory (`classifyRepositoryPath`, `buildRepositoryInventory`, `renderRepositoryGroups`, `renderInventorySubgroup`, `renderInventoryList`) from `state.rust` and `state.files`, once per data load (`renderInventory`) and again on locale change.
+- keeps the file tree and Rust inventory across live refreshes that carry neither (`retainInventory`, `normalizeRustInventory`), tracking `inventoryCommit` / `rustCommit`.
 - handles keyboard navigation, search, reset, and URL-state synchronization (including `decl` parameter for declaration context persistence). The generalized context search bar is context-aware: in declaration context it displays `Module.Declaration` in dot-append format with the label "Context search — declaration"; in module context it shows the module name with the label "Context search — module". The `flowchart-wrap` `aria-label` updates dynamically per context. The Reset button returns from declaration context to module context. Supports dot-append declaration search (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`) via two complementary strategies: (1) `declarationSearchMatch()` progressively tries shorter dot-separated module prefixes and matches the remaining suffix against interior symbols via `searchDeclarationsInModule()`; (2) when no exact module prefix matches, a global search across all declarations uses a pre-built `declarationSearchList` index (constructed by `buildDeclarationSearchIndex()` during data load). `declarationSearchMatches()` returns multiple ranked results for dropdown suggestions. Exact matches navigate immediately; partial matches appear as styled suggestions with `data-declaration` attributes. The search flow integrates `tryDeclarationSearch` as a fallback when no module match is found.
 - caches frequently queried DOM elements (`flowchartWrap`, `moduleSearch`, `moduleSearchOptions`, `moduleSearchFeedback`, `moduleSearchLabel`, `flowNodeInteriorMenu`, `mapStatus`, `mainContent`, `moduleResults`) once at boot in a `DOM` namespace object via `cacheDomElements()` to avoid repeated `getElementById` calls during render cycles. All DOM-accessing functions use `DOM.xxx || document.getElementById(...)` fallback pattern.
 - uses batch eviction (120 entries per cycle via `LABEL_WRAP_CACHE_EVICT_BATCH`) for the label-wrap cache to amortize eviction cost and prevent single-entry churn on cache-full renders.
@@ -166,7 +171,12 @@ Global stylesheet for shared layout/design system:
 ### `assets/css/map.css`
 Map-page-only styles:
 
-- flowchart workspace and toolbar layout.
+- compact hero (status column, stats strip, section jump links) and section headings with the `production-badge`.
+- workspace grid: single column by default, chart + sticky declaration sidebar at `min-width: 75rem`.
+- tabbed declaration sidebar (`.interior-menu-tabs`, `.interior-menu-tab[aria-selected]`).
+- flowchart workspace and toolbar layout; subsystem group nodes (`.flow-node.lane-group`, `.lane-member`, `.lane-guide`).
+- Rust section: dependency strip SVG, crate cards, per-file `<details>`, item chips coloured by kind via `--rust-kind-color`.
+- repository inventory: group and subgroup `<details>`, production highlighting via `[data-production="true"]`, lazy file/module lists.
 - graph node/edge visual semantics.
 - interior declaration panel styling with flex layout, hover states, CSS transitions, and kind label right-alignment.
 - `.sr-only` / `.visually-hidden` screen-reader utility class.
@@ -216,6 +226,15 @@ Bundled graph snapshot used by map runtime. Includes:
   calls, and incoming callers via the reverse index the runtime builds from
   it). Before it was bundled, that view was empty until a live GitHub fetch
   completed, and empty forever offline.
+- `rust` — the production crate inventory built by `scripts/lib/rust-analysis.mjs`
+  from the same checkout: workspace members and inherited package fields, and
+  per crate the manifest facts (description, edition, dependencies split into
+  internal/external/dev/build, features, `deniesUnsafe`) plus every `.rs` file
+  with role, module path, line count, listed items (`kind`, `name`, `line`,
+  `visibility`, `unsafe`, inline `module`), `publicItems`, `testItems` and
+  `unsafe` site counts. Test code is counted, not listed. About 106 KB raw /
+  16 KB gzipped on the current workspace. Descriptive only — no landing-page
+  metric may come from it.
 - `commitSha`, `generatedAt` provenance.
 
 Written **compact** (no indentation): at ~4.6 MB (459 KB gzipped) it is the
@@ -322,8 +341,25 @@ Lean source parsing. Two roles:
   map runtime uses when it fetches an individual `.lean` file. The pipeline no
   longer calls them; keeping them here keeps that runtime logic under test.
 
+### `scripts/lib/rust-analysis.mjs`
+The Rust workspace scanner behind `map-data.json#rust`: `stripRustCommentsAndStrings`
+(nested block comments, raw/byte strings, char literals), `scanRustSource` (item
+headers at item scope with visibility, `unsafe`, inline-module path and
+`#[test]`/`#[cfg(test)]` marking; `unsafe` site counts; line counts),
+`parseCargoManifest` (package fields, workspace inheritance, dependency tables,
+features, `[[bin]]`), `rustFileRole` / `rustModulePath`, and
+`buildRustInventory`, which assembles the crates in workspace order from a file
+list and a reader. Not a Rust parser; it lists a crate's surface the way a
+rustdoc sidebar does.
+
 ### `scripts/lib/data-validation.mjs`
-Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks.
+Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal per-file sums).
+
+### `scripts/map-smoke.mjs`
+Optional headless-Chromium probe for `map.html` (needs `playwright-core` and a
+static server): default module, grouped lanes, sidebar-driven declaration
+context, Rust cards, inventory, no horizontal overflow, clean console, at three
+viewport widths and in both themes, plus a Spanish deep link.
 
 ### `scripts/lib/trace-analysis.mjs`
 Trace schema validation and the deterministic fold engine (`reconstructState`/`scenarioStates`) shared by `validate-traces.mjs`, `sync-upstream.mjs`, and the Simulator tests.
@@ -335,8 +371,9 @@ The `data/site-data.json` → `index.html` + `locales/*.json` static-fallback ma
 Node tests for parser and validation correctness:
 
 - `lean-analysis.test.mjs`: parser behavior, edge cases, `isLikelyModuleToken` validation, theorem deduplication, null/empty input guards, noncomputable theorem counting, comment-only continuation line handling, non-numeric metric cell robustness.
+- `rust-analysis.test.mjs`: comment/string stripping with line structure preserved, item scanning (kinds, visibility, `unsafe`, nested-body exclusion, inline modules, multi-line signatures, `static mut`, test marking), manifest parsing (workspace inheritance, dependency tables, `[[bin]]`), file roles and module paths, and `buildRustInventory` assembly with test-item exclusion.
 - `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection, non-string module array entries.
-- `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none).
+- `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none), the default module rule, `moduleSubsystem`, subsystem-grouped lane entries (collapsed/opened/within budget/expanded mode), repository path classification and inventory grouping, inventory retention across canonical and tree refreshes, `rust` block pass-through, Rust item colouring/ordering, tab selection, and count formatting.
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.
 - `trace-analysis.test.mjs`: trace schema validation and fold-engine determinism (see `docs/TESTING.md`).
 - `run-runtime.test.mjs`: boots the real `assets/js/run.js` in a `vm` DOM shim and exercises the Simulator end-to-end (see `docs/TESTING.md`).
