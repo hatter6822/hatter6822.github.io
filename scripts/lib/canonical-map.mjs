@@ -22,7 +22,15 @@
  *   modules[]           { module, path, declaration_count, declarations[] }
  *   modules[].declarations[]      { kind, name, line, called[] }
  *
- * Scope: the site reports *production* Lean — every module outside `tests/`.
+ * Scope: the site reports *production* Lean. The artifact's own production
+ * definition is every module outside `tests/`; the site narrows it by one
+ * directory, `SeLe4n/Testing/`, the in-tree testing framework (harness,
+ * fixtures, invariant checks, state builders). Those eight modules are
+ * framework code that ships in the library tree, and the map, the landing
+ * page and every published figure leave them out together: `modules` and
+ * `theorems` are counted over the narrowed inventory, and `lines` is the
+ * artifact's `production_loc` minus the framework files' physical lines,
+ * measured on the digest-verified sources (see siteMetricsFromCodebaseMap).
  *
  * Substitution rule: a metric may fall back to another key of the same
  * artifact, never to a source outside it. An earlier revision of this
@@ -146,15 +154,42 @@ export function canonicalSourceDigest(hash, paths, readBytes) {
   return hash.digest('hex');
 }
 
-/** True when the module belongs to the production corpus (everything outside tests/). */
-export function isProductionModule(moduleInfo) {
+/**
+ * The in-tree testing framework. Production by the artifact's definition
+ * (it is not under `tests/`), test code by the site's: the site publishes
+ * nothing about it and the map does not graph it.
+ */
+export const IN_TREE_TEST_FRAMEWORK_PREFIX = 'SeLe4n/Testing/';
+
+/** True when the module is production by the artifact's own definition (everything outside tests/). */
+export function isArtifactProductionModule(moduleInfo) {
   return !String(moduleInfo?.path ?? '').startsWith('tests/');
 }
 
-/** The artifact's production modules, in artifact order. */
+/**
+ * True when the module belongs to the corpus the site publishes: the
+ * artifact's production set minus the in-tree testing framework.
+ */
+export function isProductionModule(moduleInfo) {
+  return isArtifactProductionModule(moduleInfo)
+    && !String(moduleInfo?.path ?? '').startsWith(IN_TREE_TEST_FRAMEWORK_PREFIX);
+}
+
+/** The artifact's production modules (outside tests/), in artifact order. */
+export function artifactProductionModules(codebaseMap) {
+  const modules = codebaseMap?.modules;
+  return Array.isArray(modules) ? modules.filter(isArtifactProductionModule) : [];
+}
+
+/** The modules the site publishes, in artifact order. */
 export function productionModules(codebaseMap) {
   const modules = codebaseMap?.modules;
   return Array.isArray(modules) ? modules.filter(isProductionModule) : [];
+}
+
+/** Artifact-production modules the site scope leaves out: the in-tree testing framework. */
+export function excludedFrameworkModules(codebaseMap) {
+  return artifactProductionModules(codebaseMap).filter((moduleInfo) => !isProductionModule(moduleInfo));
 }
 
 /**
@@ -367,12 +402,24 @@ export function admittedCountFromCodebaseMap(codebaseMap) {
  * Returns only what the artifact supports; a caller needing a complete set must
  * check `canonicalMetricsIssues()` first rather than filling gaps from
  * elsewhere.
+ *
+ * `options.lineCount(path)` returns the physical line count of a source file
+ * at the artifact's revision. It is needed for `lines` only when the site scope
+ * excludes artifact-production modules (the in-tree testing framework): the
+ * artifact records `production_loc` for its own scope and nothing per module,
+ * so the excluded files' lines are subtracted from that canonical figure. The
+ * subtraction is measured on the digest-verified sources — the corpus the
+ * artifact describes — and `canonicalCrossChecks` confirms the same count
+ * reproduces `production_loc` exactly, so the anchor and the subtraction use
+ * one method. Without `lineCount`, `lines` is omitted rather than published
+ * over the wrong scope.
  */
-export function siteMetricsFromCodebaseMap(codebaseMap) {
+export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
   const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
   if (!map) return {};
 
   const sync = map.readme_sync && typeof map.readme_sync === 'object' ? map.readme_sync : {};
+  const lineCount = typeof options?.lineCount === 'function' ? options.lineCount : null;
   const metrics = {};
 
   if (typeof sync.version === 'string' && sync.version.trim()) metrics.version = sync.version.trim();
@@ -384,9 +431,25 @@ export function siteMetricsFromCodebaseMap(codebaseMap) {
   }
 
   // Physical lines of production Lean. A mechanical count with no parsing in
-  // it, unlike proved_theorem_lemma_decls — see the note at the top of this file.
-  const lines = positiveInteger(sync.production_loc);
-  if (lines !== undefined) metrics.lines = lines;
+  // it, unlike proved_theorem_lemma_decls — see the note at the top of this
+  // file. The artifact counts its own production scope; the framework files
+  // the site leaves out are subtracted, measured on the verified sources.
+  const productionLoc = positiveInteger(sync.production_loc);
+  if (productionLoc !== undefined) {
+    const excluded = excludedFrameworkModules(map);
+    if (!excluded.length) {
+      metrics.lines = productionLoc;
+    } else if (lineCount) {
+      let subtracted = 0;
+      let complete = true;
+      for (const moduleInfo of excluded) {
+        const count = positiveInteger(lineCount(moduleInfo.path));
+        if (count === undefined) { complete = false; break; }
+        subtracted += count;
+      }
+      if (complete && subtracted <= productionLoc) metrics.lines = productionLoc - subtracted;
+    }
+  }
 
   const modules = productionModules(map);
   if (modules.length) {
@@ -406,22 +469,50 @@ export function siteMetricsFromCodebaseMap(codebaseMap) {
  * publishes — but it is worth surfacing, since it is how the
  * `proved_theorem_lemma_decls` miscount was found.
  */
-export function canonicalCrossChecks(codebaseMap) {
+export function canonicalCrossChecks(codebaseMap, options = {}) {
   const sync = codebaseMap?.readme_sync ?? {};
-  const derived = siteMetricsFromCodebaseMap(codebaseMap);
+  const derived = siteMetricsFromCodebaseMap(codebaseMap, options);
   const notes = [];
 
+  // The artifact's own definition of production (outside tests/), so the
+  // check reads the artifact against itself; the site's narrower scope is a
+  // documented subtraction, not a disagreement.
   const statedModules = positiveInteger(sync.production_files);
-  if (statedModules !== undefined && derived.modules !== undefined && statedModules !== derived.modules) {
-    notes.push(`readme_sync.production_files says ${statedModules}; the module inventory has ${derived.modules}`);
+  const artifactModules = artifactProductionModules(codebaseMap).length;
+  if (statedModules !== undefined && artifactModules && statedModules !== artifactModules) {
+    notes.push(`readme_sync.production_files says ${statedModules}; the module inventory has ${artifactModules}`);
   }
 
+  // `lines` is published as production_loc minus the framework files, so the
+  // mechanical count must reproduce production_loc over the artifact's scope —
+  // otherwise the anchor and the subtraction would use different methods.
+  const lineCount = typeof options?.lineCount === 'function' ? options.lineCount : null;
+  const statedLoc = positiveInteger(sync.production_loc);
+  if (lineCount && statedLoc !== undefined) {
+    let counted = 0;
+    let complete = true;
+    for (const moduleInfo of artifactProductionModules(codebaseMap)) {
+      const count = positiveInteger(lineCount(moduleInfo.path));
+      if (count === undefined) { complete = false; break; }
+      counted += count;
+    }
+    if (complete && counted !== statedLoc) {
+      notes.push(`readme_sync.production_loc says ${statedLoc}; the sources at this revision count ${counted} physical lines over the same files`);
+    }
+  }
+
+  // Same principle for theorems: the regex tally covers the artifact's own
+  // production scope, so it is reconciled against the inventory over that
+  // scope (10,937 + 78 - 15 = 11,000 on the current artifact), not against the
+  // narrower figure the site publishes.
   const statedTheorems = positiveInteger(sync.proved_theorem_lemma_decls);
-  if (statedTheorems !== undefined && derived.theorems !== undefined && statedTheorems !== derived.theorems) {
+  const artifactTheorems = artifactProductionModules(codebaseMap)
+    .reduce((total, moduleInfo) => total + theoremDeclarationCount(moduleInfo.declarations), 0);
+  if (statedTheorems !== undefined && derived.theorems !== undefined && statedTheorems !== artifactTheorems) {
     notes.push(
       `readme_sync.proved_theorem_lemma_decls says ${statedTheorems}; the comment-aware ` +
-      `declaration inventory has ${derived.theorems} (difference ${statedTheorems - derived.theorems}) — ` +
-      'publishing the inventory'
+      `declaration inventory has ${artifactTheorems} (difference ${statedTheorems - artifactTheorems}) — ` +
+      `publishing the inventory${derived.theorems !== artifactTheorems ? ` (${derived.theorems} over the site scope)` : ''}`
     );
   }
 
