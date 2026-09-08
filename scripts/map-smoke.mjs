@@ -105,6 +105,11 @@ function metrics(page) {
       tabs: Array.from(document.querySelectorAll('.interior-menu-tab')).map((t) => t.getAttribute('aria-selected')),
       declarationItems: document.querySelectorAll('.interior-menu-item').length,
       stats: Array.from(document.querySelectorAll('[data-map]')).map((el) => `${el.getAttribute('data-map')}=${el.textContent}`),
+      // @cards-start
+      crates: document.querySelectorAll('.rust-crate').length,
+      crateStrip: Boolean(document.querySelector('.rust-dependency-svg')),
+      inventoryGroups: Array.from(document.querySelectorAll('.inventory-group')).map((g) => g.dataset.group + (g.open ? '(open)' : '')),
+      // @cards-end
       h2s: Array.from(document.querySelectorAll('h2')).map((h) => h.textContent)
     };
   });
@@ -136,6 +141,11 @@ async function shot(page, name) {
   check(m.sidebar && m.sidebar.left > m.wrap.left + m.wrap.width - 5, 'sidebar sits beside the chart at 1440');
   check(chartAtScale(m), `flow chart drawn at 1:1 (${chartSummary(m)})`);
   check(m.wrap.top < 900, `chart starts inside the first viewport (top=${m.wrap.top})`);
+  // @cards-start
+  check(m.crates === 4 && m.crateStrip, 'four Rust crate cards and the dependency strip rendered');
+  check(m.inventoryGroups.join(',') === 'lean(open),rust(open),tests,scripts,docs,project', `inventory groups in order, production open (${m.inventoryGroups.join(',')})`);
+  check(m.stats.some((s) => s === 'rustCrates=4'), 'Rust crates stat = 4');
+  // @cards-end
   check(errors.length === 0, `no console errors ${JSON.stringify(errors)}`);
   await shot(page, 'desktop-dark');
 
@@ -171,6 +181,77 @@ async function shot(page, name) {
   const reset = await metrics(page);
   check(reset.search === 'SeLe4n.Kernel.API' && !/decl=/.test(reset.url), 'reset returns to the default module view');
 
+  // @cards-start
+  await page.click('.inventory-group[data-group="lean"] .inventory-subgroup summary');
+  await page.waitForTimeout(200);
+  await page.click('.inventory-module-btn');
+  let scrolled = false;
+  try {
+    await page.waitForFunction(() => document.getElementById('module-graph').getBoundingClientRect().top < 200, null, { timeout: 4000 });
+    // The scroll must also settle there: scroll anchoring once dragged the
+    // viewport back to the inventory after the workspace had been reached.
+    await page.waitForTimeout(900);
+    scrolled = await page.evaluate(() => document.getElementById('module-graph').getBoundingClientRect().top < 200);
+  } catch {}
+  const afterInventory = await metrics(page);
+  const workspaceTop = await page.evaluate(() => Math.round(document.getElementById('module-graph').getBoundingClientRect().top));
+  check(scrolled && afterInventory.search !== 'SeLe4n.Kernel.API', `an inventory module opens in the workspace and the scroll settles there (module=${afterInventory.search}, workspace top=${workspaceTop})`);
+
+  const cardHeights = await page.evaluate(() => Array.from(document.querySelectorAll('.rust-crate'), (c) => Math.round(c.getBoundingClientRect().height)));
+  check(cardHeights.length === 4 && Math.max(...cardHeights) <= 1400, `crate cards are bounded in height (${cardHeights.join(', ')})`);
+
+  await page.click('#crate-sele4n-sys .rust-file-summary');
+  await page.waitForTimeout(200);
+  const productionItems = await page.evaluate(() => document.querySelectorAll('#crate-sele4n-sys .rust-item').length);
+  check(productionItems > 0, 'a crate file expands into its item list');
+  check((await page.evaluate(() => document.querySelectorAll('#crate-sele4n-sys .rust-item-test').length)) === 0, 'test items are hidden by default');
+  await page.click('#crate-sele4n-sys .rust-tests-toggle');
+  await page.waitForTimeout(300);
+  // The crate root has no test code; open a module file that does.
+  await page.click('#crate-sele4n-sys .rust-file[data-role="module"] .rust-file-summary');
+  await page.waitForTimeout(300);
+  const toggled = await page.evaluate(() => ({
+    pressed: document.querySelector('#crate-sele4n-sys .rust-tests-toggle').getAttribute('aria-pressed'),
+    open: document.querySelectorAll('#crate-sele4n-sys .rust-file-details[open]').length,
+    items: document.querySelectorAll('#crate-sele4n-sys .rust-item').length,
+    testItems: document.querySelectorAll('#crate-sele4n-sys .rust-item-test').length
+  }));
+  check(toggled.pressed === 'true' && toggled.open === 2 && toggled.items > productionItems && toggled.testItems > 0, `the test-item toggle keeps the open file open and lists flagged test items ${JSON.stringify(toggled)}`);
+  const rustFacts = await page.evaluate(() => ({
+    abiUnsafeCell: (document.querySelector('#crate-sele4n-abi .rust-stat-unsafe dd') || {}).textContent || '',
+    halUnsafeCell: (document.querySelector('#crate-sele4n-hal .rust-stat-unsafe dd') || {}).textContent || '',
+    abiStripNode: (document.querySelector('a[href="#crate-sele4n-abi"] .rust-dependency-node') || { getAttribute: () => '' }).getAttribute('class') || '',
+    lintFacts: Array.from(document.querySelectorAll('.rust-crate-facts')).filter((p) => /deny\(unsafe_code\)/.test(p.textContent)).length,
+    halFacts: (document.querySelector('#crate-sele4n-hal .rust-crate-facts') || {}).textContent || '',
+    supportLinks: document.querySelectorAll('.inventory-crate-support .inventory-file-link').length,
+    singular: Array.from(document.querySelectorAll('.inventory-subgroup-meta, .rust-crate-facts, .rust-stat-unsafe dd')).map((el) => el.textContent).filter((text) => /\b1 (files|modules|theorems|blocks|impls|crates)\b|\b0 (impl|impls|blocks|fn)\b/.test(text))
+  }));
+  check(/3 sites/.test(rustFacts.abiUnsafeCell) && /rust-unsafe/.test(rustFacts.abiStripNode), `sele4n-abi shows its three counted sites despite its deny lint ${JSON.stringify(rustFacts.abiUnsafeCell)}`);
+  check(/99 sites/.test(rustFacts.halUnsafeCell), `sele4n-hal shows its production sites only (${JSON.stringify(rustFacts.halUnsafeCell)})`);
+  check(rustFacts.lintFacts === 3, `three crates state #![deny(unsafe_code)] as a separate fact (${rustFacts.lintFacts})`);
+  check(/cfg\(loom\)/.test(rustFacts.halFacts) && !/external/.test(rustFacts.halFacts), `loom is shown under its cfg, not as an external dependency (${JSON.stringify(rustFacts.halFacts)})`);
+  check(rustFacts.supportLinks >= 4, `crate support files are linked from the inventory (${rustFacts.supportLinks})`);
+  check(rustFacts.singular.length === 0, `count labels are pluralized ${JSON.stringify(rustFacts.singular)}`);
+
+  // A locale switch and a live refresh both repaint the sections; whatever the
+  // reader had open must survive the repaint.
+  await page.click('.inventory-group[data-group="tests"] > summary');
+  await page.waitForTimeout(200);
+  const openBefore = await page.evaluate(() => ({
+    tests: document.querySelector('.inventory-group[data-group="tests"]').open,
+    subgroups: document.querySelectorAll('.inventory-subgroup[open]').length,
+    files: document.querySelectorAll('#crate-sele4n-sys .rust-file-details[open]').length
+  }));
+  await page.evaluate(() => window.dispatchEvent(new Event('sele4n:locale-changed')));
+  await page.waitForTimeout(500);
+  const openAfter = await page.evaluate(() => ({
+    tests: document.querySelector('.inventory-group[data-group="tests"]').open,
+    subgroups: document.querySelectorAll('.inventory-subgroup[open]').length,
+    files: document.querySelectorAll('#crate-sele4n-sys .rust-file-details[open]').length,
+    pressed: document.querySelector('#crate-sele4n-sys .rust-tests-toggle').getAttribute('aria-pressed')
+  }));
+  check(openBefore.tests && openAfter.tests && openAfter.subgroups === openBefore.subgroups && openAfter.files === openBefore.files && openAfter.pressed === 'true', `open groups, subgroups and files survive a re-render ${JSON.stringify({ openBefore, openAfter })}`);
+  // @cards-end
   check(errors.length === 0, `still no console errors after interactions ${JSON.stringify(errors)}`);
   await context.close();
 }
@@ -234,6 +315,15 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   check(m.scrollWidth <= m.innerWidth, 'no horizontal page overflow at 390');
   check(m.search === 'SeLe4n.Kernel.API', 'default module (phone)');
   check(chartAtScale(m), `flow chart at 1:1 on a phone (${chartSummary(m)})`);
+  // @cards-start
+  const strip = await page.evaluate(() => {
+    const scroller = document.querySelector('.rust-dependency-scroll');
+    const svg = document.querySelector('.rust-dependency-svg');
+    if (!scroller || !svg) return null;
+    return { scrollWidth: scroller.scrollWidth, clientWidth: scroller.clientWidth, svgWidth: Math.round(svg.getBoundingClientRect().width), svgAttr: Number(svg.getAttribute('width')) };
+  });
+  check(Boolean(strip) && strip.svgWidth >= strip.svgAttr - 1 && strip.scrollWidth > strip.clientWidth, `dependency strip keeps its width and scrolls sideways at 390 ${JSON.stringify(strip)}`);
+  // @cards-end
   check(errors.length === 0, 'no console errors (phone)');
   await shot(page, 'phone');
   await context.close();

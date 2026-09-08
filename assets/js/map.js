@@ -56,6 +56,28 @@
      kernel's syscall surface, which every other subsystem composes into. */
   var DEFAULT_MODULE = "SeLe4n.Kernel.API";
 
+  /* Rust item kinds reuse the Lean declaration palette so one colour means one
+     thing across both halves of the production code. */
+  var RUST_ITEM_COLOR_MAP = {
+    fn: "#82f0b0",
+    struct: "#72d5ff",
+    "enum": "#8ecbff",
+    union: "#ff9fb0",
+    trait: "#6ae3d8",
+    type: "#8be4cb",
+    "const": "#ffd782",
+    "static": "#ffcb6b",
+    mod: "#d0b7ff",
+    impl: "#9ec5ff",
+    macro: "#63ccff"
+  };
+  var RUST_ITEM_KIND_ORDER = ["mod", "trait", "struct", "enum", "union", "type", "fn", "const", "static", "impl", "macro"];
+
+  /* Repository inventory groups, in display order. The two production groups
+     are the map's subject; the rest is viewable but visually secondary. */
+  var REPOSITORY_GROUP_ORDER = ["lean", "rust", "tests", "scripts", "docs", "project"];
+  var PRODUCTION_GROUPS = { lean: true, rust: true };
+
   /* Cached DOM element references — populated once on boot to avoid repeated getElementById calls */
   var DOM = {
     flowchartWrap: null,
@@ -66,7 +88,10 @@
     flowNodeInteriorMenu: null,
     mapStatus: null,
     mainContent: null,
-    moduleResults: null
+    moduleResults: null,
+    rustCrateGrid: null,
+    inventoryGroups: null,
+    inventoryNote: null
   };
 
   function cacheDomElements() {
@@ -79,6 +104,9 @@
     DOM.mapStatus = document.getElementById("map-status");
     DOM.mainContent = document.getElementById("main-content");
     DOM.moduleResults = document.getElementById("module-results");
+    DOM.rustCrateGrid = document.getElementById("rust-crate-grid");
+    DOM.inventoryGroups = document.getElementById("repository-inventory-groups");
+    DOM.inventoryNote = document.getElementById("inventory-provenance");
   }
 
   var DETAIL_PRESETS = {
@@ -181,8 +209,15 @@
     declarationReverseGraph: Object.create(null),
     declarationIndex: Object.create(null),
     declarationLanesExpanded: false,
+    /* Repository inventory: the whole tree plus the Rust crate inventory. Both
+       can outlive a live refresh that carries neither (see retainInventory). */
+    rust: null,
+    inventoryCommit: "",
+    rustCommit: "",
     interiorMenuGroup: "object",
-    laneGroupsExpanded: { imports: Object.create(null), importers: Object.create(null) }
+    laneGroupsExpanded: { imports: Object.create(null), importers: Object.create(null) },
+    /* Per-crate: whether the cards list test items (transient, off by default). */
+    rustShowTests: Object.create(null)
   };
 
   var renderScheduled = false;
@@ -1485,11 +1520,11 @@
   function interiorMenuSummary(moduleName, interior) {
     var degree = moduleDegree(moduleName);
     var assurance = assuranceForModule(moduleName);
-    var total = formatCount(interior.total || 0);
-    var theorems = formatCount(degree.theorems || 0);
+    var total = interior.total || 0;
+    var theorems = degree.theorems || 0;
     var parts = [
-      t("map.summary_declarations", { count: total }) || (total + " declarations"),
-      t("map.summary_theorems", { count: theorems }) || (theorems + " theorems"),
+      t("map.summary_declarations", { count: total }) || pluralEn(total, "declaration", "declarations"),
+      t("map.summary_theorems", { count: theorems }) || pluralEn(theorems, "theorem", "theorems"),
       "←" + degree.incoming + " →" + degree.outgoing
     ];
     if (assurance && assurance.label) parts.push(assurance.label);
@@ -3096,6 +3131,968 @@
     layer.appendChild(path);
   }
 
+  /* ── Repository inventory ──────────────────────────────────────────────── */
+
+  function githubBlobHref(path, line, ref) {
+    var cleanPath = String(path || "").replace(/^\/+/, "");
+    if (!cleanPath) return "";
+    var useRef = ref || state.commitSha || REF;
+    var encodedPath = cleanPath.split("/").map(encodeURIComponent).join("/");
+    return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(useRef) + "/" + encodedPath + (line > 0 ? "#L" + line : "");
+  }
+
+  function githubTreeHref(path, ref) {
+    var cleanPath = String(path || "").replace(/^\/+/, "");
+    var useRef = ref || state.commitSha || REF;
+    var encodedPath = cleanPath.split("/").map(encodeURIComponent).join("/");
+    return "https://github.com/" + REPO + "/tree/" + encodeURIComponent(useRef) + (encodedPath ? "/" + encodedPath : "");
+  }
+
+  function scriptKind(path) {
+    if (/\.sh$/.test(path)) return "shell";
+    if (/\.py$/.test(path)) return "python";
+    if (/\.(mjs|js|cjs)$/.test(path)) return "javascript";
+    return "other";
+  }
+
+  /* Where a repository path belongs in the inventory: one of the six groups,
+     and a subgroup within it (a Lean subsystem, a Rust crate, a directory). */
+  function classifyRepositoryPath(path) {
+    var p = String(path || "").replace(/^\/+/, "");
+    var parts = p.split("/");
+    var top = parts.length > 1 ? parts[0] : "";
+
+    /* The in-tree testing framework is test code by the published scope. */
+    if (p.indexOf("SeLe4n/Testing/") === 0) {
+      return { group: "tests", subgroup: "SeLe4n/Testing" };
+    }
+    if ((top === "SeLe4n" && /\.lean$/.test(p)) || p === "Main.lean" || p === "SeLe4n.lean") {
+      return { group: "lean", subgroup: moduleSubsystem(moduleFromPath(p)) || "SeLe4n" };
+    }
+    if (top === "rust") {
+      return { group: "rust", subgroup: parts.length > 2 ? parts[1] : "workspace" };
+    }
+    if (top === "tests") {
+      if (parts.length > 2) return { group: "tests", subgroup: "tests/" + parts[1] };
+      return { group: "tests", subgroup: /\.lean$/.test(p) ? "tests" : "tests (other)" };
+    }
+    if (top === "scripts") {
+      if (parts.length > 2) return { group: "scripts", subgroup: "scripts/" + parts[1] };
+      return { group: "scripts", subgroup: "scripts (" + scriptKind(p) + ")" };
+    }
+    if (top === "docs") {
+      return { group: "docs", subgroup: parts.length > 2 ? "docs/" + parts[1] : "docs" };
+    }
+    if (!top && (/\.(md|txt|rst)$/i.test(p) || p === "LICENSE")) {
+      return { group: "docs", subgroup: "repository root" };
+    }
+    if (top === ".github") {
+      return { group: "project", subgroup: parts.length > 2 ? ".github/" + parts[1] : ".github" };
+    }
+    return { group: "project", subgroup: top || "repository root" };
+  }
+
+  function buildRepositoryInventory(files, moduleMap) {
+    var groups = Object.create(null);
+    for (var o = 0; o < REPOSITORY_GROUP_ORDER.length; o++) {
+      var id = REPOSITORY_GROUP_ORDER[o];
+      groups[id] = { id: id, production: Boolean(PRODUCTION_GROUPS[id]), count: 0, subgroups: Object.create(null), subgroupOrder: [] };
+    }
+    var pathToModule = Object.create(null);
+    var map = moduleMap || Object.create(null);
+    for (var moduleName in map) {
+      if (Object.prototype.hasOwnProperty.call(map, moduleName)) pathToModule[map[moduleName]] = moduleName;
+    }
+    var list = Array.isArray(files) ? files : [];
+    for (var i = 0; i < list.length; i++) {
+      var path = String(list[i] || "");
+      if (!path) continue;
+      var cls = classifyRepositoryPath(path);
+      var group = groups[cls.group] || groups.project;
+      var sub = group.subgroups[cls.subgroup];
+      if (!sub) {
+        sub = group.subgroups[cls.subgroup] = { key: cls.subgroup, files: [], modules: [] };
+        group.subgroupOrder.push(cls.subgroup);
+      }
+      sub.files.push(path);
+      var owner = pathToModule[path];
+      if (owner && cls.group === "lean") sub.modules.push(owner);
+      group.count += 1;
+    }
+    var out = [];
+    for (var k = 0; k < REPOSITORY_GROUP_ORDER.length; k++) {
+      var entry = groups[REPOSITORY_GROUP_ORDER[k]];
+      var subs = [];
+      for (var si = 0; si < entry.subgroupOrder.length; si++) {
+        var subgroup = entry.subgroups[entry.subgroupOrder[si]];
+        subgroup.files.sort();
+        subgroup.modules.sort();
+        subs.push(subgroup);
+      }
+      subs.sort(function (a, b) { return a.key.localeCompare(b.key); });
+      var moduleTotal = 0;
+      for (var mi = 0; mi < subs.length; mi++) moduleTotal += subs[mi].modules.length;
+      out.push({ id: entry.id, production: entry.production, count: entry.count, modules: moduleTotal, subgroups: subs });
+    }
+    return out;
+  }
+
+  /* A live refresh replaces the module graph but may carry no repository tree
+     (the canonical artifact lists only Lean modules) and no Rust inventory
+     (nothing upstream produces one). Keep whichever the previous data had, and
+     remember the commit each was taken at so the page can say so. */
+  function retainInventory(previous, incoming) {
+    var prior = previous || {};
+    var next = incoming || {};
+    var incomingFiles = Array.isArray(next.files) ? next.files : [];
+    var priorFiles = Array.isArray(prior.files) ? prior.files : [];
+    var incomingHasTree = false;
+    for (var i = 0; i < incomingFiles.length; i++) {
+      if (!/\.lean$/i.test(incomingFiles[i])) { incomingHasTree = true; break; }
+    }
+    var files = incomingHasTree || !priorFiles.length ? incomingFiles : priorFiles;
+    var inventoryCommit = incomingHasTree || !priorFiles.length
+      ? String(next.inventoryCommit || next.commitSha || "")
+      : String(prior.inventoryCommit || "");
+
+    var incomingRust = next.rust && Array.isArray(next.rust.crates) ? next.rust : null;
+    var rust = incomingRust || prior.rust || null;
+    var rustCommit = incomingRust
+      ? String(next.rustCommit || next.commitSha || "")
+      : (rust ? String(prior.rustCommit || "") : "");
+
+    return { files: files, inventoryCommit: inventoryCommit, rust: rust, rustCommit: rustCommit, retainedFiles: !incomingHasTree && priorFiles.length > 0, retainedRust: !incomingRust && Boolean(rust) };
+  }
+
+  function normalizeRustInventory(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Array.isArray(raw.crates)) return null;
+    var crates = [];
+    for (var i = 0; i < raw.crates.length; i++) {
+      var crate = raw.crates[i];
+      if (!crate || typeof crate !== "object" || typeof crate.name !== "string" || !crate.name.trim()) continue;
+      if (!Array.isArray(crate.files)) continue;
+      crates.push(crate);
+    }
+    if (!crates.length) return null;
+    return {
+      root: typeof raw.root === "string" ? raw.root : "rust",
+      workspaceManifest: typeof raw.workspaceManifest === "string" ? raw.workspaceManifest : "",
+      members: Array.isArray(raw.members) ? raw.members.slice() : [],
+      edition: typeof raw.edition === "string" ? raw.edition : "",
+      version: typeof raw.version === "string" ? raw.version : "",
+      rustVersion: typeof raw.rustVersion === "string" ? raw.rustVersion : "",
+      workspaceFiles: Array.isArray(raw.workspaceFiles) ? raw.workspaceFiles.slice() : [],
+      crates: crates
+    };
+  }
+
+  function rustItemColor(kind) {
+    return RUST_ITEM_COLOR_MAP[String(kind || "")] || "#8fa3bf";
+  }
+
+  function sortRustItems(items) {
+    var rank = Object.create(null);
+    for (var i = 0; i < RUST_ITEM_KIND_ORDER.length; i++) rank[RUST_ITEM_KIND_ORDER[i]] = i;
+    return (Array.isArray(items) ? items : []).slice().sort(function (a, b) {
+      var ra = rank[a.kind] === undefined ? RUST_ITEM_KIND_ORDER.length : rank[a.kind];
+      var rb = rank[b.kind] === undefined ? RUST_ITEM_KIND_ORDER.length : rank[b.kind];
+      if (ra !== rb) return ra - rb;
+      return (a.line || 0) - (b.line || 0);
+    });
+  }
+
+  /* The crate-level lint and the counted sites are two facts, not one. A
+     `#![deny(unsafe_code)]` crate can still carry sites under an item-level
+     `#[allow(unsafe_code)]` — sele4n-abi does, for its syscall trap — so every
+     surface reads both from here and none can call such a crate "no unsafe". */
+  function unsafeCounts(source) {
+    var counts = source && typeof source === "object" ? source : {};
+    var fns = Number(counts.fns) || 0;
+    var impls = Number(counts.impls) || 0;
+    var blocks = Number(counts.blocks) || 0;
+    return { fns: fns, impls: impls, blocks: blocks, sites: fns + impls + blocks };
+  }
+
+  /* `unsafe` holds the sites in production code and `testUnsafe` the sites in
+     test code (the scanner attributes each by its enclosing item), so the
+     card's headline is the production figure and the test figure is named
+     separately — never one total that mixes the two. */
+  function rustUnsafeSummary(crate) {
+    var production = unsafeCounts(crate && crate.unsafe);
+    var test = unsafeCounts(crate && crate.testUnsafe);
+    var deniesUnsafe = Boolean(crate && crate.deniesUnsafe);
+    return {
+      fns: production.fns,
+      impls: production.impls,
+      blocks: production.blocks,
+      sites: production.sites,
+      testSites: test.sites,
+      deniesUnsafe: deniesUnsafe,
+      exceptions: deniesUnsafe && production.sites > 0
+    };
+  }
+
+  /* English fallback for a count label when no locale string resolves. */
+  function pluralEn(count, one, other) {
+    return formatCount(count) + " " + (count === 1 ? one : other);
+  }
+
+  /* "2 fn · 1 block · under item-level allow · +20 in test code": only the
+     counters that are non-zero, each pluralised by the locale. */
+  function rustUnsafeDetail(summary) {
+    var parts = [];
+    if (summary.fns) parts.push(t("map.rust_unsafe_fn", { count: summary.fns }) || pluralEn(summary.fns, "fn", "fn"));
+    if (summary.impls) parts.push(t("map.rust_unsafe_impl", { count: summary.impls }) || pluralEn(summary.impls, "impl", "impls"));
+    if (summary.blocks) parts.push(t("map.rust_unsafe_block", { count: summary.blocks }) || pluralEn(summary.blocks, "block", "blocks"));
+    if (summary.exceptions) parts.push(t("map.rust_unsafe_exceptions") || "under item-level allow");
+    if (summary.testSites) parts.push(t("map.rust_unsafe_test", { count: summary.testSites }) || ("+" + formatCount(summary.testSites) + " in test code"));
+    return parts.join(" \u00B7 ");
+  }
+
+  function crateDirectory(crate) {
+    return String(crate && crate.path || "").replace(/^\/+|\/+$/g, "");
+  }
+
+  /* Files under a crate directory that its card does not list — the manifest,
+     linker scripts, assembly sources — so that every path in the tree has one
+     entry: the card owns the Rust sources, the inventory owns the rest. */
+  function crateSupportFiles(group, crate) {
+    var dir = crateDirectory(crate);
+    if (!dir) return [];
+    var listed = Object.create(null);
+    var files = Array.isArray(crate.files) ? crate.files : [];
+    for (var i = 0; i < files.length; i++) if (files[i] && files[i].path) listed[files[i].path] = true;
+    var out = [];
+    var subgroups = group && Array.isArray(group.subgroups) ? group.subgroups : [];
+    for (var s = 0; s < subgroups.length; s++) {
+      var paths = Array.isArray(subgroups[s].files) ? subgroups[s].files : [];
+      for (var p = 0; p < paths.length; p++) {
+        if (paths[p].indexOf(dir + "/") === 0 && !listed[paths[p]]) out.push(paths[p]);
+      }
+    }
+    out.sort();
+    return out;
+  }
+
+  function repositoryGroupLabel(id) {
+    var fallback = { lean: "Production Lean", rust: "Production Rust", tests: "Tests", scripts: "Scripts", docs: "Documentation", project: "Project & tooling" };
+    return t("map.group_" + id) || fallback[id] || id;
+  }
+
+  function repositoryGroupDescription(id) {
+    var fallback = {
+      lean: "Kernel, model and platform modules — the corpus every published statistic describes.",
+      rust: "The user-space syscall crates and the bare-metal HAL, inventoried from the same checkout.",
+      tests: "Lean test suites, fixtures and scenarios, plus the in-tree testing framework — all outside the production corpus.",
+      scripts: "Shell and Python tooling that builds, checks and audits the kernel.",
+      docs: "Specifications, audits, planning notes and development history.",
+      project: "CI workflows, toolchain pins, build manifests and other repository plumbing."
+    };
+    return t("map.group_" + id + "_desc") || fallback[id] || "";
+  }
+
+  function fileCountLabel(count) {
+    return t("map.count_files", { count: count }) || pluralEn(count, "file", "files");
+  }
+
+  function moduleCountLabel(count) {
+    return t("map.count_modules", { count: count }) || pluralEn(count, "module", "modules");
+  }
+
+  function theoremCountLabel(count) {
+    return t("map.count_theorems", { count: count }) || pluralEn(count, "theorem", "theorems");
+  }
+
+  function crateCountLabel(count) {
+    return t("map.count_crates", { count: count }) || pluralEn(count, "crate", "crates");
+  }
+
+  function createProductionBadge(kindLabel) {
+    var badge = document.createElement("span");
+    badge.className = "production-badge";
+    badge.textContent = (t("map.production_badge") || "production") + (kindLabel ? " · " + kindLabel : "");
+    return badge;
+  }
+
+  function createExternalLink(href, text, className) {
+    var link = document.createElement("a");
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = text;
+    if (className) link.className = className;
+    return link;
+  }
+
+  function scrollToWorkspace() {
+    var target = document.getElementById("module-graph");
+    if (!target || typeof target.scrollIntoView !== "function") return;
+    var reduce = false;
+    try { reduce = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) {}
+    try { target.scrollIntoView({ behavior: reduce ? "instant" : "smooth", block: "start" }); } catch (e) { target.scrollIntoView(); }
+  }
+
+  function selectModuleFromInventory(name) {
+    selectModule(name, false);
+    /* Scroll after the frame that repaints the chart: the repaint changes the
+       document height, and a smooth scroll started before it can be cancelled
+       by that layout change, leaving the reader where they clicked. */
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(scrollToWorkspace);
+    });
+  }
+
+  function renderInventory() {
+    var openState = captureInventoryOpenState();
+    renderRustCrates();
+    renderRepositoryGroups();
+    renderInventoryProvenance();
+    restoreInventoryOpenState(openState);
+  }
+
+  /* A live refresh and a locale switch both rebuild these sections from
+     scratch, and on a networked visit the refresh lands a few seconds after
+     first paint — exactly when a reader has started opening things. Every
+     <details> carries a stable `data-open-key`; the states are captured before
+     the rebuild and re-applied after it (setting `open` fires `toggle`, so the
+     lazily rendered lists come back too). */
+  function captureInventoryOpenState() {
+    var states = Object.create(null);
+    if (typeof document === "undefined" || !document.querySelectorAll) return states;
+    var all = document.querySelectorAll("#repository-inventory-groups details[data-open-key], #rust-crate-grid details[data-open-key]");
+    for (var i = 0; i < all.length; i++) states[all[i].dataset.openKey] = Boolean(all[i].open);
+    return states;
+  }
+
+  function restoreInventoryOpenState(states) {
+    if (typeof document === "undefined" || !document.querySelectorAll) return;
+    var all = document.querySelectorAll("#repository-inventory-groups details[data-open-key], #rust-crate-grid details[data-open-key]");
+    for (var i = 0; i < all.length; i++) {
+      var key = all[i].dataset.openKey;
+      if (key in states && all[i].open !== states[key]) all[i].open = states[key];
+    }
+  }
+
+  function renderInventoryProvenance() {
+    var note = DOM.inventoryNote || document.getElementById("inventory-provenance");
+    if (!note) return;
+    var graphCommit = (state.commitSha || "").slice(0, 7);
+    var treeCommit = (state.inventoryCommit || state.commitSha || "").slice(0, 7);
+    var rustCommit = (state.rustCommit || treeCommit || "").slice(0, 7);
+    if (!graphCommit) {
+      note.textContent = "";
+      return;
+    }
+    if (treeCommit === graphCommit && (!state.rust || rustCommit === graphCommit)) {
+      note.textContent = t("map.inventory_at", { commit: graphCommit }) || ("Inventory at seLe4n commit " + graphCommit + ".");
+      return;
+    }
+    note.textContent = t("map.inventory_retained", { tree: treeCommit, rust: rustCommit, graph: graphCommit })
+      || ("File inventory from commit " + treeCommit + ", Rust inventory from " + rustCommit + "; the module graph is synced to " + graphCommit + ".");
+  }
+
+  function renderRepositoryGroups() {
+    var container = DOM.inventoryGroups || document.getElementById("repository-inventory-groups");
+    if (!container) return;
+    container.innerHTML = "";
+    if (!state.files || !state.files.length) {
+      var empty = document.createElement("p");
+      empty.className = "panel-note";
+      empty.textContent = t("map.inventory_empty") || "No repository inventory loaded.";
+      container.appendChild(empty);
+      return;
+    }
+    var inventory = buildRepositoryInventory(state.files, state.moduleMap);
+    var fragment = document.createDocumentFragment();
+    for (var i = 0; i < inventory.length; i++) {
+      if (!inventory[i].count) continue;
+      fragment.appendChild(renderInventoryGroup(inventory[i]));
+    }
+    container.appendChild(fragment);
+  }
+
+  function renderInventoryGroup(group) {
+    var details = document.createElement("details");
+    details.className = "inventory-group";
+    details.dataset.group = group.id;
+    details.dataset.openKey = "group:" + group.id;
+    details.dataset.production = group.production ? "true" : "false";
+    details.open = group.production;
+
+    var summary = document.createElement("summary");
+    summary.className = "inventory-group-summary";
+    var title = document.createElement("span");
+    title.className = "inventory-group-title";
+    title.textContent = repositoryGroupLabel(group.id);
+    summary.appendChild(title);
+    if (group.production) summary.appendChild(createProductionBadge(group.id === "lean" ? "Lean 4" : "Rust"));
+    var count = document.createElement("span");
+    count.className = "inventory-group-count";
+    var countParts = [];
+    if (group.id === "lean") countParts.push(moduleCountLabel(group.modules));
+    if (group.id === "rust" && state.rust) countParts.push(crateCountLabel(state.rust.crates.length));
+    countParts.push(fileCountLabel(group.count));
+    count.textContent = countParts.join(" · ");
+    summary.appendChild(count);
+    details.appendChild(summary);
+
+    var body = document.createElement("div");
+    body.className = "inventory-group-body";
+    var description = document.createElement("p");
+    description.className = "inventory-group-desc";
+    description.textContent = repositoryGroupDescription(group.id);
+    body.appendChild(description);
+
+    if (group.id === "rust" && state.rust) {
+      body.appendChild(renderRustGroupBody(group));
+    } else {
+      var subgroups = document.createElement("div");
+      subgroups.className = "inventory-subgroups";
+      for (var i = 0; i < group.subgroups.length; i++) subgroups.appendChild(renderInventorySubgroup(group, group.subgroups[i]));
+      body.appendChild(subgroups);
+    }
+    details.appendChild(body);
+    return details;
+  }
+
+  function subgroupTheorems(subgroup) {
+    var total = 0;
+    for (var i = 0; i < subgroup.modules.length; i++) total += ((state.moduleMeta[subgroup.modules[i]] || {}).theorems || 0);
+    return total;
+  }
+
+  function renderInventorySubgroup(group, subgroup) {
+    var details = document.createElement("details");
+    details.className = "inventory-subgroup";
+    details.dataset.openKey = "subgroup:" + group.id + ":" + subgroup.key;
+    var summary = document.createElement("summary");
+    summary.className = "inventory-subgroup-summary";
+    var key = document.createElement("code");
+    key.className = "inventory-subgroup-key";
+    key.textContent = subgroup.key;
+    summary.appendChild(key);
+    var meta = document.createElement("span");
+    meta.className = "inventory-subgroup-meta";
+    var metaParts = [];
+    if (group.id === "lean" && subgroup.modules.length) {
+      metaParts.push(moduleCountLabel(subgroup.modules.length));
+      metaParts.push(theoremCountLabel(subgroupTheorems(subgroup)));
+      if (subgroup.files.length > subgroup.modules.length) metaParts.push(fileCountLabel(subgroup.files.length));
+    } else {
+      metaParts.push(fileCountLabel(subgroup.files.length));
+    }
+    meta.textContent = metaParts.join(" · ");
+    summary.appendChild(meta);
+    details.appendChild(summary);
+
+    /* Lists render on first open: 866 anchors on page load would be paid by
+       every visitor for a section most never expand. */
+    details.addEventListener("toggle", function () {
+      if (!details.open || details.dataset.rendered === "1") return;
+      details.dataset.rendered = "1";
+      details.appendChild(renderInventoryList(group, subgroup));
+    });
+    return details;
+  }
+
+  function renderInventoryList(group, subgroup) {
+    var list = document.createElement("ul");
+    list.className = group.id === "lean" ? "inventory-module-list" : "inventory-file-list";
+    var fragment = document.createDocumentFragment();
+    var listedModules = Object.create(null);
+
+    if (group.id === "lean") {
+      for (var m = 0; m < subgroup.modules.length; m++) {
+        var moduleName = subgroup.modules[m];
+        listedModules[state.moduleMap[moduleName]] = true;
+        var li = document.createElement("li");
+        li.className = "inventory-module";
+        var assurance = assuranceForModule(moduleName);
+        var dot = document.createElement("span");
+        dot.className = "inventory-assurance assurance-" + (assurance.level || "none");
+        dot.title = assurance.label || "";
+        dot.setAttribute("aria-hidden", "true");
+        li.appendChild(dot);
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "inventory-module-btn";
+        button.textContent = moduleName;
+        button.title = t("map.open_in_workspace", { module: moduleName }) || ("Open " + moduleName + " in the workspace");
+        button.addEventListener("click", (function (name) {
+          return function () { selectModuleFromInventory(name); };
+        })(moduleName));
+        li.appendChild(button);
+        var stats = document.createElement("span");
+        stats.className = "inventory-module-stats";
+        var theorems = (state.moduleMeta[moduleName] || {}).theorems || 0;
+        stats.textContent = formatCount(theorems) + " thm";
+        li.appendChild(stats);
+        fragment.appendChild(li);
+      }
+    }
+
+    for (var f = 0; f < subgroup.files.length; f++) {
+      var path = subgroup.files[f];
+      if (listedModules[path]) continue;
+      var fileItem = document.createElement("li");
+      fileItem.className = "inventory-file";
+      fileItem.appendChild(createExternalLink(githubBlobHref(path, 0, state.inventoryCommit || state.commitSha), path, "inventory-file-link"));
+      fragment.appendChild(fileItem);
+    }
+    list.appendChild(fragment);
+    return list;
+  }
+
+  function renderInventoryFileLinks(paths, prefix, className) {
+    var span = document.createElement("span");
+    span.className = className;
+    for (var e = 0; e < paths.length; e++) {
+      if (e) span.appendChild(document.createTextNode(" · "));
+      var label = paths[e].indexOf(prefix) === 0 ? paths[e].slice(prefix.length) : paths[e];
+      span.appendChild(createExternalLink(githubBlobHref(paths[e], 0, state.rustCommit || state.commitSha), label, "inventory-file-link"));
+    }
+    return span;
+  }
+
+  function renderRustGroupBody(group) {
+    var list = document.createElement("ul");
+    list.className = "inventory-crate-list";
+    var crates = state.rust.crates;
+    var crateDirs = [];
+    for (var i = 0; i < crates.length; i++) {
+      var crate = crates[i];
+      var dir = crateDirectory(crate);
+      if (dir) crateDirs.push(dir + "/");
+      var li = document.createElement("li");
+      li.className = "inventory-crate";
+      var link = document.createElement("a");
+      link.href = "#crate-" + crate.name;
+      link.className = "inventory-crate-link";
+      link.textContent = crate.name;
+      li.appendChild(link);
+      var meta = document.createElement("span");
+      meta.className = "inventory-subgroup-meta";
+      meta.textContent = fileCountLabel(crate.sourceFiles) + " · " + formatCount(crate.lines) + " " + (t("map.lines_short") || "lines");
+      li.appendChild(meta);
+      /* The card lists the Rust sources; the manifest, linker script and
+         assembly files would otherwise appear nowhere on the page. */
+      var support = crateSupportFiles(group, crate);
+      if (support.length) {
+        var supportRow = document.createElement("span");
+        supportRow.className = "inventory-crate-support";
+        var supportLabel = document.createElement("span");
+        supportLabel.className = "inventory-crate-support-label";
+        supportLabel.textContent = t("map.rust_support_files") || "support files";
+        supportRow.appendChild(supportLabel);
+        supportRow.appendChild(renderInventoryFileLinks(support, dir + "/", "inventory-file-links"));
+        li.appendChild(supportRow);
+      }
+      list.appendChild(li);
+    }
+    /* Whatever no crate directory covers — the workspace manifest, lockfile,
+       toolchain pin — is listed once here, so the group omits no file. */
+    var extras = [];
+    for (var s = 0; s < group.subgroups.length; s++) {
+      var paths = group.subgroups[s].files;
+      for (var p = 0; p < paths.length; p++) {
+        var covered = false;
+        for (var c = 0; c < crateDirs.length && !covered; c++) covered = paths[p].indexOf(crateDirs[c]) === 0;
+        if (!covered) extras.push(paths[p]);
+      }
+    }
+    if (extras.length) {
+      extras.sort();
+      var workspaceItem = document.createElement("li");
+      workspaceItem.className = "inventory-crate";
+      var wsLabel = document.createElement("span");
+      wsLabel.className = "inventory-crate-link";
+      wsLabel.textContent = t("map.rust_workspace_files") || "workspace files";
+      workspaceItem.appendChild(wsLabel);
+      workspaceItem.appendChild(renderInventoryFileLinks(extras, (state.rust.root || "rust") + "/", "inventory-subgroup-meta inventory-file-links"));
+      list.appendChild(workspaceItem);
+    }
+    return list;
+  }
+
+  /* ── Rust crate cards ──────────────────────────────────────────────────── */
+
+  function renderRustCrates() {
+    var grid = DOM.rustCrateGrid || document.getElementById("rust-crate-grid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    var rust = state.rust;
+    if (!rust || !Array.isArray(rust.crates) || !rust.crates.length) {
+      var note = document.createElement("p");
+      note.className = "panel-note";
+      note.textContent = t("map.rust_unavailable") || "The Rust crate inventory is not part of this snapshot.";
+      grid.appendChild(note);
+      return;
+    }
+    grid.appendChild(renderRustDependencyStrip(rust));
+    var fragment = document.createDocumentFragment();
+    for (var i = 0; i < rust.crates.length; i++) fragment.appendChild(renderRustCrateCard(rust.crates[i], rust));
+    grid.appendChild(fragment);
+  }
+
+  function renderRustDependencyStrip(rust) {
+    var crates = rust.crates;
+    var nodeWidth = 168;
+    var nodeHeight = 54;
+    var gap = 34;
+    var pad = 12;
+    var arcLift = 26;
+    var width = pad * 2 + crates.length * nodeWidth + (crates.length - 1) * gap;
+    var height = nodeHeight + arcLift + pad * 2 + 6;
+    var shell = document.createElement("figure");
+    shell.className = "rust-dependency-strip";
+    var caption = document.createElement("figcaption");
+    caption.className = "rust-dependency-caption";
+    caption.textContent = t("map.rust_dependency_caption") || "Runtime dependencies between the workspace crates. Arrows point from a crate to what it depends on.";
+    var scroller = document.createElement("div");
+    scroller.className = "rust-dependency-scroll";
+    var svg = createSvgNode("svg", {
+      "class": "rust-dependency-svg",
+      viewBox: "0 0 " + width + " " + height,
+      width: width,
+      height: height,
+      role: "img",
+      "aria-label": t("map.rust_dependency_aria") || "Crate dependency diagram"
+    });
+    var defs = createSvgNode("defs", {});
+    var marker = createSvgNode("marker", { id: "crate-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "6", markerHeight: "6", orient: "auto" });
+    marker.appendChild(createSvgNode("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "currentColor" }));
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    var positions = Object.create(null);
+    var baseY = pad + arcLift;
+    for (var i = 0; i < crates.length; i++) {
+      var x = pad + i * (nodeWidth + gap);
+      positions[crates[i].name] = { x: x, y: baseY, w: nodeWidth, h: nodeHeight };
+    }
+
+    var edgeLayer = createSvgNode("g", { "class": "rust-dependency-edges", "aria-hidden": "true" });
+    for (var c = 0; c < crates.length; c++) {
+      var from = positions[crates[c].name];
+      var deps = crates[c].internalDependencies || [];
+      for (var d = 0; d < deps.length; d++) {
+        var to = positions[deps[d]];
+        if (!to) continue;
+        var startX = from.x + from.w / 2;
+        var endX = to.x + to.w / 2;
+        var y = from.y;
+        var span = Math.abs(startX - endX);
+        var lift = Math.min(arcLift, 12 + span / 14);
+        var path = createSvgNode("path", {
+          d: "M " + startX + " " + y + " C " + startX + " " + (y - lift) + ", " + endX + " " + (y - lift) + ", " + endX + " " + (y - 3),
+          "class": "rust-dependency-edge",
+          "marker-end": "url(#crate-arrow)"
+        });
+        edgeLayer.appendChild(path);
+      }
+    }
+    svg.appendChild(edgeLayer);
+
+    var nodeLayer = createSvgNode("g", { "class": "rust-dependency-nodes" });
+    for (var n = 0; n < crates.length; n++) {
+      var crate = crates[n];
+      var pos = positions[crate.name];
+      var link = createSvgNode("a", { href: "#crate-" + crate.name, "aria-label": crate.name });
+      var siteSummary = rustUnsafeSummary(crate);
+      var group = createSvgNode("g", { "class": "rust-dependency-node" + (siteSummary.sites ? " rust-unsafe" : " rust-safe") });
+      group.appendChild(createSvgNode("rect", { x: pos.x, y: pos.y, width: pos.w, height: pos.h, rx: 9, ry: 9 }));
+      var name = createSvgNode("text", { x: pos.x + pos.w / 2, y: pos.y + 22, "text-anchor": "middle", "class": "rust-dependency-name" });
+      name.textContent = crate.name;
+      group.appendChild(name);
+      var sub = createSvgNode("text", { x: pos.x + pos.w / 2, y: pos.y + 40, "text-anchor": "middle", "class": "rust-dependency-sub" });
+      sub.textContent = siteSummary.sites
+        ? (t("map.rust_unsafe_short", { count: siteSummary.sites }) || pluralEn(siteSummary.sites, "unsafe site", "unsafe sites"))
+        : (t("map.rust_no_unsafe_short") || "no unsafe");
+      group.appendChild(sub);
+      link.appendChild(group);
+      nodeLayer.appendChild(link);
+    }
+    svg.appendChild(nodeLayer);
+    scroller.appendChild(svg);
+    shell.appendChild(scroller);
+    shell.appendChild(caption);
+    return shell;
+  }
+
+  function rustStat(label, value, extraClass) {
+    var cell = document.createElement("div");
+    cell.className = "rust-crate-stat" + (extraClass ? " " + extraClass : "");
+    var dt = document.createElement("dt");
+    dt.textContent = label;
+    var dd = document.createElement("dd");
+    if (typeof value === "string" || typeof value === "number") dd.textContent = String(value);
+    else dd.appendChild(value);
+    cell.appendChild(dt);
+    cell.appendChild(dd);
+    return cell;
+  }
+
+  function renderRustCrateCard(crate, rust) {
+    var card = document.createElement("article");
+    card.className = "rust-crate";
+    card.id = "crate-" + crate.name;
+
+    var head = document.createElement("header");
+    head.className = "rust-crate-head";
+    var titleRow = document.createElement("div");
+    titleRow.className = "rust-crate-title-row";
+    var title = document.createElement("h3");
+    title.className = "rust-crate-name";
+    title.appendChild(createExternalLink(githubTreeHref(crate.path, state.rustCommit || state.commitSha), crate.name));
+    titleRow.appendChild(title);
+    titleRow.appendChild(createProductionBadge("Rust"));
+    head.appendChild(titleRow);
+    if (crate.description) {
+      var description = document.createElement("p");
+      description.className = "rust-crate-desc";
+      description.textContent = crate.description;
+      head.appendChild(description);
+    }
+    card.appendChild(head);
+
+    var stats = document.createElement("dl");
+    stats.className = "rust-crate-stats";
+    stats.appendChild(rustStat(t("map.rust_stat_files") || "Source files", formatCount(crate.sourceFiles)));
+    stats.appendChild(rustStat(t("map.rust_stat_lines") || "Lines", formatCount(crate.lines)));
+    var itemsValue = document.createElement("span");
+    itemsValue.appendChild(document.createTextNode(formatCount(crate.items) + " "));
+    var pubNote = document.createElement("small");
+    pubNote.textContent = (t("map.rust_pub_count", { count: formatCount(crate.publicItems) }) || (formatCount(crate.publicItems) + " pub"));
+    itemsValue.appendChild(pubNote);
+    stats.appendChild(rustStat(t("map.rust_stat_items") || "Items", itemsValue));
+    var unsafeSummary = rustUnsafeSummary(crate);
+    var unsafeValue = document.createElement("span");
+    unsafeValue.appendChild(document.createTextNode(unsafeSummary.sites
+      ? (t("map.rust_unsafe_sites", { count: unsafeSummary.sites }) || pluralEn(unsafeSummary.sites, "site", "sites"))
+      : (t("map.rust_unsafe_none") || "none")));
+    /* The breakdown, the item-level `#[allow(unsafe_code)]` exception under a
+       crate-level deny (sele4n-abi), and the sites in test code are all named
+       here; the lint itself is stated on its own in the facts line below. */
+    var unsafeDetail = rustUnsafeDetail(unsafeSummary);
+    if (unsafeDetail) {
+      unsafeValue.appendChild(document.createTextNode(" "));
+      var detailNote = document.createElement("small");
+      detailNote.textContent = unsafeDetail;
+      unsafeValue.appendChild(detailNote);
+    }
+    stats.appendChild(rustStat("unsafe", unsafeValue, unsafeSummary.sites ? "rust-stat-unsafe" : "rust-stat-safe"));
+    card.appendChild(stats);
+
+    /* Test items are bundled but hidden until asked for: the production surface
+       is what the card describes. The toggle re-renders this card only. */
+    if (crate.testItems) {
+      var tools = document.createElement("div");
+      tools.className = "rust-crate-tools";
+      var showTests = Boolean(state.rustShowTests[crate.name]);
+      var toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "rust-tests-toggle";
+      toggle.setAttribute("aria-pressed", showTests ? "true" : "false");
+      toggle.textContent = showTests
+        ? (t("map.rust_hide_tests") || "Hide test items")
+        : (t("map.rust_show_tests", { count: crate.testItems }) || ("Show " + pluralEn(crate.testItems, "test item", "test items")));
+      toggle.addEventListener("click", function () {
+        state.rustShowTests[crate.name] = !state.rustShowTests[crate.name];
+        rerenderRustCrateCard(card, crate);
+      });
+      tools.appendChild(toggle);
+      card.appendChild(tools);
+    }
+
+    var facts = document.createElement("p");
+    facts.className = "rust-crate-facts";
+    var factParts = [];
+    if (unsafeSummary.deniesUnsafe) factParts.push("#![deny(unsafe_code)]");
+    if (crate.internalDependencies && crate.internalDependencies.length) {
+      factParts.push((t("map.rust_depends_on") || "depends on") + " " + crate.internalDependencies.join(", "));
+    } else {
+      factParts.push(t("map.rust_no_runtime_deps") || "no runtime crate dependencies");
+    }
+    if (crate.externalDependencies && crate.externalDependencies.length) {
+      factParts.push((t("map.rust_external_deps") || "external") + " " + crate.externalDependencies.join(", "));
+    }
+    /* A target-scoped table (`[target.'cfg(loom)'.dependencies]`) is resolved
+       only when its predicate holds, so it is stated under its cfg rather than
+       as an ordinary dependency; dev-dependencies are test-only. */
+    var targets = Array.isArray(crate.targetDependencies) ? crate.targetDependencies : [];
+    for (var td = 0; td < targets.length; td++) {
+      var target = targets[td];
+      if (!target || !Array.isArray(target.names) || !target.names.length) continue;
+      var tableNote = target.table && target.table !== "dependencies" ? " (" + target.table + ")" : "";
+      factParts.push((t("map.rust_target_deps", { cfg: target.cfg }) || ("under " + target.cfg)) + tableNote + ": " + target.names.join(", "));
+    }
+    if (crate.devDependencies && crate.devDependencies.length) {
+      factParts.push((t("map.rust_dev_deps") || "test-only") + " " + crate.devDependencies.join(", "));
+    }
+    if (crate.features && crate.features.length) {
+      factParts.push((t("map.rust_features") || "features") + " " + crate.features.join(", "));
+    }
+    if (crate.edition) factParts.push("edition " + crate.edition);
+    if (crate.testItems) factParts.push(t("map.rust_test_items", { count: crate.testItems }) || pluralEn(crate.testItems, "test item", "test items"));
+    facts.textContent = factParts.join(" · ");
+    card.appendChild(facts);
+
+    var files = document.createElement("ul");
+    files.className = "rust-crate-files";
+    var fragment = document.createDocumentFragment();
+    var ordered = crate.files.slice().sort(function (a, b) {
+      var roleRank = { lib: 0, module: 1, bin: 2, build: 3, test: 4 };
+      var ra = roleRank[a.role] === undefined ? 5 : roleRank[a.role];
+      var rb = roleRank[b.role] === undefined ? 5 : roleRank[b.role];
+      if (ra !== rb) return ra - rb;
+      return a.relativePath.localeCompare(b.relativePath);
+    });
+    for (var i = 0; i < ordered.length; i++) fragment.appendChild(renderRustFile(crate, ordered[i]));
+    files.appendChild(fragment);
+    card.appendChild(files);
+    return card;
+  }
+
+  function rerenderRustCrateCard(card, crate) {
+    var openPaths = Object.create(null);
+    var wasOpen = card.querySelectorAll(".rust-file-details[open]");
+    for (var i = 0; i < wasOpen.length; i++) openPaths[wasOpen[i].dataset.path] = true;
+    var next = renderRustCrateCard(crate);
+    if (card.parentNode) card.parentNode.replaceChild(next, card);
+    /* Re-open the files the reader had open; setting `open` fires `toggle`,
+       which renders their lists lazily as on a click. */
+    var details = next.querySelectorAll(".rust-file-details");
+    for (var d = 0; d < details.length; d++) {
+      if (openPaths[details[d].dataset.path]) details[d].open = true;
+    }
+    var toggle = next.querySelector(".rust-tests-toggle");
+    if (toggle) toggle.focus();
+  }
+
+  function rustRoleLabel(role) {
+    var fallback = { lib: "crate root", bin: "binary", build: "build script", test: "integration test", module: "module" };
+    return t("map.rust_role_" + role) || fallback[role] || role;
+  }
+
+  function visibleRustItems(crate, file) {
+    var items = Array.isArray(file.items) ? file.items : [];
+    if (state.rustShowTests[crate.name]) return items;
+    var production = [];
+    for (var i = 0; i < items.length; i++) if (!items[i].test) production.push(items[i]);
+    return production;
+  }
+
+  function renderRustFile(crate, file) {
+    var li = document.createElement("li");
+    li.className = "rust-file";
+    li.dataset.role = file.role;
+    var details = document.createElement("details");
+    details.className = "rust-file-details";
+    details.dataset.path = file.relativePath;
+    details.dataset.openKey = "file:" + crate.name + ":" + file.relativePath;
+    var visibleItems = visibleRustItems(crate, file);
+    var summary = document.createElement("summary");
+    summary.className = "rust-file-summary";
+    var path = document.createElement("code");
+    path.className = "rust-file-path";
+    path.textContent = file.relativePath;
+    summary.appendChild(path);
+    var meta = document.createElement("span");
+    meta.className = "rust-file-meta";
+    var metaParts = [];
+    if (file.modulePath) metaParts.push(file.modulePath);
+    /* "module" is the default role; naming it on every row is noise. */
+    if (file.role !== "module") metaParts.push(rustRoleLabel(file.role));
+    metaParts.push(formatCount(file.lines) + " " + (t("map.lines_short") || "lines"));
+    var productionItemCount = typeof file.productionItems === "number" ? file.productionItems : file.items.length - (file.testItems || 0);
+    if (productionItemCount > 0) metaParts.push(formatCount(productionItemCount) + " " + (t("map.items_short") || "items") + (file.publicItems ? " (" + formatCount(file.publicItems) + " pub)" : ""));
+    if (file.testItems) metaParts.push(formatCount(file.testItems) + " " + (t("map.test_items_short") || "test"));
+    var unsafeSites = unsafeCounts(file.unsafe).sites + (state.rustShowTests[crate.name] ? unsafeCounts(file.testUnsafe).sites : 0);
+    if (unsafeSites) {
+      var unsafeTag = document.createElement("span");
+      unsafeTag.className = "rust-unsafe-tag";
+      unsafeTag.textContent = formatCount(unsafeSites) + " unsafe";
+      meta.appendChild(unsafeTag);
+      meta.appendChild(document.createTextNode(" "));
+    }
+    meta.appendChild(document.createTextNode(metaParts.join(" · ")));
+    summary.appendChild(meta);
+    details.appendChild(summary);
+
+    if (!visibleItems.length) {
+      var openLink = document.createElement("p");
+      openLink.className = "rust-file-empty";
+      openLink.appendChild(createExternalLink(githubBlobHref(file.path, 0, state.rustCommit || state.commitSha), t("map.open_source") || "Source ↗"));
+      if (file.testItems) {
+        openLink.appendChild(document.createTextNode(" \u00B7 " + (t("map.rust_tests_hidden", { count: file.testItems }) || (pluralEn(file.testItems, "test item", "test items") + " hidden"))));
+      }
+      details.appendChild(openLink);
+    } else {
+      details.addEventListener("toggle", function () {
+        if (!details.open || details.dataset.rendered === "1") return;
+        details.dataset.rendered = "1";
+        details.appendChild(renderRustItemList(file, visibleItems));
+      });
+    }
+    li.appendChild(details);
+    return li;
+  }
+
+  function renderRustItemList(file, itemsToList) {
+    var list = document.createElement("ul");
+    list.className = "rust-item-list";
+    var items = sortRustItems(Array.isArray(itemsToList) ? itemsToList : file.items);
+    var fragment = document.createDocumentFragment();
+    var ref = state.rustCommit || state.commitSha;
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var li = document.createElement("li");
+      li.className = "rust-item";
+      li.dataset.kind = item.kind;
+      li.style.setProperty("--rust-kind-color", rustItemColor(item.kind));
+      if (item.visibility !== "pub") li.classList.add("rust-item-private");
+      if (item.test) li.classList.add("rust-item-test");
+      var kind = document.createElement("span");
+      kind.className = "rust-item-kind";
+      kind.textContent = item.kind;
+      li.appendChild(kind);
+      var name = createExternalLink(githubBlobHref(file.path, item.line, ref), item.name, "rust-item-name");
+      name.title = "L" + item.line;
+      li.appendChild(name);
+      if (item.module) {
+        var scope = document.createElement("span");
+        scope.className = "rust-item-scope";
+        scope.textContent = "in " + item.module;
+        li.appendChild(scope);
+      }
+      if (item.visibility !== "pub") {
+        var vis = document.createElement("span");
+        vis.className = "rust-item-vis";
+        vis.textContent = item.visibility;
+        li.appendChild(vis);
+      }
+      if (item.unsafe) {
+        var unsafeTag = document.createElement("span");
+        unsafeTag.className = "rust-unsafe-tag";
+        unsafeTag.textContent = "unsafe";
+        li.appendChild(unsafeTag);
+      }
+      if (item.test) {
+        var testTag = document.createElement("span");
+        testTag.className = "rust-test-tag";
+        testTag.textContent = t("map.rust_test_tag") || "test";
+        li.appendChild(testTag);
+      }
+      var line = document.createElement("span");
+      line.className = "rust-item-line";
+      line.textContent = "L" + item.line;
+      li.appendChild(line);
+      fragment.appendChild(li);
+    }
+    list.appendChild(fragment);
+    return list;
+  }
+
   function isTypingTarget(target) {
     if (!target || !target.tagName) return false;
     if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) return true;
@@ -3149,6 +4146,7 @@
     for (var k = 0; k < pairs.length; k++) state.proofPairMap[pairs[k].base] = pairs[k];
     for (var m = 0; m < state.modules.length; m++) moduleDegree(state.modules[m]);
     updateMetric("files", state.files.length);
+    updateMetric("rustCrates", state.rust && Array.isArray(state.rust.crates) ? state.rust.crates.length : "\u2013");
     updateMetric("leanModules", state.modules.length);
     updateMetric("importEdges", totals.importEdges);
     updateMetric("theorems", totals.theorems);
@@ -3524,6 +4522,9 @@
       importsTo: state.importsTo,
       importsFrom: state.importsFrom,
       externalImportsFrom: state.externalImportsFrom,
+      rust: state.rust,
+      inventoryCommit: state.inventoryCommit,
+      rustCommit: state.rustCommit,
       commitSha: state.commitSha,
       generatedAt: state.generatedAt
     }, state.commitSha);
@@ -3883,6 +4884,9 @@
       declarationGraph: mergedDeclarationGraph,
       declarationReverseGraph: mergedReverseGraph,
       declarationIndex: declarationIndex,
+      rust: normalizeRustInventory(data.rust),
+      inventoryCommit: data.inventoryCommit ? String(data.inventoryCommit) : "",
+      rustCommit: data.rustCommit ? String(data.rustCommit) : "",
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
     };
@@ -4061,8 +5065,39 @@
     return cachedData;
   }
 
+  /* A cache written by an earlier live refresh can be newer than the bundled
+     snapshot and win the boot choice, yet carry no Rust inventory (nothing
+     upstream produces one) or only a Lean-only file list. The bundle always
+     has both, so fill the gaps from it before applying the cache. */
+  function seedBundledInventory(localData, bundledData) {
+    if (!localData || !bundledData || localData === bundledData) return localData;
+    if (!localData.rust && bundledData.rust) {
+      localData.rust = bundledData.rust;
+      localData.rustCommit = bundledData.rustCommit || bundledData.commitSha || "";
+    }
+    var localFiles = Array.isArray(localData.files) ? localData.files : [];
+    var localHasTree = false;
+    for (var i = 0; i < localFiles.length; i++) {
+      if (!/\.lean$/i.test(localFiles[i])) { localHasTree = true; break; }
+    }
+    if (!localHasTree && Array.isArray(bundledData.files) && bundledData.files.length > localFiles.length) {
+      localData.files = bundledData.files;
+      localData.inventoryCommit = bundledData.inventoryCommit || bundledData.commitSha || "";
+    }
+    return localData;
+  }
+
   function applyData(data) {
-    state.files = data.files || [];
+    var inventory = retainInventory({
+      files: state.files,
+      rust: state.rust,
+      inventoryCommit: state.inventoryCommit,
+      rustCommit: state.rustCommit
+    }, data);
+    state.files = inventory.files;
+    state.rust = inventory.rust;
+    state.inventoryCommit = inventory.inventoryCommit;
+    state.rustCommit = inventory.rustCommit;
     state.modules = data.modules || [];
     state.moduleMap = data.moduleMap || Object.create(null);
     state.moduleMeta = data.moduleMeta || Object.create(null);
@@ -4096,6 +5131,7 @@
         state.selectedDeclarationModule = "";
       }
     }
+    renderInventory();
     renderAll();
   }
 
@@ -4319,6 +5355,10 @@
           state.generatedAt = new Date().toISOString();
           buildPairs();
           if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = defaultModuleName();
+          /* The tree fetched above is a complete file inventory at this commit;
+             the Rust crate inventory, if any, is still the bundled one. */
+          state.inventoryCommit = state.commitSha;
+          renderInventory();
           scheduleRender();
           syncUrlState();
           var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
@@ -5198,6 +6238,7 @@
        render time, so a locale switch only needs a repaint. */
     window.addEventListener("sele4n:locale-changed", function () {
       LABEL_WRAP_CACHE.clear();
+      renderInventory();
       scheduleRender();
     });
   }
@@ -5238,7 +6279,7 @@
     var cachedData = cached && cached.data ? normalizeMapData(cached.data) : null;
 
     fetchBundledMapData().then(function (bundledData) {
-      var localData = chooseBestLocalData(cachedData, bundledData);
+      var localData = seedBundledInventory(chooseBestLocalData(cachedData, bundledData), bundledData);
       if (!localData) return;
 
       applyData(localData);
@@ -5317,9 +6358,24 @@
       moduleSubsystem: moduleSubsystem,
       groupLaneModules: groupLaneModules,
       buildLaneEntries: buildLaneEntries,
+      classifyRepositoryPath: classifyRepositoryPath,
+      buildRepositoryInventory: buildRepositoryInventory,
+      retainInventory: retainInventory,
+      seedBundledInventory: seedBundledInventory,
+      normalizeRustInventory: normalizeRustInventory,
       isOutsideProductionScope: isOutsideProductionScope,
       isLeanModulePath: isLeanModulePath,
       isInRepoOutsideScope: isInRepoOutsideScope,
+      visibleRustItems: visibleRustItems,
+      rustItemColor: rustItemColor,
+      sortRustItems: sortRustItems,
+      rustUnsafeSummary: rustUnsafeSummary,
+      rustUnsafeDetail: rustUnsafeDetail,
+      fileCountLabel: fileCountLabel,
+      moduleCountLabel: moduleCountLabel,
+      captureInventoryOpenState: captureInventoryOpenState,
+      restoreInventoryOpenState: restoreInventoryOpenState,
+      crateSupportFiles: crateSupportFiles,
       pickInteriorMenuGroup: pickInteriorMenuGroup,
       formatCount: formatCount,
       setCache: setCache,
@@ -5347,6 +6403,8 @@
         if (typeof patch.flowShowAll === "boolean") state.flowShowAll = patch.flowShowAll;
         if (patch.laneGroupsExpanded) state.laneGroupsExpanded = patch.laneGroupsExpanded;
         if (patch.files) state.files = patch.files;
+        if ("rust" in patch) state.rust = patch.rust;
+        if (patch.rustShowTests) state.rustShowTests = patch.rustShowTests;
         if (typeof patch.commitSha === "string") state.commitSha = patch.commitSha;
         // Rebuild declarationIndex from moduleMeta when moduleMeta is patched
         if (patch.moduleMeta && !patch.declarationIndex) {

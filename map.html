@@ -89,7 +89,7 @@
         <div class="code-map-hero-main">
           <p class="hero-label" data-i18n="map.hero_label">seLe4n Architecture Intelligence</p>
           <h1 data-i18n="map.hero_title">Adaptive Codebase Navigator</h1>
-          <p class="section-lead code-map-lead" data-i18n="map.hero_lead">The production kernel, module by module: dependencies, impact edges, proof links and declarations for every Lean module, the Rust user-space crates beside them, and the rest of the repository one click away.</p>
+          <p class="section-lead code-map-lead" data-i18n="map.hero_lead">The production kernel, module by module: dependencies, impact edges, proof links and declarations for every Lean module, the Rust crates below them (user-space wrappers and the bare-metal HAL), and the rest of the repository one click away.</p>
         </div>
         <div class="code-map-header-meta" role="status" aria-live="polite">
           <p id="map-status" class="map-status" data-i18n="map.loading">Loading codebase map…</p>
@@ -103,8 +103,14 @@
             <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_import_edges">Import Edges</dt><dd data-map="importEdges">-</dd></div>
             <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_ops_inv_pairs">Ops/Inv Pairs</dt><dd data-map="proofPairs">-</dd></div>
             <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_linked_pairs">Linked Pairs</dt><dd data-map="linkedPairs">-</dd></div>
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_rust_crates">Rust Crates</dt><dd data-map="rustCrates">-</dd></div>
             <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_files">Files</dt><dd data-map="files">-</dd></div>
           </dl>
+          <nav class="map-section-nav" aria-label="Page sections" data-i18n-aria-label="map.section_nav_label">
+            <a href="#module-graph" data-i18n="map.nav_workspace">Lean workspace</a>
+            <a href="#rust-crates" data-i18n="map.nav_rust">Rust crates</a>
+            <a href="#repository-inventory" data-i18n="map.nav_inventory">Repository inventory</a>
+          </nav>
         </div>
       </div>
     </header>
@@ -151,6 +157,31 @@
       </div>
     </section>
 
+    <section class="section map-section" id="rust-crates" aria-labelledby="rust-crates-title">
+      <div class="container map-workspace">
+        <div class="map-section-heading">
+          <div class="map-section-heading-text">
+            <h2 id="rust-crates-title" data-i18n="map.rust_title">Rust production crates</h2>
+            <p data-i18n="map.rust_lead">The user-space syscall wrappers and the bare-metal HAL, inventoried from the same seLe4n checkout as the Lean map: every source file with its items, their visibility, and where unsafe code lives.</p>
+          </div>
+          <span class="production-badge production-badge-static"><span data-i18n="map.production_badge">production</span> · Rust</span>
+        </div>
+        <div id="rust-crate-grid" class="rust-crate-grid"></div>
+      </div>
+    </section>
+
+    <section class="section section-alt map-section" id="repository-inventory" aria-labelledby="inventory-title">
+      <div class="container map-workspace">
+        <div class="map-section-heading">
+          <div class="map-section-heading-text">
+            <h2 id="inventory-title" data-i18n="map.inventory_title">Repository inventory</h2>
+            <p data-i18n="map.inventory_lead">Every file in the seLe4n repository, grouped by what it is. The production groups open by default and each subsystem lists its modules on a click; tests, scripts, documentation and tooling are one click away too, each file linked to its source at the snapshot commit.</p>
+          </div>
+          <p id="inventory-provenance" class="inventory-provenance"></p>
+        </div>
+        <div id="repository-inventory-groups" class="inventory-groups"></div>
+      </div>
+    </section>
   </main>
 
   <footer class="footer footer-compact">

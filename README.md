@@ -129,6 +129,28 @@ sidebar lists the module's interior declarations in three tabs (Objects,
 Contexts/Inits, Extensions); from 1440px it sits beside the chart and follows
 the scroll, below that it stacks under the chart.
 
+The **Rust production crates** section renders one card per workspace crate
+(`sele4n-types`, `sele4n-abi`, `sele4n-sys`, `sele4n-hal`) from
+`data/map-data.json#rust`: description and edition from `Cargo.toml`, internal
+and external dependencies (a target-scoped table such as `loom` under
+`cfg(loom)` is stated under its cfg, dev-dependencies as test-only), feature
+flags, per-file item lists with visibility and line anchors, and `unsafe`
+usage read from the sources — the sites in production code as the headline,
+the sites in test code named apart, and the crate-level
+`#![deny(unsafe_code)]` lint as a separate fact, so `sele4n-abi`'s three
+exception sites under its lint stay visible. Test items are bundled too and
+listed behind a per-crate toggle, so the cards describe the production surface
+by default; file lists are bounded and scroll inside their card. A small
+dependency diagram shows the `sys → abi → types` chain and the standalone HAL.
+
+The **repository inventory** lists every file in the seLe4n tree, grouped:
+production Lean (by subsystem, each module opening in the workspace),
+production Rust (linking to the crate cards, with each crate's manifest, linker
+script and assembly files listed beneath), then tests, scripts, documentation
+and project tooling as closed, muted groups whose file lists render on first
+open and link to the source at the snapshot commit. Whatever a reader has
+opened survives the live refresh and a locale switch.
+
 `node scripts/map-smoke.mjs` checks all of this in headless Chromium against a
 local static server (`python3 -m http.server 4173`); it needs `playwright-core`
 on `NODE_PATH` or installed next to the repository. `.github/workflows/ci.yml`

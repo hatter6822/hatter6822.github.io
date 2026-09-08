@@ -11,11 +11,24 @@ The map page provides a single operational and proof-aware architecture view of 
 
 ## Page structure (0.30.0)
 
-`map.html` is the **Lean module workspace**: toolbar, flow chart and the
-declaration sidebar. The hero above it is one compact block: title, lead, live
-status, the snapshot timestamp and a one-line stats strip (`Lean modules`,
-`Theorems`, `Import edges`, `Ops/Inv pairs`, `Linked pairs`, `Files`). Every
-count is grouped by the active locale (`formatCount()`).
+`map.html` is three sections, in this order (asserted by
+`map-toolbar.test.mjs`):
+
+1. **Lean module workspace** — toolbar, flow chart and the declaration
+   sidebar. Production code is the subject.
+2. **Rust production crates** — a dependency strip and one card per workspace
+   crate, rendered from `map-data.json#rust`.
+3. **Repository inventory** — every file in the tree, grouped as production
+   Lean, production Rust, tests, scripts, documentation, and project tooling.
+   The two production groups open by default and carry a badge; the others are
+   closed and muted, and their file lists render on first open.
+
+The hero above them is one compact block: title, lead, live status, the
+snapshot timestamp, a one-line stats strip (`Lean modules`, `Theorems`,
+`Import edges`, `Ops/Inv pairs`, `Linked pairs`, `Rust crates`, `Files`) and
+jump links to the three sections. Every count is grouped by the active locale
+(`formatCount()`), and every count label is a plural family resolved by
+`t(key, { count })`.
 
 ### Default view
 
@@ -158,6 +171,78 @@ fallback.
   - The interior declaration panel no longer renders a dedicated header row; declaration filtering controls now anchor the panel start directly.
   - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.
   - All declarations display a clickable name that enters declaration context, providing uniform navigation regardless of call-graph presence.
+
+## Rust production crates
+
+`renderRustCrates()` paints the section from `state.rust` alone. The dependency
+strip is a small inline SVG: one node per crate in workspace order, arrows from
+a crate to each internal dependency it declares (`sele4n-sys → sele4n-abi →
+sele4n-types`; `sele4n-hal` stands alone), green when no production unsafe site
+is recorded and yellow with the site count otherwise. The SVG keeps its
+intrinsic width, is centred when narrower than its figure, and scrolls sideways
+inside `.rust-dependency-scroll` on narrow screens instead of shrinking its
+labels.
+
+Each card shows the crate's description, source-file and line counts, the
+declaration count with the public share, and an `unsafe` cell. The cell's
+headline is the number of sites in production code (`rustUnsafeSummary()`
+reads `unsafe`); its detail line names the non-zero counters ("2 fn · 1
+block"), the item-level `#[allow(unsafe_code)]` exception when the crate
+declares `#![deny(unsafe_code)]` and still carries sites — `sele4n-abi` does,
+for its syscall trap — and "+N in test code" from `testUnsafe`. The lint
+itself is a separate fact on the facts line, so a deny lint never stands in
+for the counts. The facts line also states internal dependencies, external
+(unconditional) dependencies, target-scoped tables under their cfg ("under
+cfg(loom): loom"), dev-dependencies as test-only, features, edition and the
+test-item count.
+
+Below the facts sits one `<details>` per source file — crate root first, then
+modules, binaries, build scripts, integration tests — in a bounded list that
+scrolls inside the card (`.rust-crate-files`), so the HAL's 33 files do not
+set the height of the row; `.rust-crate-grid` is `align-items: start` for the
+same reason. A file's item list renders on first open, sorted
+types-before-functions-before-impls and by line within a kind, each item
+linking to its line at the snapshot commit. Item kinds reuse the Lean
+declaration palette so one colour means one thing across both halves of the
+production code. Each card with test code carries a "Show N test items" toggle
+(`aria-pressed`); switching it re-renders that card alone, keeps the files the
+reader had open, lists the flagged items with a `test` tag, and adds the test
+sites to each file's `unsafe` tag. Integration-test files, whose every item is
+test code, show a "test items hidden" note until the toggle is on.
+
+External imports — tokens the production graph does not contain — read
+"external dependency" for Lean/Std libraries, "in-repo · library root" for the
+`SeLe4n` root that `Main` imports, and "in-repo · outside production scope"
+for the `SeLe4n.Testing.*` framework.
+
+## Repository inventory
+
+`classifyRepositoryPath()` files every path into one of six groups and a
+subgroup: `lean` (`SeLe4n/**/*.lean` except the testing framework, `Main.lean`,
+`SeLe4n.lean`; subgroup = `moduleSubsystem()` of the module name), `rust`
+(`rust/**`; subgroup = crate directory or `workspace`), `tests` (`tests/**` and
+the in-tree framework `SeLe4n/Testing/**`), `scripts` (subgrouped by language
+at the top level, by directory below), `docs` (`docs/**` plus root Markdown and
+`LICENSE`), and `project` (`.github`, `.claude`, `assets`, toolchain and build
+manifests). `buildRepositoryInventory()` attaches module names to Lean
+subgroups so the production Lean group can list modules with their theorem
+count and assurance dot, each a button that selects the module and scrolls the
+workspace into view. The Rust group lists each crate with a link to its card
+and, beneath it, the files the card does not own — `Cargo.toml`, `link.ld`,
+the `.S` sources — as a "support files" row (`crateSupportFiles()`), then
+whatever no crate directory covers as workspace files, so the cards and the
+inventory together account for every path under `rust/`. Every other list is
+plain file links to the source at the inventory commit. Lists render on the
+first `toggle` of their `<details>`, so 866 anchors are not built for a
+section most visitors never expand.
+
+The production groups open by default; every subgroup inside them is closed,
+so a subsystem's modules appear on a click (the section lead says exactly
+that). `renderInventory()` rebuilds both this section and the crate cards on
+every live refresh and locale switch; it captures the open state of every
+`<details>` by its `data-open-key` first and re-applies it after, so what the
+reader opened survives — including the lazily rendered lists, since setting
+`open` fires `toggle`.
 
 ## Accessibility and mobile
 

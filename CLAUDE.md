@@ -71,11 +71,11 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~5,380 | Largest runtime; read in chunks of ≤500 lines |
-| `scripts/lib/map-runtime.test.mjs` | ~2,240 | Map runtime tests |
+| `assets/js/map.js` | ~6,440 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~2,480 | Map runtime tests |
 | `assets/css/style.css` | ~2,020 | Global design system |
 | `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
-| `assets/css/map.css` | ~980 | Map-specific styles (hero, workspace, chart, sidebar) |
+| `assets/css/map.css` | ~1,400 | Map-specific styles (hero, workspace, chart, sidebar, Rust cards, inventory) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
 | `scripts/lib/rust-analysis.mjs` | ~750 | Rust crate inventory scanner |
 | `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
@@ -169,8 +169,11 @@ metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
 
 ### Code map page structure (0.30.0)
 
-`map.html` is the **Lean module workspace**: toolbar, flow chart and the
-declaration sidebar. Production code is the subject.
+`map.html` is three sections, in this order, and the order is asserted by
+`map-toolbar.test.mjs`: the **Lean module workspace** (toolbar, flow chart,
+declaration sidebar), the **Rust production crates**, and the **repository
+inventory**. Production code is the subject; everything else is viewable but
+visually secondary (closed `<details>`, muted chrome).
 
 - The workspace opens on `SeLe4n.Kernel.API` whenever the URL carries no
   `module=`. `DEFAULT_MODULE` in `map.js` is the one place that says so;
@@ -207,10 +210,45 @@ declaration sidebar. Production code is the subject.
   `key_other`) resolved by `t(key, { count })`, and every number handed to
   `t()` or `formatCount()` is grouped by the active locale (`10,929`,
   `10 929`, `10.929`). Never hard-code a separator or a plural in a string.
+- The Rust cards render `map-data.json#rust` and derive nothing. Test items
+  are listed only behind each card's toggle; `crate.items` counts production
+  declarations alone. `rustUnsafeSummary()` reads `unsafe` (production) and
+  `testUnsafe` apart: the card's headline is the production figure, the detail
+  line names the fn/impl/block counts, the item-level `allow` exception
+  (`sele4n-abi`) and "+N in test code", and the strip sums production sites.
+  Never show one total that mixes the two; the reverted build's "118 sites"
+  was neither figure.
+- A target-scoped dependency table is stated under its cfg ("under
+  cfg(loom): loom"), dev-dependencies as "test-only"; only unconditional
+  tables are "external".
+- Every file under `rust/` has one entry on the page: the crate cards own the
+  `.rs` sources and `crateSupportFiles()` lists the rest (`Cargo.toml`,
+  `link.ld`, `.S`) per crate in the inventory, then the workspace files.
+- Content sets a card's height: `.rust-crate-grid` is `align-items: start`
+  and `.rust-crate-files` is bounded (`max-height`, scrolls inside the card).
+  With the default `stretch`, the HAL's 33-file card once set a 3,000px row
+  and three quarters of the section was blank. The dependency strip SVG keeps
+  its `width` attribute, is centred when narrower than its figure, and scrolls
+  inside `.rust-dependency-scroll` when wider.
+- A live refresh may carry no repository tree (the canonical artifact lists
+  only Lean modules) and never carries a Rust inventory. `retainInventory()`
+  keeps the previous tree and crates in that case and records the commit each
+  was taken at, so the inventory sections do not empty out on a networked
+  visit.
+- `renderInventory()` rebuilds both sections from scratch, on every live
+  refresh and locale switch, so it captures the open state of every
+  `<details>` (`data-open-key`) first and re-applies it after. Never rebuild
+  these sections without that: the refresh lands seconds after first paint,
+  exactly when a reader has started opening things.
+- Count labels ("303 modules", "1 file", "Show 61 test items") come from
+  plural families through `t(key, { count })`; the English fallbacks go
+  through `pluralEn()`. No string may hard-code a plural or a separator.
 - `node scripts/map-smoke.mjs` renders the page in headless Chromium and
   asserts the guarantees above (chart at 1:1 at 1200–1920, sidebar placement,
   the pinned sidebar at 720p, no sideways overflow, clean console, both
-  themes, a Spanish deep link). `.github/workflows/ci.yml` runs it with the
+  themes, a Spanish deep link, the crate cards and inventory, bounded card
+  heights, pluralised labels, `loom` under its cfg, and open state surviving a
+  re-render). `.github/workflows/ci.yml` runs it with the
   runner's Chrome on every push. A layout guarantee the docs make gets a probe
   assertion.
 
@@ -336,7 +374,7 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Map graph behavior | `assets/js/map.js` |
 | Map browser smoke probe | `scripts/map-smoke.mjs` |
 | Continuous integration | `.github/workflows/ci.yml` |
-| Map controls/layout | `map.html`, `assets/css/map.css` |
+| Map controls/layout/sections | `map.html`, `assets/css/map.css` |
 | Landing page metrics | `assets/js/site.js`, `index.html` |
 | Navigation behavior | `assets/js/header-nav.js` |
 | Theme switching | `assets/js/theme-init.js` |

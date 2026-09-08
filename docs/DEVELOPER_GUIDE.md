@@ -62,11 +62,10 @@ Edit this file when adding/removing a section, changing metadata defaults, or wi
 ### `map.html` (interactive map page)
 Owns:
 
-- map-specific hero, summary stats, and toolbar shell.
-- `#flowchart-wrap` rendering target for graph content.
+- compact hero: status column with the snapshot stamp, one-line stats strip (`data-map="..."` placeholders, including `rustCrates`), section jump links.
+- the three page sections in the order tests assert: `#module-graph` (toolbar shell, `.workspace-grid` with `#flowchart-wrap` and the `.declaration-explorer` sidebar holding `#flow-node-interior-menu`, side by side from 90rem), `#rust-crates` (`#rust-crate-grid`, rendered by JS), `#repository-inventory` (`#repository-inventory-groups` and `#inventory-provenance`, rendered by JS).
 - compact control surface (context search + reset).
-- the workspace grid: `#flowchart-wrap` and the `.declaration-explorer` sidebar (`#flow-node-interior-menu`), side by side from 90rem and stacked below that.
-- map status and stat placeholders (`data-map="..."`).
+- map status and stat placeholders.
 - script load order:
   1. `theme-init.js` in head.
   2. `i18n.js` in head for locale detection and DOM translation.
@@ -159,7 +158,10 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - lays the flow chart out at `max(minimumFlowWidth(), column width)`; from 900px up the minimum is 900, and the CSS never scales the SVG below 1:1, so a wider layout scrolls inside its frame rather than shrinking its text.
 - scopes live payloads and the tree-rebuild path the way the bundle is scoped (`isOutsideProductionScope`, `isLeanModulePath`: nothing under `tests/` or `SeLe4n/Testing/`, plus `Main.lean`), and labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
 - writes the `localStorage` cache only when the serialized snapshot is under `CACHE_MAX_CHARS`; `setCache()` returns whether it wrote. The bundled map is past the quota, so the page is bundle-first in practice.
-- formats every count for the active locale (`formatCount` → `Intl.NumberFormat(document.documentElement.lang)`).
+- formats every count for the active locale (`formatCount` → `Intl.NumberFormat(document.documentElement.lang)`) and builds count labels from plural families (`fileCountLabel`, `moduleCountLabel`, `theoremCountLabel`, `crateCountLabel`, `pluralEn` for the English fallback).
+- renders the Rust crate section (`renderRustCrates`, `renderRustDependencyStrip`, `renderRustCrateCard`, `renderRustFile`, `renderRustItemList`) and the repository inventory (`classifyRepositoryPath`, `buildRepositoryInventory`, `renderRepositoryGroups`, `renderInventorySubgroup`, `renderInventoryList`) from `state.rust` and `state.files`, once per data load (`renderInventory`) and again on locale change; `captureInventoryOpenState` / `restoreInventoryOpenState` carry every `<details>`'s open state across the rebuild.
+- reads a crate's `unsafe` (production) and `testUnsafe` (test code) counters apart (`rustUnsafeSummary`, `rustUnsafeDetail`), states target-scoped dependency tables under their cfg and dev-dependencies as test-only, and lists Rust test items only behind each card's toggle (`state.rustShowTests`, `visibleRustItems`, `rerenderRustCrateCard`).
+- keeps the file tree and Rust inventory across live refreshes that carry neither (`retainInventory`, `normalizeRustInventory`, `seedBundledInventory`), tracking `inventoryCommit` / `rustCommit`.
 
 If the map visualization, interactions, or data compatibility changes, this is the primary file.
 
@@ -185,6 +187,8 @@ Map-page-only styles:
 - responsive breakpoints for interior menu items (mobile touch targets, landscape compaction, narrow viewport overflow prevention).
 - the workspace grid: single column by default; chart + sticky declaration sidebar side by side from `90rem`, where the chart keeps a ~900px column; the pinned sidebar's list is viewport-bound so it fits a 720px-tall screen.
 - `.flowchart-svg { width: auto; min-width: 100% }` at every width — the chart is never scaled below 1:1 (a `width: 100%` here once shrank it to 58–86% beside the sidebar).
+- the Rust crate section: dependency strip (intrinsic width, centred, scrolls when wider than its figure), cards on an `align-items: start` grid with bounded, scrolling file lists (`.rust-crate-files`), item lists coloured by kind.
+- the repository inventory: production groups highlighted with a badge, muted secondary groups, module and file lists, support-file rows.
 - map-specific responsive/mobile tuning.
 
 ### `assets/css/run.css`
@@ -393,7 +397,7 @@ Node tests for parser and validation correctness:
 - `lean-analysis.test.mjs`: parser behavior, edge cases, `isLikelyModuleToken` validation, theorem deduplication, null/empty input guards, noncomputable theorem counting, comment-only continuation line handling, non-numeric metric cell robustness.
 - `rust-analysis.test.mjs`: comment/string stripping with line structure preserved, item scanning (kinds, visibility, `unsafe`, nested-body exclusion, inline modules, multi-line signatures, `static mut`), `unsafe` sites at any depth split by test code, `cfg` predicate reading, public-item reachability, manifest parsing (workspace inheritance, dependency and target-scoped tables, `[[bin]]`), file roles and module paths, and `buildRustInventory` assembly with the crate-root lint rule.
 - `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection, non-string module array entries.
-- `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none).
+- `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none), the default module rule, `moduleSubsystem`, subsystem-grouped lane entries, repository path classification and inventory grouping, inventory retention across canonical and tree refreshes, `rust` block pass-through, Rust item colouring/ordering, the production/test `unsafe` summary and detail line, count-label plural fallbacks, tab selection, and locale digit grouping.
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.
 - `trace-analysis.test.mjs`: trace schema validation and fold-engine determinism (see `docs/TESTING.md`).
 - `run-runtime.test.mjs`: boots the real `assets/js/run.js` in a `vm` DOM shim and exercises the Simulator end-to-end (see `docs/TESTING.md`).

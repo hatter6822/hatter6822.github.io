@@ -1197,3 +1197,105 @@ values by the active locale; `formatCount()` in `map.js` does the same for the
 stats strip. The parity test compares plural forms as families, since Ukrainian
 needs four and Japanese one. This replaces strings such as "1 modules" and a
 comma hard-coded into every locale.
+
+## Rust crate cards and repository inventory (0.30.0)
+
+The two sections below the workspace render `map-data.json#rust` and the
+repository tree. They are the part of the first 0.30.0 that changed most on
+re-landing, because most of what the audit found sat here.
+
+### Page structure
+
+`map.html` is three sections in a fixed order — the Lean module workspace,
+the Rust production crates, the repository inventory — and
+`map-toolbar.test.mjs` asserts the order. The hero above them is one compact
+block with a one-line stats strip and jump links to the three sections. The
+hero lead no longer calls the crates "user-space" (the HAL is bare-metal,
+and the landing page's own diagram says "3 user-space crates") or "beside"
+the workspace (they are below it); the inventory lead no longer says "the
+production code opens by default" when only the production *groups* do and
+every subgroup inside is closed.
+
+### Rust crate cards
+
+Each card reads the scanner's corrected counters. The `unsafe` cell's headline
+is the number of sites in production code; a detail line names the non-zero
+counters, the item-level `#[allow(unsafe_code)]` exception under a crate-level
+deny (`sele4n-abi`), and "+N in test code" from `testUnsafe`. The reverted
+build showed one figure per crate that mixed file-scope functions with
+test-module blocks; a reader quoting "118 unsafe sites" for the HAL would
+have quoted neither its production nor its total count. It now reads 99
+sites in production code and 24 more in test code. The crate-level lint stays
+a separate fact on the facts line, which also states target-scoped tables
+under their cfg ("under cfg(loom): loom") and dev-dependencies as test-only,
+so the HAL's "no runtime crate dependencies" no longer sits next to "external
+loom".
+
+Content sets a card's height. The grid used the default `align-items:
+stretch`, so the HAL's 33-file card set a 3,000px row at 1440 and 1920 and
+three quarters of a 3,400px section was blank, with the inventory beginning
+4,700–6,300px down the page. `.rust-crate-grid` is now `align-items: start`
+and `.rust-crate-files` is bounded like `.rust-item-list` (26rem, scrolling
+inside the card). The dependency strip SVG is centred when it is narrower than
+its figure and scrolls inside `.rust-dependency-scroll` when it is wider, on
+phones as before. The probe asserts no card is taller than 1,400px.
+
+### Repository inventory and retention
+
+`classifyRepositoryPath()` files each of the 866 paths into six groups; the
+production groups (Lean by subsystem with module buttons, Rust linking to the
+cards plus each crate's support files — manifest, linker script, assembly —
+that no card lists) open by default and carry a badge, the rest are closed and
+muted. Lists render on first open. Two live-refresh paths would otherwise empty
+the section: a canonical refresh arrives with `files[]` reduced to Lean module
+paths, and no refresh ever carries a Rust inventory. `retainInventory()` keeps
+the previous tree and crates in those cases and records the commit each was
+taken at, and the section says so when it differs from the module graph's
+commit.
+
+Both sections are rebuilt from scratch by `renderInventory()` on every live
+refresh and locale switch, and on a networked visit the refresh lands a few
+seconds after first paint — exactly when a reader has started opening things.
+The reverted build closed whatever they had opened. Every `<details>` now
+carries a stable `data-open-key`, `captureInventoryOpenState()` records the
+states before the rebuild and `restoreInventoryOpenState()` re-applies them
+after; setting `open` fires `toggle`, so the lazily rendered lists come back
+as well. The probe dispatches `sele4n:locale-changed` with a group, a subgroup
+and a crate file open and asserts they stay open.
+
+### Rust test items behind a toggle
+
+The owner asked for Rust test code to be viewable rather than only counted.
+Test items are bundled with `test: true` and each card with test code carries
+a "Show N test items" toggle. The headline counts describe the production
+surface; the toggle re-renders that card alone, re-opens the files the reader
+had open, lists the flagged items with a `test` tag and adds the test sites to
+each file's `unsafe` tag; `validate-data.mjs` reconciles the flagged items
+with the per-file and per-crate `testItems` counts. The block's measured size
+is quoted once, in `docs/DEVELOPER_GUIDE.md`; the reverted build's documents
+quoted three different figures and one of them described a design that had
+already changed.
+
+### Count labels
+
+"1 modules", "1 files" and "2 fn · 1 blocks · 0 impl allowed by exception"
+were all on the reverted page. Every count label is now a plural family
+resolved by `t(key, { count })` — `count_files_one` / `count_files_other`,
+four forms in Ukrainian, one in Japanese and Chinese — with `pluralEn()` as
+the English fallback, and zero counters are not listed. The i18n parity test
+compares plural forms as families.
+
+### Two defects the browser pass found
+
+- A declaration click made right after a search was swallowed. The search
+  field's `change` fires on blur — on the mousedown of that click — and ran
+  `choose()` → `selectModule()` on the already-selected module, which
+  unconditionally repainted the declaration list, so the button under the
+  pointer was replaced before mouseup. Re-selecting the current module now
+  repaints the sidebar only when it shows another module.
+- The same blur path re-resolved the declaration already shown and re-rendered
+  and re-scrolled the chart for nothing; `selectDeclaration()` now returns
+  early for the declaration it is already on.
+
+Both were pre-existing; the headless probe (`scripts/map-smoke.mjs`) that
+found them is checked in and runs in CI so the sequence stays covered.
