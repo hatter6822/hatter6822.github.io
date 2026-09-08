@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.29.0`
+**Website version:** `0.30.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -123,9 +123,22 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   estimate and a `modules × 2` build-job count all shipped as facts this way.
 - A missing key aborts the sync (`canonicalMetricsIssues`). Publishing a partial
   projection is how the page drifted in the first place.
-- Scope is **production Lean** (everything outside `tests/`), so the headline
-  figures describe one corpus. Recorded as `metricsScope` and pinned by
-  `validate-data.mjs`.
+- Scope is **production Lean**: the artifact's production set (everything
+  outside `tests/`) **minus the in-tree testing framework** `SeLe4n/Testing/`,
+  so the headline figures describe one corpus. `modules` and `theorems` are
+  counted over that inventory; `lines` is the artifact's `production_loc` minus
+  the framework files' physical lines, measured on the digest-verified sources
+  (the same count reproduces `production_loc` exactly, and
+  `canonicalCrossChecks` says so if it ever stops). Recorded as `metricsScope`
+  and pinned by `validate-data.mjs`, which also rejects any map module under
+  `tests/` or `SeLe4n/Testing/`. The scope lives in one place,
+  `scripts/lib/canonical-map.mjs` (`isProductionModule`). Because the kernel's
+  own README table is rendered from the same artifact at its wider scope, the
+  landing page says so under the hero stats (`hero.scope_note`); keep that
+  sentence whenever the figures are shown without it.
+- `SELE4N_REF=<40-hex commit> node scripts/sync-upstream.mjs` regenerates the
+  snapshots at a pinned upstream revision, so a data change can be reviewed
+  against one known commit. The snapshot still records `sourceRef: main`.
 - Theorem counts come from the artifact's comment-aware `modules[].declarations`
   inventory, **not** from `readme_sync.proved_theorem_lemma_decls`. That field is
   a bare per-line regex: on the current artifact it counts 78 prose lines inside

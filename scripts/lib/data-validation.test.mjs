@@ -323,3 +323,22 @@ test('validateMapDataObject rejects a snapshot with no call graph at all', () =>
   // An empty snapshot has nothing to graph and must stay valid.
   assert.deepEqual(validateMapDataObject(mapData()), []);
 });
+
+test('validateMapDataObject rejects modules outside the published production scope', () => {
+  const errors = validateMapDataObject(mapData({
+    modules: ['SeLe4n.Kernel.API', 'SeLe4n.Testing.Helpers', 'Tests.Smoke'],
+    moduleMap: {
+      'SeLe4n.Kernel.API': 'SeLe4n/Kernel/API.lean',
+      'SeLe4n.Testing.Helpers': 'SeLe4n/Testing/Helpers.lean',
+      'Tests.Smoke': 'tests/Smoke.lean'
+    },
+    moduleMeta: {
+      'SeLe4n.Kernel.API': { symbols: { theorems: [], functions: [], byKind: {}, callGraph: { a: ['b'] } } },
+      'SeLe4n.Testing.Helpers': {},
+      'Tests.Smoke': {}
+    }
+  }));
+  assert.ok(errors.some((m) => m.includes('SeLe4n.Testing.Helpers (SeLe4n/Testing/Helpers.lean) lies outside the production scope')), errors.join('\n'));
+  assert.ok(errors.some((m) => m.includes('Tests.Smoke (tests/Smoke.lean) lies outside the production scope')), errors.join('\n'));
+  assert.ok(!errors.some((m) => m.includes('SeLe4n.Kernel.API (')), 'the production module is not flagged');
+});

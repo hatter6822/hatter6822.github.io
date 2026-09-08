@@ -178,6 +178,13 @@ export function validateMapDataObject(data) {
     for (const moduleName of data.modules) {
       if (!(moduleName in data.moduleMap)) {
         errors.push(`map-data.json: moduleMap missing entry for ${moduleName}`);
+        continue;
+      }
+      // The map graphs exactly the published production scope: nothing under
+      // tests/, and nothing from the in-tree testing framework.
+      const path = String(data.moduleMap[moduleName] ?? '');
+      if (path.startsWith('tests/') || path.startsWith('SeLe4n/Testing/')) {
+        errors.push(`map-data.json: module ${moduleName} (${path}) lies outside the production scope`);
       }
     }
   }

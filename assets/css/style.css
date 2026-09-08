@@ -622,6 +622,18 @@ html:not([data-theme="light"]) .hero-subtitle {
   flex-wrap: wrap;
 }
 
+/* Scope disclosure under the hero stats: the published figures leave out the
+   in-tree testing framework, so they run below the kernel README's totals. */
+.hero-scope-note {
+  margin: 0.85rem auto 0;
+  max-width: 62ch;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-wrap: balance;
+}
+.hero-scope-note code { font-size: 0.92em; }
+
 .hero-version {
   margin-top: 2rem;
   font-size: 0.8125rem;

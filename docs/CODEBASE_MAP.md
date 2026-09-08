@@ -1,6 +1,6 @@
 # Codebase Map: End-to-End Guide
 
-> Documentation baseline: website release **0.29.0**.
+> Documentation baseline: website release **0.30.0**.
 
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
@@ -14,7 +14,9 @@ The map page provides a single operational and proof-aware architecture view of 
 `data/map-data.json` is built by `scripts/sync-upstream.mjs`, the site's single
 data pipeline, from one verified checkout of seLe4n. It graphs exactly the
 production corpus the landing page counts — the canonical
-`docs/codebase_map.json` production module list — and takes its declarations
+`docs/codebase_map.json` production module list minus the in-tree testing
+framework under `SeLe4n/Testing/` (see `docs/ARCHITECTURE.md` §"Scope: the
+in-tree testing framework is not production") — and takes its declarations
 from that artifact rather than re-parsing them, because the artifact's parser
 tracks nested block-comment depth and strips string literals. Only the import
 edges are read from the Lean sources, because only the import edges are missing
@@ -148,14 +150,15 @@ Declaration search suggestions are rendered with distinct styling (italic text, 
 
 ## Upstream module structure (reflected in map data)
 
-The seLe4n codebase now comprises 273 total modules across 4 layers:
+The published production corpus comprises 303 modules across 4 layers (the
+eight `SeLe4n.Testing.*` framework modules are outside it):
 
 | Layer | Module count | Description |
 |-------|-------------|-------------|
-| kernel | 236 | Core kernel subsystems |
+| kernel | 268 | Core kernel subsystems |
 | platform | 17 | Simulator and RPi5 bindings |
-| model | 12 | Object types, structures, state |
-| other | 8 | Testing framework and root modules |
+| model | 14 | Object types, structures, state |
+| other | 4 | Root modules (`Main`, `SeLe4n.Kernel`, `SeLe4n.Model`, `SeLe4n.Platform`) |
 
 Key structural features visible in the map:
 

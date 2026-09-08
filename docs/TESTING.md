@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.29.0**.
+> Documentation baseline: website release **0.30.0**.
 
 ## Automated checks
 
@@ -45,7 +45,9 @@ Validates:
 - `isLikelyModuleToken` standalone validation (valid module paths accepted, lowercase/empty/null/malformed rejected)
 - theorem deduplication (`theoremCountFromCodebaseMap` skips modules in `moduleMeta` already counted from `modules[]`)
 - edge case robustness (zero-theorem sources, null/undefined/string inputs to `theoremCount` and `theoremCountFromCodebaseMap`, empty import sources)
-- canonical metrics projection (`canonical-map.test.mjs`, `siteMetricsFromCodebaseMap`) against a fixture shaped like the real `docs/codebase_map.json` at `schema_version` 1.0.0 — production scope (everything outside `tests/`), `lean_toolchain` tag stripping, the comment-aware declaration inventory winning over `readme_sync.proved_theorem_lemma_decls`, and the projection inventing no metric the artifact does not carry (the `buildJobs = modules × 2` regression)
+- production scope (`canonical-map.test.mjs`): the site scope is the artifact's production set minus the in-tree testing framework (`isProductionModule`, `excludedFrameworkModules`); `siteMetricsFromCodebaseMap` counts modules and theorems over it and publishes `lines` as `production_loc` minus the framework files' physical lines when a `lineCount` is supplied, omitting `lines` rather than publishing it over the wrong scope when it is not; `canonicalCrossChecks` reads `production_files` and the theorem tally against the artifact's own scope and reports when the mechanical line count stops reproducing `production_loc`
+- scope enforcement (`validateMapDataObject`): a map module under `tests/` or `SeLe4n/Testing/` is rejected by name and path
+- canonical metrics projection (`canonical-map.test.mjs`, `siteMetricsFromCodebaseMap`) against a fixture shaped like the real `docs/codebase_map.json` at `schema_version` 1.0.0 — production scope, `lean_toolchain` tag stripping, the comment-aware declaration inventory winning over `readme_sync.proved_theorem_lemma_decls`, and the projection inventing no metric the artifact does not carry (the `buildJobs = modules × 2` regression)
 - canonical schema guard (`canonicalMetricsIssues`): each required key, what it feeds, and refusal of an artifact with no usable declaration inventory
 - source-digest reproduction (`canonicalSourcePaths`, `canonicalSourceDigest`, `compareCanonicalPaths`): the generator's scope and ordering, including the component-wise path compare that Python's `PurePath` uses — a flat string compare puts `SeLe4n/Kernel.lean` before `SeLe4n/Kernel/API.lean` and every digest then mismatches plausibly
 - declaration-name recovery (`resolveDeclarationName`): identifiers the artifact truncates at `?` are read back from the verified source line, and the recovered name is adopted only when it *extends* the recorded one, so multi-name declarations (`variable x y z`) are left alone

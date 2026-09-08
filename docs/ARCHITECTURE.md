@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.29.0**.
+> Documentation baseline: website release **0.30.0**.
 
 ## Audit summary
 
@@ -816,8 +816,10 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
 - **Scope is production Lean.** `proved_theorem_lemma_decls` is production-only
   by construction upstream, so modules (`production_files`) and lines
   (`production_loc`) are taken production-only too. The three headline figures
-  describe one corpus and match the README exactly. `metricsScope: "production"`
-  records the decision in the data.
+  describe one corpus. `metricsScope: "production"` records the decision in the
+  data. Since 0.30.0 the corpus also leaves out the in-tree testing framework
+  (§"Scope: the in-tree testing framework is not production" below), which is
+  why the figures sit below the kernel README's and the landing page says so.
 - **Provenance is checkable.** The snapshot carries `metricsSource`,
   `metricsScope`, `sourceRepo`, `sourceRef`, `schemaVersion` and `sourceDigest`,
   and `validate-data.mjs` pins the first four to exact values. `commitSha` and
@@ -1002,3 +1004,52 @@ all offline.
   path assigns last-wins too, so bundled and live agree. Qualifying the names is
   not available: the `called` targets are recorded unqualified as well, and
   every lookup would miss.
+
+## Production scope narrowed to the kernel (0.30.0)
+
+### Scope: the in-tree testing framework is not production
+
+The artifact's production definition is every module outside `tests/`, which
+includes `SeLe4n/Testing/` — eight modules of harness, fixtures, invariant
+checks and state builders that ship in the library tree. Asked directly, the
+project owner chose to exclude them from production for the map and the landing
+page together, accepting the change to the published figures:
+
+| | before | after |
+|---|---|---|
+| modules | 311 | 303 |
+| theorems | 10,937 | 10,929 |
+| lines | 330,569 | 325,346 |
+
+`lines` needed care. The artifact records `production_loc` for its own scope
+and nothing per module, and the rule is that a metric never comes from outside
+the artifact. The subtraction is anchored to the canonical figure: the eight
+files' physical lines are measured on the digest-verified sources — the corpus
+the artifact describes — and subtracted from `production_loc`. That is sound
+only if the artifact's count uses the same method, so `canonicalCrossChecks`
+recomputes `production_loc` over the artifact's own files with the same
+counter and reports if it ever stops matching (today it matches exactly:
+330,569). Without a line counter, `siteMetricsFromCodebaseMap` omits `lines`
+and the sync refuses to publish, rather than quoting the wider scope.
+
+The artifact's self-consistency notes keep reading the artifact against its
+own scope (`production_files` 311, the 11,000 regex tally against 10,937), so
+the narrowing shows up as a documented subtraction rather than as a
+disagreement. `validate-data.mjs` rejects any map module under `tests/` or
+`SeLe4n/Testing/`.
+
+The kernel's own README table is rendered from the same artifact at its wider
+scope, so the two sites quote different totals for the same commit. Rather than
+leave a reader to reconcile them, `index.html` carries one sentence under the
+hero stats (`hero.scope_note`, in every locale) saying the framework is
+excluded. The disclosure is part of the decision: the figures are not to be
+shown without it.
+
+### Reproducible regeneration
+
+`SELE4N_REF=<40-hex commit> node scripts/sync-upstream.mjs` pins the checkout
+to that revision instead of the tip of `main` (a shallow clone, then a fetch of
+the commit by SHA). The snapshots still record `sourceRef: main`; `commitSha`
+names the exact revision. It exists so a data change can be regenerated and
+reviewed against one known upstream commit; the scheduled sync keeps using
+`main`.

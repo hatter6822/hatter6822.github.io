@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.29.0`
+- Website version: `0.30.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -42,7 +42,14 @@ git clone --depth 1 seLe4n@main
 Every published statistic is projected from the canonical
 `docs/codebase_map.json` — the artifact from which seLe4n's own README table is
 generated — and the sync fails rather than publishing a partial projection when
-an expected key is missing. The Lean sources supply exactly one thing the
+an expected key is missing. The published scope is production Lean: the
+artifact's production set (everything outside `tests/`) minus the in-tree
+testing framework under `SeLe4n/Testing/`, whose eight modules are framework
+code rather than kernel. Modules and theorems are counted over that inventory;
+lines are the artifact's `production_loc` minus the framework files, measured on
+the digest-verified sources. The kernel's own README table is rendered from the
+same artifact at its wider scope, so the landing page says under its hero stats
+that the framework is excluded. The Lean sources supply exactly one thing the
 artifact does not record, the import graph, and the artifact's
 `source_sync.source_digest` is verified over those sources first, so the
 snapshots cannot blend two revisions. The site and map snapshots record the same
