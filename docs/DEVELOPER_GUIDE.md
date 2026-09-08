@@ -383,7 +383,9 @@ test-only for `test` and `all(test, …)`, not for `not(test)` or `any(test,
 feature = "…")`; it holds in every production build for `not(test)`, not for
 a feature or a target), `parseToml` and `parseCargoManifest` (the TOML subset
 Cargo uses, then package fields, workspace inheritance, dependency tables with
-target-scoped tables kept apart, features, `[[bin]]`), `rustFileRole` /
+target-scoped tables kept apart, features, `[lib]`, `[[bin]]`), `cargoTargets`
+(the roots Cargo would build: the library root and the binaries, declared or
+conventional, which roles and module paths follow), `rustFileRole` /
 `rustModulePath`, `childModuleFiles` (rustc's rule for where `mod x;` lives:
 crate roots and `mod.rs` files resolve beside themselves, other files under a
 directory of their own name, inline-module path and `#[path]` included), and
