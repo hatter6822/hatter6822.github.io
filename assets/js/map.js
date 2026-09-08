@@ -3177,6 +3177,13 @@
       return { group: "lean", subgroup: moduleSubsystem(moduleFromPath(p)) || "SeLe4n" };
     }
     if (top === "rust") {
+      /* A crate's integration tests, benches and examples are test code by
+         Cargo's layout — the scanner files them under role "test" — so they
+         belong with the tests, not the production sources. The runtime test
+         checks this agrees with the bundled snapshot's roles, file by file. */
+      if (parts.length > 3 && /^(tests|benches|examples)$/.test(parts[2])) {
+        return { group: "tests", subgroup: "rust/" + parts[1] + "/" + parts[2] };
+      }
       return { group: "rust", subgroup: parts.length > 2 ? parts[1] : "workspace" };
     }
     if (top === "tests") {
@@ -6444,6 +6451,7 @@
       cacheMaxChars: function () { return CACHE_MAX_CHARS; },
       isLibraryRoot: isLibraryRoot,
       externalImportSubtitle: externalImportSubtitle,
+      classifyRepositoryPath: classifyRepositoryPath,
       translate: t,
       handleLocaleReady: handleLocaleReady,
       localePaintState: function () { return { ready: localeReady, painted: paintedBeforeLocale }; },

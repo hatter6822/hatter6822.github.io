@@ -238,6 +238,10 @@ plain file links to the source at the inventory commit. Lists render on the
 first `toggle` of their `<details>`, so 866 anchors are not built for a
 section most visitors never expand.
 
+A crate's `tests/`, `benches/` and `examples/` directories are filed under
+Tests, matching the scanner's `test` role; the runtime test checks the
+grouping against the bundled snapshot file by file, for Rust and for Lean.
+
 The production groups open by default; every subgroup inside them is closed,
 so a subsystem's modules appear on a click (the section lead says exactly
 that). `renderInventory()` rebuilds both this section and the crate cards on

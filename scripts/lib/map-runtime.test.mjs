@@ -2504,3 +2504,26 @@ test('the first locale load repaints only what was painted from fallbacks', asyn
   assert.equal(hooks.handleLocaleReady(repaint), false, 'a locale that was ready before anything was painted repaints nothing');
   assert.equal(repaints, 1);
 });
+
+test('the inventory groups agree with the scanner roles and the published Lean scope', async () => {
+  const hooks = await loadMapTestHooks();
+  const data = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
+  const { isProductionModule } = await import('./canonical-map.mjs');
+  let crateFiles = 0;
+  for (const crate of data.rust.crates) {
+    for (const file of crate.files) {
+      crateFiles += 1;
+      const group = hooks.classifyRepositoryPath(file.path).group;
+      assert.equal(group, file.role === 'test' ? 'tests' : 'rust', `${file.path} has role ${file.role}`);
+    }
+  }
+  assert.ok(crateFiles > 60, 'the snapshot lists the crate files');
+  let leanFiles = 0;
+  for (const filePath of data.files) {
+    if (!/\.lean$/.test(filePath) || !/^(SeLe4n\/|tests\/|Main\.lean$|SeLe4n\.lean$)/.test(filePath)) continue;
+    leanFiles += 1;
+    const group = hooks.classifyRepositoryPath(filePath).group;
+    assert.equal(group === 'lean', isProductionModule({ path: filePath }), `${filePath} is grouped as ${group}`);
+  }
+  assert.ok(leanFiles > 300, 'the snapshot lists the Lean files');
+});

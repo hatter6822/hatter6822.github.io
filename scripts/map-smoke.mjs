@@ -151,6 +151,8 @@ async function shot(page, name) {
   // @cards-start
   check(m.crates === 4 && m.crateStrip, 'four Rust crate cards and the dependency strip rendered');
   check(m.inventoryGroups.join(',') === 'lean(open),rust(open),tests,scripts,docs,project', `inventory groups in order, production open (${m.inventoryGroups.join(',')})`);
+  const testSubgroups = await page.evaluate(() => Array.from(document.querySelectorAll('.inventory-group[data-group="tests"] .inventory-subgroup-key')).map((el) => el.textContent.trim()));
+  check(['rust/sele4n-abi/tests', 'rust/sele4n-hal/tests'].every((key) => testSubgroups.some((text) => text.indexOf(key) !== -1)), `the crates' integration tests are filed under Tests (${testSubgroups.filter((text) => /rust\//.test(text)).join(', ') || 'none'})`);
   check(m.stats.some((s) => s === 'rustCrates=4'), 'Rust crates stat = 4');
   // @cards-end
   check(errors.length === 0, `no console errors ${JSON.stringify(errors)}`);

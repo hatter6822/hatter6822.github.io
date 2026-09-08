@@ -384,8 +384,10 @@ feature = "…")`; it holds in every production build for `not(test)`, not for
 a feature or a target), `parseToml` and `parseCargoManifest` (the TOML subset
 Cargo uses, then package fields, workspace inheritance, dependency tables with
 target-scoped tables kept apart, features, `[[bin]]`), `rustFileRole` /
-`rustModulePath`, `childModuleFiles` (rustc's rule for where `mod x;` lives,
-inline-module path and `#[path]` included), and `buildRustInventory`, which assembles the
+`rustModulePath`, `childModuleFiles` (rustc's rule for where `mod x;` lives:
+crate roots and `mod.rs` files resolve beside themselves, other files under a
+directory of their own name, inline-module path and `#[path]` included), and
+`buildRustInventory`, which assembles the
 crates in workspace order from a file list and a reader, rescanning
 out-of-line modules with the test and export status they inherit from their
 `mod` declarations. Anonymous `const _` assertions are not items; raw

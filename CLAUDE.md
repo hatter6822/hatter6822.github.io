@@ -239,6 +239,11 @@ visually secondary (closed `<details>`, muted chrome).
 - Every file under `rust/` has one entry on the page: the crate cards own the
   `.rs` sources and `crateSupportFiles()` lists the rest (`Cargo.toml`,
   `link.ld`, `.S`) per crate in the inventory, then the workspace files.
+- The inventory's Tests group and the scanner's `test` role are one scope:
+  `rust/<crate>/{tests,benches,examples}/` is test code in
+  `classifyRepositoryPath()` as it is in `rustFileRole()`, and the Lean groups
+  follow `isProductionModule`. `map-runtime.test.mjs` checks both against
+  every file of the bundled snapshot, so the two definitions cannot drift.
 - Content sets a card's height: `.rust-crate-grid` is `align-items: start`
   and `.rust-crate-files` is bounded (`max-height`, scrolls inside the card).
   With the default `stretch`, the HAL's 33-file card once set a 3,000px row
@@ -302,9 +307,11 @@ statistic**; the landing page stays canonical-or-absent.
 - **Target-scoped dependency tables stay separate.** `[target.'cfg(loom)'
   .dependencies]` is bundled as `targetDependencies: [{ cfg, table, names }]`,
   never as an external dependency: the HAL's `loom` enters no ordinary build.
-- **`deniesUnsafe` is read from the crate root only** (`src/lib.rs`, or
-  `src/main.rs` for a binary-only package). A lint in a `src/bin/*.rs` target
-  speaks for that binary, not for the library. `crateDeniesUnsafe` parses the
+- **`deniesUnsafe` is read from the crate root only**: the library root
+  (`[lib] path`, else `src/lib.rs`) or, for a package without one, its first
+  binary root (`src/main.rs`, else the first `[[bin]] path`). A lint in a
+  `src/bin/*.rs` target speaks for that binary, not for the library.
+  `crateDeniesUnsafe` parses the
   inner attributes' argument lists in order — `#![deny(dead_code,
   unsafe_code)]`, a multi-line list, `forbid`, and a `cfg_attr` whose
   predicate holds in every production build (`not(test)`) all count; `warn`
@@ -340,9 +347,11 @@ statistic**; the landing page stays canonical-or-absent.
   the next construct — an item at item scope, an associated method, a `use`,
   a statement — and the body that construct opens is a test region when the
   attribute is test-only. The binding is released by the `{` that opens the
-  body or the `;` that ends the construct; an `=` completes the header only,
-  so a test-only `const`/`static` keeps its status across a block initializer,
-  and a `;` inside `(…)` or `[…]` ends nothing. An attribute may share its
+  body, the `;` that ends the construct, the `,` that ends a field, a variant
+  or a match arm, or the `}` that closes the enclosing body; an `=` completes
+  the header only, so a test-only `const`/`static` keeps its status across a
+  block initializer, and a `;`, `,` or `=` inside `(…)`, `[…]` or `<…>` ends
+  nothing. An attribute may share its
   line with its declaration (`#[cfg(test)] mod tests {`). `#[test]`,
   `#[<path>::test]` and a test-only `cfg` mark tests; `#![cfg(test)]` at the
   top of a file or an inline module makes that whole scope test code. Three
@@ -352,8 +361,11 @@ statistic**; the landing page stays canonical-or-absent.
 - **Module files follow rustc's rule in full.** `mod x;` resolves under the
   directory the declaring file owns, one level deeper per enclosing inline
   module (`mod outer { mod x; }` is `outer/x.rs`), or to the file a
-  `#[path = "…"]` names; an inline `mod x { … }` names no file. Test and
-  export status travel down that resolution (`childModuleFiles`).
+  `#[path = "…"]` names; an inline `mod x { … }` names no file. A crate root
+  (`src/lib.rs`, `src/main.rs`, a `src/bin/*.rs` binary, or a root the
+  manifest declares) and a `mod.rs` own the directory they sit in; any other
+  file owns a directory of its own name. Test and export status travel down
+  that resolution (`childModuleFiles`).
 - `validate-data.mjs` reconciles every crate total with its per-file lists,
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.

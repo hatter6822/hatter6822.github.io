@@ -291,7 +291,9 @@ test('childModuleFiles resolves an out-of-line module the way rustc does', () =>
   assert.deepEqual(childModuleFiles('src/main.rs', 'cli'), ['src/cli.rs', 'src/cli/mod.rs']);
   assert.deepEqual(childModuleFiles('src/args/mod.rs', 'tcb'), ['src/args/tcb.rs', 'src/args/tcb/mod.rs']);
   assert.deepEqual(childModuleFiles('src/tests.rs', 'support'), ['src/tests/support.rs', 'src/tests/support/mod.rs'], 'a non-mod.rs file owns a directory of its own name');
-  assert.deepEqual(childModuleFiles('src/bin/oracle.rs', 'ops'), ['src/bin/oracle/ops.rs', 'src/bin/oracle/ops/mod.rs']);
+  assert.deepEqual(childModuleFiles('src/bin/oracle.rs', 'ops'), ['src/bin/ops.rs', 'src/bin/ops/mod.rs'], 'a binary target is a crate root, so its modules resolve beside it');
+  assert.deepEqual(childModuleFiles('tool/runner.rs', 'args', '', '', { root: true }), ['tool/args.rs', 'tool/args/mod.rs'], 'a root the manifest declares resolves the same way');
+  assert.deepEqual(childModuleFiles('tool/runner.rs', 'args'), ['tool/runner/args.rs', 'tool/runner/args/mod.rs'], 'without that knowledge it is an ordinary file');
 });
 
 test('buildRustInventory scans an out-of-line #[cfg(test)] module and its submodules as test code', () => {
@@ -973,4 +975,65 @@ test('buildRustInventory resolves a workspace-inherited dependency through the r
   assert.deepEqual(hal.internalDependencies, ['sele4n-types'], 'resolved through [workspace.dependencies], relative to the workspace root');
   assert.deepEqual(hal.externalDependencies, ['log']);
   assert.deepEqual(hal.dependencies, ['sele4n-types', 'log']);
+});
+
+test('scanRustSource releases an attribute at the comma or brace that ends a field, variant or arm', () => {
+  const scan = scanRustSource([
+    'pub struct Counters {',
+    '    #[cfg(test)]',
+    '    pub probes: Option<Box<dyn Fn(u8) -> u8>>,',
+    '    pub real: u8,',
+    '    #[cfg(test)]',
+    '    last: u8',
+    '}',
+    'pub fn after_struct() { unsafe { } }',
+    'pub enum Event {',
+    '    #[cfg(test)]',
+    '    Probe { at: u8 },',
+    '    #[cfg(test)]',
+    '    Tuple(u8, u8),',
+    '    Real',
+    '}',
+    'pub fn after_enum() { unsafe { } }',
+    'pub fn arms(e: Event) {',
+    '    match e {',
+    '        #[cfg(test)]',
+    '        Event::Probe { .. } => unsafe { },',
+    '        _ => unsafe { },',
+    '    }',
+    '}',
+    '#[cfg(test)]',
+    'fn generic<A, B>(a: A, b: B) -> Result<A, B> where A: Iterator<Item = u8> { unsafe { } }',
+    'pub fn last() { unsafe { } }'
+  ].join('\n'));
+  assert.deepEqual(scan.items.map((item) => [item.name, item.test === true]), [
+    ['Counters', false], ['after_struct', false], ['Event', false], ['after_enum', false], ['arms', false], ['generic', true], ['last', false]
+  ], 'a field or variant attribute never reaches the next item; commas inside generics end nothing');
+  assert.deepEqual(scan.unsafe, { fns: 0, impls: 0, blocks: 4 }, 'after_struct, after_enum, the `_` arm, last');
+  assert.deepEqual(scan.testUnsafe, { fns: 0, impls: 0, blocks: 2 }, 'the guarded arm and generic');
+});
+
+test('buildRustInventory honours manifest-declared crate roots', () => {
+  const tree = {
+    'rust/Cargo.toml': '[workspace]\nmembers = ["tool", "lib"]\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n',
+    'rust/tool/Cargo.toml': '[package]\nname = "sele4n-tool"\nversion.workspace = true\nedition.workspace = true\n[[bin]]\nname = "runner"\npath = "tool/runner.rs"\n',
+    'rust/tool/tool/runner.rs': '#![deny(unsafe_code)]\nmod args;\npub fn entry() {}\nfn main() {}\n',
+    'rust/tool/tool/args.rs': 'pub fn parse() {}\n',
+    'rust/lib/Cargo.toml': '[package]\nname = "sele4n-lib"\nversion.workspace = true\nedition.workspace = true\n[lib]\npath = "lib/root.rs"\n',
+    'rust/lib/lib/root.rs': '#![forbid(unsafe_code)]\nmod inner;\npub fn api() {}\n',
+    'rust/lib/lib/inner.rs': 'pub fn hidden() {}\n'
+  };
+  const inventory = buildRustInventory(Object.keys(tree), (path) => tree[path]);
+  const tool = inventory.crates[0];
+  const byPath = Object.fromEntries(tool.files.map((file) => [file.relativePath, file]));
+  assert.equal(byPath['tool/runner.rs'].role, 'bin', 'the [[bin]] path is a crate root');
+  assert.equal(byPath['tool/runner.rs'].modulePath, '');
+  assert.equal(byPath['tool/args.rs'].role, 'module');
+  assert.equal(tool.deniesUnsafe, true, 'read from the declared binary root');
+  assert.equal(byPath['tool/args.rs'].publicItems, 0, 'declared by a private `mod args;` beside the root');
+  const lib = inventory.crates[1];
+  const libByPath = Object.fromEntries(lib.files.map((file) => [file.relativePath, file]));
+  assert.equal(libByPath['lib/root.rs'].role, 'lib', 'the [lib] path is the library root');
+  assert.equal(lib.deniesUnsafe, true);
+  assert.equal(libByPath['lib/inner.rs'].publicItems, 0, 'a crate root resolves `mod inner;` beside itself');
 });

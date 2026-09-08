@@ -426,8 +426,12 @@ export function scanRustSource(source, options = {}) {
   // `unsafe` sites inside them are test sites, whatever their depth.
   const testRegions = [];
   let depth = 0;
-  // Parenthesis and bracket nesting: a `;` or `=` inside `(…)` or `[…]`
-  // (`[u8; 4]`, `Lock::new(x)`) ends nothing.
+  // Parenthesis, bracket and generic-argument nesting: a `;`, `,` or `=`
+  // inside `(…)`, `[…]` or `<…>` (`[u8; 4]`, `Lock::new(x)`, `Map<K, V>`,
+  // `Iterator<Item = u8>`) ends nothing. `<` opens a group only when it
+  // follows an identifier or `::`, and `>` closes one only when a group is
+  // open and it is not the `>` of `->` or `=>`; a `{` or `}` resets the
+  // count, so a comparison read as a generic cannot leak past its block.
   let groupDepth = 0;
   // A declaration header whose body or terminator is still to come. Once the
   // header is read only a `mod` needs it: its `{` opens a scope.
@@ -436,12 +440,16 @@ export function scanRustSource(source, options = {}) {
   // bind to whatever comes next — an item at item scope, an associated
   // method, a `use`, a statement — and the body that construct opens, if
   // any, is a test region when `test` is set. The binding is released by the
-  // `{` that opens the body or the `;` that ends the construct without one;
-  // an `=` completes the header only, so a test-only const or static keeps
-  // its status across a block initializer on later lines. One rule for every
+  // `{` that opens the body, the `;` that ends the construct without one, the
+  // `,` that ends a field, a variant or a match arm, or the `}` that closes
+  // the enclosing body (a last field without a trailing comma); an `=`
+  // completes the header only, so a test-only const or static keeps its
+  // status across a block initializer on later lines. One rule for every
   // scope and every kind of construct: earlier versions bound attributes at
-  // item scope only, or dropped the status at `=`, and each of those gaps
-  // filed `unsafe` sites under production.
+  // item scope only, dropped the status at `=`, or let a field's attribute
+  // survive its struct, and each of those gaps filed `unsafe` sites under
+  // production. (A guarded match arm whose pattern has braces spends the
+  // binding on the pattern; an arm body on later lines is then plain code.)
   const pending = { test: false, macroExport: false, path: '' };
   let attributeBuffer = null;
 
@@ -559,7 +567,12 @@ export function scanRustSource(source, options = {}) {
         groupDepth += 1;
       } else if (ch === ')' || ch === ']') {
         groupDepth = Math.max(0, groupDepth - 1);
+      } else if (ch === '<' && c > 0 && /[A-Za-z0-9_:]/.test(text[c - 1])) {
+        groupDepth += 1;
+      } else if (ch === '>' && groupDepth > 0 && text[c - 1] !== '-' && text[c - 1] !== '=') {
+        groupDepth -= 1;
       } else if (ch === '{') {
+        groupDepth = 0;
         depth += 1;
         if (pending.test) testRegions.push(depth);
         if (pendingHead) {
@@ -577,10 +590,16 @@ export function scanRustSource(source, options = {}) {
         }
         releasePending();
       } else if (ch === '}') {
+        groupDepth = 0;
         depth = Math.max(0, depth - 1);
         while (testRegions.length && depth < testRegions[testRegions.length - 1]) testRegions.pop();
         const current = scopes[scopes.length - 1];
         if (scopes.length > 1 && depth < current.depth) scopes.pop();
+        // A last field, variant or arm without a trailing comma ends here.
+        releasePending();
+      } else if (ch === ',' && groupDepth === 0) {
+        // A field, a variant or a match arm ends at its comma.
+        releasePending();
       } else if (ch === '=' && groupDepth === 0 && pendingHead && depth === scopes[scopes.length - 1].depth) {
         // `type A = B;`, `const X: T = …;`, `static S: T = …;`: the header is
         // complete; what follows is an initializer, not a body.
@@ -897,7 +916,8 @@ function enterTomlTable(root, path, arrayOfTables) {
  * Cargo.toml facts for the inventory, read from `parseToml`'s object:
  * `[package]` fields (a `key.workspace = true` becomes `{ workspace: true }`),
  * `[workspace] members`, `[workspace.package]`, the `[workspace.dependencies]`
- * entries members inherit, `[features]` names, `[[bin]]` targets, and the
+ * entries members inherit, `[features]` names, the `[lib]` table and `[[bin]]`
+ * targets (their string fields, `path` among them), and the
  * dependencies under `[dependencies]` / `[dev-dependencies]` /
  * `[build-dependencies]` — kept apart from the same tables scoped to a
  * target, `[target.'cfg(…)'.dependencies]`, which come back as
@@ -920,6 +940,7 @@ export function parseCargoManifest(source) {
     package: {},
     workspacePackage: {},
     workspaceDependencies: {},
+    lib: {},
     members: [],
     dependencies: [],
     devDependencies: [],
@@ -944,6 +965,7 @@ export function parseCargoManifest(source) {
     out.workspaceDependencies[key] = dependencySpec(key, value, 'workspace', '');
   }
   out.features = Object.keys(tableOf(toml.features));
+  out.lib = Object.fromEntries(Object.entries(tableOf(toml.lib)).filter(([, value]) => typeof value === 'string'));
   if (Array.isArray(toml.bin)) {
     out.bins = toml.bin.filter(isPlainObject).map((bin) => Object.fromEntries(Object.entries(bin).filter(([, value]) => typeof value === 'string')));
   }
@@ -987,9 +1009,16 @@ function dependencySpec(name, value, table, cfg) {
   return spec;
 }
 
-/** Classify a Rust source path within its crate. */
-export function rustFileRole(relativePath) {
+/**
+ * Classify a Rust source path within its crate. `roots` names the crate roots
+ * the manifest declares — `{ lib, bins }` — which come before the
+ * conventional paths: a `[[bin]] path = "tool/runner.rs"` is a binary root,
+ * not a module.
+ */
+export function rustFileRole(relativePath, roots = {}) {
   const path = String(relativePath ?? '');
+  if (roots.lib && path === roots.lib) return 'lib';
+  if (Array.isArray(roots.bins) && roots.bins.includes(path)) return 'bin';
   if (path === 'src/lib.rs') return 'lib';
   if (path === 'src/main.rs' || /^src\/bin\//.test(path)) return 'bin';
   if (path === 'build.rs') return 'build';
@@ -1002,8 +1031,9 @@ export function rustFileRole(relativePath) {
  * and `src/args.rs` are both `args`; `src/args/tcb.rs` is `args::tcb`;
  * `src/lib.rs` is the crate root (`""`).
  */
-export function rustModulePath(relativePath) {
+export function rustModulePath(relativePath, roots = {}) {
   const path = String(relativePath ?? '');
+  if ((roots.lib && path === roots.lib) || (Array.isArray(roots.bins) && roots.bins.includes(path))) return '';
   if (!/^src\//.test(path) || !/\.rs$/.test(path)) return '';
   if (path === 'src/lib.rs' || path === 'src/main.rs' || /^src\/bin\//.test(path)) return '';
   const parts = path.slice(4, -3).split('/');
@@ -1013,15 +1043,18 @@ export function rustModulePath(relativePath) {
 
 /**
  * Where an out-of-line module declared in `relativePath` may live: `mod x;`
- * in `src/lib.rs`, `src/main.rs` or a `mod.rs` resolves next to the declaring
- * file; in any other file it resolves inside that file's own directory
- * (`src/foo.rs` → `src/foo/x.rs`). `#[path]` overrides are not followed.
+ * in a crate root (`src/lib.rs`, `src/main.rs`, a binary under `src/bin/`,
+ * a root the manifest declares — `options.root`) or in a `mod.rs` resolves
+ * next to the declaring file; in any other file it resolves inside that
+ * file's own directory (`src/foo.rs` → `src/foo/x.rs`). `modulePath` is the
+ * inline-module path the declaration sits in and `pathAttribute` a
+ * `#[path = "…"]` on it.
  */
-export function childModuleFiles(relativePath, name, modulePath = '', pathAttribute = '') {
+export function childModuleFiles(relativePath, name, modulePath = '', pathAttribute = '', options = {}) {
   const parts = String(relativePath ?? '').split('/');
   const file = parts.pop();
   const dir = parts.join('/');
-  const modRs = file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs';
+  const modRs = Boolean(options.root) || file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs' || /^src\/bin\/[^/]+\.rs$/.test(String(relativePath ?? ''));
   const anchor = modRs ? dir : [dir, file.replace(/\.rs$/, '')].filter(Boolean).join('/');
   // Declared inside inline modules (`mod outer { mod support; }`), the file
   // sits one directory deeper per enclosing module: `src/outer/support.rs`.
@@ -1124,8 +1157,17 @@ export function buildRustInventory(files, readText, options = {}) {
     const sources = list
       .filter((path) => path.startsWith(`${cratePath}/`) && /\.rs$/.test(path))
       .sort();
-    const crateRoot = sources.includes(`${cratePath}/src/lib.rs`) ? 'src/lib.rs'
-      : sources.includes(`${cratePath}/src/main.rs`) ? 'src/main.rs' : '';
+    // The crate roots: the library root (`[lib] path`, else `src/lib.rs`) and
+    // the binary roots (`src/main.rs`, the `[[bin]]` paths, `src/bin/*.rs`
+    // by convention). `deniesUnsafe` is read from the library root, or — for
+    // a package without one — its first binary root.
+    const declared = (relative) => Boolean(relative) && sources.includes(`${cratePath}/${relative}`);
+    const libRoot = declared(manifest.lib.path) ? manifest.lib.path : declared('src/lib.rs') ? 'src/lib.rs' : '';
+    const binRoots = [];
+    if (declared('src/main.rs')) binRoots.push('src/main.rs');
+    for (const bin of manifest.bins) if (declared(bin.path) && !binRoots.includes(bin.path)) binRoots.push(bin.path);
+    const roots = { lib: libRoot, bins: binRoots };
+    const crateRoot = libRoot || binRoots[0] || '';
 
     const crateFiles = [];
     let lines = 0;
@@ -1155,7 +1197,7 @@ export function buildRustInventory(files, readText, options = {}) {
     for (const path of sources) {
       const relative = path.slice(cratePath.length + 1);
       const text = safeRead(readText, path);
-      const role = rustFileRole(relative);
+      const role = rustFileRole(relative, roots);
       scans.set(relative, { path, relative, text, role, scan: scanRustSource(text, { testFile: role === 'test' }) });
     }
     const testFiles = new Set([...scans.values()].filter((entry) => entry.role === 'test').map((entry) => entry.relative));
@@ -1172,7 +1214,8 @@ export function buildRustInventory(files, readText, options = {}) {
           if (item.kind !== 'mod' || item.inline) continue;
           const childTest = parentTest || item.test;
           const childPrivate = parentPrivate || !item.exported;
-          for (const candidate of childModuleFiles(entry.relative, item.name, item.module, item.path)) {
+          const isRoot = entry.role === 'lib' || entry.role === 'bin';
+          for (const candidate of childModuleFiles(entry.relative, item.name, item.module, item.path, { root: isRoot })) {
             if (!scans.has(candidate)) continue;
             if (childTest && !testFiles.has(candidate)) { testFiles.add(candidate); grew = true; }
             if (childPrivate && !privateFiles.has(candidate)) { privateFiles.add(candidate); grew = true; }
@@ -1201,7 +1244,7 @@ export function buildRustInventory(files, readText, options = {}) {
       crateFiles.push({
         path,
         relativePath: relative,
-        modulePath: rustModulePath(relative),
+        modulePath: rustModulePath(relative, roots),
         role,
         lines: scan.lines,
         items,

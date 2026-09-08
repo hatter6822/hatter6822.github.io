@@ -1141,18 +1141,27 @@ the correction.
   has one rule: an outer attribute binds to the next construct at any depth
   — item, associated method, `use`, statement — and the body that construct
   opens is a test region when the attribute is test-only; the `{` that
-  opens the body or the `;` that ends the construct releases the binding, an
-  `=` completes the header only, and a `;` inside `(…)` or `[…]` ends
-  nothing. `#[test]`, `#[<path>::test]` and a test-only `cfg` mark tests;
+  opens the body, the `;` that ends the construct, the `,` that ends a
+  field, a variant or a match arm, or the `}` that closes the enclosing
+  body releases the binding; an `=` completes the header only, and a `;`,
+  `,` or `=` inside `(…)`, `[…]` or `<…>` ends nothing. The fifth review
+  round found the comma case: a `#[cfg(test)]` field's binding survived its
+  struct and marked the next item. `#[test]`, `#[<path>::test]` and a
+  test-only `cfg` mark tests;
   `#![cfg(test)]` at the top of a file or an inline module makes the whole
   scope test code.
 - **Module files follow rustc's rule in full.** `mod x;` resolves under the
   directory the declaring file owns, one level deeper per enclosing inline
   module (`mod outer { mod x; }` is `outer/x.rs`), or to the file a
   `#[path = "…"]` names; an inline `mod x { … }` names no file, so a
-  same-named file elsewhere inherits nothing from it. Test and export
-  status travel down that resolution, export status through the inline
-  modules' own visibility as well.
+  same-named file elsewhere inherits nothing from it. A crate root —
+  `src/lib.rs`, `src/main.rs`, a `src/bin/*.rs` binary, or a root the
+  manifest declares with `[lib] path` or `[[bin]] path` — owns the directory
+  it sits in, as a `mod.rs` does; any other file owns a directory of its own
+  name. The roots come from the manifest first, so a binary at
+  `tool/runner.rs` is a root rather than a module and its lint speaks for
+  the package. Test and export status travel down that resolution, export
+  status through the inline modules' own visibility as well.
 - **Manifests are read structurally.** The first reader matched Cargo.toml
   line shapes and dropped whatever it did not recognise: a
   `[dependencies.foo]` sub-table, a dotted `foo.path = "…"`, a one-line
@@ -1339,6 +1348,15 @@ and has no top-level `commitSha`, so a live canonical refresh once cleared
 it exists for; `normalizeCanonicalPayload` now adopts the artifact's revision,
 and the note states the inventory's own revisions even when the graph's is
 unknown.
+
+The Tests group and the scanner's `test` role describe one scope. The first
+inventory filed every path under `rust/` as production Rust, so the crates'
+integration tests appeared under "Production Rust" while the Tests group
+omitted them, although the crate cards listed the same files as test code.
+`classifyRepositoryPath()` now files `rust/<crate>/{tests,benches,examples}/`
+under Tests, as `rustFileRole()` does, and the Lean groups follow
+`isProductionModule`; `map-runtime.test.mjs` checks both against every file
+of the bundled snapshot.
 
 Both sections are rebuilt from scratch by `renderInventory()` on every live
 refresh and locale switch, and on a networked visit the refresh lands a few
