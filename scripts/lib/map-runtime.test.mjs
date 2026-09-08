@@ -2538,3 +2538,15 @@ test('classifyRepositoryPath groups a nested member by the crate that owns its f
   assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/Cargo.toml', crates) }, { group: 'rust', subgroup: 'workspace' });
   assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/sele4n-abi/tests/conformance.rs') }, { group: 'tests', subgroup: 'rust/sele4n-abi/tests' }, 'the conventional layout needs no crate list');
 });
+
+test('classifyRepositoryPath follows the scanner roles the crate list carries', async () => {
+  const hooks = await loadMapTestHooks();
+  const crates = [
+    { name: 'rootpkg', path: 'rust', files: [{ path: 'rust/src/lib.rs', role: 'lib' }] },
+    { name: 'app', path: 'rust/app', files: [{ path: 'rust/app/checks/conformance.rs', role: 'test' }, { path: 'rust/app/src/lib.rs', role: 'lib' }] }
+  ];
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/app/checks/conformance.rs', crates) }, { group: 'tests', subgroup: 'rust/app/checks' }, 'a manifest-declared test target outside tests/ is test code');
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/app/src/lib.rs', crates) }, { group: 'rust', subgroup: 'app' });
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/src/lib.rs', crates) }, { group: 'rust', subgroup: 'rootpkg' }, 'a root package is named, not sliced to an empty label');
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/Cargo.lock', crates) }, { group: 'rust', subgroup: 'rootpkg' }, 'workspace files belong to the root package when there is one');
+});

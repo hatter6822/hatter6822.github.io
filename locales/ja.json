@@ -449,6 +449,7 @@
     "rust_external_deps": "外部",
     "rust_target_deps": "{{cfg}} のとき",
     "rust_dev_deps": "テスト専用",
+    "rust_optional_deps": "オプション",
     "rust_features": "features",
     "rust_edition": "エディション {{edition}}",
     "rust_test_items_other": "テスト項目 {{count}} 件",

@@ -3174,6 +3174,14 @@
     return best;
   }
 
+  /* The crate's own entry for a file, when its card lists it: the scanner's
+     role travels with it. */
+  function crateFileEntry(crate, path) {
+    var files = crate && Array.isArray(crate.files) ? crate.files : [];
+    for (var i = 0; i < files.length; i++) if (files[i] && files[i].path === path) return files[i];
+    return null;
+  }
+
   /* Where a repository path belongs in the inventory: one of the six groups,
      and a subgroup within it (a Lean subsystem, a Rust crate, a directory).
      `crates` is the snapshot's crate list, so a crate's files are grouped by
@@ -3198,9 +3206,17 @@
       var owner = owningCrate(p, crates);
       if (owner) {
         var relative = p.slice(owner.path.length + 1);
+        /* The scanner's role decides when the crate lists the file: a
+           manifest-declared test target outside tests/ is test code too. */
+        var entry = crateFileEntry(owner, p);
         var testDir = /^(tests|benches|examples)\//.exec(relative);
-        if (testDir) return { group: "tests", subgroup: owner.path + "/" + testDir[1] };
-        return { group: "rust", subgroup: owner.path.slice(top.length + 1) };
+        if (testDir || (entry && entry.role === "test")) {
+          var dir = testDir ? testDir[1] : (relative.indexOf("/") === -1 ? "" : relative.slice(0, relative.lastIndexOf("/")));
+          return { group: "tests", subgroup: owner.path + (dir ? "/" + dir : "") };
+        }
+        /* A root package sits in the workspace directory itself: name it. */
+        var crateLabel = owner.path.length > top.length ? owner.path.slice(top.length + 1) : String(owner.name || owner.path);
+        return { group: "rust", subgroup: crateLabel };
       }
       if (parts.length > 3 && /^(tests|benches|examples)$/.test(parts[2])) {
         return { group: "tests", subgroup: "rust/" + parts[1] + "/" + parts[2] };
@@ -3402,7 +3418,12 @@
     for (var s = 0; s < subgroups.length; s++) {
       var paths = Array.isArray(subgroups[s].files) ? subgroups[s].files : [];
       for (var p = 0; p < paths.length; p++) {
-        if (paths[p].indexOf(dir + "/") === 0 && !listed[paths[p]]) out.push(paths[p]);
+        if (paths[p].indexOf(dir + "/") !== 0 || listed[paths[p]]) continue;
+        /* A file inside a package nested in this crate's directory is that
+           package's, not this crate's. */
+        var owner = owningCrate(paths[p], state.rust && state.rust.crates);
+        if (owner && owner.path !== crate.path) continue;
+        out.push(paths[p]);
       }
     }
     out.sort();
@@ -3972,6 +3993,15 @@
     }
     if (crate.devDependencies && crate.devDependencies.length) {
       factParts.push((t("map.rust_dev_deps") || "test-only") + " " + crate.devDependencies.join(", "));
+    }
+    /* An optional dependency is compiled only when a feature enables it: it
+       draws no edge in the strip and is stated with its enabling features. */
+    var optional = Array.isArray(crate.optionalDependencies) ? crate.optionalDependencies : [];
+    if (optional.length) {
+      factParts.push((t("map.rust_optional_deps") || "optional") + " " + optional.map(function (dep) {
+        var features = dep && Array.isArray(dep.features) ? dep.features : [];
+        return String(dep && dep.package || "") + (features.length ? " (" + features.join(", ") + ")" : "");
+      }).join(", "));
     }
     if (crate.features && crate.features.length) {
       factParts.push((t("map.rust_features") || "features") + " " + crate.features.join(", "));

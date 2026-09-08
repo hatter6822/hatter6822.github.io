@@ -9,6 +9,8 @@ import {
   cfgIsTestOnly,
   childModuleFiles,
   crateDeniesUnsafe,
+  enablingFeatures,
+  isTargetRoot,
   parseCargoManifest,
   parseToml,
   rustFileRole,
@@ -729,11 +731,11 @@ test('parseCargoManifest keeps the package identity and path of a renamed depend
   assert.deepEqual(manifest.devDependencies, ['sele4n-abi']);
   assert.deepEqual(manifest.targetDependencies, [{ cfg: 'cfg(loom)', table: 'dependencies', names: ['loom'] }]);
   assert.deepEqual(manifest.dependencySpecs, [
-    { table: 'dependencies', cfg: '', name: 'types', package: 'sele4n-types', path: '../types', workspace: false },
-    { table: 'dependencies', cfg: '', name: 'json', package: 'serde_json', path: '', workspace: false },
-    { table: 'dependencies', cfg: '', name: 'log', package: 'log', path: '', workspace: false },
-    { table: 'dev-dependencies', cfg: '', name: 'abi', package: 'sele4n-abi', path: '../abi', workspace: false },
-    { table: 'dependencies', cfg: 'cfg(loom)', name: 'loom-alias', package: 'loom', path: '', workspace: false }
+    { table: 'dependencies', cfg: '', name: 'types', package: 'sele4n-types', path: '../types', workspace: false, optional: false },
+    { table: 'dependencies', cfg: '', name: 'json', package: 'serde_json', path: '', workspace: false, optional: false },
+    { table: 'dependencies', cfg: '', name: 'log', package: 'log', path: '', workspace: false, optional: false },
+    { table: 'dev-dependencies', cfg: '', name: 'abi', package: 'sele4n-abi', path: '../abi', workspace: false, optional: false },
+    { table: 'dependencies', cfg: 'cfg(loom)', name: 'loom-alias', package: 'loom', path: '', workspace: false, optional: false }
   ], 'an array-valued field inside the inline table does not split the entry');
 });
 
@@ -874,7 +876,7 @@ test('buildRustInventory resolves out-of-line modules declared inside inline mod
   assert.deepEqual(hal.testUnsafe, { fns: 0, impls: 0, blocks: 2 }, 'support.rs and named.rs');
   assert.equal(hal.items, 12);
   assert.equal(hal.testItems, 5, 'outer, support, renamed, helper, fixture');
-  assert.equal(hal.publicItems, 5, 'api, shown, reachable, prod, and the pub fn in src/tests.rs, which nothing declares and so keeps the default status');
+  assert.equal(hal.publicItems, 4, 'api, shown, reachable, prod; the pub fn in src/tests.rs, which nothing declares, is unreachable');
   assert.deepEqual(childModuleFiles('src/lib.rs', 'support', 'outer'), ['src/outer/support.rs', 'src/outer/support/mod.rs']);
   assert.deepEqual(childModuleFiles('src/net.rs', 'support', 'outer::inner'), ['src/net/outer/inner/support.rs', 'src/net/outer/inner/support/mod.rs']);
   assert.deepEqual(childModuleFiles('src/lib.rs', 'renamed', '', 'fixtures/named.rs'), ['src/fixtures/named.rs']);
@@ -1042,10 +1044,18 @@ test('buildRustInventory honours manifest-declared crate roots', () => {
 test('cargoTargets finds the roots Cargo would build', () => {
   const manifest = parseCargoManifest('[package]\nname = "x"\n[[bin]]\nname = "runner"\npath = "tool/runner.rs"\n');
   const sources = ['src/lib.rs', 'src/main.rs', 'src/bin/one.rs', 'src/bin/two/main.rs', 'src/bin/two/helper.rs', 'tool/runner.rs', 'src/util.rs'];
-  assert.deepEqual(cargoTargets(manifest, sources), { lib: 'src/lib.rs', bins: ['src/main.rs', 'tool/runner.rs', 'src/bin/one.rs', 'src/bin/two/main.rs'] }, 'declared roots first, then the conventional targets; a file nested under a directory-style binary is not a root');
-  const noAuto = parseCargoManifest('[package]\nname = "x"\nautobins = false\n');
-  assert.deepEqual(cargoTargets(noAuto, sources), { lib: 'src/lib.rs', bins: ['src/main.rs'] }, 'autobins = false turns discovery off');
-  assert.deepEqual(cargoTargets(parseCargoManifest('[package]\nname = "x"\n[lib]\npath = "lib/root.rs"\n'), ['lib/root.rs', 'src/lib.rs']), { lib: 'lib/root.rs', bins: [] });
+  assert.deepEqual(cargoTargets(manifest, sources), { lib: 'src/lib.rs', bins: ['src/main.rs', 'tool/runner.rs', 'src/bin/one.rs', 'src/bin/two/main.rs'], tests: [] }, 'src/main.rs, declared roots, then the conventional targets; a file nested under a directory-style binary is not a root');
+  const noAuto = parseCargoManifest('[package]\nname = "x"\nautobins = false\n[[bin]]\nname = "runner"\npath = "tool/runner.rs"\n');
+  assert.deepEqual(cargoTargets(noAuto, sources), { lib: 'src/lib.rs', bins: ['tool/runner.rs'], tests: [] }, 'autobins = false turns discovery off for src/main.rs and src/bin/ alike');
+  assert.deepEqual(cargoTargets(parseCargoManifest('[package]\nname = "x"\n[lib]\npath = "lib/root.rs"\n'), ['lib/root.rs', 'src/lib.rs']), { lib: 'lib/root.rs', bins: [], tests: [] });
+  assert.deepEqual(cargoTargets(parseCargoManifest('[package]\nname = "x"\nautolib = false\n'), ['src/lib.rs']), { lib: '', bins: [], tests: [] }, 'autolib = false turns the library off');
+  const declaredTests = parseCargoManifest('[package]\nname = "x"\n[[test]]\nname = "conf"\npath = "checks/conformance.rs"\n[[bench]]\nname = "b"\npath = "perf/b.rs"\n[[example]]\nname = "e"\npath = "demo/e.rs"\n');
+  assert.deepEqual(cargoTargets(declaredTests, ['src/lib.rs', 'checks/conformance.rs', 'perf/b.rs', 'demo/e.rs']), { lib: 'src/lib.rs', bins: [], tests: ['checks/conformance.rs', 'perf/b.rs', 'demo/e.rs'] }, 'declared test, bench and example targets are test roots');
+  assert.equal(rustFileRole('src/main.rs', { lib: '', bins: ['tool/runner.rs'], tests: [] }), 'module', 'a src/main.rs the manifest turned off is a module');
+  assert.equal(rustFileRole('checks/conformance.rs', { lib: 'src/lib.rs', bins: [], tests: ['checks/conformance.rs'] }), 'test');
+  assert.equal(isTargetRoot('tests/common/mod.rs'), false, 'shared test helpers are modules of the test crates');
+  assert.equal(isTargetRoot('tests/smoke.rs'), true);
+  assert.equal(isTargetRoot('tests/suite/main.rs'), true);
 });
 
 test('rustFileRole and rustModulePath treat a directory-style binary as one crate', () => {
@@ -1118,4 +1128,116 @@ test('buildRustInventory never infers a workspace edge from a package name alone
   assert.deepEqual(app.internalDependencies, ['helper'], 'only a path resolves to a member');
   assert.deepEqual(app.externalDependencies, ['util'], 'a registry dependency stays external whatever its name');
   assert.deepEqual(app.dependencies, ['util', 'helper']);
+});
+
+test('scanRustSource counts an unsafe token whose construct starts on the next line', () => {
+  const scan = scanRustSource([
+    'pub fn read(ptr: *const u8) -> u8 {',
+    '    let x = unsafe',
+    '    {',
+    '        ptr.read()',
+    '    };',
+    '    x',
+    '}',
+    'pub unsafe',
+    'fn split_header() {}',
+    'unsafe',
+    '',
+    '{ }',
+    'struct Marker;',
+    'unsafe',
+    'impl Send for Marker {}',
+    'fn not_unsafe_here() {}'
+  ].join('\n'));
+  assert.deepEqual(scan.unsafe, { fns: 1, impls: 1, blocks: 2 }, 'the block after `= unsafe`, the block after a blank line, the split fn and impl headers');
+  const byName = Object.fromEntries(scan.items.map((item) => [item.name, item]));
+  assert.equal(byName.split_header.unsafe, true, 'the split header is still an unsafe fn');
+  assert.equal(byName.not_unsafe_here.unsafe, false);
+});
+
+test('buildRustInventory scans a manifest-declared test target as test code', () => {
+  const tree = {
+    'rust/Cargo.toml': '[workspace]\nmembers = ["x"]\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n',
+    'rust/x/Cargo.toml': '[package]\nname = "x"\nversion.workspace = true\nedition.workspace = true\n[[test]]\nname = "conformance"\npath = "checks/conformance.rs"\n',
+    'rust/x/src/lib.rs': '#![deny(unsafe_code)]\npub fn api() {}\n',
+    'rust/x/checks/conformance.rs': 'mod support;\npub fn helper() { unsafe { } }\n#[test]\nfn t() {}\n',
+    'rust/x/checks/support.rs': 'pub fn fixture() {}\n'
+  };
+  const inventory = buildRustInventory(Object.keys(tree), (path) => tree[path]);
+  const x = inventory.crates[0];
+  const byPath = Object.fromEntries(x.files.map((file) => [file.relativePath, file]));
+  assert.equal(byPath['checks/conformance.rs'].role, 'test');
+  assert.deepEqual(byPath['checks/conformance.rs'].items.map((item) => [item.name, item.test === true]), [['support', true], ['helper', true], ['t', true]]);
+  assert.deepEqual(byPath['checks/support.rs'].items.map((item) => [item.name, item.test === true]), [['fixture', true]], 'a test root resolves `mod support;` beside itself and passes test status down');
+  assert.deepEqual(x.unsafe, { fns: 0, impls: 0, blocks: 0 });
+  assert.deepEqual(x.testUnsafe, { fns: 0, impls: 0, blocks: 1 });
+  assert.equal(x.deniesUnsafe, true);
+});
+
+test('buildRustInventory includes the root package of a non-virtual workspace', () => {
+  const tree = {
+    'rust/Cargo.toml': '[workspace]\nmembers = [".", "sub"]\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n[package]\nname = "rootpkg"\nversion.workspace = true\nedition.workspace = true\n',
+    'rust/src/lib.rs': '#![deny(unsafe_code)]\npub fn root_api() {}\n',
+    'rust/Cargo.lock': '',
+    'rust/sub/Cargo.toml': '[package]\nname = "sub"\nversion.workspace = true\nedition.workspace = true\n[dependencies]\nrootpkg = { path = ".." }\n',
+    'rust/sub/src/lib.rs': 'pub fn sub_api() {}\n'
+  };
+  const inventory = buildRustInventory(Object.keys(tree), (path) => tree[path]);
+  assert.deepEqual(inventory.crates.map((crate) => [crate.name, crate.path, crate.manifest]), [['rootpkg', 'rust', 'rust/Cargo.toml'], ['sub', 'rust/sub', 'rust/sub/Cargo.toml']], 'the root package comes first');
+  const rootpkg = inventory.crates[0];
+  assert.deepEqual(rootpkg.files.map((file) => file.relativePath), ['src/lib.rs'], 'the nested member\'s files are its own');
+  assert.equal(rootpkg.deniesUnsafe, true);
+  assert.equal(rootpkg.publicItems, 1);
+  assert.deepEqual(inventory.crates[1].internalDependencies, ['rootpkg'], 'a path of `..` resolves to the root package');
+});
+
+test('buildRustInventory lists optional dependencies apart, under their enabling features', () => {
+  const tree = {
+    'rust/Cargo.toml': '[workspace]\nmembers = ["helper", "app"]\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n',
+    'rust/helper/Cargo.toml': '[package]\nname = "helper"\nversion.workspace = true\nedition.workspace = true\n',
+    'rust/helper/src/lib.rs': 'pub fn h() {}\n',
+    'rust/app/Cargo.toml': [
+      '[package]',
+      'name = "app"',
+      'version.workspace = true',
+      'edition.workspace = true',
+      '[features]',
+      'default = []',
+      'std = ["dep:serde", "helper"]',
+      'extra = ["serde/derive"]',
+      '[dependencies]',
+      'serde = { version = "1", optional = true }',
+      'helper = { path = "../helper", optional = true }',
+      'log = "0.4"'
+    ].join('\n'),
+    'rust/app/src/lib.rs': 'pub fn a() {}\n'
+  };
+  const inventory = buildRustInventory(Object.keys(tree), (path) => tree[path]);
+  const app = inventory.crates[1];
+  assert.deepEqual(app.internalDependencies, [], 'an optional path dependency is no unconditional edge');
+  assert.deepEqual(app.externalDependencies, ['log']);
+  assert.deepEqual(app.dependencies, ['serde', 'helper', 'log'], 'the declared list still names every entry');
+  assert.deepEqual(app.optionalDependencies, [
+    { package: 'serde', internal: false, features: ['std', 'extra'] },
+    { package: 'helper', internal: true, features: ['helper', 'std'] }
+  ], 'serde is enabled by the features that name it with dep: or as a feature of it; helper keeps its implicit feature and is also enabled by std');
+  assert.deepEqual(enablingFeatures({ a: ['dep:x'], b: ['x?/feat'], c: ['other'] }, 'x'), ['a', 'b']);
+  assert.deepEqual(enablingFeatures({}, 'x'), ['x'], 'no feature mentions it: the implicit feature');
+});
+
+test('buildRustInventory treats a source file nothing declares as unreachable', () => {
+  const tree = {
+    'rust/Cargo.toml': '[workspace]\nmembers = ["x"]\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n',
+    'rust/x/Cargo.toml': '[package]\nname = "x"\nversion.workspace = true\nedition.workspace = true\n',
+    'rust/x/src/lib.rs': 'pub mod api;\n',
+    'rust/x/src/api.rs': 'pub fn reachable() {}\n',
+    'rust/x/src/orphan.rs': 'pub fn stale() {}\n'
+  };
+  const inventory = buildRustInventory(Object.keys(tree), (path) => tree[path]);
+  const x = inventory.crates[0];
+  const byPath = Object.fromEntries(x.files.map((file) => [file.relativePath, file]));
+  assert.equal(byPath['src/api.rs'].publicItems, 1);
+  assert.equal(byPath['src/orphan.rs'].publicItems, 0, 'no module declaration reaches it');
+  assert.equal(byPath['src/orphan.rs'].productionItems, 1, 'it is still a declaration in the tree');
+  assert.equal(x.publicItems, 2, 'api and reachable');
 });

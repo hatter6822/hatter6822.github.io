@@ -195,7 +195,8 @@ for its syscall trap — and "+N in test code" from `testUnsafe`. The lint
 itself is a separate fact on the facts line, so a deny lint never stands in
 for the counts. The facts line also states internal dependencies, external
 (unconditional) dependencies, target-scoped tables under their cfg ("under
-cfg(loom): loom"), dev-dependencies as test-only, features, edition and the
+cfg(loom): loom"), dev-dependencies as test-only, optional dependencies with
+the features that enable them, features, edition and the
 test-item count.
 
 Below the facts sits one `<details>` per source file — crate root first, then

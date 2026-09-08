@@ -77,8 +77,8 @@ Several files exceed 500 lines:
 | `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
 | `assets/css/map.css` | ~1,400 | Map-specific styles (hero, workspace, chart, sidebar, Rust cards, inventory) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
-| `scripts/lib/rust-analysis.mjs` | ~1,300 | Rust crate inventory scanner, TOML reader |
-| `scripts/lib/rust-analysis.test.mjs` | ~980 | Rust scanner tests |
+| `scripts/lib/rust-analysis.mjs` | ~1,450 | Rust crate inventory scanner, TOML reader |
+| `scripts/lib/rust-analysis.test.mjs` | ~1,200 | Rust scanner tests |
 | `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
@@ -299,6 +299,9 @@ statistic**; the landing page stays canonical-or-absent.
   functions and impls at file scope only, and blocks everywhere including test
   modules, so the HAL's total was neither figure; never reintroduce a counter
   that mixes scopes.
+  An `unsafe` keyword that ends a line binds to the block, `fn` or `impl`
+  that starts the next non-blank line (`let x = unsafe` / `{ … }`), so a site
+  split across lines is still a site.
 - **Test code is decided by the `cfg` predicate, not by the word `test`.**
   `cfgIsTestOnly` treats `cfg(test)` and `cfg(all(test, …))` as test-only, and
   `cfg(not(test))` and `cfg(any(test, feature = "…"))` as production, because
@@ -313,8 +316,11 @@ statistic**; the landing page stays canonical-or-absent.
 - **`deniesUnsafe` is read from the crate root only**: the library root
   (`[lib] path`, else `src/lib.rs`) or, for a package without one, its first
   binary root — `src/main.rs`, a `[[bin]] path`, or a conventional
-  `src/bin/<name>.rs` / `src/bin/<name>/main.rs` target, in that order, with
-  `autobins = false` turning discovery off. `cargoTargets` is the one place
+  `src/bin/<name>.rs` / `src/bin/<name>/main.rs` target, in that order;
+  `autobins = false` turns the conventional binaries off, `src/main.rs`
+  included, and `autolib = false` the conventional library. A `[[test]]`,
+  `[[bench]]` or `[[example]]` path outside the conventional directories is
+  test code. `cargoTargets` is the one place
   those rules live; roles and module paths follow from it, so a file nested
   under a directory-style binary is that binary's module, not a root. A lint
   in a `src/bin/*.rs` target speaks for that binary, not for the library.
@@ -334,6 +340,10 @@ statistic**; the landing page stays canonical-or-absent.
   registry dependency that shares a member's name went internal the second.
   Every dependency list carries package identities (the `package` field when
   renamed, else the key).
+  An `optional = true` entry is no unconditional edge: it is listed under
+  `optionalDependencies` with the features that enable it
+  (`enablingFeatures`: `dep:name`, `name`, `name/…`, or the implicit feature
+  of the same name), and the strip draws nothing for it.
 - **Manifests are read structurally.** `parseToml` reads the TOML subset
   Cargo uses (sub-tables, dotted keys, one-line and multi-line arrays, inline
   tables, three-quoted strings, comments) into an object and
@@ -346,6 +356,9 @@ statistic**; the landing page stays canonical-or-absent.
   (`crates/*`), then the packages the workspace does not list; build output
   under `target/` is skipped, and a package nested inside another owns its
   own files.
+  A non-virtual workspace's root package (`rust/Cargo.toml` carrying
+  `[package]`) is a member too, first in order, and owns the files no nested
+  package does.
 - **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
   tests;` resolves to `src/tests.rs` or `src/tests/mod.rs`
   (`childModuleFiles`, rustc's rule), that file is rescanned as test code, and
@@ -358,6 +371,9 @@ statistic**; the landing page stays canonical-or-absent.
   declarations from the crate root (`buildRustInventory` carries export
   status into out-of-line files alongside test status). A `#[macro_export]`
   macro is public wherever it sits.
+  Export status starts at the target roots and travels only through `pub mod`
+  declarations, so a file nothing declares — stale, generated input,
+  `include!`d — is unreachable and its `pub` items are not public API.
 - **Attributes bind by one rule at every depth.** An outer attribute binds to
   the next construct — an item at item scope, an associated method, a `use`,
   a statement — and the body that construct opens is a test region when the
@@ -382,6 +398,9 @@ statistic**; the landing page stays canonical-or-absent.
   `mod.rs` own the directory they sit in; any other file, a directory-style
   binary's nested module included, owns a directory of its own name. Test and
   export status travel down that resolution (`childModuleFiles`).
+  A test crate root (`tests/<name>.rs`, `tests/<name>/main.rs`, a declared
+  `[[test]]` path) resolves `mod common;` beside itself, so
+  `tests/common/mod.rs` is a module of the test crates, not a target.
 - `validate-data.mjs` reconciles every crate total with its per-file lists,
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.

@@ -473,6 +473,7 @@
     "rust_external_deps": "зовнішні",
     "rust_target_deps": "під {{cfg}}",
     "rust_dev_deps": "лише для тестів",
+    "rust_optional_deps": "необов'язкові",
     "rust_features": "features",
     "rust_edition": "видання {{edition}}",
     "rust_test_items_one": "{{count}} тестовий елемент",

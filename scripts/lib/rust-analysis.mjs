@@ -452,6 +452,9 @@ export function scanRustSource(source, options = {}) {
   // binding on the pattern; an arm body on later lines is then plain code.)
   const pending = { test: false, macroExport: false, path: '' };
   let attributeBuffer = null;
+  // An `unsafe` keyword that ended a line: the block, function or impl it
+  // opens starts on the next non-blank line (`let x = unsafe` / `{ … }`).
+  let pendingUnsafeToken = false;
 
   const releasePending = () => {
     pending.test = false;
@@ -513,7 +516,7 @@ export function scanRustSource(source, options = {}) {
         const kind = keyword === 'macro_rules!' ? 'macro' : keyword;
         const rest = trimmed.slice(match.index + match[0].length);
         const head = trimmed;
-        const isUnsafe = /(?:^|\s)unsafe\s/.test(head.slice(0, match.index + match[0].length));
+        const isUnsafe = pendingUnsafeToken || /(?:^|\s)unsafe\s/.test(head.slice(0, match.index + match[0].length));
         let name;
         if (kind === 'impl') name = implName(rest);
         else if (kind === 'static') name = nameAfter(rest.replace(/^\s*mut\s+/, ''));
@@ -555,10 +558,17 @@ export function scanRustSource(source, options = {}) {
     // the innermost enclosing item.
     const inTest = top.test || testRegions.length > 0 || pending.test;
     const bucket = inTest ? testUnsafe : unsafeStats;
+    if (pendingUnsafeToken && trimmed) {
+      if (trimmed.startsWith('{')) bucket.blocks += 1;
+      else if (/^fn\b/.test(trimmed)) bucket.fns += 1;
+      else if (/^impl\b/.test(trimmed)) bucket.impls += 1;
+      pendingUnsafeToken = false;
+    }
     if (UNSAFE_FN_HEAD.test(trimmed)) bucket.fns += 1;
     else if (UNSAFE_IMPL_HEAD.test(trimmed)) bucket.impls += 1;
     const blockMatches = trimmed.match(UNSAFE_BLOCK);
     if (blockMatches) bucket.blocks += blockMatches.length;
+    if (/(?:^|[^A-Za-z0-9_#])unsafe$/.test(trimmed)) pendingUnsafeToken = true;
 
     // Walk the line to track depth, module bodies and construct ends.
     for (let c = 0; c < text.length; c += 1) {
@@ -916,8 +926,10 @@ function enterTomlTable(root, path, arrayOfTables) {
  * Cargo.toml facts for the inventory, read from `parseToml`'s object:
  * `[package]` fields (a `key.workspace = true` becomes `{ workspace: true }`),
  * `[workspace] members`, `[workspace.package]`, the `[workspace.dependencies]`
- * entries members inherit, `[features]` names, the `[lib]` table and `[[bin]]`
- * targets (their string fields, `path` among them), and the
+ * entries members inherit, `[features]` names and what each enables
+ * (`featureTable`), the `[lib]` table and the `[[bin]]`, `[[test]]`,
+ * `[[bench]]` and `[[example]]` targets (their string fields, `path` among
+ * them), and the
  * dependencies under `[dependencies]` / `[dev-dependencies]` /
  * `[build-dependencies]` — kept apart from the same tables scoped to a
  * target, `[target.'cfg(…)'.dependencies]`, which come back as
@@ -929,10 +941,10 @@ function enterTomlTable(root, path, arrayOfTables) {
  * Every dependency list carries package identities: the table key, unless
  * the entry renames the package (`alias = { package = "actual", … }`), in
  * which case `actual`. `dependencySpecs` keeps each entry whole — `{ table,
- * cfg, name, package, path, workspace }` — for the caller to resolve against
- * the workspace; `workspace` marks an entry written `{ workspace = true }`,
- * whose package and path live in the root manifest's
- * `workspaceDependencies`.
+ * cfg, name, package, path, workspace, optional }` — for the caller to
+ * resolve against the workspace; `workspace` marks an entry written
+ * `{ workspace = true }`, whose package and path live in the root manifest's
+ * `workspaceDependencies`, and `optional` one that a feature has to enable.
  */
 export function parseCargoManifest(source) {
   const toml = parseToml(source);
@@ -941,6 +953,10 @@ export function parseCargoManifest(source) {
     workspacePackage: {},
     workspaceDependencies: {},
     lib: {},
+    tests: [],
+    benches: [],
+    examples: [],
+    featureTable: {},
     members: [],
     dependencies: [],
     devDependencies: [],
@@ -965,10 +981,16 @@ export function parseCargoManifest(source) {
     out.workspaceDependencies[key] = dependencySpec(key, value, 'workspace', '');
   }
   out.features = Object.keys(tableOf(toml.features));
-  out.lib = Object.fromEntries(Object.entries(tableOf(toml.lib)).filter(([, value]) => typeof value === 'string'));
-  if (Array.isArray(toml.bin)) {
-    out.bins = toml.bin.filter(isPlainObject).map((bin) => Object.fromEntries(Object.entries(bin).filter(([, value]) => typeof value === 'string')));
+  for (const [feature, enables] of Object.entries(tableOf(toml.features))) {
+    out.featureTable[feature] = Array.isArray(enables) ? enables.filter((entry) => typeof entry === 'string') : [];
   }
+  const stringFields = (entry) => Object.fromEntries(Object.entries(entry).filter(([, value]) => typeof value === 'string'));
+  const targets = (key) => (Array.isArray(toml[key]) ? toml[key].filter(isPlainObject).map(stringFields) : []);
+  out.lib = stringFields(tableOf(toml.lib));
+  out.bins = targets('bin');
+  out.tests = targets('test');
+  out.benches = targets('bench');
+  out.examples = targets('example');
 
   const listed = { dependencies: out.dependencies, 'dev-dependencies': out.devDependencies, 'build-dependencies': out.buildDependencies };
   for (const name of DEPENDENCY_TABLES) {
@@ -996,59 +1018,107 @@ export function parseCargoManifest(source) {
 /**
  * One dependency entry: the table key it is declared under (`name`), the
  * package it resolves to (`package` — the key unless the entry renames it
- * with `package = "…"`), its `path` if any, and whether it inherits the
- * workspace's entry (`{ workspace = true }`).
+ * with `package = "…"`), its `path` if any, whether it inherits the
+ * workspace's entry (`{ workspace = true }`), and whether it is `optional`,
+ * that is, compiled only when a feature enables it.
  */
 function dependencySpec(name, value, table, cfg) {
-  const spec = { table, cfg, name, package: name, path: '', workspace: false };
+  const spec = { table, cfg, name, package: name, path: '', workspace: false, optional: false };
   if (isPlainObject(value)) {
     if (typeof value.package === 'string') spec.package = value.package;
     if (typeof value.path === 'string') spec.path = value.path;
     if (value.workspace === true) spec.workspace = true;
+    if (value.optional === true) spec.optional = true;
   }
   return spec;
+}
+
+/**
+ * The features that enable an optional dependency: every `[features]` entry
+ * that lists `dep:<name>`, `<name>` or `<name>/…` (`<name>?/…`), or — when no
+ * feature uses the `dep:` syntax for it — the implicit feature Cargo creates
+ * with the dependency's own name.
+ */
+export function enablingFeatures(featureTable, name) {
+  const table = isPlainObject(featureTable) ? featureTable : {};
+  const explicit = [];
+  let usesDepSyntax = false;
+  for (const [feature, enables] of Object.entries(table)) {
+    const list = Array.isArray(enables) ? enables : [];
+    if (list.includes(`dep:${name}`)) usesDepSyntax = true;
+    if (list.some((entry) => entry === `dep:${name}` || entry === name || entry.startsWith(`${name}/`) || entry.startsWith(`${name}?/`))) explicit.push(feature);
+  }
+  if (!usesDepSyntax && !explicit.includes(name)) explicit.unshift(name);
+  return explicit;
 }
 
 /** A conventional binary target: `src/main.rs`, `src/bin/<name>.rs` or `src/bin/<name>/main.rs`. */
 const CONVENTIONAL_BIN = /^src\/(?:main\.rs|bin\/[^/]+\.rs|bin\/[^/]+\/main\.rs)$/;
 
+/** A conventional test, bench or example target: `tests/<name>.rs` or `tests/<name>/main.rs`, likewise under `benches/` and `examples/`. */
+const CONVENTIONAL_TEST_ROOT = /^(?:tests|benches|examples)\/(?:[^/]+\.rs|[^/]+\/main\.rs)$/;
+
 /**
  * The crate roots Cargo would build for a package, from its manifest and its
  * source list (paths relative to the crate): the library root (`[lib] path`,
- * else `src/lib.rs`) and the binary roots — `src/main.rs`, every `[[bin]]
- * path`, and, unless the package sets `autobins = false`, the conventional
- * targets `src/bin/<name>.rs` and `src/bin/<name>/main.rs`. Any other file
- * under `src/bin/<name>/` is a module of that binary, not a root. This is the
- * one place those rules live; roles, module paths and `deniesUnsafe` all
- * follow from it.
+ * else `src/lib.rs` unless `autolib = false`), the binary roots (every
+ * `[[bin]] path`, and unless `autobins = false` the conventional
+ * `src/main.rs`, `src/bin/<name>.rs` and `src/bin/<name>/main.rs`), and the
+ * test roots the manifest declares outside the conventional directories
+ * (`[[test]]`, `[[bench]]`, `[[example]]` paths). Any other file under
+ * `src/bin/<name>/` is a module of that binary, not a root, and a
+ * `src/main.rs` left behind under `autobins = false` is a module Cargo never
+ * builds as a target. This is the one place those rules live; roles, module
+ * paths, module resolution and `deniesUnsafe` all follow from it.
  */
 export function cargoTargets(manifest, relativeSources) {
   const present = new Set((relativeSources || []).map(String));
-  const lib = manifest.lib && manifest.lib.path && present.has(manifest.lib.path) ? manifest.lib.path
-    : present.has('src/lib.rs') ? 'src/lib.rs' : '';
+  const pkg = manifest.package || {};
+  const declaredLib = manifest.lib && manifest.lib.path && present.has(manifest.lib.path) ? manifest.lib.path : '';
+  const lib = declaredLib || (pkg.autolib !== false && present.has('src/lib.rs') ? 'src/lib.rs' : '');
   const bins = [];
   const add = (path) => { if (path && present.has(path) && !bins.includes(path)) bins.push(path); };
-  add('src/main.rs');
+  if (pkg.autobins !== false) add('src/main.rs');
   for (const bin of manifest.bins || []) add(bin.path);
-  if (manifest.package.autobins !== false) {
+  if (pkg.autobins !== false) {
     for (const path of [...present].sort()) if (CONVENTIONAL_BIN.test(path)) add(path);
   }
-  return { lib, bins };
+  const tests = [];
+  for (const target of [...(manifest.tests || []), ...(manifest.benches || []), ...(manifest.examples || [])]) {
+    if (target.path && present.has(target.path) && !tests.includes(target.path)) tests.push(target.path);
+  }
+  return { lib, bins, tests };
+}
+
+/** Is a crate-relative path one of the crate's target roots (a library, binary or test crate of its own)? */
+export function isTargetRoot(relativePath, roots) {
+  const path = String(relativePath ?? '');
+  if (roots) {
+    return path === roots.lib || (Array.isArray(roots.bins) && roots.bins.includes(path))
+      || (Array.isArray(roots.tests) && roots.tests.includes(path)) || CONVENTIONAL_TEST_ROOT.test(path);
+  }
+  return path === 'src/lib.rs' || CONVENTIONAL_BIN.test(path) || CONVENTIONAL_TEST_ROOT.test(path);
 }
 
 /**
- * Classify a Rust source path within its crate. `roots` is `cargoTargets`'
- * answer — `{ lib, bins }` — and comes before the conventional paths: a
- * `[[bin]] path = "tool/runner.rs"` is a binary root, not a module, and a
- * file nested under a directory-style binary (`src/bin/tool/helper.rs`) is
- * a module of that binary, not a root.
+ * Classify a Rust source path within its crate. With `roots` — `cargoTargets`'
+ * answer, `{ lib, bins, tests }` — the target set decides: a `[[bin]] path =
+ * "tool/runner.rs"` is a binary root, a `[[test]] path` is test code, a file
+ * nested under a directory-style binary (`src/bin/tool/helper.rs`) is a
+ * module of that binary, and a `src/main.rs` the manifest turned off with
+ * `autobins = false` is a module. Without `roots` the conventional paths
+ * decide.
  */
-export function rustFileRole(relativePath, roots = {}) {
+export function rustFileRole(relativePath, roots) {
   const path = String(relativePath ?? '');
-  if (roots.lib && path === roots.lib) return 'lib';
-  if (Array.isArray(roots.bins) && roots.bins.includes(path)) return 'bin';
-  if (path === 'src/lib.rs') return 'lib';
-  if (CONVENTIONAL_BIN.test(path)) return 'bin';
+  if (roots) {
+    if (roots.lib && path === roots.lib) return 'lib';
+    if (Array.isArray(roots.bins) && roots.bins.includes(path)) return 'bin';
+    if (Array.isArray(roots.tests) && roots.tests.includes(path)) return 'test';
+  } else {
+    if (path === 'src/lib.rs') return 'lib';
+    if (CONVENTIONAL_BIN.test(path)) return 'bin';
+  }
   if (path === 'build.rs') return 'build';
   if (/^tests\//.test(path) || /^benches\//.test(path) || /^examples\//.test(path)) return 'test';
   return 'module';
@@ -1062,13 +1132,13 @@ export function rustFileRole(relativePath, roots = {}) {
  * `helper` of the binary `src/bin/tool/main.rs`; `tool/args.rs` is `args`
  * of a declared root `tool/runner.rs`.
  */
-export function rustModulePath(relativePath, roots = {}) {
+export function rustModulePath(relativePath, roots) {
   const path = String(relativePath ?? '');
   if (!/\.rs$/.test(path)) return '';
-  const rootFiles = [roots.lib, ...(Array.isArray(roots.bins) ? roots.bins : [])].filter(Boolean);
-  if (rootFiles.includes(path) || path === 'src/lib.rs' || CONVENTIONAL_BIN.test(path)) return '';
+  const rootFiles = roots ? [roots.lib, ...(Array.isArray(roots.bins) ? roots.bins : [])].filter(Boolean) : [];
+  if (roots ? rootFiles.includes(path) : (path === 'src/lib.rs' || CONVENTIONAL_BIN.test(path))) return '';
   const owners = rootFiles.map((file) => file.replace(/\/[^/]*$/, '')).filter((dir) => dir && path.startsWith(`${dir}/`));
-  const binDir = /^(src\/bin\/[^/]+)\//.exec(path);
+  const binDir = roots ? null : /^(src\/bin\/[^/]+)\//.exec(path);
   if (binDir) owners.push(binDir[1]);
   if (path.startsWith('src/')) owners.push('src');
   if (!owners.length) return '';
@@ -1091,7 +1161,11 @@ export function childModuleFiles(relativePath, name, modulePath = '', pathAttrib
   const parts = String(relativePath ?? '').split('/');
   const file = parts.pop();
   const dir = parts.join('/');
-  const modRs = Boolean(options.root) || file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs' || CONVENTIONAL_BIN.test(String(relativePath ?? ''));
+  // Explicit knowledge of the file's root status wins; without it the
+  // conventional names decide.
+  const modRs = options.root !== undefined
+    ? Boolean(options.root) || file === 'mod.rs'
+    : file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs' || CONVENTIONAL_BIN.test(String(relativePath ?? ''));
   const anchor = modRs ? dir : [dir, file.replace(/\.rs$/, '')].filter(Boolean).join('/');
   // Declared inside inline modules (`mod outer { mod support; }`), the file
   // sits one directory deeper per enclosing module: `src/outer/support.rs`.
@@ -1159,7 +1233,12 @@ export function buildRustInventory(files, readText, options = {}) {
     const matcher = globToRegExp(pattern);
     for (const dir of packageDirs) if (matcher.test(dir) && !memberDirs.includes(dir)) memberDirs.push(dir);
   }
-  const orderedDirs = [...memberDirs, ...packageDirs.filter((dir) => !memberDirs.includes(dir))];
+  // A non-virtual workspace — `rust/Cargo.toml` carrying `[package]` as well
+  // as `[workspace]` — has the root directory (`.`) as a member too, listed
+  // or not, and it comes first.
+  const rootPackage = rootManifest.package.name ? ['.'] : [];
+  const orderedDirs = [...rootPackage, ...memberDirs, ...packageDirs.filter((dir) => !memberDirs.includes(dir))];
+  const crateDirPath = (dir) => (dir === '.' ? root : `${root}/${dir}`);
 
   // Every manifest first, because dependency edges resolve against the
   // members' directories: an entry is internal only when its `path` — its
@@ -1168,10 +1247,10 @@ export function buildRustInventory(files, readText, options = {}) {
   // dependency to a workspace member; a registry dependency that happens to
   // share a member's name (`util = "1"`) stays external, and the table key
   // is never compared with directory names.
-  const manifests = new Map(orderedDirs.map((dir) => [dir, parseCargoManifest(safeRead(readText, `${root}/${dir}/Cargo.toml`))]));
+  const manifests = new Map(orderedDirs.map((dir) => [dir, dir === '.' ? rootManifest : parseCargoManifest(safeRead(readText, `${root}/${dir}/Cargo.toml`))]));
   const packagesByPath = new Map();
   for (const [dir, manifest] of manifests) {
-    if (manifest.package.name) packagesByPath.set(`${root}/${dir}`, manifest.package.name);
+    if (manifest.package.name) packagesByPath.set(crateDirPath(dir), manifest.package.name);
   }
   // An entry written `{ workspace = true }` takes its package and path from
   // the root manifest's `[workspace.dependencies]`, relative to the root.
@@ -1185,7 +1264,7 @@ export function buildRustInventory(files, readText, options = {}) {
 
   const crates = [];
   for (const dir of orderedDirs) {
-    const cratePath = `${root}/${dir}`;
+    const cratePath = crateDirPath(dir);
     const manifest = manifests.get(dir);
     if (!manifest.package.name) continue;
     // Dependency lists by package identity, resolved against the workspace.
@@ -1200,7 +1279,7 @@ export function buildRustInventory(files, readText, options = {}) {
 
     // The crate's sources: every `.rs` under its directory that is not inside
     // a package nested deeper (which Cargo treats as its own package).
-    const nested = orderedDirs.filter((other) => other !== dir && other.startsWith(`${dir}/`)).map((other) => `${root}/${other}/`);
+    const nested = orderedDirs.filter((other) => other !== dir && (dir === '.' || other.startsWith(`${dir}/`))).map((other) => `${crateDirPath(other)}/`);
     const sources = list
       .filter((path) => path.startsWith(`${cratePath}/`) && /\.rs$/.test(path) && !nested.some((prefix) => path.startsWith(prefix)))
       .sort();
@@ -1242,31 +1321,37 @@ export function buildRustInventory(files, readText, options = {}) {
       scans.set(relative, { path, relative, text, role, scan: scanRustSource(text, { testFile: role === 'test' }) });
     }
     const testFiles = new Set([...scans.values()].filter((entry) => entry.role === 'test').map((entry) => entry.relative));
-    const privateFiles = new Set();
+    // Export status is reachability: a target root is exported, and so is a
+    // file an exported file declares with a `pub mod` under `pub` inline
+    // modules. A file nothing declares — stale, generated input, `include!`d
+    // — is unreachable, so its `pub` items are not public API. (A crate root
+    // resolves `mod x;` beside itself; any other file under a directory of
+    // its own name.)
+    const rootFile = (relative) => isTargetRoot(relative, roots) || relative === 'build.rs';
+    const exportedFiles = new Set([...scans.keys()].filter(rootFile));
     let grew = true;
     while (grew) {
       grew = false;
       for (const entry of scans.values()) {
         const parentTest = testFiles.has(entry.relative);
-        const parentPrivate = privateFiles.has(entry.relative);
+        const parentExported = exportedFiles.has(entry.relative);
         for (const item of entry.scan.items) {
           // Out-of-line declarations only: an inline `mod tests { … }` names
           // no file, so a same-named file elsewhere must not inherit from it.
           if (item.kind !== 'mod' || item.inline) continue;
           const childTest = parentTest || item.test;
-          const childPrivate = parentPrivate || !item.exported;
-          const isRoot = entry.role === 'lib' || entry.role === 'bin';
-          for (const candidate of childModuleFiles(entry.relative, item.name, item.module, item.path, { root: isRoot })) {
+          const childExported = parentExported && item.exported;
+          for (const candidate of childModuleFiles(entry.relative, item.name, item.module, item.path, { root: rootFile(entry.relative) })) {
             if (!scans.has(candidate)) continue;
             if (childTest && !testFiles.has(candidate)) { testFiles.add(candidate); grew = true; }
-            if (childPrivate && !privateFiles.has(candidate)) { privateFiles.add(candidate); grew = true; }
+            if (childExported && !exportedFiles.has(candidate)) { exportedFiles.add(candidate); grew = true; }
           }
         }
       }
     }
     for (const entry of scans.values()) {
       const testFile = testFiles.has(entry.relative);
-      const exported = !privateFiles.has(entry.relative);
+      const exported = exportedFiles.has(entry.relative);
       if (testFile !== (entry.role === 'test') || !exported) entry.scan = scanRustSource(entry.text, { testFile, exported });
     }
 
@@ -1303,9 +1388,18 @@ export function buildRustInventory(files, readText, options = {}) {
       addUnsafe(testUnsafeTotal, scan.testUnsafe);
     }
 
-    const unconditional = manifest.dependencySpecs.filter((spec) => spec.table === 'dependencies' && !spec.cfg);
+    // Only an unconditional entry is an edge Cargo always resolves; an
+    // `optional = true` entry is compiled when a feature enables it, so it
+    // is listed apart with the features that do.
+    const declared = manifest.dependencySpecs.filter((spec) => spec.table === 'dependencies' && !spec.cfg);
+    const unconditional = declared.filter((spec) => !spec.optional);
     const internalDeps = unconditional.map((spec) => workspacePackage(cratePath, spec)).filter(Boolean);
     const externalDeps = unconditional.filter((spec) => !workspacePackage(cratePath, spec)).map(identity);
+    const optionalDeps = declared.filter((spec) => spec.optional).map((spec) => ({
+      package: identity(spec),
+      internal: Boolean(workspacePackage(cratePath, spec)),
+      features: enablingFeatures(manifest.featureTable, spec.name)
+    }));
 
     crates.push({
       name: manifest.package.name,
@@ -1314,9 +1408,10 @@ export function buildRustInventory(files, readText, options = {}) {
       description: inherit('description'),
       edition: inherit('edition'),
       version: inherit('version'),
-      dependencies: unconditional.map(identity),
+      dependencies: declared.map(identity),
       internalDependencies: internalDeps,
       externalDependencies: externalDeps,
+      optionalDependencies: optionalDeps,
       devDependencies: listed('dev-dependencies', ''),
       buildDependencies: listed('build-dependencies', ''),
       targetDependencies: manifest.targetDependencies.map((entry) => ({

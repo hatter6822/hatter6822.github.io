@@ -449,6 +449,7 @@
     "rust_external_deps": "外部",
     "rust_target_deps": "在 {{cfg}} 下",
     "rust_dev_deps": "仅测试",
+    "rust_optional_deps": "可选",
     "rust_features": "features",
     "rust_edition": "版本 {{edition}}",
     "rust_test_items_other": "{{count}} 个测试条目",

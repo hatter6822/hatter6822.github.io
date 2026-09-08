@@ -1097,6 +1097,10 @@ the correction.
   to `unsafe` or `testUnsafe` by the innermost enclosing item. On the HAL at
   `dcbd1dd` that is 9 functions, 3 impls and 87 blocks in production code,
   and 0, 4 and 20 in test code.
+  The seventh round found the one shape the per-line regexes could not see:
+  an `unsafe` keyword ending a line with its block, `fn` or `impl` on the
+  next. The scanner keeps that token pending across blank lines and counts
+  the construct that follows.
 - **Test code is decided by the `cfg` predicate.** The first scanner flagged
   any attribute containing the word `test`, so `#[cfg(any(feature =
   "hw_target", test))]` hid a hardware-build constant behind the test
@@ -1131,6 +1135,11 @@ the correction.
   flag; `warn` does not, a `cfg_attr` conditional on a feature or a target
   is not the crate's policy, and a later `#![allow(unsafe_code)]` lifts an
   earlier deny.
+  The seventh round completed the target model: `autobins = false` turns
+  `src/main.rs` off as well as `src/bin/`, as Cargo does, `autolib = false`
+  turns `src/lib.rs` off, and declared `[[test]]`, `[[bench]]` and
+  `[[example]]` paths outside the conventional directories are test roots
+  rather than production modules.
 - **Dependencies resolve by package identity.** The first inventory compared
   a dependency's table key with the workspace's directory names, so a member
   whose directory is not its `[package].name`, or a renamed dependency
@@ -1142,6 +1151,9 @@ the correction.
   registry dependency that shares a member's name (`util = "1"`) stays
   external, which the sixth round found the name-based fallback getting
   wrong. Every list carries package identities.
+  An `optional = true` entry is compiled only when a feature enables it, so
+  it is no unconditional edge: it is listed under `optionalDependencies` with
+  its enabling features and the strip draws nothing for it.
 - **Attributes bind by one rule at every depth.** Four review rounds found
   the same class of defect in four places: attributes were bound at item
   scope by one flag and below it by another, dropped at `=`, discarded with
@@ -1172,6 +1184,9 @@ the correction.
   `tool/runner.rs` is a root rather than a module and its lint speaks for
   the package. Test and export status travel down that resolution, export
   status through the inline modules' own visibility as well.
+  A test crate root (`tests/<name>.rs`, `tests/<name>/main.rs`, a declared
+  `[[test]]` path) resolves `mod common;` beside itself, so the shared
+  `tests/common/mod.rs` idiom is a module of the test crates.
 - **Manifests are read structurally.** The first reader matched Cargo.toml
   line shapes and dropped whatever it did not recognise: a
   `[dependencies.foo]` sub-table, a dotted `foo.path = "…"`, a one-line
@@ -1182,12 +1197,20 @@ the correction.
   root and ordered by `[workspace] members` with globs expanded, then the
   packages the workspace does not list; the first inventory looked one
   directory deep and silently published nothing for a nested member.
+  A non-virtual workspace — `rust/Cargo.toml` carrying `[package]` as well as
+  `[workspace]` — has its root package as a member too, first in order,
+  owning the files no nested package does; the first discovery discarded the
+  root manifest outright.
 - **`items` counts declarations.** `impl` blocks have no name or visibility
   of their own, so they are listed in a file's items but not counted;
   `sele4n-types` drops from 87 "items" to 30 declarations. `publicItems`
   counts items declared `pub` whose enclosing inline modules are all `pub`,
   which is what a reader of the crate can reach; the first scanner ignored
   every item inside an inline module.
+  Export status is reachability: it starts at the target roots and travels
+  only through `pub mod` declarations, so a file nothing declares is
+  unreachable and its `pub` items are not public API — until the seventh
+  round such a file started as exported.
 
 - **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
   tests;` marks only the declaration; the file it names, `src/tests.rs`, is

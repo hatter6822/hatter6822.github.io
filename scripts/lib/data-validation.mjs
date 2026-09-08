@@ -130,6 +130,16 @@ function validateRustInventory(rust, files) {
         if (!isObject(entry) || !isStringArray(entry.names)) errors.push(`${entryLabel}.names must be an array of strings`);
       });
     }
+    if (!Array.isArray(crate.optionalDependencies)) {
+      errors.push(`${label}.optionalDependencies must be an array`);
+    } else {
+      crate.optionalDependencies.forEach((entry, entryIndex) => {
+        const entryLabel = `${label}.optionalDependencies[${entryIndex}]`;
+        if (!entry || typeof entry.package !== 'string' || !entry.package.trim()) errors.push(`${entryLabel}.package must be a non-empty string`);
+        if (!entry || typeof entry.internal !== 'boolean') errors.push(`${entryLabel}.internal must be a boolean`);
+        if (!entry || !isStringArray(entry.features)) errors.push(`${entryLabel}.features must be an array of strings`);
+      });
+    }
     if (Array.isArray(crate.internalDependencies)) {
       for (const dep of crate.internalDependencies) {
         if (!crateNames.has(dep)) errors.push(`${label}.internalDependencies names unknown crate ${dep}`);

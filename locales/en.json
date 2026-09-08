@@ -457,6 +457,7 @@
     "rust_external_deps": "external",
     "rust_target_deps": "under {{cfg}}",
     "rust_dev_deps": "test-only",
+    "rust_optional_deps": "optional",
     "rust_features": "features",
     "rust_edition": "edition {{edition}}",
     "rust_test_items_one": "{{count}} test item",

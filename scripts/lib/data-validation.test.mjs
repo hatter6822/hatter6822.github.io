@@ -374,6 +374,7 @@ function rustInventory(overrides = {}) {
     devDependencies: [],
     buildDependencies: [],
     targetDependencies: [],
+    optionalDependencies: [],
     features: [],
     deniesUnsafe: true,
     files: [file],
@@ -460,6 +461,20 @@ test('validateMapDataObject checks target-scoped dependency tables', () => {
   }
   rust.crates[0].targetDependencies = 'none';
   assert.ok(validateMapDataObject(mapData({ files: RUST_FILES, rust })).some((m) => m.includes('targetDependencies must be an array')));
+});
+
+test('validateMapDataObject checks optional dependencies and their enabling features', () => {
+  const rust = rustInventory();
+  rust.crates[0].optionalDependencies = [{ package: 'serde', internal: false, features: ['std'] }];
+  assert.deepEqual(validateMapDataObject(mapData({ files: RUST_FILES, rust })), []);
+
+  rust.crates[0].optionalDependencies = [{ package: '', internal: 'no', features: 'std' }];
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  for (const fragment of ['optionalDependencies[0].package must be a non-empty string', 'optionalDependencies[0].internal must be a boolean', 'optionalDependencies[0].features must be an array of strings']) {
+    assert.ok(errors.some((m) => m.includes(fragment)), `expected ${fragment}:\n${errors.join('\n')}`);
+  }
+  rust.crates[0].optionalDependencies = undefined;
+  assert.ok(validateMapDataObject(mapData({ files: RUST_FILES, rust })).some((m) => m.includes('optionalDependencies must be an array')));
 });
 
 test('validateMapDataObject rejects crate files the snapshot tree does not list', () => {
