@@ -2080,6 +2080,7 @@ test('normalizeCanonicalPayload scopes the live refresh to production modules', 
   // networked visit disagreed with index.html.
   const normalized = hooks.normalizeCanonicalPayload({
     schema_version: '1.0.0',
+    repository: { head: { commit_sha: 'BB61196FAD5BAA8E189ADE361570F7547B0CFAA6', committed_at_utc: '2026-09-05T15:04:11+00:00' } },
     modules: [
       { module: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean', declarations: [{ kind: 'theorem', name: 'a', line: 1, called: [] }] },
       { module: 'Main', path: 'Main.lean', declarations: [{ kind: 'def', name: 'main', line: 1, called: [] }] },
@@ -2090,6 +2091,11 @@ test('normalizeCanonicalPayload scopes the live refresh to production modules', 
   });
 
   assert.deepEqual(Array.from(normalized.modules).sort(), ['Main', 'SeLe4n.Kernel.API']);
+  // The artifact names its revision as repository.head.commit_sha; a refresh
+  // that lost it blanked the inventory's provenance note.
+  assert.equal(normalized.commitSha, 'bb61196fad5baa8e189ade361570f7547b0cfaa6', 'the graph commit comes from the artifact');
+  const wrapped = hooks.normalizeCanonicalPayload({ main: { schema_version: '1.0.0', repository: { head: { commit_sha: 'a'.repeat(40) } }, modules: [{ module: 'Main', path: 'Main.lean', declarations: [] }] } });
+  assert.equal(wrapped.commitSha, 'a'.repeat(40), 'a wrapped artifact is read the same way');
   // The in-tree testing framework is outside the published scope too.
   for (const testModule of ['Tests.Smoke', 'Tests.Deep', 'SeLe4n.Testing.Helpers']) {
     assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, testModule), `${testModule} must not be graphed`);

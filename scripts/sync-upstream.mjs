@@ -31,7 +31,11 @@
  * Reproducible regeneration: `SELE4N_REF=<40-hex commit>` pins the checkout to
  * that revision instead of the tip of `main`, so a data change can be
  * regenerated and reviewed against one known upstream commit. The snapshot
- * still records `sourceRef: main`; `commitSha` names the exact revision.
+ * still records `sourceRef: main`; `commitSha` names the exact revision. A
+ * pinned run regenerates at the requested revision or not at all: when that
+ * revision's Lean sources are not the ones its bundled artifact describes, the
+ * run fails and names the artifact's generation commit, instead of quietly
+ * checking that commit out the way the unpinned sync recovers.
  *
  * Network shape: one shallow clone, plus one commit fetch on the rare path
  * where upstream has committed Lean changes without regenerating the artifact.
@@ -46,6 +50,7 @@ import { join } from 'node:path';
 import {
   canonicalCrossChecks,
   canonicalMetricsIssues,
+  productionLocReproduction,
   canonicalSourceDigest,
   canonicalSourcePaths,
   productionModules,
@@ -186,6 +191,13 @@ async function acquireInto(work) {
 
   if (digestOf(work, head.files) !== expected) {
     const generatedAt = codebaseMap.repository.head.commit_sha;
+    if (PINNED_COMMIT) {
+      throw new Error(
+        `SELE4N_REF=${PINNED_COMMIT.slice(0, 7)} carries Lean sources its bundled ${METRICS_PATH} does not describe ` +
+        `(source_digest mismatch); that artifact was generated at ${generatedAt.slice(0, 7)}. A pinned sync regenerates ` +
+        `at the requested revision or not at all — pin ${generatedAt.slice(0, 7)} instead, or run unpinned to recover to it.`
+      );
+    }
     console.warn(
       `⚠️  ${REF} carries Lean sources the artifact has not been regenerated for; ` +
       `pinning to ${generatedAt.slice(0, 7)}, the commit it describes.`
@@ -213,6 +225,18 @@ async function acquireInto(work) {
 function buildSiteData(codebaseMap, head, sourceDigest, work) {
   const metrics = siteMetricsFromCodebaseMap(codebaseMap, { lineCount: lineCounter(work) });
   if (metrics.lines === undefined) {
+    // Either the framework files could not be counted, or the physical count
+    // over the artifact's own production files no longer reproduces
+    // production_loc — then the subtraction would mix two counting methods,
+    // and no figure is better than a wrong one.
+    const check = productionLocReproduction(codebaseMap, lineCounter(work));
+    if (check.checked && !check.matches) {
+      throw new Error(
+        `lines could not be projected: readme_sync.production_loc says ${check.stated} but the sources count ` +
+        `${check.counted} physical lines over the artifact's production files, so subtracting the framework files ` +
+        `would mix two counting methods. Upstream must regenerate the artifact.`
+      );
+    }
     throw new Error('lines could not be projected: the framework files to subtract from readme_sync.production_loc were not readable');
   }
   return {

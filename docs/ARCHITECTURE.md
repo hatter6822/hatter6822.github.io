@@ -1054,6 +1054,20 @@ names the exact revision. It exists so a data change can be regenerated and
 reviewed against one known upstream commit; the scheduled sync keeps using
 `main`.
 
+A pinned run regenerates at the requested revision or not at all. The unpinned
+sync recovers from a source-digest mismatch by checking out the commit the
+artifact was generated at; a pinned run that did the same would silently
+produce a snapshot of a different revision while its log said `(SELE4N_REF)`,
+which a reviewer of the pin would take at face value. It fails instead and
+names the generation commit to pin.
+
+The `lines` subtraction has the same discipline. `productionLocReproduction`
+checks that a physical count over the artifact's own production files
+reproduces `production_loc`; when it does not, the two figures come from
+different methods, `siteMetricsFromCodebaseMap` withholds `lines`, and the
+sync refuses to publish with a message naming both numbers. The first
+re-landing only warned and published the mixed figure.
+
 ## Rust crate inventory in the map snapshot (0.30.0)
 
 The canonical artifact inventories Lean and nothing else, so the code map's
@@ -1108,6 +1122,16 @@ the correction.
   counts items declared `pub` whose enclosing inline modules are all `pub`,
   which is what a reader of the crate can reach; the first scanner ignored
   every item inside an inline module.
+
+- **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
+  tests;` marks only the declaration; the file it names, `src/tests.rs`, is
+  an ordinary module by path. `buildRustInventory` resolves such declarations
+  the way rustc does (`childModuleFiles`), closes the set under the modules
+  those files declare, and rescans them as test code, so their helpers,
+  impls and `unsafe` sites are counted apart from production.
+- **`const _: () = assert!(…)` is anonymous.** `_` is not a name; the
+  assertion is neither listed nor counted. The first snapshot carried 37
+  items named `_`, 33 of them counted as production declarations.
 
 The scanner remains a line scanner, not a parser: it reads one item header
 per line after comments and strings are blanked, skips bodies by brace depth,
@@ -1251,7 +1275,12 @@ the section: a canonical refresh arrives with `files[]` reduced to Lean module
 paths, and no refresh ever carries a Rust inventory. `retainInventory()` keeps
 the previous tree and crates in those cases and records the commit each was
 taken at, and the section says so when it differs from the module graph's
-commit.
+commit. The artifact names its own revision as `repository.head.commit_sha`
+and has no top-level `commitSha`, so a live canonical refresh once cleared
+`state.commitSha` and the note went blank in exactly the mixed-snapshot case
+it exists for; `normalizeCanonicalPayload` now adopts the artifact's revision,
+and the note states the inventory's own revisions even when the graph's is
+unknown.
 
 Both sections are rebuilt from scratch by `renderInventory()` on every live
 refresh and locale switch, and on a networked visit the refresh lands a few

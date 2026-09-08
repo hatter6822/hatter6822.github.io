@@ -248,7 +248,9 @@ function visibilityOf(head) {
 
 function nameAfter(rest) {
   const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)/.exec(rest);
-  return match ? match[1] : '';
+  // `const _: () = assert!(…)` is an anonymous compile-time assertion, not a
+  // nameable declaration: it is neither listed nor counted.
+  return match && match[1] !== '_' ? match[1] : '';
 }
 
 /**
@@ -593,6 +595,21 @@ export function rustModulePath(relativePath) {
   return parts.join('::');
 }
 
+/**
+ * Where an out-of-line module declared in `relativePath` may live: `mod x;`
+ * in `src/lib.rs`, `src/main.rs` or a `mod.rs` resolves next to the declaring
+ * file; in any other file it resolves inside that file's own directory
+ * (`src/foo.rs` → `src/foo/x.rs`). `#[path]` overrides are not followed.
+ */
+export function childModuleFiles(relativePath, name) {
+  const parts = String(relativePath ?? '').split('/');
+  const file = parts.pop();
+  const dir = parts.join('/');
+  const anchor = file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs' ? dir : [dir, file.replace(/\.rs$/, '')].filter(Boolean).join('/');
+  const base = anchor ? `${anchor}/` : '';
+  return [`${base}${name}.rs`, `${base}${name}/mod.rs`];
+}
+
 function addUnsafe(total, counts) {
   total.fns += counts.fns;
   total.impls += counts.impls;
@@ -659,11 +676,39 @@ export function buildRustInventory(files, readText, options = {}) {
     const testUnsafeTotal = emptyUnsafe();
     let deniesUnsafe = false;
 
+    // First pass: every source by its path role. Then resolve out-of-line
+    // modules declared under a test-only attribute (`#[cfg(test)] mod tests;`
+    // in the crate root, `src/tests.rs` on disk): the path rule calls such a
+    // file an ordinary module, but everything in it is test code, as is
+    // everything in the modules it declares in turn — so the set is closed
+    // under declaration before those files are rescanned as test code.
+    const scans = new Map();
     for (const path of sources) {
       const relative = path.slice(cratePath.length + 1);
       const text = safeRead(readText, path);
       const role = rustFileRole(relative);
-      const scan = scanRustSource(text, { testFile: role === 'test' });
+      scans.set(relative, { path, relative, text, role, scan: scanRustSource(text, { testFile: role === 'test' }) });
+    }
+    const testFiles = new Set([...scans.values()].filter((entry) => entry.role === 'test').map((entry) => entry.relative));
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const entry of scans.values()) {
+        for (const item of entry.scan.items) {
+          if (item.kind !== 'mod' || !(item.test || testFiles.has(entry.relative))) continue;
+          for (const candidate of childModuleFiles(entry.relative, item.name)) {
+            if (scans.has(candidate) && !testFiles.has(candidate)) { testFiles.add(candidate); grew = true; }
+          }
+        }
+      }
+    }
+    for (const relative of testFiles) {
+      const entry = scans.get(relative);
+      if (entry.role !== 'test') entry.scan = scanRustSource(entry.text, { testFile: true });
+    }
+
+    for (const entry of scans.values()) {
+      const { path, relative, text, role, scan } = entry;
       if (relative === crateRoot && /^\s*#!\[(?:deny|forbid)\(unsafe_code\)\]/m.test(text)) deniesUnsafe = true;
       const items = scan.items.map((item) => ({
         kind: item.kind,

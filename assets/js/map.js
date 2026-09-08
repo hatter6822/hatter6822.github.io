@@ -3479,8 +3479,17 @@
     var graphCommit = (state.commitSha || "").slice(0, 7);
     var treeCommit = (state.inventoryCommit || state.commitSha || "").slice(0, 7);
     var rustCommit = (state.rustCommit || treeCommit || "").slice(0, 7);
-    if (!graphCommit) {
+    if (!graphCommit && !treeCommit) {
       note.textContent = "";
+      return;
+    }
+    if (!graphCommit) {
+      /* The graph's revision is unknown (a refresh that named none); the
+         inventory's own revisions are still worth stating — this is the mixed
+         snapshot the note exists to disclose. */
+      note.textContent = (!state.rust || rustCommit === treeCommit)
+        ? (t("map.inventory_at", { commit: treeCommit }) || ("Inventory at seLe4n commit " + treeCommit + "."))
+        : (t("map.inventory_sources", { tree: treeCommit, rust: rustCommit }) || ("File inventory from commit " + treeCommit + ", Rust inventory from " + rustCommit + "."));
       return;
     }
     if (treeCommit === graphCommit && (!state.rust || rustCommit === graphCommit)) {
@@ -3625,7 +3634,7 @@
         var stats = document.createElement("span");
         stats.className = "inventory-module-stats";
         var theorems = (state.moduleMeta[moduleName] || {}).theorems || 0;
-        stats.textContent = formatCount(theorems) + " thm";
+        stats.textContent = t("map.theorems_short", { count: theorems }) || (formatCount(theorems) + " thm");
         li.appendChild(stats);
         fragment.appendChild(li);
       }
@@ -3932,7 +3941,7 @@
     if (crate.features && crate.features.length) {
       factParts.push((t("map.rust_features") || "features") + " " + crate.features.join(", "));
     }
-    if (crate.edition) factParts.push("edition " + crate.edition);
+    if (crate.edition) factParts.push(t("map.rust_edition", { edition: crate.edition }) || ("edition " + crate.edition));
     if (crate.testItems) factParts.push(t("map.rust_test_items", { count: crate.testItems }) || pluralEn(crate.testItems, "test item", "test items"));
     facts.textContent = factParts.join(" · ");
     card.appendChild(facts);
@@ -4062,7 +4071,7 @@
       if (item.module) {
         var scope = document.createElement("span");
         scope.className = "rust-item-scope";
-        scope.textContent = "in " + item.module;
+        scope.textContent = t("map.rust_item_in", { module: item.module }) || ("in " + item.module);
         li.appendChild(scope);
       }
       if (item.visibility !== "pub") {
@@ -5011,9 +5020,27 @@
       return best;
     }
 
+    /* The artifact names its own revision as repository.head.commit_sha; it
+       has no top-level commitSha, so without this a live refresh cleared
+       state.commitSha and the inventory's provenance note went blank. */
+    function canonicalCommitOf(input) {
+      if (!input || typeof input !== "object") return "";
+      var candidates = [input];
+      for (var key in input) {
+        if (Object.prototype.hasOwnProperty.call(input, key) && input[key] && typeof input[key] === "object") candidates.push(input[key]);
+      }
+      for (var i = 0; i < candidates.length; i++) {
+        var head = candidates[i].repository && candidates[i].repository.head;
+        var sha = head && typeof head.commit_sha === "string" ? head.commit_sha.trim() : "";
+        if (/^[0-9a-f]{40}$/i.test(sha)) return sha.toLowerCase();
+      }
+      return "";
+    }
+
     var canonicalPayload = extractCanonicalMapPayload(payload);
     var normalized = normalizeMapData(canonicalPayload, { requireModulesArray: true });
     if (!normalized) throw new Error("Canonical map payload invalid");
+    if (!normalized.commitSha) normalized.commitSha = canonicalCommitOf(payload) || canonicalCommitOf(canonicalPayload) || "";
     if (!normalized.generatedAt) normalized.generatedAt = fallbackGeneratedAt || new Date().toISOString();
     return normalized;
   }

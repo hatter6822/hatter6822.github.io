@@ -5,6 +5,7 @@ import {
   RUST_COUNTED_KINDS,
   buildRustInventory,
   cfgIsTestOnly,
+  childModuleFiles,
   parseCargoManifest,
   rustFileRole,
   rustModulePath,
@@ -264,6 +265,54 @@ test('scanRustSource counts public items only where every enclosing module is pu
   ].join('\n'));
   assert.equal(scan.productionItems, 11);
   assert.equal(scan.publicItems, 5, 'args, decode, nested, N and Api; not the items under private modules, not pub(crate)');
+});
+
+test('scanRustSource neither lists nor counts anonymous const assertions', () => {
+  const scan = scanRustSource([
+    'const _: () = assert!(core::mem::size_of::<u64>() == 8);',
+    'const _: () = assert!(',
+    '    core::mem::align_of::<u64>() == 8,',
+    '    "alignment",',
+    ');',
+    'pub const REAL: u8 = 1;',
+    'const _: () = { assert!(true) };',
+    'pub fn after() {}'
+  ].join('\n'));
+  assert.deepEqual(scan.items.map((item) => item.name), ['REAL', 'after'], '`_` is not a name');
+  assert.equal(scan.productionItems, 2);
+  assert.equal(scan.publicItems, 2);
+});
+
+test('childModuleFiles resolves an out-of-line module the way rustc does', () => {
+  assert.deepEqual(childModuleFiles('src/lib.rs', 'tests'), ['src/tests.rs', 'src/tests/mod.rs']);
+  assert.deepEqual(childModuleFiles('src/main.rs', 'cli'), ['src/cli.rs', 'src/cli/mod.rs']);
+  assert.deepEqual(childModuleFiles('src/args/mod.rs', 'tcb'), ['src/args/tcb.rs', 'src/args/tcb/mod.rs']);
+  assert.deepEqual(childModuleFiles('src/tests.rs', 'support'), ['src/tests/support.rs', 'src/tests/support/mod.rs'], 'a non-mod.rs file owns a directory of its own name');
+  assert.deepEqual(childModuleFiles('src/bin/oracle.rs', 'ops'), ['src/bin/oracle/ops.rs', 'src/bin/oracle/ops/mod.rs']);
+});
+
+test('buildRustInventory scans an out-of-line #[cfg(test)] module and its submodules as test code', () => {
+  const tree = {
+    'rust/Cargo.toml': '[workspace]\nmembers = ["sele4n-hal"]\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n',
+    'rust/sele4n-hal/Cargo.toml': '[package]\nname = "sele4n-hal"\nversion.workspace = true\nedition.workspace = true\n',
+    'rust/sele4n-hal/src/lib.rs': '#![allow(unsafe_code)]\npub mod mmu;\n#[cfg(test)]\nmod tests;\npub fn prod() {}\n',
+    'rust/sele4n-hal/src/mmu.rs': 'pub unsafe fn map() { unsafe { } }\n',
+    'rust/sele4n-hal/src/tests.rs': 'mod support;\npub fn helper() { unsafe { } }\nunsafe impl Sync for Shared {}\n#[test]\nfn t() {}\n',
+    'rust/sele4n-hal/src/tests/support.rs': 'pub const FIXTURE: u8 = 1;\npub struct Shared(u8);\n'
+  };
+  const inventory = buildRustInventory(Object.keys(tree), (path) => tree[path]);
+  const hal = inventory.crates[0];
+  const byPath = Object.fromEntries(hal.files.map((file) => [file.relativePath, file]));
+  assert.equal(byPath['src/tests.rs'].role, 'module', 'the path rule alone calls it an ordinary module');
+  assert.deepEqual(byPath['src/tests.rs'].items.map((item) => [item.name, item.test === true]), [['support', true], ['helper', true], ['Sync for Shared', true], ['t', true]], 'everything in the declared test module is test code, #[test] or not');
+  assert.deepEqual(byPath['src/tests/support.rs'].items.map((item) => [item.name, item.test === true]), [['FIXTURE', true], ['Shared', true]], 'a module the test module declares is test code too');
+  assert.deepEqual(byPath['src/tests.rs'].unsafe, { fns: 0, impls: 0, blocks: 0 });
+  assert.deepEqual(byPath['src/tests.rs'].testUnsafe, { fns: 0, impls: 1, blocks: 1 }, 'unsafe sites in the test module are test sites');
+  assert.deepEqual(byPath['src/mmu.rs'].unsafe, { fns: 1, impls: 0, blocks: 1 }, 'a production module is untouched');
+  assert.equal(hal.items, 3, 'mmu, map and prod');
+  assert.equal(hal.testItems, 7, 'the tests declaration, four items in tests.rs, two in support.rs');
+  assert.deepEqual(hal.unsafe, { fns: 1, impls: 0, blocks: 1 });
+  assert.deepEqual(hal.testUnsafe, { fns: 0, impls: 1, blocks: 1 });
 });
 
 test('scanRustSource treats an integration-test file as test code throughout', () => {

@@ -149,7 +149,14 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   sentence whenever the figures are shown without it.
 - `SELE4N_REF=<40-hex commit> node scripts/sync-upstream.mjs` regenerates the
   snapshots at a pinned upstream revision, so a data change can be reviewed
-  against one known commit. The snapshot still records `sourceRef: main`.
+  against one known commit. The snapshot still records `sourceRef: main`. A
+  pinned run regenerates at that revision or not at all: on a source-digest
+  mismatch it fails and names the artifact's generation commit, instead of
+  checking that commit out the way the unpinned sync recovers.
+- `lines` is published only while a physical count over the artifact's own
+  production files reproduces `production_loc` (`productionLocReproduction`);
+  otherwise the subtraction would mix two counting methods and the sync
+  refuses to publish rather than quote a wrong figure.
 - Theorem counts come from the artifact's comment-aware `modules[].declarations`
   inventory, **not** from `readme_sync.proved_theorem_lemma_decls`. That field is
   a bare per-line regex: on the current artifact it counts 78 prose lines inside
@@ -235,6 +242,9 @@ visually secondary (closed `<details>`, muted chrome).
   keeps the previous tree and crates in that case and records the commit each
   was taken at, so the inventory sections do not empty out on a networked
   visit.
+- A canonical refresh names its revision as `repository.head.commit_sha`;
+  `normalizeCanonicalPayload` adopts it as `commitSha`, and the provenance
+  note states the inventory's own revisions even when the graph's is unknown.
 - `renderInventory()` rebuilds both sections from scratch, on every live
   refresh and locale switch, so it captures the open state of every
   `<details>` (`data-open-key`) first and re-applies it after. Never rebuild
@@ -284,6 +294,12 @@ statistic**; the landing page stays canonical-or-absent.
 - **`deniesUnsafe` is read from the crate root only** (`src/lib.rs`, or
   `src/main.rs` for a binary-only package). A lint in a `src/bin/*.rs` target
   speaks for that binary, not for the library.
+- **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
+  tests;` resolves to `src/tests.rs` or `src/tests/mod.rs`
+  (`childModuleFiles`, rustc's rule), that file is rescanned as test code, and
+  so is every module it declares in turn.
+- **`const _: () = assert!(…)` is anonymous**: neither listed nor counted. The
+  first snapshot carried 37 items named `_`.
 - `validate-data.mjs` reconciles every crate total with its per-file lists,
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.

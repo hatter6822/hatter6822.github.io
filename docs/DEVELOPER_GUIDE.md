@@ -357,7 +357,9 @@ The site's production scope also lives here: `isArtifactProductionModule`
 (outside `tests/`), `isProductionModule` (also outside `SeLe4n/Testing/`),
 `artifactProductionModules`, `productionModules`, `excludedFrameworkModules`,
 and the `lines` subtraction in `siteMetricsFromCodebaseMap` driven by the
-`lineCount` option the sync script supplies.
+`lineCount` option the sync script supplies, guarded by
+`productionLocReproduction`: `lines` is withheld unless the physical count
+reproduces `production_loc` over the artifact's own files.
 
 ### `scripts/lib/lean-analysis.mjs`
 Lean source parsing. Two roles:
@@ -377,10 +379,12 @@ between production and test code; line counts), `cfgIsTestOnly` (a `cfg`
 predicate is test-only for `test` and `all(test, …)`, not for `not(test)` or
 `any(test, feature = "…")`), `parseCargoManifest` (package fields, workspace
 inheritance, dependency tables with target-scoped tables kept apart, features,
-`[[bin]]`), `rustFileRole` / `rustModulePath`, and `buildRustInventory`, which
-assembles the crates in workspace order from a file list and a reader. Not a
-Rust parser; it lists a crate's surface the way a rustdoc sidebar does, one
-item header per line.
+`[[bin]]`), `rustFileRole` / `rustModulePath`, `childModuleFiles` (rustc's
+rule for where `mod x;` lives), and `buildRustInventory`, which assembles the
+crates in workspace order from a file list and a reader, rescanning
+out-of-line `#[cfg(test)]` modules and their submodules as test code. Anonymous
+`const _` assertions are not items. Not a Rust parser; it lists a crate's
+surface the way a rustdoc sidebar does, one item header per line.
 
 ### `scripts/lib/data-validation.mjs`
 Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal to per-file sums for items, test items, lines and both `unsafe` counters, target-scoped dependency tables).

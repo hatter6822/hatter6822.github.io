@@ -414,6 +414,29 @@ export function admittedCountFromCodebaseMap(codebaseMap) {
  * one method. Without `lineCount`, `lines` is omitted rather than published
  * over the wrong scope.
  */
+/**
+ * Does a physical line count over the artifact's own production files
+ * reproduce `readme_sync.production_loc`? The site publishes `lines` as
+ * `production_loc` minus the framework files' physical lines, which is sound
+ * only while both figures come from the same method; when they stop agreeing
+ * the metric is withheld rather than published over mixed methods.
+ *
+ * Returns `{ checked, matches, counted, stated }`: `checked` is false when
+ * there is no line counter, no `production_loc`, or an unreadable file.
+ */
+export function productionLocReproduction(codebaseMap, lineCount) {
+  const stated = positiveInteger(codebaseMap?.readme_sync?.production_loc);
+  const counter = typeof lineCount === 'function' ? lineCount : null;
+  if (!counter || stated === undefined) return { checked: false, matches: false, counted: undefined, stated };
+  let counted = 0;
+  for (const moduleInfo of artifactProductionModules(codebaseMap)) {
+    const count = positiveInteger(counter(moduleInfo.path));
+    if (count === undefined) return { checked: false, matches: false, counted: undefined, stated };
+    counted += count;
+  }
+  return { checked: true, matches: counted === stated, counted, stated };
+}
+
 export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
   const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
   if (!map) return {};
@@ -439,7 +462,10 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
     const excluded = excludedFrameworkModules(map);
     if (!excluded.length) {
       metrics.lines = productionLoc;
-    } else if (lineCount) {
+    } else if (lineCount && productionLocReproduction(map, lineCount).matches) {
+      // Subtract only when the same count reproduces production_loc over the
+      // artifact's own files; otherwise `lines` stays absent and the sync
+      // refuses to publish (see productionLocReproduction).
       let subtracted = 0;
       let complete = true;
       for (const moduleInfo of excluded) {
@@ -486,19 +512,9 @@ export function canonicalCrossChecks(codebaseMap, options = {}) {
   // `lines` is published as production_loc minus the framework files, so the
   // mechanical count must reproduce production_loc over the artifact's scope —
   // otherwise the anchor and the subtraction would use different methods.
-  const lineCount = typeof options?.lineCount === 'function' ? options.lineCount : null;
-  const statedLoc = positiveInteger(sync.production_loc);
-  if (lineCount && statedLoc !== undefined) {
-    let counted = 0;
-    let complete = true;
-    for (const moduleInfo of artifactProductionModules(codebaseMap)) {
-      const count = positiveInteger(lineCount(moduleInfo.path));
-      if (count === undefined) { complete = false; break; }
-      counted += count;
-    }
-    if (complete && counted !== statedLoc) {
-      notes.push(`readme_sync.production_loc says ${statedLoc}; the sources at this revision count ${counted} physical lines over the same files`);
-    }
+  const reproduction = productionLocReproduction(codebaseMap, options?.lineCount);
+  if (reproduction.checked && !reproduction.matches) {
+    notes.push(`readme_sync.production_loc says ${reproduction.stated}; the sources at this revision count ${reproduction.counted} physical lines over the same files — lines is withheld until the artifact is regenerated`);
   }
 
   // Same principle for theorems: the regex tally covers the artifact's own

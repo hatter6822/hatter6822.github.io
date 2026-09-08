@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
 import {
+  productionLocReproduction,
   admittedCountFromCodebaseMap,
   artifactProductionModules,
   canonicalCrossChecks,
@@ -178,6 +179,17 @@ test('siteMetricsFromCodebaseMap subtracts the framework files from production_l
   const unreadable = siteMetricsFromCodebaseMap(map, { lineCount: () => undefined });
   assert.equal('lines' in unreadable, false, 'an unreadable framework file omits lines too');
 
+  // The subtraction mixes two methods unless the physical count reproduces
+  // production_loc over the artifact's own files; then lines is withheld.
+  map.readme_sync.production_loc = 999;
+  const mixed = siteMetricsFromCodebaseMap(map, { lineCount });
+  assert.equal('lines' in mixed, false, 'production_loc 999 against 1000 counted lines: lines is withheld, not 999 - 120');
+  assert.deepEqual(productionLocReproduction(map, lineCount), { checked: true, matches: false, counted: 1000, stated: 999 });
+  map.readme_sync.production_loc = 1000;
+  assert.deepEqual(productionLocReproduction(map, lineCount), { checked: true, matches: true, counted: 1000, stated: 1000 });
+  assert.equal(productionLocReproduction(map, null).checked, false, 'no counter, no check');
+  assert.equal(productionLocReproduction(map, () => undefined).checked, false, 'an unreadable file leaves the check open');
+
   // With nothing to exclude, production_loc is published as is and needs no sources.
   assert.equal(siteMetricsFromCodebaseMap(canonicalMap()).lines, 330569);
 });
@@ -196,7 +208,7 @@ test('canonicalCrossChecks reads the artifact against its own scope and checks t
   map.readme_sync.production_loc = 999;
   const notes = canonicalCrossChecks(map, { lineCount });
   assert.equal(notes.length, 1);
-  assert.match(notes[0], /production_loc says 999; the sources at this revision count 1000 physical lines/);
+  assert.match(notes[0], /production_loc says 999; the sources at this revision count 1000 physical lines over the same files — lines is withheld/);
 
   assert.deepEqual(canonicalCrossChecks(map), [], 'without a line counter the line method is not checked');
 });
