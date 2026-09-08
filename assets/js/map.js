@@ -3162,9 +3162,23 @@
     return "other";
   }
 
+  /* The crate whose directory holds a path, from the snapshot's crate list
+     (longest path wins, so a package nested inside another is its own). */
+  function owningCrate(path, crates) {
+    var list = Array.isArray(crates) ? crates : [];
+    var best = null;
+    for (var i = 0; i < list.length; i++) {
+      var dir = list[i] && typeof list[i].path === "string" ? list[i].path : "";
+      if (dir && path.indexOf(dir + "/") === 0 && (!best || dir.length > best.path.length)) best = list[i];
+    }
+    return best;
+  }
+
   /* Where a repository path belongs in the inventory: one of the six groups,
-     and a subgroup within it (a Lean subsystem, a Rust crate, a directory). */
-  function classifyRepositoryPath(path) {
+     and a subgroup within it (a Lean subsystem, a Rust crate, a directory).
+     `crates` is the snapshot's crate list, so a crate's files are grouped by
+     the crate that owns them wherever it sits (a nested member included). */
+  function classifyRepositoryPath(path, crates) {
     var p = String(path || "").replace(/^\/+/, "");
     var parts = p.split("/");
     var top = parts.length > 1 ? parts[0] : "";
@@ -3181,6 +3195,13 @@
          Cargo's layout — the scanner files them under role "test" — so they
          belong with the tests, not the production sources. The runtime test
          checks this agrees with the bundled snapshot's roles, file by file. */
+      var owner = owningCrate(p, crates);
+      if (owner) {
+        var relative = p.slice(owner.path.length + 1);
+        var testDir = /^(tests|benches|examples)\//.exec(relative);
+        if (testDir) return { group: "tests", subgroup: owner.path + "/" + testDir[1] };
+        return { group: "rust", subgroup: owner.path.slice(top.length + 1) };
+      }
       if (parts.length > 3 && /^(tests|benches|examples)$/.test(parts[2])) {
         return { group: "tests", subgroup: "rust/" + parts[1] + "/" + parts[2] };
       }
@@ -3206,7 +3227,7 @@
     return { group: "project", subgroup: top || "repository root" };
   }
 
-  function buildRepositoryInventory(files, moduleMap) {
+  function buildRepositoryInventory(files, moduleMap, crates) {
     var groups = Object.create(null);
     for (var o = 0; o < REPOSITORY_GROUP_ORDER.length; o++) {
       var id = REPOSITORY_GROUP_ORDER[o];
@@ -3221,7 +3242,7 @@
     for (var i = 0; i < list.length; i++) {
       var path = String(list[i] || "");
       if (!path) continue;
-      var cls = classifyRepositoryPath(path);
+      var cls = classifyRepositoryPath(path, crates);
       var group = groups[cls.group] || groups.project;
       var sub = group.subgroups[cls.subgroup];
       if (!sub) {
@@ -3525,7 +3546,7 @@
       container.appendChild(empty);
       return;
     }
-    var inventory = buildRepositoryInventory(state.files, state.moduleMap);
+    var inventory = buildRepositoryInventory(state.files, state.moduleMap, state.rust && state.rust.crates);
     var fragment = document.createDocumentFragment();
     for (var i = 0; i < inventory.length; i++) {
       if (!inventory[i].count) continue;

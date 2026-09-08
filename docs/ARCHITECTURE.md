@@ -1116,8 +1116,14 @@ the correction.
   `externalDependencies` covers unconditional tables only.
 - **`deniesUnsafe` is read from the crate root.** A `#![deny(unsafe_code)]`
   in a `src/bin/*.rs` target speaks for that binary, which is its own crate,
-  not for the library; only `src/lib.rs` (or `src/main.rs` for a binary-only
-  package) sets the flag. The lint is parsed, not matched as one spelling:
+  not for the library; the library root (`[lib] path`, else `src/lib.rs`)
+  or, for a package without one, its first binary root sets the flag, and
+  `cargoTargets` finds those roots the way Cargo does: `src/main.rs`, the
+  `[[bin]]` paths, then the conventional `src/bin/<name>.rs` and
+  `src/bin/<name>/main.rs` targets unless `autobins = false`. The sixth
+  review round found both halves of that: `src/bin/` matched every nested
+  file as a root, and a conventional binary never entered the root set, so
+  its lint went unread. The lint is parsed, not matched as one spelling:
   `crateDeniesUnsafe` reads the crate's inner attributes in order and splits
   their argument lists, so `#![deny( unsafe_code )]`, `#![deny(dead_code,
   unsafe_code)]`, a multi-line list, `#![forbid(unsafe_code)]` and a
@@ -1130,9 +1136,12 @@ the correction.
   whose directory is not its `[package].name`, or a renamed dependency
   (`alias = { package = "sele4n-types", path = … }`), would have been an
   external crate. `buildRustInventory` reads every member manifest first and
-  classifies an entry as internal when its package (the key, or the
-  `package` field when renamed) is a member's name or its `path` resolves to
-  a member's directory; every list carries package identities.
+  classifies an entry as internal only when its `path` — its own, or the one
+  it inherits through `[workspace.dependencies]` — resolves to a member's
+  directory, which is the one way Cargo resolves a dependency to a member; a
+  registry dependency that shares a member's name (`util = "1"`) stays
+  external, which the sixth round found the name-based fallback getting
+  wrong. Every list carries package identities.
 - **Attributes bind by one rule at every depth.** Four review rounds found
   the same class of defect in four places: attributes were bound at item
   scope by one flag and below it by another, dropped at `=`, discarded with
@@ -1155,10 +1164,11 @@ the correction.
   module (`mod outer { mod x; }` is `outer/x.rs`), or to the file a
   `#[path = "…"]` names; an inline `mod x { … }` names no file, so a
   same-named file elsewhere inherits nothing from it. A crate root —
-  `src/lib.rs`, `src/main.rs`, a `src/bin/*.rs` binary, or a root the
-  manifest declares with `[lib] path` or `[[bin]] path` — owns the directory
-  it sits in, as a `mod.rs` does; any other file owns a directory of its own
-  name. The roots come from the manifest first, so a binary at
+  `src/lib.rs`, `src/main.rs`, a `src/bin/<name>.rs` or `src/bin/<name>/main.rs`
+  binary, or a root the manifest declares with `[lib] path` or `[[bin]]
+  path` — owns the directory it sits in, as a `mod.rs` does; any other file,
+  a directory-style binary's nested module included, owns a directory of
+  its own name. The roots come from the manifest first, so a binary at
   `tool/runner.rs` is a root rather than a module and its lint speaks for
   the package. Test and export status travel down that resolution, export
   status through the inline modules' own visibility as well.
@@ -1168,7 +1178,10 @@ the correction.
   `members = ["a", "b"]`. `parseToml` now reads the TOML subset Cargo uses
   into an object and `parseCargoManifest` takes its facts from that,
   resolving `{ workspace = true }` entries through the root manifest's
-  `[workspace.dependencies]`.
+  `[workspace.dependencies]`. Packages are discovered at any depth under the
+  root and ordered by `[workspace] members` with globs expanded, then the
+  packages the workspace does not list; the first inventory looked one
+  directory deep and silently published nothing for a nested member.
 - **`items` counts declarations.** `impl` blocks have no name or visibility
   of their own, so they are listed in a file's items but not counted;
   `sele4n-types` drops from 87 "items" to 30 declarations. `publicItems`
@@ -1353,10 +1366,13 @@ The Tests group and the scanner's `test` role describe one scope. The first
 inventory filed every path under `rust/` as production Rust, so the crates'
 integration tests appeared under "Production Rust" while the Tests group
 omitted them, although the crate cards listed the same files as test code.
-`classifyRepositoryPath()` now files `rust/<crate>/{tests,benches,examples}/`
-under Tests, as `rustFileRole()` does, and the Lean groups follow
-`isProductionModule`; `map-runtime.test.mjs` checks both against every file
-of the bundled snapshot.
+`classifyRepositoryPath()` now takes the snapshot's crate list and groups a
+file by the crate whose directory owns it, filing that crate's `tests/`,
+`benches/` and `examples/` under Tests as `rustFileRole()` does — so a nested
+member groups correctly too — with the conventional `rust/<crate>/` path as
+the fallback; the Lean groups follow `isProductionModule`.
+`map-runtime.test.mjs` checks both against every file of the bundled
+snapshot, with and without the crate list.
 
 Both sections are rebuilt from scratch by `renderInventory()` on every live
 refresh and locale switch, and on a networked visit the refresh lands a few

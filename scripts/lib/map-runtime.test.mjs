@@ -2513,8 +2513,9 @@ test('the inventory groups agree with the scanner roles and the published Lean s
   for (const crate of data.rust.crates) {
     for (const file of crate.files) {
       crateFiles += 1;
-      const group = hooks.classifyRepositoryPath(file.path).group;
+      const group = hooks.classifyRepositoryPath(file.path, data.rust.crates).group;
       assert.equal(group, file.role === 'test' ? 'tests' : 'rust', `${file.path} has role ${file.role}`);
+      assert.equal(hooks.classifyRepositoryPath(file.path).group, group, `${file.path} groups the same way without the crate list`);
     }
   }
   assert.ok(crateFiles > 60, 'the snapshot lists the crate files');
@@ -2526,4 +2527,14 @@ test('the inventory groups agree with the scanner roles and the published Lean s
     assert.equal(group === 'lean', isProductionModule({ path: filePath }), `${filePath} is grouped as ${group}`);
   }
   assert.ok(leanFiles > 300, 'the snapshot lists the Lean files');
+});
+
+test('classifyRepositoryPath groups a nested member by the crate that owns its files', async () => {
+  const hooks = await loadMapTestHooks();
+  const crates = [{ name: 'app', path: 'rust/crates/app' }, { name: 'inner', path: 'rust/crates/app/inner' }];
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/crates/app/src/lib.rs', crates) }, { group: 'rust', subgroup: 'crates/app' });
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/crates/app/tests/smoke.rs', crates) }, { group: 'tests', subgroup: 'rust/crates/app/tests' });
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/crates/app/inner/benches/b.rs', crates) }, { group: 'tests', subgroup: 'rust/crates/app/inner/benches' }, 'the deepest crate owns the file');
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/Cargo.toml', crates) }, { group: 'rust', subgroup: 'workspace' });
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/sele4n-abi/tests/conformance.rs') }, { group: 'tests', subgroup: 'rust/sele4n-abi/tests' }, 'the conventional layout needs no crate list');
 });

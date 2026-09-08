@@ -242,7 +242,10 @@ visually secondary (closed `<details>`, muted chrome).
 - The inventory's Tests group and the scanner's `test` role are one scope:
   `rust/<crate>/{tests,benches,examples}/` is test code in
   `classifyRepositoryPath()` as it is in `rustFileRole()`, and the Lean groups
-  follow `isProductionModule`. `map-runtime.test.mjs` checks both against
+  follow `isProductionModule`. The classifier takes the snapshot's crate list
+  and groups a file by the crate whose directory owns it (the deepest one), so
+  a nested member groups correctly; the conventional `rust/<crate>/` path is
+  the fallback without a list. `map-runtime.test.mjs` checks both against
   every file of the bundled snapshot, so the two definitions cannot drift.
 - Content sets a card's height: `.rust-crate-grid` is `align-items: start`
   and `.rust-crate-files` is bounded (`max-height`, scrolls inside the card).
@@ -309,21 +312,28 @@ statistic**; the landing page stays canonical-or-absent.
   never as an external dependency: the HAL's `loom` enters no ordinary build.
 - **`deniesUnsafe` is read from the crate root only**: the library root
   (`[lib] path`, else `src/lib.rs`) or, for a package without one, its first
-  binary root (`src/main.rs`, else the first `[[bin]] path`). A lint in a
-  `src/bin/*.rs` target speaks for that binary, not for the library.
+  binary root — `src/main.rs`, a `[[bin]] path`, or a conventional
+  `src/bin/<name>.rs` / `src/bin/<name>/main.rs` target, in that order, with
+  `autobins = false` turning discovery off. `cargoTargets` is the one place
+  those rules live; roles and module paths follow from it, so a file nested
+  under a directory-style binary is that binary's module, not a root. A lint
+  in a `src/bin/*.rs` target speaks for that binary, not for the library.
   `crateDeniesUnsafe` parses the
   inner attributes' argument lists in order — `#![deny(dead_code,
   unsafe_code)]`, a multi-line list, `forbid`, and a `cfg_attr` whose
   predicate holds in every production build (`not(test)`) all count; `warn`
   does not, a feature- or target-conditional `cfg_attr` is no crate policy,
   and a later `allow` lifts a deny — never one exact spelling.
-- **A dependency is internal by package identity.** Each member's
-  `[package].name` and directory are read first; an entry is a workspace edge
-  when its package (the table key unless renamed with `package = "…"`) is a
-  member's name or its `path` resolves to a member's directory. Never compare
-  the table key with directory names: a renamed dependency and a member whose
-  directory is not its name both went external that way. Every dependency
-  list carries package identities.
+- **A dependency is internal by path, and listed by package identity.** Each
+  member's manifest is read first; an entry is a workspace edge only when its
+  `path` — its own, or the one it inherits through `[workspace.dependencies]`
+  — resolves to a member's directory, which is the one way Cargo resolves a
+  dependency to a member. Never compare the table key with directory names,
+  and never match by package name alone: a renamed dependency and a member
+  whose directory is not its name went external the first way, and a
+  registry dependency that shares a member's name went internal the second.
+  Every dependency list carries package identities (the `package` field when
+  renamed, else the key).
 - **Manifests are read structurally.** `parseToml` reads the TOML subset
   Cargo uses (sub-tables, dotted keys, one-line and multi-line arrays, inline
   tables, three-quoted strings, comments) into an object and
@@ -331,6 +341,11 @@ statistic**; the landing page stays canonical-or-absent.
   `{ workspace = true }` resolves through the root's `[workspace.dependencies]`.
   The line-shaped reader it replaced silently dropped a `[dependencies.foo]`
   sub-table, a dotted `foo.path = "…"` and a one-line `members = ["a", "b"]`.
+  Packages are discovered at any depth under `rust/` (`crates/app` is a valid
+  member path), ordered by `[workspace] members` with globs expanded
+  (`crates/*`), then the packages the workspace does not list; build output
+  under `target/` is skipped, and a package nested inside another owns its
+  own files.
 - **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
   tests;` resolves to `src/tests.rs` or `src/tests/mod.rs`
   (`childModuleFiles`, rustc's rule), that file is rescanned as test code, and
@@ -362,10 +377,11 @@ statistic**; the landing page stays canonical-or-absent.
   directory the declaring file owns, one level deeper per enclosing inline
   module (`mod outer { mod x; }` is `outer/x.rs`), or to the file a
   `#[path = "…"]` names; an inline `mod x { … }` names no file. A crate root
-  (`src/lib.rs`, `src/main.rs`, a `src/bin/*.rs` binary, or a root the
-  manifest declares) and a `mod.rs` own the directory they sit in; any other
-  file owns a directory of its own name. Test and export status travel down
-  that resolution (`childModuleFiles`).
+  (`src/lib.rs`, `src/main.rs`, a `src/bin/<name>.rs` or
+  `src/bin/<name>/main.rs` binary, or a root the manifest declares) and a
+  `mod.rs` own the directory they sit in; any other file, a directory-style
+  binary's nested module included, owns a directory of its own name. Test and
+  export status travel down that resolution (`childModuleFiles`).
 - `validate-data.mjs` reconciles every crate total with its per-file lists,
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.
