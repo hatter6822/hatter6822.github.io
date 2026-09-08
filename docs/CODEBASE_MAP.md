@@ -244,7 +244,9 @@ that). `renderInventory()` rebuilds both this section and the crate cards on
 every live refresh and locale switch; it captures the open state of every
 `<details>` by its `data-open-key` first and re-applies it after, so what the
 reader opened survives — including the lazily rendered lists, since setting
-`open` fires `toggle`.
+`open` fires `toggle`. The first locale load fires no switch event, so the map
+repaints these sections once from `sele4nI18n.onReady()` when any label was
+painted before the locale arrived, and not otherwise.
 
 ## Accessibility and mobile
 

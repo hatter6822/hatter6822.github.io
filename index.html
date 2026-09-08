@@ -720,9 +720,9 @@
             <h3 data-i18n="verification.tier1_name">Build</h3>
           </div>
           <p data-i18n-html="verification.tier1_text">
-            Full Lean compilation of all <span data-live="modules">303</span> Lean modules. All <span data-live="theorems">10,929</span> theorems are
-            type-checked. Every invariant proof, every bridge lemma, every preservation
-            theorem is verified by the Lean type-checker. If it compiles, the proofs hold.
+            Full Lean compilation of the <span data-live="modules">303</span> production Lean modules. All <span data-live="theorems">10,929</span> theorems
+            in them are type-checked, and the in-tree testing framework builds alongside, outside these figures. Every invariant proof,
+            every bridge lemma, every preservation theorem is verified by the Lean type-checker. If it compiles, the proofs hold.
           </p>
           <a href="https://github.com/hatter6822/seLe4n/blob/main/scripts/test_tier1_build.sh" target="_blank" rel="noopener noreferrer" class="tier-script">./scripts/test_tier1_build.sh</a>
         </div>
@@ -952,8 +952,9 @@ cd seLe4n</code></pre>
           <div class="step-content">
             <h3 data-i18n="getting_started.step3_title">Build &amp; Verify</h3>
             <p data-i18n-html="getting_started.step3_text">
-              Build the entire kernel. All <span data-live="theorems">10,929</span> theorems are checked during compilation
-              of all <span data-live="modules">303</span> Lean modules. Zero <code>sorry</code>, zero <code>axiom</code>.
+              Build the kernel. All <span data-live="theorems">10,929</span> theorems across its <span data-live="modules">303</span> production
+              Lean modules are checked during compilation; the in-tree testing framework builds too, outside these figures.
+              Zero <code>sorry</code>, zero <code>axiom</code>.
             </p>
             <pre><code>lake build</code></pre>
           </div>

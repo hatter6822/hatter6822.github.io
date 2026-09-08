@@ -334,8 +334,9 @@ static server on port 4173): the default module, grouped lanes, sidebar-driven
 declaration context, the flow chart drawn at 1:1 at 1200–1920px, the sidebar
 beside the chart from 1440px and below it under that, the pinned sidebar
 fitting a 720px viewport, no horizontal overflow, a clean console, both themes,
-a tablet and a phone width, and a Spanish deep link with locale digit
-grouping. `.github/workflows/ci.yml` runs it with the runner's Chrome
+a tablet and a phone width, a Spanish deep link with locale digit grouping,
+and a locale held back until after the snapshot has painted (the generated
+labels must still come out in Spanish). `.github/workflows/ci.yml` runs it with the runner's Chrome
 (`MAP_SMOKE_CHANNEL=chrome`) after the unit tests on every push and pull
 request; `PLAYWRIGHT_CHROMIUM=<path>` points it at another binary.
 
@@ -376,12 +377,15 @@ The Rust workspace scanner behind `map-data.json#rust`: `stripRustCommentsAndStr
 (nested block comments, raw/byte strings, char literals), `scanRustSource` (item
 headers at item scope with visibility, `unsafe`, inline-module path and test
 marking; `unsafe fn` / `unsafe impl` / `unsafe { … }` sites at any depth split
-between production and test code; line counts), `cfgIsTestOnly` (a `cfg`
-predicate is test-only for `test` and `all(test, …)`, not for `not(test)` or
-`any(test, feature = "…")`), `parseCargoManifest` (package fields, workspace
-inheritance, dependency tables with target-scoped tables kept apart, features,
-`[[bin]]`), `rustFileRole` / `rustModulePath`, `childModuleFiles` (rustc's
-rule for where `mod x;` lives), and `buildRustInventory`, which assembles the
+between production and test code; line counts), `cfgIsTestOnly` and
+`cfgHoldsInProduction` (one three-valued evaluator: a `cfg` predicate is
+test-only for `test` and `all(test, …)`, not for `not(test)` or `any(test,
+feature = "…")`; it holds in every production build for `not(test)`, not for
+a feature or a target), `parseToml` and `parseCargoManifest` (the TOML subset
+Cargo uses, then package fields, workspace inheritance, dependency tables with
+target-scoped tables kept apart, features, `[[bin]]`), `rustFileRole` /
+`rustModulePath`, `childModuleFiles` (rustc's rule for where `mod x;` lives,
+inline-module path and `#[path]` included), and `buildRustInventory`, which assembles the
 crates in workspace order from a file list and a reader, rescanning
 out-of-line modules with the test and export status they inherit from their
 `mod` declarations. Anonymous `const _` assertions are not items; raw

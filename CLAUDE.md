@@ -71,13 +71,14 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~6,440 | Largest runtime; read in chunks of ≤500 lines |
-| `scripts/lib/map-runtime.test.mjs` | ~2,480 | Map runtime tests |
+| `assets/js/map.js` | ~6,500 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~2,500 | Map runtime tests |
 | `assets/css/style.css` | ~2,020 | Global design system |
 | `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
 | `assets/css/map.css` | ~1,400 | Map-specific styles (hero, workspace, chart, sidebar, Rust cards, inventory) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
-| `scripts/lib/rust-analysis.mjs` | ~750 | Rust crate inventory scanner |
+| `scripts/lib/rust-analysis.mjs` | ~1,300 | Rust crate inventory scanner, TOML reader |
+| `scripts/lib/rust-analysis.test.mjs` | ~980 | Rust scanner tests |
 | `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
@@ -213,6 +214,13 @@ visually secondary (closed `<details>`, muted chrome).
 - Re-selecting the current module must not repaint the declaration sidebar
   unless it shows another module: the search field's `change` fires on blur,
   and rebuilding the list under the pointer swallowed the click that caused it.
+- Generated labels are painted with `t()` at render time, and the first
+  locale load dispatches no `sele4n:locale-changed` event. `setupLocaleReady()`
+  registers on `sele4nI18n.onReady()` before anything paints, and the callback
+  repaints the sections once, only if a lookup fell back before the locale
+  arrived (`paintedBeforeLocale`, set by `t()` itself). A non-English locale
+  that landed after the bundled snapshot otherwise left every generated label
+  in English; the probe holds the locale back to prove the repaint.
 - Count labels use plural families (`key_one` / `key_few` / `key_many` /
   `key_other`) resolved by `t(key, { count })`, and every number handed to
   `t()` or `formatCount()` is grouped by the active locale (`10,929`,
@@ -256,7 +264,8 @@ visually secondary (closed `<details>`, muted chrome).
 - `node scripts/map-smoke.mjs` renders the page in headless Chromium and
   asserts the guarantees above (chart at 1:1 at 1200–1920, sidebar placement,
   the pinned sidebar at 720p, no sideways overflow, clean console, both
-  themes, a Spanish deep link, the crate cards and inventory, bounded card
+  themes, a Spanish deep link, a locale held back until after the snapshot
+  paints, the crate cards and inventory, bounded card
   heights, pluralised labels, `loom` under its cfg, and open state surviving a
   re-render). `.github/workflows/ci.yml` runs it with the
   runner's Chrome on every push. A layout guarantee the docs make gets a probe
@@ -287,7 +296,9 @@ statistic**; the landing page stays canonical-or-absent.
   `cfg(not(test))` and `cfg(any(test, feature = "…"))` as production, because
   those compile into production builds. `#[test]` functions, everything inside
   a marked module or block, and every line of an integration-test file are
-  test code.
+  test code. One three-valued evaluator (`evaluateCfg`) answers both questions
+  the scanner asks of a predicate — is it test-only, does it hold in every
+  production build — so the two cannot drift apart.
 - **Target-scoped dependency tables stay separate.** `[target.'cfg(loom)'
   .dependencies]` is bundled as `targetDependencies: [{ cfg, table, names }]`,
   never as an external dependency: the HAL's `loom` enters no ordinary build.
@@ -296,8 +307,9 @@ statistic**; the landing page stays canonical-or-absent.
   speaks for that binary, not for the library. `crateDeniesUnsafe` parses the
   inner attributes' argument lists in order — `#![deny(dead_code,
   unsafe_code)]`, a multi-line list, `forbid`, and a `cfg_attr` whose
-  predicate holds in production all count; `warn` does not, and a later
-  `allow` lifts a deny — never one exact spelling.
+  predicate holds in every production build (`not(test)`) all count; `warn`
+  does not, a feature- or target-conditional `cfg_attr` is no crate policy,
+  and a later `allow` lifts a deny — never one exact spelling.
 - **A dependency is internal by package identity.** Each member's
   `[package].name` and directory are read first; an entry is a workspace edge
   when its package (the table key unless renamed with `package = "…"`) is a
@@ -305,6 +317,13 @@ statistic**; the landing page stays canonical-or-absent.
   the table key with directory names: a renamed dependency and a member whose
   directory is not its name both went external that way. Every dependency
   list carries package identities.
+- **Manifests are read structurally.** `parseToml` reads the TOML subset
+  Cargo uses (sub-tables, dotted keys, one-line and multi-line arrays, inline
+  tables, three-quoted strings, comments) into an object and
+  `parseCargoManifest` takes its facts from that; an entry written
+  `{ workspace = true }` resolves through the root's `[workspace.dependencies]`.
+  The line-shaped reader it replaced silently dropped a `[dependencies.foo]`
+  sub-table, a dotted `foo.path = "…"` and a one-line `members = ["a", "b"]`.
 - **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
   tests;` resolves to `src/tests.rs` or `src/tests/mod.rs`
   (`childModuleFiles`, rustc's rule), that file is rescanned as test code, and
@@ -317,15 +336,24 @@ statistic**; the landing page stays canonical-or-absent.
   declarations from the crate root (`buildRustInventory` carries export
   status into out-of-line files alongside test status). A `#[macro_export]`
   macro is public wherever it sits.
-- **A test-only attribute on an associated item counts.** `#[cfg(test)]` on a
-  method inside an `impl` or `trait` is not an item, but the body it guards is
-  test code: its `unsafe` sites go to `testUnsafe`.
-- **An attribute may share its line with the declaration it annotates.**
-  `#[cfg(test)] mod tests {` and `#[macro_export] macro_rules! m {` are read
-  as the attribute *and* the declaration with its braces; the first scanner
-  dropped the rest of such a line, which also left the module body at depth
-  zero. A test-only `const`/`static` keeps its status across a block
-  initializer on later lines, so the `unsafe` sites there are test sites.
+- **Attributes bind by one rule at every depth.** An outer attribute binds to
+  the next construct — an item at item scope, an associated method, a `use`,
+  a statement — and the body that construct opens is a test region when the
+  attribute is test-only. The binding is released by the `{` that opens the
+  body or the `;` that ends the construct; an `=` completes the header only,
+  so a test-only `const`/`static` keeps its status across a block initializer,
+  and a `;` inside `(…)` or `[…]` ends nothing. An attribute may share its
+  line with its declaration (`#[cfg(test)] mod tests {`). `#[test]`,
+  `#[<path>::test]` and a test-only `cfg` mark tests; `#![cfg(test)]` at the
+  top of a file or an inline module makes that whole scope test code. Three
+  earlier scanners each bound attributes for one scope or one construct kind
+  and misfiled `unsafe` sites for the others: never add a scope-specific
+  flag again.
+- **Module files follow rustc's rule in full.** `mod x;` resolves under the
+  directory the declaring file owns, one level deeper per enclosing inline
+  module (`mod outer { mod x; }` is `outer/x.rs`), or to the file a
+  `#[path = "…"]` names; an inline `mod x { … }` names no file. Test and
+  export status travel down that resolution (`childModuleFiles`).
 - `validate-data.mjs` reconciles every crate total with its per-file lists,
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.

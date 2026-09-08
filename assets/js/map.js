@@ -1,8 +1,15 @@
 (function () {
   "use strict";
 
-  /* i18n helper — returns translated string or empty string for fallback chaining */
+  /* i18n helper — returns translated string or empty string for fallback
+     chaining. Until the first locale has loaded every lookup falls back to
+     English, so the helper also records that something was painted from
+     fallbacks: the ready callback registered by setupLocaleReady() repaints
+     the generated sections once, and only when that happened. */
+  var localeReady = false;
+  var paintedBeforeLocale = false;
   function t(key, vars) {
+    if (!localeReady) paintedBeforeLocale = true;
     if (window.sele4nI18n && typeof window.sele4nI18n.t === "function") {
       var result = window.sele4nI18n.t(key, vars);
       if (result && result !== key) return result;
@@ -6260,14 +6267,41 @@
     });
   }
 
+  /* Everything below the hero is rendered from data with t() lookups at
+     render time, so a locale change only needs a repaint. */
+  function repaintForLocale() {
+    LABEL_WRAP_CACHE.clear();
+    renderInventory();
+    scheduleRender();
+  }
+
   function setupLocaleRerender() {
-    /* Everything below the hero is rendered from data with t() lookups at
-       render time, so a locale switch only needs a repaint. */
-    window.addEventListener("sele4n:locale-changed", function () {
-      LABEL_WRAP_CACHE.clear();
-      renderInventory();
-      scheduleRender();
-    });
+    window.addEventListener("sele4n:locale-changed", repaintForLocale);
+  }
+
+  /* The first locale load dispatches no event: i18n.js translates the static
+     DOM and runs its ready callbacks. A non-English locale can land after the
+     bundled snapshot has painted, which would leave every generated label —
+     crate cards, inventory, count labels — in its English fallback. So the
+     ready callback repaints once, and only if a lookup fell back before it.
+     It is registered first thing at boot: when the locale is already loaded
+     the callback runs at once, before anything is painted, and nothing
+     repaints. */
+  function handleLocaleReady(repaint) {
+    localeReady = true;
+    if (!paintedBeforeLocale) return false;
+    paintedBeforeLocale = false;
+    repaint();
+    return true;
+  }
+
+  function setupLocaleReady() {
+    var i18n = window.sele4nI18n;
+    if (i18n && typeof i18n.onReady === "function") {
+      i18n.onReady(function () { handleLocaleReady(repaintForLocale); });
+    } else {
+      localeReady = true;
+    }
   }
 
   function setupFlowchartResize() {
@@ -6290,6 +6324,7 @@
 
 
   function boot() {
+    setupLocaleReady();
     cacheDomElements();
     setupTheme();
     if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();
@@ -6409,6 +6444,9 @@
       cacheMaxChars: function () { return CACHE_MAX_CHARS; },
       isLibraryRoot: isLibraryRoot,
       externalImportSubtitle: externalImportSubtitle,
+      translate: t,
+      handleLocaleReady: handleLocaleReady,
+      localePaintState: function () { return { ready: localeReady, painted: paintedBeforeLocale }; },
       applyTestState: function (patch) {
         if (patch.declarationGraph) state.declarationGraph = patch.declarationGraph;
         if (patch.declarationReverseGraph) state.declarationReverseGraph = patch.declarationReverseGraph;

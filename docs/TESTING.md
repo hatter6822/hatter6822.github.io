@@ -189,7 +189,9 @@ Reset returns to the default view; the flow chart is drawn at 1:1 at 1200,
 1440px and stacks below it under that; the pinned sidebar fits a 1440×720
 viewport; no width scrolls sideways; the console stays clean in both themes,
 at a tablet and a phone width, and through a Spanish deep link whose theorem
-count is grouped `10.929`. For the two lower sections it checks the four crate
+count is grouped `10.929`; with the locale JSON held back until after the
+snapshot has painted, the crate facts must still come out in Spanish, which
+is the first-load repaint. For the two lower sections it checks the four crate
 cards and the strip, the inventory group order with the production groups
 open, an inventory module click landing in the workspace, bounded card
 heights, the file and test-item toggles, the `sele4n-abi` and `sele4n-hal`

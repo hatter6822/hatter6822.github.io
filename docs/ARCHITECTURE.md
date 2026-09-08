@@ -1105,7 +1105,9 @@ the correction.
   `all(test, …)` are test-only; `any(test, …)` and `not(…)` are not.
   `#[test]` functions, everything inside a marked module or block, and every
   line of an integration-test file are test code; items in it carry
-  `test: true`.
+  `test: true`. One three-valued evaluator (`evaluateCfg`) answers both
+  questions the scanner asks of a predicate — is it test-only, does it hold
+  in every production build — so the two cannot drift apart.
 - **Target-scoped dependency tables are kept apart.** The HAL declares `loom`
   under `[target.'cfg(loom)'.dependencies]`, which no ordinary build
   resolves; the first scanner folded it into `dependencies` and the card
@@ -1119,8 +1121,10 @@ the correction.
   `crateDeniesUnsafe` reads the crate's inner attributes in order and splits
   their argument lists, so `#![deny( unsafe_code )]`, `#![deny(dead_code,
   unsafe_code)]`, a multi-line list, `#![forbid(unsafe_code)]` and a
-  `cfg_attr` whose predicate holds in production all set the flag, `warn`
-  does not, and a later `#![allow(unsafe_code)]` lifts an earlier deny.
+  `cfg_attr` whose predicate holds in every production build all set the
+  flag; `warn` does not, a `cfg_attr` conditional on a feature or a target
+  is not the crate's policy, and a later `#![allow(unsafe_code)]` lifts an
+  earlier deny.
 - **Dependencies resolve by package identity.** The first inventory compared
   a dependency's table key with the workspace's directory names, so a member
   whose directory is not its `[package].name`, or a renamed dependency
@@ -1129,15 +1133,33 @@ the correction.
   classifies an entry as internal when its package (the key, or the
   `package` field when renamed) is a member's name or its `path` resolves to
   a member's directory; every list carries package identities.
-- **An attribute and its declaration may share a line.** `#[cfg(test)] mod
-  tests {` on one line was consumed whole, so the module and its braces went
-  unread, its body sat at depth zero as production code, and an inline
-  `#[macro_export] macro_rules!` was omitted. The scanner now reads the
-  declaration and its braces from the rest of the line. In the same spirit a
-  test-only `const` or `static` keeps its status across a block initializer
-  on later lines (`const CHECK: () = {` … `};`), so `unsafe` sites in it are
-  test sites; at `=` the head used to be dropped and the block opened in
-  production.
+- **Attributes bind by one rule at every depth.** Four review rounds found
+  the same class of defect in four places: attributes were bound at item
+  scope by one flag and below it by another, dropped at `=`, discarded with
+  the rest of an inline `#[cfg(test)] mod tests {` line, and read only as
+  `#[test]`. Each gap filed `unsafe` sites under production. The scanner now
+  has one rule: an outer attribute binds to the next construct at any depth
+  — item, associated method, `use`, statement — and the body that construct
+  opens is a test region when the attribute is test-only; the `{` that
+  opens the body or the `;` that ends the construct releases the binding, an
+  `=` completes the header only, and a `;` inside `(…)` or `[…]` ends
+  nothing. `#[test]`, `#[<path>::test]` and a test-only `cfg` mark tests;
+  `#![cfg(test)]` at the top of a file or an inline module makes the whole
+  scope test code.
+- **Module files follow rustc's rule in full.** `mod x;` resolves under the
+  directory the declaring file owns, one level deeper per enclosing inline
+  module (`mod outer { mod x; }` is `outer/x.rs`), or to the file a
+  `#[path = "…"]` names; an inline `mod x { … }` names no file, so a
+  same-named file elsewhere inherits nothing from it. Test and export
+  status travel down that resolution, export status through the inline
+  modules' own visibility as well.
+- **Manifests are read structurally.** The first reader matched Cargo.toml
+  line shapes and dropped whatever it did not recognise: a
+  `[dependencies.foo]` sub-table, a dotted `foo.path = "…"`, a one-line
+  `members = ["a", "b"]`. `parseToml` now reads the TOML subset Cargo uses
+  into an object and `parseCargoManifest` takes its facts from that,
+  resolving `{ workspace = true }` entries through the root manifest's
+  `[workspace.dependencies]`.
 - **`items` counts declarations.** `impl` blocks have no name or visibility
   of their own, so they are listed in a file's items but not counted;
   `sele4n-types` drops from 87 "items" to 30 declarations. `publicItems`
@@ -1327,6 +1349,18 @@ states before the rebuild and `restoreInventoryOpenState()` re-applies them
 after; setting `open` fires `toggle`, so the lazily rendered lists come back
 as well. The probe dispatches `sele4n:locale-changed` with a group, a subgroup
 and a crate file open and asserts they stay open.
+
+The first locale load is a different event from a locale switch: `i18n.js`
+translates the static DOM and runs its ready callbacks, but dispatches no
+`sele4n:locale-changed`. A non-English locale that arrived after the bundled
+snapshot had painted therefore left every generated label — crate cards,
+inventory, count labels — in its English fallback. `t()` now records that a
+lookup fell back before the locale was ready, `setupLocaleReady()` registers
+on `sele4nI18n.onReady()` before anything paints, and the callback repaints
+the sections once, only when that record is set; when the locale was ready
+first the callback runs at once and nothing repaints. The probe holds the
+locale JSON back until after the snapshot has painted and asserts the crate
+facts end up in Spanish.
 
 ### Rust test items behind a toggle
 

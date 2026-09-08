@@ -2486,3 +2486,21 @@ test('crateSupportFiles lists the crate files the card does not own', async () =
   const leftover = files.filter((path) => path.startsWith('rust/') && !covered.has(path)).sort();
   assert.deepEqual(leftover, ['rust/Cargo.toml', 'rust/rust-toolchain.toml'], 'only workspace-level files remain for the workspace row');
 });
+
+test('the first locale load repaints only what was painted from fallbacks', async () => {
+  const hooks = await loadMapTestHooks();
+  // Spread: the state object is built in the map's vm realm, and strict deep
+  // equality compares prototypes across realms.
+  assert.deepEqual({ ...hooks.localePaintState() }, { ready: false, painted: false }, 'nothing is looked up at load time');
+  let repaints = 0;
+  const repaint = () => { repaints += 1; };
+  hooks.translate('map.rust_depends_on');
+  assert.equal(hooks.localePaintState().painted, true, 'a lookup before the locale is ready is a fallback');
+  assert.equal(hooks.handleLocaleReady(repaint), true, 'the ready callback repaints what fell back');
+  assert.equal(repaints, 1);
+  assert.deepEqual({ ...hooks.localePaintState() }, { ready: true, painted: false });
+  hooks.translate('map.rust_depends_on');
+  assert.equal(hooks.localePaintState().painted, false, 'lookups after readiness are final');
+  assert.equal(hooks.handleLocaleReady(repaint), false, 'a locale that was ready before anything was painted repaints nothing');
+  assert.equal(repaints, 1);
+});

@@ -53,7 +53,7 @@ function check(condition, message) {
   if (!condition) failures += 1;
 }
 
-async function open(width, height, { theme = 'dark', query = '', locale = 'en' } = {}) {
+async function open(width, height, { theme = 'dark', query = '', locale = 'en', holdLocaleMs = 0 } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, locale });
   await context.addInitScript(([t, l]) => {
     try { localStorage.setItem('sele4n-theme', t); } catch (e) {}
@@ -65,6 +65,13 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en' }
     };
   }, [theme, locale]);
   const page = await context.newPage();
+  // Hold the locale JSON back so it lands after the snapshot has painted.
+  if (holdLocaleMs) {
+    await page.route(/\/locales\/[a-z-]+\.json(\?.*)?$/i, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, holdLocaleMs));
+      await route.continue();
+    });
+  }
   const errors = [];
   page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
   page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
@@ -336,7 +343,23 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   check(m.search === 'SeLe4n.Model.State.SystemState', 'deep link restores declaration context');
   check(m.h2s.some((h) => /Espacio de trabajo/.test(h)), 'section headings translated');
   check(m.stats.some((s) => /^theorems=10\.929$/.test(s)), `theorem count grouped the Spanish way (${m.stats.find((s) => /^theorems=/.test(s))})`);
+  const facts = await page.evaluate(() => Array.from(document.querySelectorAll('.rust-crate-facts')).map((el) => el.textContent));
+  check(facts.length === 4 && facts.some((f) => /depende de/.test(f)), 'crate facts are in the active locale');
   check(errors.length === 0, 'no console errors (es)');
+  await context.close();
+}
+
+{
+  console.log('\n[late locale, es]');
+  // The locale JSON is held back until after the snapshot has painted. The
+  // generated labels must still end up in Spanish: i18n.js dispatches no event
+  // for its first load, so the map's ready callback has to repaint them.
+  const { context, page, errors } = await open(1440, 900, { locale: 'es', holdLocaleMs: 2500 });
+  const facts = await page.evaluate(() => Array.from(document.querySelectorAll('.rust-crate-facts')).map((el) => el.textContent));
+  check(facts.length === 4 && facts.some((f) => /depende de/.test(f)) && !facts.some((f) => /depends on|test-only/.test(f)), `crate facts repainted into the late locale (${facts.find((f) => /depende|depends/.test(f)) || facts[0]})`);
+  const m = await metrics(page);
+  check(m.h2s.some((h) => /Espacio de trabajo/.test(h)), 'static headings translated by the late locale');
+  check(errors.length === 0, 'no console errors (late locale)');
   await context.close();
 }
 

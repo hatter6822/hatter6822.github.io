@@ -164,18 +164,12 @@ function isRawStringStart(text, i) {
 }
 
 /**
- * Is a `cfg` predicate satisfiable only when `test` is set?
- *
- * `test` → yes. `all(a, b)` → yes if any operand is. `any(a, b)` → yes only if
- * every operand is (`any(test, feature = "std")` compiles into a production
- * build with the feature on). `not(…)` → no: `not(test)` is the production
- * side of a split, and `not(feature)` says nothing about tests. Unknown
- * predicates (`feature = "…"`, `target_arch = "…"`, `loom`) → no.
- *
- * `predicate` is the text inside `cfg(…)`, with string literals already
- * blanked or not — values are never inspected.
+ * Parse a `cfg` predicate — the text inside `cfg(…)`, string literals blanked
+ * or not, since values are never inspected — into `{ name, args }` nodes:
+ * `args` is null for a bare option (`test`, `loom`) or a `key = "value"`
+ * pair, and a list for `all(…)`, `any(…)` and `not(…)`.
  */
-export function cfgIsTestOnly(predicate) {
+function parseCfgPredicate(predicate) {
   const tokens = [];
   const pattern = /\s*(?:([A-Za-z_][A-Za-z0-9_]*)|("(?:[^"\\]|\\.)*")|([(),=]))/y;
   const text = String(predicate ?? '');
@@ -210,25 +204,95 @@ export function cfgIsTestOnly(predicate) {
     if (tokens[pos] && tokens[pos].type === '=') pos += 2; // key = "value"
     return { name: token.value, args: null };
   }
-
-  function testOnly(node) {
-    if (!node) return false;
-    if (node.args === null) return node.name === 'test';
-    if (node.name === 'all') return node.args.some(testOnly);
-    if (node.name === 'any') return node.args.length > 0 && node.args.every(testOnly);
-    return false;
-  }
-
-  return testOnly(parse());
+  return parse();
 }
 
-/** Does an outer attribute (`#[…]`, brackets balanced) mark its item as test code? */
+/**
+ * Evaluate a parsed predicate for a build in which `test` has the given
+ * value. Three-valued: `true` or `false` when `test` alone decides it, `null`
+ * when it depends on something the inventory cannot know — a feature, a
+ * target, an option it does not recognise. `all`, `any` and `not` combine
+ * the three values the usual way: `all(false, ?)` is false, `any(true, ?)`
+ * is true, `not(?)` is unknown. Both questions the scanner asks of a
+ * predicate are answered here, so they cannot drift apart.
+ */
+function evaluateCfg(node, testValue) {
+  if (!node) return null;
+  if (node.args === null) return node.name === 'test' ? testValue : null;
+  if (node.name === 'not') {
+    if (node.args.length !== 1) return null;
+    const inner = evaluateCfg(node.args[0], testValue);
+    return inner === null ? null : !inner;
+  }
+  if (node.name === 'all') {
+    let value = true;
+    for (const arg of node.args) {
+      const inner = evaluateCfg(arg, testValue);
+      if (inner === false) return false;
+      if (inner === null) value = null;
+    }
+    return value;
+  }
+  if (node.name === 'any') {
+    let value = false;
+    for (const arg of node.args) {
+      const inner = evaluateCfg(arg, testValue);
+      if (inner === true) return true;
+      if (inner === null) value = null;
+    }
+    return value;
+  }
+  return null;
+}
+
+/**
+ * Is a `cfg` predicate satisfiable only when `test` is set? It must be false
+ * in every production build and not false once `test` is on: `test` and
+ * `all(test, …)` are; `any(test, feature = "std")` is not, because it
+ * compiles into a production build with the feature on; `not(test)` is the
+ * production side of a split; `feature = "…"`, `target_arch = "…"` and
+ * `loom` say nothing about tests; `any()` is dead code, not test code.
+ */
+export function cfgIsTestOnly(predicate) {
+  const node = parseCfgPredicate(predicate);
+  return evaluateCfg(node, false) === false && evaluateCfg(node, true) !== false;
+}
+
+/**
+ * Does a `cfg` predicate hold in every production build, whatever the
+ * features and target? `not(test)` and `any(not(test), feature = "x")` do;
+ * `feature = "strict"` and `all(not(test), target_arch = "…")` may not, so
+ * they do not. This is the question a crate-wide policy behind `cfg_attr`
+ * has to answer.
+ */
+export function cfgHoldsInProduction(predicate) {
+  return evaluateCfg(parseCfgPredicate(predicate), false) === true;
+}
+
+/**
+ * Does an outer attribute (`#[…]`, brackets balanced) mark its item as test
+ * code? `#[test]`, a test attribute macro under a path (`#[tokio::test]`),
+ * and a `cfg` whose predicate is test-only.
+ */
 function attributeMarksTest(attribute) {
-  const match = /^#\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([\s\S]*)\))?\s*\]$/.exec(attribute.trim());
+  const match = /^#\[\s*([A-Za-z_][A-Za-z0-9_:]*)\s*(?:\(([\s\S]*)\))?\s*\]$/.exec(attribute.trim());
   if (!match) return false;
-  if (match[1] === 'test') return true;
-  if (match[1] === 'cfg' && match[2] !== undefined) return cfgIsTestOnly(match[2]);
+  const name = match[1];
+  if (name === 'test' || name.endsWith('::test')) return true;
+  if (name === 'cfg' && match[2] !== undefined) return cfgIsTestOnly(match[2]);
   return false;
+}
+
+/** Does an inner attribute (`#![…]`) make its whole scope test code? `#![cfg(test)]` at the top of a file or an inline module does. */
+function innerAttributeMarksTest(attribute) {
+  const match = /^#!\[\s*cfg\s*\(([\s\S]*)\)\s*\]$/.exec(attribute.trim());
+  return Boolean(match) && cfgIsTestOnly(match[1]);
+}
+
+/** The file a `#[path = "…"]` attribute names, read from the raw line because the scanned text has its strings blanked. */
+function attributePath(rawLine) {
+  const match = /#\[\s*path\s*=\s*"([^"]+)"\s*\]/.exec(String(rawLine ?? ''));
+  return match ? match[1] : '';
 }
 
 /** `#[macro_export]` (with or without `(local_inner_macros)`) exports the macro from the crate root. */
@@ -316,12 +380,15 @@ function emptyUnsafe() {
  * Scan one Rust source file for item declarations and `unsafe` sites.
  *
  * Returns `{ items, productionItems, publicItems, testItems, unsafe, testUnsafe, lines }`:
- * - `items[]`: `{ kind, name, line, visibility, unsafe, module, test }` in
- *   source order. `module` is the inline `mod` path the item sits in (`""` at
- *   file scope, `"tests"` inside `mod tests { … }`, nested paths joined with
- *   `::`). `test` is true for `#[test]` functions, anything under a test-only
- *   `cfg`, everything inside a module so marked, and every item when
- *   `options.testFile` is set.
+ * - `items[]`: `{ kind, name, line, visibility, unsafe, module, test,
+ *   exported }` in source order. `module` is the inline `mod` path the item
+ *   sits in (`""` at file scope, `"tests"` inside `mod tests { … }`, nested
+ *   paths joined with `::`). `test` is true for `#[test]` functions, anything
+ *   under a test-only `cfg`, everything inside a module so marked, and every
+ *   item when `options.testFile` is set. `exported` says whether the item is
+ *   reachable from outside the crate through this file. A `mod` item also
+ *   carries `inline: true` when its body is in this file and `path` when a
+ *   `#[path = "…"]` attribute names its file.
  * - `productionItems`: counted kinds (not `impl`) outside test code.
  * - `publicItems`: of those, the ones declared `pub` inside only-`pub` modules
  *   (`#[macro_export]` macros count as `pub` wherever they sit), when the file
@@ -339,6 +406,7 @@ export function scanRustSource(source, options = {}) {
   const fileExported = !(options && options.exported === false);
   const clean = stripRustCommentsAndStrings(raw);
   const lines = clean.split('\n');
+  const rawLines = raw.split('\n');
   const items = [];
   const unsafeStats = emptyUnsafe();
   const testUnsafe = emptyUnsafe();
@@ -353,24 +421,41 @@ export function scanRustSource(source, options = {}) {
   // enclosing inline module is `pub`, so a `pub fn` in a private `mod` is not
   // counted as public API.
   const scopes = [{ depth: 0, module: '', kind: 'file', test: testFile, exported: fileExported }];
-  // Depths of bodies that belong to test items (a `#[test] fn`, a
-  // `#[cfg(test)] impl`, a test module): `unsafe` sites inside them are test
-  // sites, whatever their depth.
+  // Depths of bodies that are test code — a `#[test] fn`, a `#[cfg(test)]`
+  // impl, a test module, a guarded method, a test-only initializer block:
+  // `unsafe` sites inside them are test sites, whatever their depth.
   const testRegions = [];
   let depth = 0;
-  let pendingHead = null; // an item header awaiting its `{`, `;` or `=`
-  // Outer attributes seen since the last item at this scope; a multi-line
-  // attribute is accumulated until its brackets balance.
-  let pendingTestAttribute = false;
-  let pendingMacroExport = false;
+  // Parenthesis and bracket nesting: a `;` or `=` inside `(…)` or `[…]`
+  // (`[u8; 4]`, `Lock::new(x)`) ends nothing.
+  let groupDepth = 0;
+  // A declaration header whose body or terminator is still to come. Once the
+  // header is read only a `mod` needs it: its `{` opens a scope.
+  let pendingHead = null;
+  // Outer attributes read since the last construct ended, at any depth. They
+  // bind to whatever comes next — an item at item scope, an associated
+  // method, a `use`, a statement — and the body that construct opens, if
+  // any, is a test region when `test` is set. The binding is released by the
+  // `{` that opens the body or the `;` that ends the construct without one;
+  // an `=` completes the header only, so a test-only const or static keeps
+  // its status across a block initializer on later lines. One rule for every
+  // scope and every kind of construct: earlier versions bound attributes at
+  // item scope only, or dropped the status at `=`, and each of those gaps
+  // filed `unsafe` sites under production.
+  const pending = { test: false, macroExport: false, path: '' };
   let attributeBuffer = null;
-  // A test-only attribute below item scope — on an associated method in an
-  // `impl` or `trait` — is not an item, but the body it guards is test code:
-  // its `unsafe` sites go to testUnsafe. The flag holds until the body opens
-  // (a test region is pushed) or the declaration ends without one (`;`). A
-  // test-only const or static hands its status over the same way at `=`, so
-  // a block initializer on a later line is scanned as test code.
-  let pendingNestedTest = false;
+
+  const releasePending = () => {
+    pending.test = false;
+    pending.macroExport = false;
+    pending.path = '';
+  };
+  // `#![cfg(test)]` at the top of a file or an inline module: everything in
+  // that scope is test code.
+  const markScopeTest = (scope) => {
+    scope.test = true;
+    if (!testRegions.includes(scope.depth)) testRegions.push(scope.depth);
+  };
 
   for (let idx = 0; idx < lines.length; idx += 1) {
     const lineNo = idx + 1;
@@ -385,19 +470,21 @@ export function scanRustSource(source, options = {}) {
 
     if (!pendingHead) {
       const noteAttribute = (attribute) => {
-        const marksTest = attributeMarksTest(attribute);
-        if (atItemScope) {
-          if (marksTest) pendingTestAttribute = true;
-          if (attributeExportsMacro(attribute)) pendingMacroExport = true;
-        } else if (marksTest) {
-          pendingNestedTest = true;
+        if (attribute.startsWith('#![')) {
+          // An inner attribute speaks for the enclosing scope, not for the
+          // next declaration.
+          if (atItemScope && innerAttributeMarksTest(attribute)) markScopeTest(top);
+          return;
         }
+        if (attributeMarksTest(attribute)) pending.test = true;
+        if (attributeExportsMacro(attribute)) pending.macroExport = true;
+        if (/^#\[\s*path\s*=/.test(attribute)) pending.path = attributePath(rawLines[idx]) || pending.path;
       };
       if (attributeBuffer !== null) {
         // A multi-line attribute either closes on this line or runs past it.
         const close = attributeClose(text, bracketBalance(attributeBuffer));
         if (close < 0) { attributeBuffer += '\n' + text.trim(); continue; }
-        if (attributeBuffer.startsWith('#[')) noteAttribute(attributeBuffer + '\n' + text.slice(0, close).trim());
+        noteAttribute(attributeBuffer + '\n' + text.slice(0, close).trim());
         attributeBuffer = null;
         text = text.slice(close);
       }
@@ -405,9 +492,7 @@ export function scanRustSource(source, options = {}) {
         const start = text.search(/\S/);
         const close = attributeClose(text, 0);
         if (close < 0) { attributeBuffer = text.slice(start); text = ''; break; }
-        // An inner attribute (`#![…]`) speaks for the enclosing scope, not
-        // for the next declaration: only outer attributes are noted.
-        if (text.startsWith('#[', start)) noteAttribute(text.slice(start, close));
+        noteAttribute(text.slice(start, close));
         text = text.slice(close);
       }
     }
@@ -415,7 +500,6 @@ export function scanRustSource(source, options = {}) {
     const trimmed = text.trim();
     if (atItemScope && !pendingHead && trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('}')) {
       const match = ITEM_HEAD.exec(trimmed);
-      if (!match) { pendingTestAttribute = false; pendingMacroExport = false; }
       if (match) {
         const keyword = match[1];
         const kind = keyword === 'macro_rules!' ? 'macro' : keyword;
@@ -427,57 +511,63 @@ export function scanRustSource(source, options = {}) {
         else if (kind === 'static') name = nameAfter(rest.replace(/^\s*mut\s+/, ''));
         else name = nameAfter(rest);
         if (name) {
-          const isTest = Boolean(top.test || pendingTestAttribute);
+          const isTest = Boolean(top.test || pending.test);
           // `#[macro_export]` publishes the macro at the crate root whatever
           // module it sits in; it is public API without a `pub`.
-          const macroExported = kind === 'macro' && pendingMacroExport;
+          const macroExported = kind === 'macro' && pending.macroExport;
           const visibility = macroExported ? 'pub' : visibilityOf(head);
-          items.push({
+          const reachable = visibility === 'pub' && (top.exported || macroExported);
+          const item = {
             kind,
             name,
             line: lineNo,
             visibility,
             unsafe: isUnsafe,
             module: top.module,
-            test: isTest
-          });
+            test: isTest,
+            exported: reachable
+          };
+          if (kind === 'mod' && pending.path) item.path = pending.path;
+          items.push(item);
           if (isTest) testItems += 1;
           else if (kind !== 'impl') {
             productionItems += 1;
-            if (visibility === 'pub' && (top.exported || macroExported)) publicItems += 1;
+            if (reachable) publicItems += 1;
           }
-          pendingHead = { kind, name, test: isTest, exported: top.exported && visibility === 'pub' };
+          pendingHead = { kind, name, item, test: isTest, exported: top.exported && visibility === 'pub' };
         }
-        pendingTestAttribute = false;
-        pendingMacroExport = false;
+        // The macro and path attributes bound to this header; `test` stays
+        // pending until the body opens or the declaration ends.
+        pending.macroExport = false;
+        pending.path = '';
       }
     }
 
     // `unsafe` sites on this line, attributed to test or production code by
     // the innermost enclosing item.
-    const inTest = testFile || top.test || testRegions.length > 0 || Boolean(pendingHead && pendingHead.test) || pendingNestedTest;
+    const inTest = top.test || testRegions.length > 0 || pending.test;
     const bucket = inTest ? testUnsafe : unsafeStats;
     if (UNSAFE_FN_HEAD.test(trimmed)) bucket.fns += 1;
     else if (UNSAFE_IMPL_HEAD.test(trimmed)) bucket.impls += 1;
     const blockMatches = trimmed.match(UNSAFE_BLOCK);
     if (blockMatches) bucket.blocks += blockMatches.length;
 
-    // Walk braces on this line to track depth and detect module bodies.
+    // Walk the line to track depth, module bodies and construct ends.
     for (let c = 0; c < text.length; c += 1) {
       const ch = text[c];
-      if (ch === '{') {
+      if (ch === '(' || ch === '[') {
+        groupDepth += 1;
+      } else if (ch === ')' || ch === ']') {
+        groupDepth = Math.max(0, groupDepth - 1);
+      } else if (ch === '{') {
         depth += 1;
-        if (pendingNestedTest) {
-          testRegions.push(depth);
-          pendingNestedTest = false;
-        }
+        if (pending.test) testRegions.push(depth);
         if (pendingHead) {
-          if (pendingHead.test) testRegions.push(depth);
           if (pendingHead.kind === 'mod') {
-            const moduleName = pendingHead.name;
+            pendingHead.item.inline = true;
             scopes.push({
               depth,
-              module: top.module ? `${top.module}::${moduleName}` : moduleName,
+              module: top.module ? `${top.module}::${pendingHead.name}` : pendingHead.name,
               kind: 'mod',
               test: Boolean(top.test || pendingHead.test),
               exported: pendingHead.exported
@@ -485,23 +575,21 @@ export function scanRustSource(source, options = {}) {
           }
           pendingHead = null;
         }
+        releasePending();
       } else if (ch === '}') {
         depth = Math.max(0, depth - 1);
         while (testRegions.length && depth < testRegions[testRegions.length - 1]) testRegions.pop();
         const current = scopes[scopes.length - 1];
         if (scopes.length > 1 && depth < current.depth) scopes.pop();
-      } else if ((ch === ';' || ch === '=') && pendingHead && depth === scopes[scopes.length - 1].depth) {
-        // `mod foo;`, `type A = B;`, `const X: T = …;`, `static S: T = …;`.
-        // A test-only const or static may still open a block initializer on
-        // a later line (`const CHECK: () = {` … `};`): the `unsafe` sites in
-        // it are test sites, so its test status outlives the head until that
-        // block opens or the declaration ends.
-        if (ch === '=' && pendingHead.test) pendingNestedTest = true;
+      } else if (ch === '=' && groupDepth === 0 && pendingHead && depth === scopes[scopes.length - 1].depth) {
+        // `type A = B;`, `const X: T = …;`, `static S: T = …;`: the header is
+        // complete; what follows is an initializer, not a body.
         pendingHead = null;
-      } else if (ch === ';' && pendingNestedTest) {
-        // A guarded declaration without a body (`#[cfg(test)] fn helper();`)
-        // or a test-only initializer without a block (`= Mutex::new(());`).
-        pendingNestedTest = false;
+      } else if (ch === ';' && groupDepth === 0) {
+        // `mod foo;`, `struct S;`, a guarded declaration without a body
+        // (`#[cfg(test)] fn helper();`), a `use`, a statement.
+        if (pendingHead && depth === scopes[scopes.length - 1].depth) pendingHead = null;
+        releasePending();
       }
     }
   }
@@ -534,10 +622,11 @@ const LINT_LEVELS = new Set(['allow', 'warn', 'deny', 'forbid']);
  * unsafe_code)]`, a multi-line attribute and `#![forbid(unsafe_code)]` all
  * count, `#![warn(unsafe_code)]` does not, and a later `#![allow(unsafe_code)]`
  * lifts an earlier deny the way rustc applies lint levels in order (a forbid
- * cannot be lifted). A `cfg_attr` counts when its predicate holds in a
- * production build (`cfg_attr(not(test), deny(unsafe_code))`), never when it
- * is test-only. Comments, strings and outer attributes on items are not
- * crate policy.
+ * cannot be lifted). A `cfg_attr` counts only when its predicate holds in
+ * every production build (`cfg_attr(not(test), deny(unsafe_code))`); one that
+ * depends on a feature or a target (`cfg_attr(feature = "strict", …)`) is a
+ * conditional policy, not the crate's, and leaves the flag alone. Comments,
+ * strings and outer attributes on items are not crate policy either.
  */
 export function crateDeniesUnsafe(source) {
   let denies = false;
@@ -576,8 +665,9 @@ function unsafeCodeLintLevel(body) {
   const args = splitTopLevel(match[2]);
   if (name === 'cfg_attr') {
     // `cfg_attr(predicate, attribute, …)`: the attributes apply when the
-    // predicate holds, which a test-only predicate never does in production.
-    if (args.length < 2 || cfgIsTestOnly(args[0])) return '';
+    // predicate holds, so only a predicate that holds in every production
+    // build makes them crate policy.
+    if (args.length < 2 || !cfgHoldsInProduction(args[0])) return '';
     let level = '';
     for (const attribute of args.slice(1)) level = unsafeCodeLintLevel(attribute) || level;
     return level;
@@ -604,34 +694,232 @@ function splitTopLevel(text) {
 const DEPENDENCY_TABLES = new Set(['dependencies', 'dev-dependencies', 'build-dependencies']);
 
 /**
- * Minimal Cargo.toml reader: `[package]` name/description/edition, the
+ * Read the TOML subset Cargo manifests are written in into a plain object:
+ * tables and arrays of tables (`[a.b]`, `[[bin]]`, `[target.'cfg(…)'
+ * .dependencies]`), dotted keys (`version.workspace = true`), basic and
+ * literal strings on one line or three-quoted across lines, booleans,
+ * numbers, arrays that may span lines with trailing commas and comments
+ * inside, and inline tables. A value it cannot read is skipped rather than
+ * guessed. Reading the document structurally instead of by line shape is
+ * what lets `parseCargoManifest` see a `[dependencies.foo]` sub-table, a
+ * dotted `foo.path = "…"` key and a one-line `members = ["a", "b"]` the way
+ * Cargo does; the line-shaped reader it replaces dropped each of those.
+ */
+export function parseToml(source) {
+  const text = String(source ?? '');
+  const n = text.length;
+  const root = {};
+  let table = root;
+  let pos = 0;
+  const TRIPLE_LITERAL = "'" + "''";
+
+  const isBare = (ch) => /[A-Za-z0-9_-]/.test(ch);
+  const skipBlanks = (newlines) => {
+    while (pos < n) {
+      const ch = text[pos];
+      if (ch === ' ' || ch === '\t' || ch === '\r' || (newlines && ch === '\n')) pos += 1;
+      else if (ch === '#') { while (pos < n && text[pos] !== '\n') pos += 1; }
+      else break;
+    }
+  };
+  const skipLine = () => { while (pos < n && text[pos] !== '\n') pos += 1; };
+  const readEscape = () => {
+    const next = text[pos + 1];
+    pos += 2;
+    switch (next) {
+      case 'n': return '\n';
+      case 't': return '\t';
+      case 'r': return '\r';
+      case '"': return '"';
+      case '\\': return '\\';
+      case 'u': { const hex = text.slice(pos, pos + 4); pos += 4; return String.fromCodePoint(parseInt(hex, 16) || 0); }
+      case 'U': { const hex = text.slice(pos, pos + 8); pos += 8; return String.fromCodePoint(parseInt(hex, 16) || 0); }
+      case '\n': { while (pos < n && /\s/.test(text[pos])) pos += 1; return ''; }
+      default: return next ?? '';
+    }
+  };
+  const readBasicString = () => {
+    const multi = text.startsWith('"""', pos);
+    pos += multi ? 3 : 1;
+    if (multi && text[pos] === '\n') pos += 1;
+    let out = '';
+    while (pos < n) {
+      if (multi ? text.startsWith('"""', pos) : text[pos] === '"' || text[pos] === '\n') break;
+      if (text[pos] === '\\') { out += readEscape(); continue; }
+      out += text[pos];
+      pos += 1;
+    }
+    pos += multi ? 3 : 1;
+    return out;
+  };
+  const readLiteralString = () => {
+    const multi = text.startsWith(TRIPLE_LITERAL, pos);
+    const quote = multi ? TRIPLE_LITERAL : "'";
+    pos += quote.length;
+    if (multi && text[pos] === '\n') pos += 1;
+    let end = text.indexOf(quote, pos);
+    if (!multi) { const eol = text.indexOf('\n', pos); if (eol !== -1 && (end === -1 || eol < end)) end = eol; }
+    const out = text.slice(pos, end === -1 ? n : end);
+    pos = end === -1 ? n : end + quote.length;
+    return out;
+  };
+  const readKeyPath = () => {
+    const segments = [];
+    for (;;) {
+      skipBlanks(false);
+      const ch = text[pos];
+      if (ch === '"') segments.push(readBasicString());
+      else if (ch === "'") segments.push(readLiteralString());
+      else {
+        const start = pos;
+        while (pos < n && isBare(text[pos])) pos += 1;
+        if (pos === start) break;
+        segments.push(text.slice(start, pos));
+      }
+      skipBlanks(false);
+      if (text[pos] !== '.') break;
+      pos += 1;
+    }
+    return segments;
+  };
+  const readValue = () => {
+    skipBlanks(false);
+    const ch = text[pos];
+    if (ch === '"') return readBasicString();
+    if (ch === "'") return readLiteralString();
+    if (ch === '[') {
+      pos += 1;
+      const values = [];
+      for (;;) {
+        skipBlanks(true);
+        if (pos >= n) break;
+        if (text[pos] === ']') { pos += 1; break; }
+        const value = readValue();
+        if (value !== undefined) values.push(value);
+        skipBlanks(true);
+        if (text[pos] === ',') pos += 1;
+        else if (text[pos] === ']') { pos += 1; break; }
+        else if (value === undefined) pos += 1;
+      }
+      return values;
+    }
+    if (ch === '{') {
+      pos += 1;
+      const inline = {};
+      for (;;) {
+        skipBlanks(true);
+        if (pos >= n) break;
+        if (text[pos] === '}') { pos += 1; break; }
+        const key = readKeyPath();
+        skipBlanks(false);
+        if (text[pos] === '=' && key.length) {
+          pos += 1;
+          const value = readValue();
+          if (value !== undefined) setTomlPath(inline, key, value);
+        }
+        skipBlanks(true);
+        if (text[pos] === ',') pos += 1;
+        else if (text[pos] === '}') { pos += 1; break; }
+        else if (!key.length) pos += 1;
+      }
+      return inline;
+    }
+    const start = pos;
+    while (pos < n && !/[\s,\]}#]/.test(text[pos])) pos += 1;
+    const token = text.slice(start, pos);
+    if (!token) return undefined;
+    if (token === 'true') return true;
+    if (token === 'false') return false;
+    if (/^[+-]?\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?$/.test(token)) return Number(token.replace(/_/g, ''));
+    return token;
+  };
+
+  while (pos < n) {
+    skipBlanks(true);
+    if (pos >= n) break;
+    if (text[pos] === '[') {
+      const arrayOfTables = text.startsWith('[[', pos);
+      pos += arrayOfTables ? 2 : 1;
+      const path = readKeyPath();
+      while (pos < n && text[pos] === ']') pos += 1;
+      table = path.length ? enterTomlTable(root, path, arrayOfTables) : root;
+      skipLine();
+      continue;
+    }
+    const key = readKeyPath();
+    skipBlanks(false);
+    if (text[pos] === '=' && key.length) {
+      pos += 1;
+      const value = readValue();
+      if (value !== undefined) setTomlPath(table, key, value);
+    }
+    skipLine();
+  }
+  return root;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Assign `value` at a dotted key path under `table`, creating the tables in between. */
+function setTomlPath(table, path, value) {
+  let target = table;
+  for (const segment of path.slice(0, -1)) {
+    if (!isPlainObject(target[segment])) target[segment] = {};
+    target = target[segment];
+  }
+  target[path[path.length - 1]] = value;
+}
+
+/** The table a `[a.b]` or `[[a.b]]` header selects; an array of tables on the way means its last element. */
+function enterTomlTable(root, path, arrayOfTables) {
+  let target = root;
+  for (let index = 0; index < path.length; index += 1) {
+    const segment = path[index];
+    if (index === path.length - 1 && arrayOfTables) {
+      if (!Array.isArray(target[segment])) target[segment] = [];
+      const entry = {};
+      target[segment].push(entry);
+      return entry;
+    }
+    if (Array.isArray(target[segment])) {
+      target = target[segment][target[segment].length - 1];
+    } else {
+      if (!isPlainObject(target[segment])) target[segment] = {};
+      target = target[segment];
+    }
+  }
+  return target;
+}
+
+/**
+ * Cargo.toml facts for the inventory, read from `parseToml`'s object:
+ * `[package]` fields (a `key.workspace = true` becomes `{ workspace: true }`),
+ * `[workspace] members`, `[workspace.package]`, the `[workspace.dependencies]`
+ * entries members inherit, `[features]` names, `[[bin]]` targets, and the
  * dependencies under `[dependencies]` / `[dev-dependencies]` /
- * `[build-dependencies]`, and — kept apart — the same tables scoped to a
- * target, `[target.'cfg(…)'.dependencies]`, as `targetDependencies:
- * [{ cfg, table, names }]`. A target-scoped table is resolved only when its
- * predicate holds (`loom` under `cfg(loom)` enters no ordinary build), so it
- * must never be reported as an unconditional dependency.
+ * `[build-dependencies]` — kept apart from the same tables scoped to a
+ * target, `[target.'cfg(…)'.dependencies]`, which come back as
+ * `targetDependencies: [{ cfg, table, names }]`. A target-scoped table is
+ * resolved only when its predicate holds (`loom` under `cfg(loom)` enters no
+ * ordinary build), so it must never be reported as an unconditional
+ * dependency.
  *
  * Every dependency list carries package identities: the table key, unless
  * the entry renames the package (`alias = { package = "actual", … }`), in
  * which case `actual`. `dependencySpecs` keeps each entry whole — `{ table,
- * cfg, name, package, path }` — for the caller to resolve against the
- * workspace.
- *
- * Workspace inheritance (`edition.workspace = true`) is resolved by the caller
- * against `[workspace.package]`, which this same function reads from the root
- * manifest as `workspacePackage`, and `[workspace] members` as `members`.
- *
- * Only the line shapes Cargo manifests actually use are recognised:
- * `key = "value"`, `key = { … }`, `key.workspace = true`, and one-item-per-line
- * arrays. That is enough for the four crates here and fails soft (fields
- * absent) rather than wrong on anything more exotic.
+ * cfg, name, package, path, workspace }` — for the caller to resolve against
+ * the workspace; `workspace` marks an entry written `{ workspace = true }`,
+ * whose package and path live in the root manifest's
+ * `workspaceDependencies`.
  */
 export function parseCargoManifest(source) {
-  const text = String(source ?? '');
+  const toml = parseToml(source);
   const out = {
     package: {},
     workspacePackage: {},
+    workspaceDependencies: {},
     members: [],
     dependencies: [],
     devDependencies: [],
@@ -641,114 +929,62 @@ export function parseCargoManifest(source) {
     features: [],
     bins: []
   };
+  const tableOf = (value) => (isPlainObject(value) ? value : {});
 
-  let section = '';
-  let arrayKey = null;
-  let arrayTarget = null;
-  let currentBin = null;
-  let currentTarget = null;
-
-  const lines = text.split(/\r?\n/);
-  for (const rawLine of lines) {
-    const line = stripTomlComment(rawLine).trim();
-    if (!line) continue;
-
-    if (arrayKey) {
-      if (line.startsWith(']')) { arrayKey = null; arrayTarget = null; continue; }
-      const item = line.replace(/,$/, '').trim().replace(/^"(.*)"$/, '$1');
-      if (item && arrayTarget) arrayTarget.push(item);
-      continue;
-    }
-
-    const header = /^\[\[?([^\]]+)\]\]?$/.exec(line);
-    if (header) {
-      section = header[1].trim();
-      currentBin = null;
-      currentTarget = null;
-      if (line.startsWith('[[bin]]')) { currentBin = {}; out.bins.push(currentBin); }
-      const scoped = /^target\.(?:'([^']+)'|"([^"]+)"|([^.'"]+))\.(dependencies|dev-dependencies|build-dependencies)$/.exec(section);
-      if (scoped) {
-        currentTarget = { cfg: scoped[1] ?? scoped[2] ?? scoped[3], table: scoped[4], names: [] };
-        out.targetDependencies.push(currentTarget);
-      }
-      continue;
-    }
-
-    const assignment = /^([A-Za-z0-9_.\-'"()\s]+?)\s*=\s*(.*)$/.exec(line);
-    if (!assignment) continue;
-    const key = assignment[1].trim().replace(/^"(.*)"$/, '$1');
-    const value = assignment[2].trim();
-
-    const stringValue = /^"(.*)"$/.exec(value);
-    if (value === '[') {
-      arrayKey = key;
-      if (section === 'workspace' && key === 'members') arrayTarget = out.members;
-      else arrayTarget = [];
-      continue;
-    }
-
-    if (section === 'package') {
-      if (key.endsWith('.workspace')) out.package[key.replace(/\.workspace$/, '')] = { workspace: true };
-      else if (stringValue) out.package[key] = stringValue[1];
-      continue;
-    }
-    if (section === 'workspace.package') {
-      if (stringValue) out.workspacePackage[key] = stringValue[1];
-      continue;
-    }
-    if (section === 'bin' && currentBin) {
-      if (stringValue) currentBin[key] = stringValue[1];
-      continue;
-    }
-    if (section === 'features') {
-      out.features.push(key);
-      continue;
-    }
-    if (currentTarget) {
-      const spec = dependencySpec(key, value, currentTarget.table, currentTarget.cfg);
-      out.dependencySpecs.push(spec);
-      currentTarget.names.push(spec.package);
-      continue;
-    }
-    if (DEPENDENCY_TABLES.has(section)) {
-      const spec = dependencySpec(key, value, section, '');
-      out.dependencySpecs.push(spec);
-      if (section === 'dependencies') out.dependencies.push(spec.package);
-      else if (section === 'dev-dependencies') out.devDependencies.push(spec.package);
-      else out.buildDependencies.push(spec.package);
-    }
+  for (const [key, value] of Object.entries(tableOf(toml.package))) {
+    if (typeof value === 'string') out.package[key] = value;
+    else if (isPlainObject(value) && value.workspace === true) out.package[key] = { workspace: true };
+  }
+  const workspace = tableOf(toml.workspace);
+  if (Array.isArray(workspace.members)) out.members = workspace.members.filter((member) => typeof member === 'string');
+  for (const [key, value] of Object.entries(tableOf(workspace.package))) {
+    if (typeof value === 'string') out.workspacePackage[key] = value;
+  }
+  for (const [key, value] of Object.entries(tableOf(workspace.dependencies))) {
+    out.workspaceDependencies[key] = dependencySpec(key, value, 'workspace', '');
+  }
+  out.features = Object.keys(tableOf(toml.features));
+  if (Array.isArray(toml.bin)) {
+    out.bins = toml.bin.filter(isPlainObject).map((bin) => Object.fromEntries(Object.entries(bin).filter(([, value]) => typeof value === 'string')));
   }
 
+  const listed = { dependencies: out.dependencies, 'dev-dependencies': out.devDependencies, 'build-dependencies': out.buildDependencies };
+  for (const name of DEPENDENCY_TABLES) {
+    for (const [key, value] of Object.entries(tableOf(toml[name]))) {
+      const spec = dependencySpec(key, value, name, '');
+      out.dependencySpecs.push(spec);
+      listed[name].push(spec.package);
+    }
+  }
+  for (const [cfg, scoped] of Object.entries(tableOf(toml.target))) {
+    for (const name of DEPENDENCY_TABLES) {
+      if (!isPlainObject(scoped) || !isPlainObject(scoped[name])) continue;
+      const entry = { cfg, table: name, names: [] };
+      out.targetDependencies.push(entry);
+      for (const [key, value] of Object.entries(scoped[name])) {
+        const spec = dependencySpec(key, value, name, cfg);
+        out.dependencySpecs.push(spec);
+        entry.names.push(spec.package);
+      }
+    }
+  }
   return out;
 }
 
 /**
  * One dependency entry: the table key it is declared under (`name`), the
  * package it resolves to (`package` — the key unless the entry renames it
- * with `package = "…"`) and its `path`, if any, read from the inline table.
+ * with `package = "…"`), its `path` if any, and whether it inherits the
+ * workspace's entry (`{ workspace = true }`).
  */
 function dependencySpec(name, value, table, cfg) {
-  const spec = { table, cfg, name, package: name, path: '' };
-  const inline = /^\{([\s\S]*)\}$/.exec(value);
-  if (!inline) return spec;
-  for (const field of splitTopLevel(inline[1])) {
-    const pair = /^([A-Za-z0-9_-]+)\s*=\s*"(.*)"$/.exec(field);
-    if (!pair) continue;
-    if (pair[1] === 'package') spec.package = pair[2];
-    else if (pair[1] === 'path') spec.path = pair[2];
+  const spec = { table, cfg, name, package: name, path: '', workspace: false };
+  if (isPlainObject(value)) {
+    if (typeof value.package === 'string') spec.package = value.package;
+    if (typeof value.path === 'string') spec.path = value.path;
+    if (value.workspace === true) spec.workspace = true;
   }
   return spec;
-}
-
-/** Drop a `# comment` that is not inside a quoted value. */
-function stripTomlComment(line) {
-  let inQuote = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (ch === '"' && line[i - 1] !== '\\') inQuote = !inQuote;
-    else if (ch === '#' && !inQuote) return line.slice(0, i);
-  }
-  return line;
 }
 
 /** Classify a Rust source path within its crate. */
@@ -781,14 +1017,26 @@ export function rustModulePath(relativePath) {
  * file; in any other file it resolves inside that file's own directory
  * (`src/foo.rs` → `src/foo/x.rs`). `#[path]` overrides are not followed.
  */
-export function childModuleFiles(relativePath, name) {
+export function childModuleFiles(relativePath, name, modulePath = '', pathAttribute = '') {
   const parts = String(relativePath ?? '').split('/');
   const file = parts.pop();
   const dir = parts.join('/');
-  const anchor = file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs' ? dir : [dir, file.replace(/\.rs$/, '')].filter(Boolean).join('/');
-  const base = anchor ? `${anchor}/` : '';
+  const modRs = file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs';
+  const anchor = modRs ? dir : [dir, file.replace(/\.rs$/, '')].filter(Boolean).join('/');
+  // Declared inside inline modules (`mod outer { mod support; }`), the file
+  // sits one directory deeper per enclosing module: `src/outer/support.rs`.
+  const nested = String(modulePath ?? '').split('::').filter(Boolean).map(bareIdentifier);
+  if (pathAttribute) {
+    // `#[path = "…"]`: at file scope the path is relative to the source
+    // file's directory; inside inline modules, to the directory those
+    // modules would own (for a non-mod-rs file, under its own name).
+    const base = (nested.length ? [anchor, ...nested] : [dir]).filter(Boolean).join('/');
+    return [resolvePath(base, pathAttribute)];
+  }
+  const base = [anchor, ...nested].filter(Boolean).join('/');
+  const prefix = base ? `${base}/` : '';
   const stem = bareIdentifier(name);
-  return [`${base}${stem}.rs`, `${base}${stem}/mod.rs`];
+  return [`${prefix}${stem}.rs`, `${prefix}${stem}/mod.rs`];
 }
 
 function addUnsafe(total, counts) {
@@ -847,10 +1095,15 @@ export function buildRustInventory(files, readText, options = {}) {
     packageNames.add(manifest.package.name);
     packagesByPath.set(`${root}/${dir}`, manifest.package.name);
   }
+  // An entry written `{ workspace = true }` takes its package and path from
+  // the root manifest's `[workspace.dependencies]`, relative to the root.
+  const inherited = (spec) => (spec.workspace && rootManifest.workspaceDependencies[spec.name]) || null;
   const workspacePackage = (cratePath, spec) => {
-    const byPath = spec.path ? packagesByPath.get(resolvePath(cratePath, spec.path)) : '';
+    const source = inherited(spec) || spec;
+    const base = inherited(spec) ? root : cratePath;
+    const byPath = source.path ? packagesByPath.get(resolvePath(base, source.path)) : '';
     if (byPath) return byPath;
-    return packageNames.has(spec.package) ? spec.package : '';
+    return packageNames.has(source.package) ? source.package : '';
   };
 
   const crates = [];
@@ -859,7 +1112,7 @@ export function buildRustInventory(files, readText, options = {}) {
     const manifest = manifests.get(dir);
     if (!manifest.package.name) continue;
     // Dependency lists by package identity, resolved against the workspace.
-    const identity = (spec) => workspacePackage(cratePath, spec) || spec.package;
+    const identity = (spec) => workspacePackage(cratePath, spec) || (inherited(spec) || spec).package;
     const listed = (table, cfg) => manifest.dependencySpecs.filter((spec) => spec.table === table && spec.cfg === cfg).map(identity);
 
     const inherit = (key) => {
@@ -884,17 +1137,20 @@ export function buildRustInventory(files, readText, options = {}) {
     let deniesUnsafe = false;
 
     // First pass: every source by its path role. Then resolve out-of-line
-    // module declarations (`mod x;`) to their files the way rustc does, and
-    // carry two things down that path:
+    // module declarations (`mod x;`) to their files the way rustc does —
+    // under the directory the declaring file owns, one level deeper per
+    // enclosing inline module (`mod outer { mod x; }` is `outer/x.rs`), or
+    // the file a `#[path = "…"]` names — and carry two things down that
+    // path:
     //  - test-only status: `#[cfg(test)] mod tests;` names an ordinary module
     //    by path, but everything in `src/tests.rs` is test code, as is every
     //    module it declares in turn;
     //  - export status: `pub` items in a file reached through a private
-    //    `mod detail;` are not public API, so `publicItems` must not count
-    //    them. Files nothing declares (crate roots, `#[path]` targets) keep
-    //    the default, exported.
-    // The sets are closed under declaration before the affected files are
-    // rescanned with the status they inherit.
+    //    `mod detail;`, or through a `pub mod` inside a private inline
+    //    module, are not public API, so `publicItems` must not count them.
+    // Files nothing declares (crate roots, binaries) keep the default,
+    // exported. The sets are closed under declaration before the affected
+    // files are rescanned with the status they inherit.
     const scans = new Map();
     for (const path of sources) {
       const relative = path.slice(cratePath.length + 1);
@@ -911,10 +1167,12 @@ export function buildRustInventory(files, readText, options = {}) {
         const parentTest = testFiles.has(entry.relative);
         const parentPrivate = privateFiles.has(entry.relative);
         for (const item of entry.scan.items) {
-          if (item.kind !== 'mod') continue;
+          // Out-of-line declarations only: an inline `mod tests { … }` names
+          // no file, so a same-named file elsewhere must not inherit from it.
+          if (item.kind !== 'mod' || item.inline) continue;
           const childTest = parentTest || item.test;
-          const childPrivate = parentPrivate || item.visibility !== 'pub';
-          for (const candidate of childModuleFiles(entry.relative, item.name)) {
+          const childPrivate = parentPrivate || !item.exported;
+          for (const candidate of childModuleFiles(entry.relative, item.name, item.module, item.path)) {
             if (!scans.has(candidate)) continue;
             if (childTest && !testFiles.has(candidate)) { testFiles.add(candidate); grew = true; }
             if (childPrivate && !privateFiles.has(candidate)) { privateFiles.add(candidate); grew = true; }
@@ -963,7 +1221,7 @@ export function buildRustInventory(files, readText, options = {}) {
 
     const unconditional = manifest.dependencySpecs.filter((spec) => spec.table === 'dependencies' && !spec.cfg);
     const internalDeps = unconditional.map((spec) => workspacePackage(cratePath, spec)).filter(Boolean);
-    const externalDeps = unconditional.filter((spec) => !workspacePackage(cratePath, spec)).map((spec) => spec.package);
+    const externalDeps = unconditional.filter((spec) => !workspacePackage(cratePath, spec)).map(identity);
 
     crates.push({
       name: manifest.package.name,
