@@ -342,3 +342,162 @@ test('validateMapDataObject rejects modules outside the published production sco
   assert.ok(errors.some((m) => m.includes('Tests.Smoke (tests/Smoke.lean) lies outside the production scope')), errors.join('\n'));
   assert.ok(!errors.some((m) => m.includes('SeLe4n.Kernel.API (')), 'the production module is not flagged');
 });
+
+/**
+ * A minimal, self-consistent `rust` block: one crate, one file, one item.
+ * Tests mutate a copy to produce each inconsistency.
+ */
+function rustInventory(overrides = {}) {
+  const file = {
+    path: 'rust/sele4n-sys/src/lib.rs',
+    relativePath: 'src/lib.rs',
+    modulePath: '',
+    role: 'lib',
+    lines: 3,
+    items: [{ kind: 'fn', name: 'endpoint_send', line: 2, visibility: 'pub' }],
+    productionItems: 1,
+    publicItems: 1,
+    testItems: 0,
+    unsafe: { fns: 0, impls: 0, blocks: 0 },
+    testUnsafe: { fns: 0, impls: 0, blocks: 0 }
+  };
+  const crate = {
+    name: 'sele4n-sys',
+    path: 'rust/sele4n-sys',
+    manifest: 'rust/sele4n-sys/Cargo.toml',
+    description: 'Safe wrappers',
+    edition: '2021',
+    version: '0.1.0',
+    dependencies: [],
+    internalDependencies: [],
+    externalDependencies: [],
+    devDependencies: [],
+    buildDependencies: [],
+    targetDependencies: [],
+    features: [],
+    deniesUnsafe: true,
+    files: [file],
+    sourceFiles: 1,
+    lines: 3,
+    items: 1,
+    publicItems: 1,
+    testItems: 0,
+    unsafe: { fns: 0, impls: 0, blocks: 0 },
+    testUnsafe: { fns: 0, impls: 0, blocks: 0 }
+  };
+  return {
+    root: 'rust',
+    workspaceManifest: 'rust/Cargo.toml',
+    members: ['sele4n-sys'],
+    edition: '2021',
+    version: '0.1.0',
+    rustVersion: '1.94',
+    workspaceFiles: ['rust/Cargo.toml'],
+    crates: [crate],
+    ...overrides
+  };
+}
+
+const RUST_FILES = ['rust/Cargo.toml', 'rust/sele4n-sys/Cargo.toml', 'rust/sele4n-sys/src/lib.rs'];
+
+test('validateMapDataObject accepts a snapshot without a rust block and one with a consistent block', () => {
+  assert.deepEqual(validateMapDataObject(mapData({ modules: [] })), []);
+  assert.deepEqual(validateMapDataObject(mapData({ files: RUST_FILES, rust: rustInventory() })), []);
+});
+
+test('validateMapDataObject reconciles flagged test items and counted kinds with the counts', () => {
+  const rust = rustInventory();
+  const file = rust.crates[0].files[0];
+  file.items.push({ kind: 'fn', name: 'roundtrip', line: 30, visibility: 'private', test: true });
+  file.items.push({ kind: 'impl', name: 'Send for X', line: 40, visibility: 'private' });
+  file.testItems = 1;
+  rust.crates[0].testItems = 1;
+  assert.deepEqual(validateMapDataObject(mapData({ files: RUST_FILES, rust })), [], 'a flagged item counts as test once; an impl block is listed but not counted');
+
+  file.testItems = 0;
+  rust.crates[0].testItems = 0;
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(errors.some((m) => m.includes('testItems says 0 but 1 item(s) are flagged test')), errors.join('\n'));
+
+  file.productionItems = 2;
+  const counted = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(counted.some((m) => m.includes('productionItems says 2 but 1 counted item(s)')), counted.join('\n'));
+
+  file.items[1].test = 'yes';
+  const typed = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(typed.some((m) => m.includes('.test must be true when present')), typed.join('\n'));
+});
+
+test('validateMapDataObject reconciles unsafe counters between files and crate, production and test apart', () => {
+  const rust = rustInventory();
+  const file = rust.crates[0].files[0];
+  file.unsafe = { fns: 1, impls: 0, blocks: 2 };
+  file.testUnsafe = { fns: 0, impls: 1, blocks: 0 };
+  rust.crates[0].unsafe = { fns: 1, impls: 0, blocks: 2 };
+  rust.crates[0].testUnsafe = { fns: 0, impls: 1, blocks: 0 };
+  assert.deepEqual(validateMapDataObject(mapData({ files: RUST_FILES, rust })), []);
+
+  rust.crates[0].unsafe = { fns: 1, impls: 1, blocks: 2 };
+  rust.crates[0].testUnsafe = { fns: 0, impls: 0, blocks: 0 };
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(errors.some((m) => m.includes('unsafe.impls says 1 but files sum to 0')), errors.join('\n'));
+  assert.ok(errors.some((m) => m.includes('testUnsafe.impls says 0 but files sum to 1')), errors.join('\n'));
+
+  delete file.testUnsafe;
+  const missing = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(missing.some((m) => m.includes('files[0].testUnsafe must carry integer fns/impls/blocks counts')), missing.join('\n'));
+});
+
+test('validateMapDataObject checks target-scoped dependency tables', () => {
+  const rust = rustInventory();
+  rust.crates[0].targetDependencies = [{ cfg: 'cfg(loom)', table: 'dependencies', names: ['loom'] }];
+  assert.deepEqual(validateMapDataObject(mapData({ files: RUST_FILES, rust })), []);
+
+  rust.crates[0].targetDependencies = [{ cfg: '', table: 'deps', names: 'loom' }];
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  for (const fragment of ['targetDependencies[0].cfg must be a non-empty string', 'targetDependencies[0].table must name a dependency table', 'targetDependencies[0].names must be an array of strings']) {
+    assert.ok(errors.some((m) => m.includes(fragment)), `expected ${fragment}:\n${errors.join('\n')}`);
+  }
+  rust.crates[0].targetDependencies = 'none';
+  assert.ok(validateMapDataObject(mapData({ files: RUST_FILES, rust })).some((m) => m.includes('targetDependencies must be an array')));
+});
+
+test('validateMapDataObject rejects crate files the snapshot tree does not list', () => {
+  const rust = rustInventory();
+  rust.crates[0].files[0].path = 'rust/sele4n-sys/src/ghost.rs';
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(errors.some((message) => message.includes('ghost.rs is not in files[]')), errors.join('\n'));
+});
+
+test('validateMapDataObject rejects crate totals that disagree with the per-file scans', () => {
+  const rust = rustInventory();
+  rust.crates[0].items = 5;
+  rust.crates[0].publicItems = 0;
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  assert.ok(errors.some((message) => message.includes('items says 5 but files sum to 1')), errors.join('\n'));
+  assert.ok(errors.some((message) => message.includes('publicItems says 0 but files sum to 1')), errors.join('\n'));
+
+  const overPublic = rustInventory();
+  overPublic.crates[0].files[0].publicItems = 3;
+  overPublic.crates[0].publicItems = 3;
+  const errs = validateMapDataObject(mapData({ files: RUST_FILES, rust: overPublic }));
+  assert.ok(errs.some((message) => message.includes('publicItems says 3 but only 1 production item(s) exist')), errs.join('\n'));
+});
+
+test('validateMapDataObject rejects malformed rust items, roles, visibilities and internal dependencies', () => {
+  const rust = rustInventory();
+  rust.crates[0].files[0].role = 'header';
+  rust.crates[0].files[0].items[0].kind = 'closure';
+  rust.crates[0].files[0].items[0].visibility = 'public';
+  rust.crates[0].files[0].items[0].line = 0;
+  rust.crates[0].internalDependencies = ['sele4n-nope'];
+  const errors = validateMapDataObject(mapData({ files: RUST_FILES, rust }));
+  for (const fragment of ['role "header"', 'kind "closure"', 'visibility "public"', 'line must be a positive integer', 'unknown crate sele4n-nope']) {
+    assert.ok(errors.some((message) => message.includes(fragment)), `expected an error mentioning ${fragment}:\n${errors.join('\n')}`);
+  }
+});
+
+test('validateMapDataObject rejects a rust block that is not an inventory', () => {
+  assert.deepEqual(validateMapDataObject(mapData({ rust: 'yes' })), ['map-data.json: rust must be an object']);
+  assert.deepEqual(validateMapDataObject(mapData({ rust: { crates: 'none' } })), ['map-data.json: rust.crates must be an array']);
+});

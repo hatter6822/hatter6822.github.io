@@ -1053,3 +1053,62 @@ the commit by SHA). The snapshots still record `sourceRef: main`; `commitSha`
 names the exact revision. It exists so a data change can be regenerated and
 reviewed against one known upstream commit; the scheduled sync keeps using
 `main`.
+
+## Rust crate inventory in the map snapshot (0.30.0)
+
+The canonical artifact inventories Lean and nothing else, so the code map's
+view of the production Rust crates — the user-space syscall wrappers and the
+bare-metal HAL — is projected by `scripts/lib/rust-analysis.mjs` from the same
+pinned checkout and bundled as `map-data.json#rust`. It is descriptive: crates
+in workspace order, each with its manifest facts, per-file item lists and
+counts. It feeds no landing-page statistic; the landing page stays
+canonical-or-absent. `validate-data.mjs` reconciles every crate total with its
+per-file lists and rejects a crate file the snapshot's `files[]` does not list.
+`docs/DEVELOPER_GUIDE.md` (§`data/map-data.json`) quotes its measured size.
+
+### What the counts mean
+
+An audit of the first version of this scanner found that its headline
+numbers did not mean what the page said they meant. Each rule below records
+the correction.
+
+- **`unsafe` sites are counted at any depth and split by test code.** The
+  first scanner counted `unsafe fn` and `unsafe impl` at file scope only —
+  a method inside an `impl` was never seen — while counting `unsafe { … }`
+  blocks everywhere, test modules included, so the HAL's "118 sites" was
+  neither a production nor a total figure. `scanRustSource` now recognises
+  `unsafe fn` headers wherever they sit (free functions, methods, trait
+  items; anchored at the line start so a function-pointer type is not a
+  site), `unsafe impl` blocks and `unsafe { … }` blocks, and attributes each
+  to `unsafe` or `testUnsafe` by the innermost enclosing item. On the HAL at
+  `dcbd1dd` that is 9 functions, 3 impls and 87 blocks in production code,
+  and 0, 4 and 20 in test code.
+- **Test code is decided by the `cfg` predicate.** The first scanner flagged
+  any attribute containing the word `test`, so `#[cfg(any(feature =
+  "hw_target", test))]` hid a hardware-build constant behind the test
+  toggle, and `#[cfg(not(test))]` would have filed the production side of a
+  split as test code. `cfgIsTestOnly` parses the predicate: `test` and
+  `all(test, …)` are test-only; `any(test, …)` and `not(…)` are not.
+  `#[test]` functions, everything inside a marked module or block, and every
+  line of an integration-test file are test code; items in it carry
+  `test: true`.
+- **Target-scoped dependency tables are kept apart.** The HAL declares `loom`
+  under `[target.'cfg(loom)'.dependencies]`, which no ordinary build
+  resolves; the first scanner folded it into `dependencies` and the card
+  called it an external runtime dependency. `parseCargoManifest` now returns
+  such tables as `targetDependencies: [{ cfg, table, names }]`, and
+  `externalDependencies` covers unconditional tables only.
+- **`deniesUnsafe` is read from the crate root.** A `#![deny(unsafe_code)]`
+  in a `src/bin/*.rs` target speaks for that binary, which is its own crate,
+  not for the library; only `src/lib.rs` (or `src/main.rs` for a binary-only
+  package) sets the flag.
+- **`items` counts declarations.** `impl` blocks have no name or visibility
+  of their own, so they are listed in a file's items but not counted;
+  `sele4n-types` drops from 87 "items" to 30 declarations. `publicItems`
+  counts items declared `pub` whose enclosing inline modules are all `pub`,
+  which is what a reader of the crate can reach; the first scanner ignored
+  every item inside an inline module.
+
+The scanner remains a line scanner, not a parser: it reads one item header
+per line after comments and strings are blanked, skips bodies by brace depth,
+and reports items inside inline `mod` blocks with their module path.

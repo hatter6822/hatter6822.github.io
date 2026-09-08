@@ -54,6 +54,170 @@ function validateCallGraph(moduleName, symbols) {
   return errors;
 }
 
+const RUST_ITEM_KINDS = new Set(['fn', 'struct', 'enum', 'union', 'trait', 'type', 'const', 'static', 'mod', 'impl', 'macro']);
+const RUST_FILE_ROLES = new Set(['lib', 'bin', 'build', 'test', 'module']);
+const RUST_DEPENDENCY_TABLES = new Set(['dependencies', 'dev-dependencies', 'build-dependencies']);
+const UNSAFE_COUNTERS = ['fns', 'impls', 'blocks'];
+
+function isNonNegativeInteger(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+function isUnsafeCounts(value) {
+  return isObject(value) && UNSAFE_COUNTERS.every((key) => isNonNegativeInteger(value[key]));
+}
+
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+/**
+ * Validate the bundled Rust crate inventory (`map-data.json#rust`).
+ *
+ * The block is optional — a snapshot produced before the inventory existed, or
+ * a live canonical refresh, carries none — but when present it must be
+ * internally consistent and must describe files the snapshot's own `files`
+ * inventory lists. The runtime renders the crates from this block alone, so a
+ * crate pointing at a path outside the tree would render a link to nothing.
+ *
+ * The counts the cards show are reconciled here against the per-file lists:
+ * `items` is the number of counted-kind (not `impl`) items outside test code,
+ * `testItems` the number flagged `test: true`, and `unsafe` / `testUnsafe`
+ * are the per-file sums, counter by counter.
+ */
+function validateRustInventory(rust, files) {
+  const errors = [];
+  const where = 'map-data.json: rust';
+  if (!isObject(rust)) return [`${where} must be an object`];
+  if (!Array.isArray(rust.crates)) return [`${where}.crates must be an array`];
+  if (!Array.isArray(rust.members)) errors.push(`${where}.members must be an array`);
+  if (rust.workspaceManifest !== undefined && typeof rust.workspaceManifest !== 'string') {
+    errors.push(`${where}.workspaceManifest must be a string`);
+  }
+
+  const knownFiles = new Set(Array.isArray(files) ? files : []);
+  const seenNames = new Set();
+  const crateNames = new Set(rust.crates.map((crate) => crate?.name).filter((name) => typeof name === 'string'));
+
+  rust.crates.forEach((crate, index) => {
+    const label = `${where}.crates[${index}]`;
+    if (!isObject(crate)) { errors.push(`${label} must be an object`); return; }
+    if (typeof crate.name !== 'string' || !crate.name.trim()) { errors.push(`${label}.name must be a non-empty string`); return; }
+    if (seenNames.has(crate.name)) errors.push(`${label}: duplicate crate ${crate.name}`);
+    seenNames.add(crate.name);
+
+    if (typeof crate.path !== 'string' || !crate.path.trim()) errors.push(`${label}.path must be a non-empty string`);
+    if (typeof crate.manifest !== 'string' || !crate.manifest.trim()) errors.push(`${label}.manifest must be a non-empty string`);
+    else if (knownFiles.size && !knownFiles.has(crate.manifest)) errors.push(`${label}.manifest ${crate.manifest} is not in files[]`);
+
+    for (const key of ['sourceFiles', 'lines', 'items', 'publicItems', 'testItems']) {
+      if (!isNonNegativeInteger(crate[key])) errors.push(`${label}.${key} must be a non-negative integer`);
+    }
+    if (typeof crate.deniesUnsafe !== 'boolean') errors.push(`${label}.deniesUnsafe must be a boolean`);
+    for (const key of ['unsafe', 'testUnsafe']) {
+      if (!isUnsafeCounts(crate[key])) errors.push(`${label}.${key} must carry integer fns/impls/blocks counts`);
+    }
+    for (const key of ['dependencies', 'internalDependencies', 'externalDependencies', 'devDependencies', 'buildDependencies', 'features']) {
+      if (!isStringArray(crate[key])) errors.push(`${label}.${key} must be an array of strings`);
+    }
+    if (!Array.isArray(crate.targetDependencies)) {
+      errors.push(`${label}.targetDependencies must be an array`);
+    } else {
+      crate.targetDependencies.forEach((entry, entryIndex) => {
+        const entryLabel = `${label}.targetDependencies[${entryIndex}]`;
+        if (!isObject(entry) || typeof entry.cfg !== 'string' || !entry.cfg.trim()) errors.push(`${entryLabel}.cfg must be a non-empty string`);
+        if (!isObject(entry) || !RUST_DEPENDENCY_TABLES.has(entry.table)) errors.push(`${entryLabel}.table must name a dependency table`);
+        if (!isObject(entry) || !isStringArray(entry.names)) errors.push(`${entryLabel}.names must be an array of strings`);
+      });
+    }
+    if (Array.isArray(crate.internalDependencies)) {
+      for (const dep of crate.internalDependencies) {
+        if (!crateNames.has(dep)) errors.push(`${label}.internalDependencies names unknown crate ${dep}`);
+      }
+    }
+
+    if (!Array.isArray(crate.files)) { errors.push(`${label}.files must be an array`); return; }
+    if (isNonNegativeInteger(crate.sourceFiles) && crate.sourceFiles !== crate.files.length) {
+      errors.push(`${label}.sourceFiles says ${crate.sourceFiles} but files[] has ${crate.files.length}`);
+    }
+
+    let itemTotal = 0;
+    let publicTotal = 0;
+    let testTotal = 0;
+    let lineTotal = 0;
+    const unsafeTotal = { fns: 0, impls: 0, blocks: 0 };
+    const testUnsafeTotal = { fns: 0, impls: 0, blocks: 0 };
+    crate.files.forEach((file, fileIndex) => {
+      const fileLabel = `${label}.files[${fileIndex}]`;
+      if (!isObject(file)) { errors.push(`${fileLabel} must be an object`); return; }
+      if (typeof file.path !== 'string' || !file.path.trim()) { errors.push(`${fileLabel}.path must be a non-empty string`); return; }
+      if (knownFiles.size && !knownFiles.has(file.path)) errors.push(`${fileLabel}.path ${file.path} is not in files[]`);
+      if (typeof crate.path === 'string' && !file.path.startsWith(`${crate.path}/`)) {
+        errors.push(`${fileLabel}.path ${file.path} lies outside crate ${crate.path}`);
+      }
+      if (typeof file.relativePath !== 'string') errors.push(`${fileLabel}.relativePath must be a string`);
+      if (typeof file.modulePath !== 'string') errors.push(`${fileLabel}.modulePath must be a string`);
+      if (!RUST_FILE_ROLES.has(file.role)) errors.push(`${fileLabel}.role ${JSON.stringify(file.role)} is not a known role`);
+      for (const key of ['lines', 'productionItems', 'publicItems', 'testItems']) {
+        if (!isNonNegativeInteger(file[key])) errors.push(`${fileLabel}.${key} must be a non-negative integer`);
+      }
+      for (const key of ['unsafe', 'testUnsafe']) {
+        if (!isUnsafeCounts(file[key])) errors.push(`${fileLabel}.${key} must carry integer fns/impls/blocks counts`);
+      }
+      if (!Array.isArray(file.items)) { errors.push(`${fileLabel}.items must be an array`); return; }
+      let flagged = 0;
+      let counted = 0;
+      file.items.forEach((item, itemIndex) => {
+        const itemLabel = `${fileLabel}.items[${itemIndex}]`;
+        if (!isObject(item)) { errors.push(`${itemLabel} must be an object`); return; }
+        if (!RUST_ITEM_KINDS.has(item.kind)) errors.push(`${itemLabel}.kind ${JSON.stringify(item.kind)} is not a known item kind`);
+        if (typeof item.name !== 'string' || !item.name.trim()) errors.push(`${itemLabel}.name must be a non-empty string`);
+        if (!Number.isInteger(item.line) || item.line < 1) errors.push(`${itemLabel}.line must be a positive integer`);
+        if (typeof item.visibility !== 'string' || !/^(?:private|pub|pub\([^)]+\))$/.test(item.visibility)) {
+          errors.push(`${itemLabel}.visibility ${JSON.stringify(item.visibility)} is not a visibility`);
+        }
+        if (item.test !== undefined && item.test !== true) errors.push(`${itemLabel}.test must be true when present`);
+        if (item.test === true) flagged += 1;
+        else if (item.kind !== 'impl') counted += 1;
+      });
+      // The counts the cards show must agree with the listed items: test
+      // items with the flags, production items with the counted kinds.
+      if (isNonNegativeInteger(file.testItems) && file.testItems !== flagged) {
+        errors.push(`${fileLabel}.testItems says ${file.testItems} but ${flagged} item(s) are flagged test`);
+      }
+      if (isNonNegativeInteger(file.productionItems) && file.productionItems !== counted) {
+        errors.push(`${fileLabel}.productionItems says ${file.productionItems} but ${counted} counted item(s) are outside test code`);
+      }
+      if (isNonNegativeInteger(file.publicItems) && isNonNegativeInteger(file.productionItems) && file.publicItems > file.productionItems) {
+        errors.push(`${fileLabel}.publicItems says ${file.publicItems} but only ${file.productionItems} production item(s) exist`);
+      }
+      itemTotal += isNonNegativeInteger(file.productionItems) ? file.productionItems : 0;
+      publicTotal += isNonNegativeInteger(file.publicItems) ? file.publicItems : 0;
+      testTotal += isNonNegativeInteger(file.testItems) ? file.testItems : 0;
+      lineTotal += isNonNegativeInteger(file.lines) ? file.lines : 0;
+      if (isUnsafeCounts(file.unsafe)) for (const key of UNSAFE_COUNTERS) unsafeTotal[key] += file.unsafe[key];
+      if (isUnsafeCounts(file.testUnsafe)) for (const key of UNSAFE_COUNTERS) testUnsafeTotal[key] += file.testUnsafe[key];
+    });
+
+    if (isNonNegativeInteger(crate.items) && crate.items !== itemTotal) errors.push(`${label}.items says ${crate.items} but files sum to ${itemTotal}`);
+    if (isNonNegativeInteger(crate.publicItems) && crate.publicItems !== publicTotal) errors.push(`${label}.publicItems says ${crate.publicItems} but files sum to ${publicTotal}`);
+    if (isNonNegativeInteger(crate.testItems) && crate.testItems !== testTotal) errors.push(`${label}.testItems says ${crate.testItems} but files sum to ${testTotal}`);
+    if (isNonNegativeInteger(crate.lines) && crate.lines !== lineTotal) errors.push(`${label}.lines says ${crate.lines} but files sum to ${lineTotal}`);
+    if (isUnsafeCounts(crate.unsafe)) {
+      for (const key of UNSAFE_COUNTERS) {
+        if (crate.unsafe[key] !== unsafeTotal[key]) errors.push(`${label}.unsafe.${key} says ${crate.unsafe[key]} but files sum to ${unsafeTotal[key]}`);
+      }
+    }
+    if (isUnsafeCounts(crate.testUnsafe)) {
+      for (const key of UNSAFE_COUNTERS) {
+        if (crate.testUnsafe[key] !== testUnsafeTotal[key]) errors.push(`${label}.testUnsafe.${key} says ${crate.testUnsafe[key]} but files sum to ${testUnsafeTotal[key]}`);
+      }
+    }
+  });
+
+  return errors;
+}
+
 function isValidSymbolEntry(entry) {
   if (typeof entry === 'string') return entry.trim().length > 0;
   if (!isObject(entry)) return false;
@@ -275,6 +439,8 @@ export function validateMapDataObject(data) {
     }
   }
 
+
+  if (data.rust !== undefined) errors.push(...validateRustInventory(data.rust, data.files));
   return errors;
 }
 

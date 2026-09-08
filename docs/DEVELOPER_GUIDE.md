@@ -220,6 +220,16 @@ Bundled graph snapshot used by map runtime. Includes:
   calls, and incoming callers via the reverse index the runtime builds from
   it). Before it was bundled, that view was empty until a live GitHub fetch
   completed, and empty forever offline.
+- `rust` — the production crate inventory from the same checkout, built by
+  `scripts/lib/rust-analysis.mjs`: crates in workspace order with manifest
+  facts (description, edition, dependencies split into internal, external,
+  dev, build and target-scoped tables, features), `deniesUnsafe` read from the
+  crate root, and per-file item lists (kind, name, line, visibility,
+  inline-module path, `test` flag) with counts — `productionItems`,
+  `publicItems`, `testItems`, `unsafe` and `testUnsafe`. Descriptive only; it
+  feeds no landing-page statistic. Measured on the current workspace (four
+  crates, 66 source files) the block is about 271 KB raw and 31 KB gzipped;
+  this is the one place that figure is quoted.
 - `commitSha`, `generatedAt` provenance.
 
 Written **compact** (no indentation): at ~4.6 MB (459 KB gzipped) it is the
@@ -332,8 +342,22 @@ Lean source parsing. Two roles:
   map runtime uses when it fetches an individual `.lean` file. The pipeline no
   longer calls them; keeping them here keeps that runtime logic under test.
 
+### `scripts/lib/rust-analysis.mjs`
+The Rust workspace scanner behind `map-data.json#rust`: `stripRustCommentsAndStrings`
+(nested block comments, raw/byte strings, char literals), `scanRustSource` (item
+headers at item scope with visibility, `unsafe`, inline-module path and test
+marking; `unsafe fn` / `unsafe impl` / `unsafe { … }` sites at any depth split
+between production and test code; line counts), `cfgIsTestOnly` (a `cfg`
+predicate is test-only for `test` and `all(test, …)`, not for `not(test)` or
+`any(test, feature = "…")`), `parseCargoManifest` (package fields, workspace
+inheritance, dependency tables with target-scoped tables kept apart, features,
+`[[bin]]`), `rustFileRole` / `rustModulePath`, and `buildRustInventory`, which
+assembles the crates in workspace order from a file list and a reader. Not a
+Rust parser; it lists a crate's surface the way a rustdoc sidebar does, one
+item header per line.
+
 ### `scripts/lib/data-validation.mjs`
-Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks.
+Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal to per-file sums for items, test items, lines and both `unsafe` counters, target-scoped dependency tables).
 
 ### `scripts/lib/trace-analysis.mjs`
 Trace schema validation and the deterministic fold engine (`reconstructState`/`scenarioStates`) shared by `validate-traces.mjs`, `sync-upstream.mjs`, and the Simulator tests.
@@ -345,6 +369,7 @@ The `data/site-data.json` → `index.html` + `locales/*.json` static-fallback ma
 Node tests for parser and validation correctness:
 
 - `lean-analysis.test.mjs`: parser behavior, edge cases, `isLikelyModuleToken` validation, theorem deduplication, null/empty input guards, noncomputable theorem counting, comment-only continuation line handling, non-numeric metric cell robustness.
+- `rust-analysis.test.mjs`: comment/string stripping with line structure preserved, item scanning (kinds, visibility, `unsafe`, nested-body exclusion, inline modules, multi-line signatures, `static mut`), `unsafe` sites at any depth split by test code, `cfg` predicate reading, public-item reachability, manifest parsing (workspace inheritance, dependency and target-scoped tables, `[[bin]]`), file roles and module paths, and `buildRustInventory` assembly with the crate-root lint rule.
 - `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection, non-string module array entries.
 - `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none).
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.

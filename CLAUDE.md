@@ -21,6 +21,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 ```bash
 # Parser and validation tests (all must pass, zero warnings)
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
@@ -74,6 +75,7 @@ Several files exceed 500 lines:
 | `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
 | `assets/css/map.css` | ~818 | Map-specific styles |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
+| `scripts/lib/rust-analysis.mjs` | ~640 | Rust crate inventory scanner |
 | `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
@@ -155,6 +157,42 @@ its own copy of the `data-live` spans **and the numbers inside them**. They
 silently drifted to `546` while `index.html` said `574`. Any change touching a
 metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
 `locales/` must be committed together.
+
+### Rust crate inventory (`map-data.json#rust`)
+
+`scripts/lib/rust-analysis.mjs` scans the `rust/` workspace of the same pinned
+checkout and bundles one descriptive block: crates in workspace order, each
+with its manifest facts, per-file item lists (kind, name, line, visibility,
+inline-module path, `test` flag) and counts. It feeds **no landing-page
+statistic**; the landing page stays canonical-or-absent.
+
+- **Counts describe the production surface.** `items` counts nameable
+  declarations (`fn`, `struct`, `enum`, `union`, `trait`, `type`, `const`,
+  `static`, `mod`, `macro_rules!`) outside test code; `impl` blocks are listed
+  but not counted. `publicItems` counts those declared `pub` whose enclosing
+  inline modules are all `pub`. `testItems` is everything flagged `test`.
+- **`unsafe` and `testUnsafe` are two counters with one definition each**:
+  `unsafe fn` headers at any depth (free functions and methods alike),
+  `unsafe impl` blocks and `unsafe { … }` blocks, attributed to test or
+  production by the innermost enclosing item. An earlier scanner counted
+  functions and impls at file scope only, and blocks everywhere including test
+  modules, so the HAL's total was neither figure; never reintroduce a counter
+  that mixes scopes.
+- **Test code is decided by the `cfg` predicate, not by the word `test`.**
+  `cfgIsTestOnly` treats `cfg(test)` and `cfg(all(test, …))` as test-only, and
+  `cfg(not(test))` and `cfg(any(test, feature = "…"))` as production, because
+  those compile into production builds. `#[test]` functions, everything inside
+  a marked module or block, and every line of an integration-test file are
+  test code.
+- **Target-scoped dependency tables stay separate.** `[target.'cfg(loom)'
+  .dependencies]` is bundled as `targetDependencies: [{ cfg, table, names }]`,
+  never as an external dependency: the HAL's `loom` enters no ordinary build.
+- **`deniesUnsafe` is read from the crate root only** (`src/lib.rs`, or
+  `src/main.rs` for a binary-only package). A lint in a `src/bin/*.rs` target
+  speaks for that binary, not for the library.
+- `validate-data.mjs` reconciles every crate total with its per-file lists,
+  counter by counter, and rejects a crate file the snapshot's `files[]` does
+  not list.
 
 ### Map data normalization
 
@@ -250,6 +288,7 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Locale key parity | `scripts/lib/i18n-locales.test.mjs`, `locales/*.json` |
 | Internationalization | `assets/js/i18n.js`, `locales/*.json` |
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |
+| Rust crate inventory (map) | `scripts/lib/rust-analysis.mjs` |
 | Data validation | `scripts/lib/data-validation.mjs` |
 | Global styles | `assets/css/style.css` |
 | Simulator (kernel-in-action) | `run.html`, `assets/js/run.js`, `assets/css/run.css` |

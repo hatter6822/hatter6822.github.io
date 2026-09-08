@@ -36,6 +36,7 @@ one revision produces all three bundled snapshots.
 git clone --depth 1 seLe4n@main
   └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
      Lean sources            ─┤   data/map-data.json           (code map)
+     rust/ workspace         ─┘     └─ #rust: crate inventory
      docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
 ```
 
@@ -55,6 +56,12 @@ artifact does not record, the import graph, and the artifact's
 snapshots cannot blend two revisions. The site and map snapshots record the same
 `commitSha` and `sourceDigest`; `validate-data.mjs` fails if they disagree.
 
+The same checkout's `rust/` workspace is scanned by `scripts/lib/rust-analysis.mjs`
+into `map-data.json#rust`: the four production crates with their manifest
+facts, per-file item lists, and `unsafe` sites counted at any depth and split
+between production and test code. It is descriptive and feeds no landing-page
+statistic.
+
 `apply-static-values.mjs` then stamps those values into `index.html` (the
 `data-live` spans, JSON-LD version, snapshot timestamp) and into every
 `locales/*.json` bundle, whose translated HTML carries its own copy of the same
@@ -72,6 +79,7 @@ node scripts/validate-traces.mjs
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs

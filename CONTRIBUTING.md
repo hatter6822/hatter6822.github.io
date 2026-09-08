@@ -27,6 +27,7 @@ Run all checks below from repository root:
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
@@ -67,7 +68,7 @@ If you changed UI behavior or layout:
 If you changed scripts or map data flow:
 
 1. Run the sync pipeline if needed:
-   - `node scripts/sync-upstream.mjs` (one clone → all three `data/*.json` snapshots)
+   - `node scripts/sync-upstream.mjs` (one clone → all three `data/*.json` snapshots, including the `rust` crate inventory inside `map-data.json`; `SELE4N_REF=<commit>` pins the checkout)
    - `node scripts/apply-static-values.mjs` (stamps index.html **and** every `locales/*.json` bundle)
 2. Run validation script.
 3. Ensure generated JSON is committed when intentionally updated — `index.html`,

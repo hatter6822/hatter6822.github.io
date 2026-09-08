@@ -5,6 +5,7 @@
  *   git clone --depth 1 seLe4n@main
  *     └─ docs/codebase_map.json  ─┬─→ data/site-data.json      (landing page)
  *        Lean sources            ─┤   data/map-data.json       (code map)
+ *        rust/ workspace         ─┘     └─ #rust: crate inventory
  *        docs/execution-traces.json ─→ data/execution-traces.json (simulator)
  *
  * There used to be three scripts, each fetching upstream independently. They
@@ -20,6 +21,12 @@
  * and `source_sync.source_digest` proves the sources we parse are the corpus
  * the artifact describes, rather than a later revision that merely sits in the
  * same tree.
+ *
+ * The Rust workspace is outside the artifact's scope entirely (its digest covers
+ * Lean sources only), so the code map's crate inventory is read from the same
+ * pinned checkout by `lib/rust-analysis.mjs` and bundled as `map-data.json#rust`.
+ * It is descriptive — files, items, visibility, `unsafe` usage, manifests — and
+ * feeds no landing-page statistic.
  *
  * Reproducible regeneration: `SELE4N_REF=<40-hex commit>` pins the checkout to
  * that revision instead of the tip of `main`, so a data change can be
@@ -47,6 +54,7 @@ import {
   theoremDeclarationCount
 } from './lib/canonical-map.mjs';
 import { extractImportTokens } from './lib/lean-analysis.mjs';
+import { buildRustInventory } from './lib/rust-analysis.mjs';
 import { validateTraceDataObject, scenarioStates } from './lib/trace-analysis.mjs';
 
 const REPO = 'hatter6822/seLe4n';
@@ -299,6 +307,9 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
     importsTo,
     importsFrom,
     externalImportsFrom,
+    // The production Rust crates, from the same checkout: the map renders them
+    // beside the Lean modules as the other half of the production code.
+    rust: buildRustInventory(head.files, (path) => readFileSync(join(work, path), 'utf8')),
     commitSha: head.commitSha,
     metricsSource: METRICS_PATH,
     sourceDigest,
@@ -348,6 +359,8 @@ try {
   console.log(`Synced ${REPO}@${head.commitSha.slice(0, 7)}${PINNED_COMMIT ? ' (SELE4N_REF)' : currentWithRef ? ` (${REF})` : ' (pinned to the artifact\'s commit)'}`);
   console.log(`   site-data   v${siteData.version} · ${formatNumber(siteData.theorems)} theorems · ${siteData.lines} lines · ${siteData.modules} modules · ${siteData.admitted} admitted`);
   console.log(`   map-data    ${mapData.modules.length} modules · ${edges} import edges · ${mapData.files.length} files`);
+  const rustFiles = mapData.rust.crates.reduce((total, crate) => total + crate.sourceFiles, 0);
+  console.log(`   rust        ${mapData.rust.crates.length} crate(s) · ${rustFiles} source files · ${mapData.rust.crates.map((crate) => crate.name).join(', ')}`);
 } finally {
   await rm(work, { recursive: true, force: true });
 }
