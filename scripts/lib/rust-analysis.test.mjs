@@ -315,6 +315,105 @@ test('buildRustInventory scans an out-of-line #[cfg(test)] module and its submod
   assert.deepEqual(hal.testUnsafe, { fns: 0, impls: 1, blocks: 1 });
 });
 
+test('scanRustSource keeps raw identifiers whole', () => {
+  const scan = scanRustSource([
+    'pub fn r#match(x: u8) -> u8 { x }',
+    'pub struct r#type;',
+    'pub mod r#mod;',
+    'pub fn plain() {}'
+  ].join('\n'));
+  assert.deepEqual(scan.items.map((item) => item.name), ['r#match', 'r#type', 'r#mod', 'plain'], 'the prefix is part of the name as written; `r` alone would collapse distinct items');
+  assert.equal(scan.publicItems, 4);
+  assert.deepEqual(childModuleFiles('src/lib.rs', 'r#mod'), ['src/mod.rs', 'src/mod/mod.rs'], 'a raw identifier resolves to the bare file name');
+});
+
+test('scanRustSource counts a #[macro_export] macro as public wherever it sits', () => {
+  const scan = scanRustSource([
+    '#[macro_export]',
+    'macro_rules! kprint {',
+    '    ($($arg:tt)*) => {{}};',
+    '}',
+    'mod internal {',
+    '    #[macro_export(local_inner_macros)]',
+    '    macro_rules! hidden_but_exported {',
+    '        () => {};',
+    '    }',
+    '    macro_rules! local_only {',
+    '        () => {};',
+    '    }',
+    '}',
+    '#[macro_export]',
+    'pub fn not_a_macro() {}'
+  ].join('\n'));
+  const byName = Object.fromEntries(scan.items.map((item) => [item.name, item]));
+  assert.equal(byName.kprint.visibility, 'pub');
+  assert.equal(byName.hidden_but_exported.visibility, 'pub', 'macro_export hoists the macro to the crate root, past the private module');
+  assert.equal(byName.local_only.visibility, 'private');
+  assert.equal(byName.not_a_macro.visibility, 'pub', 'the attribute changes nothing for a non-macro; the item is pub on its own');
+  assert.equal(scan.publicItems, 3, 'kprint, hidden_but_exported and not_a_macro; not internal (private mod) or local_only');
+});
+
+test('scanRustSource honours a test-only attribute on an associated item', () => {
+  const scan = scanRustSource([
+    'pub struct Cell(u8);',
+    'impl Cell {',
+    '    #[cfg(test)]',
+    '    pub unsafe fn poke(&self) { unsafe { } }',
+    '    #[cfg(test)]',
+    '    fn multi_line(',
+    '        &self,',
+    '    ) {',
+    '        unsafe { }',
+    '    }',
+    '    #[cfg(any(test, feature = "std"))]',
+    '    pub fn both(&self) { unsafe { } }',
+    '    pub unsafe fn real(&self) { unsafe { } }',
+    '}',
+    'pub trait Raw {',
+    '    #[cfg(test)]',
+    '    unsafe fn probe(&self);',
+    '    unsafe fn read(&self) -> u8;',
+    '}',
+    'pub fn after() { unsafe { } }'
+  ].join('\n'));
+  assert.deepEqual(scan.unsafe, { fns: 2, impls: 0, blocks: 3 }, 'real, read; the blocks in both, real and after');
+  assert.deepEqual(scan.testUnsafe, { fns: 2, impls: 0, blocks: 2 }, 'poke and probe; the blocks in poke and multi_line');
+  assert.deepEqual(scan.items.map((item) => item.name), ['Cell', 'Cell', 'Raw', 'after'], 'associated items are still not listed');
+});
+
+test('scanRustSource counts public items only when the file itself is exported', () => {
+  const source = 'pub fn api() {}\npub mod deeper {\n    pub fn deep() {}\n}\nfn private() {}\n';
+  assert.equal(scanRustSource(source).publicItems, 3, 'reachable by default');
+  assert.equal(scanRustSource(source, { exported: false }).publicItems, 0, 'nothing in a file behind a private module is public API');
+  assert.equal(scanRustSource(source, { exported: false }).productionItems, 4, 'they are still declarations');
+});
+
+test('buildRustInventory carries module visibility into out-of-line files', () => {
+  const tree = {
+    'rust/Cargo.toml': '[workspace]\nmembers = ["sele4n-sys"]\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n',
+    'rust/sele4n-sys/Cargo.toml': '[package]\nname = "sele4n-sys"\nversion.workspace = true\nedition.workspace = true\n',
+    'rust/sele4n-sys/src/lib.rs': 'pub mod api;\nmod detail;\npub(crate) mod internal;\n',
+    'rust/sele4n-sys/src/api.rs': 'pub fn open() {}\nmod nested;\npub mod also_pub;\n',
+    'rust/sele4n-sys/src/api/nested.rs': 'pub fn unreachable_from_outside() {}\n',
+    'rust/sele4n-sys/src/api/also_pub.rs': 'pub fn reachable() {}\n',
+    'rust/sele4n-sys/src/detail.rs': 'pub fn helper() {}\n#[macro_export]\nmacro_rules! exported_anyway { () => {}; }\n',
+    'rust/sele4n-sys/src/internal.rs': 'pub fn crate_only() {}\n'
+  };
+  const inventory = buildRustInventory(Object.keys(tree), (path) => tree[path]);
+  const sys = inventory.crates[0];
+  const pub = Object.fromEntries(sys.files.map((file) => [file.relativePath, file.publicItems]));
+  assert.deepEqual(pub, {
+    'src/api.rs': 2,
+    'src/api/also_pub.rs': 1,
+    'src/api/nested.rs': 0,
+    'src/detail.rs': 1,
+    'src/internal.rs': 0,
+    'src/lib.rs': 1
+  }, 'api and also_pub are reachable; nested (private mod), detail (private mod) and internal (pub(crate)) are not — except the macro_export macro');
+  assert.equal(sys.publicItems, 5);
+  assert.equal(sys.items, 11, 'six functions, one macro and four mod declarations; the private modules are still declarations');
+});
+
 test('scanRustSource treats an integration-test file as test code throughout', () => {
   const scan = scanRustSource('pub fn helper() { unsafe { } }\n#[test]\nfn smoke() {}\n', { testFile: true });
   assert.deepEqual(scan.items.map((item) => [item.name, item.test]), [['helper', true], ['smoke', true]]);

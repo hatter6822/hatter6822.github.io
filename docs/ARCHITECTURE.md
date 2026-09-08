@@ -1131,7 +1131,21 @@ the correction.
   impls and `unsafe` sites are counted apart from production.
 - **`const _: () = assert!(…)` is anonymous.** `_` is not a name; the
   assertion is neither listed nor counted. The first snapshot carried 37
-  items named `_`, 33 of them counted as production declarations.
+  items named `_`, 33 of them counted as production declarations. A raw
+  identifier (`fn r#match`) keeps its prefix, which is the name as written;
+  the first scanner captured `r`.
+- **Public means reachable.** A `pub` item in a file reached through a
+  private `mod detail;` is not public API; `buildRustInventory` now carries
+  export status down the module tree the same way it carries test status,
+  and `scanRustSource` takes it as `options.exported`. A `#[macro_export]`
+  macro is published at the crate root whatever module it sits in, so it
+  counts as public without a `pub`; the HAL's four exported macros read as
+  private before.
+- **A test-only attribute on an associated item counts.** `#[cfg(test)]` on
+  a method inside an `impl` or `trait` never reached the item scanner, so an
+  `unsafe fn` or `unsafe { … }` it guarded went to the production counters.
+  The scanner now notes test-only attributes at any depth and opens a test
+  region at the body they guard.
 
 The scanner remains a line scanner, not a parser: it reads one item header
 per line after comments and strings are blanked, skips bodies by brace depth,

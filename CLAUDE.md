@@ -299,7 +299,16 @@ statistic**; the landing page stays canonical-or-absent.
   (`childModuleFiles`, rustc's rule), that file is rescanned as test code, and
   so is every module it declares in turn.
 - **`const _: () = assert!(…)` is anonymous**: neither listed nor counted. The
-  first snapshot carried 37 items named `_`.
+  first snapshot carried 37 items named `_`. A raw identifier (`fn r#match`)
+  keeps its prefix as its name and resolves to the bare file name as a module.
+- **Public means reachable.** `publicItems` counts `pub` items whose enclosing
+  inline modules are all `pub` *and* whose file is reached through `pub mod`
+  declarations from the crate root (`buildRustInventory` carries export
+  status into out-of-line files alongside test status). A `#[macro_export]`
+  macro is public wherever it sits.
+- **A test-only attribute on an associated item counts.** `#[cfg(test)]` on a
+  method inside an `impl` or `trait` is not an item, but the body it guards is
+  test code: its `unsafe` sites go to `testUnsafe`.
 - `validate-data.mjs` reconciles every crate total with its per-file lists,
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.

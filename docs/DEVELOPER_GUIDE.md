@@ -382,8 +382,11 @@ inheritance, dependency tables with target-scoped tables kept apart, features,
 `[[bin]]`), `rustFileRole` / `rustModulePath`, `childModuleFiles` (rustc's
 rule for where `mod x;` lives), and `buildRustInventory`, which assembles the
 crates in workspace order from a file list and a reader, rescanning
-out-of-line `#[cfg(test)]` modules and their submodules as test code. Anonymous
-`const _` assertions are not items. Not a Rust parser; it lists a crate's
+out-of-line modules with the test and export status they inherit from their
+`mod` declarations. Anonymous `const _` assertions are not items; raw
+identifiers keep their `r#`; `#[macro_export]` macros are public; a
+`#[cfg(test)]` on an associated method sends its `unsafe` sites to the test
+counters. Not a Rust parser; it lists a crate's
 surface the way a rustdoc sidebar does, one item header per line.
 
 ### `scripts/lib/data-validation.mjs`

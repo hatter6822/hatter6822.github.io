@@ -230,6 +230,11 @@ function attributeMarksTest(attribute) {
   return false;
 }
 
+/** `#[macro_export]` (with or without `(local_inner_macros)`) exports the macro from the crate root. */
+function attributeExportsMacro(attribute) {
+  return /^#\[\s*macro_export\b/.test(attribute.trim());
+}
+
 function bracketBalance(text) {
   let balance = 0;
   for (let i = 0; i < text.length; i += 1) {
@@ -247,10 +252,18 @@ function visibilityOf(head) {
 }
 
 function nameAfter(rest) {
-  const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)/.exec(rest);
-  // `const _: () = assert!(…)` is an anonymous compile-time assertion, not a
-  // nameable declaration: it is neither listed nor counted.
-  return match && match[1] !== '_' ? match[1] : '';
+  // A raw identifier (`fn r#match()`) keeps its prefix: that is the name as
+  // written and referenced. `const _: () = assert!(…)` is an anonymous
+  // compile-time assertion, not a nameable declaration: neither listed nor
+  // counted.
+  const match = /^\s*(r#)?([A-Za-z_][A-Za-z0-9_]*)/.exec(rest);
+  if (!match || match[2] === '_') return '';
+  return (match[1] || '') + match[2];
+}
+
+/** The identifier without a raw-identifier prefix, as it appears in a path. */
+function bareIdentifier(name) {
+  return String(name ?? '').replace(/^r#/, '');
 }
 
 /**
@@ -292,7 +305,10 @@ function emptyUnsafe() {
  *   `cfg`, everything inside a module so marked, and every item when
  *   `options.testFile` is set.
  * - `productionItems`: counted kinds (not `impl`) outside test code.
- * - `publicItems`: of those, the ones declared `pub` inside only-`pub` modules.
+ * - `publicItems`: of those, the ones declared `pub` inside only-`pub` modules
+ *   (`#[macro_export]` macros count as `pub` wherever they sit), when the file
+ *   itself is reachable: `options.exported` says whether every module on the
+ *   path from the crate root to this file is `pub` (default true).
  * - `testItems`: items flagged test.
  * - `unsafe` / `testUnsafe`: `{ fns, impls, blocks }` — `unsafe fn` headers at
  *   any depth, `unsafe impl` blocks, and `unsafe { … }` blocks, split by
@@ -302,6 +318,7 @@ function emptyUnsafe() {
 export function scanRustSource(source, options = {}) {
   const raw = String(source ?? '');
   const testFile = Boolean(options && options.testFile);
+  const fileExported = !(options && options.exported === false);
   const clean = stripRustCommentsAndStrings(raw);
   const lines = clean.split('\n');
   const items = [];
@@ -317,7 +334,7 @@ export function scanRustSource(source, options = {}) {
   // struct bodies) is skipped as a body. `exported` says whether every
   // enclosing inline module is `pub`, so a `pub fn` in a private `mod` is not
   // counted as public API.
-  const scopes = [{ depth: 0, module: '', kind: 'file', test: testFile, exported: true }];
+  const scopes = [{ depth: 0, module: '', kind: 'file', test: testFile, exported: fileExported }];
   // Depths of bodies that belong to test items (a `#[test] fn`, a
   // `#[cfg(test)] impl`, a test module): `unsafe` sites inside them are test
   // sites, whatever their depth.
@@ -327,7 +344,13 @@ export function scanRustSource(source, options = {}) {
   // Outer attributes seen since the last item at this scope; a multi-line
   // attribute is accumulated until its brackets balance.
   let pendingTestAttribute = false;
+  let pendingMacroExport = false;
   let attributeBuffer = null;
+  // A test-only attribute below item scope — on an associated method in an
+  // `impl` or `trait` — is not an item, but the body it guards is test code:
+  // its `unsafe` sites go to testUnsafe. The flag holds until the body opens
+  // (a test region is pushed) or the declaration ends without one (`;`).
+  let pendingNestedTest = false;
 
   for (let idx = 0; idx < lines.length; idx += 1) {
     const line = lines[idx];
@@ -336,28 +359,34 @@ export function scanRustSource(source, options = {}) {
     const top = scopes[scopes.length - 1];
     const atItemScope = depth === top.depth;
 
-    if (atItemScope && !pendingHead) {
+    if (!pendingHead) {
+      const noteAttribute = (attribute) => {
+        const marksTest = attributeMarksTest(attribute);
+        if (atItemScope) {
+          if (marksTest) pendingTestAttribute = true;
+          if (attributeExportsMacro(attribute)) pendingMacroExport = true;
+        } else if (marksTest) {
+          pendingNestedTest = true;
+        }
+      };
       if (attributeBuffer !== null) {
         attributeBuffer += '\n' + trimmed;
         if (bracketBalance(attributeBuffer) <= 0) {
-          if (attributeMarksTest(attributeBuffer)) pendingTestAttribute = true;
+          noteAttribute(attributeBuffer);
           attributeBuffer = null;
         }
         continue;
       }
       if (trimmed.startsWith('#[')) {
-        if (bracketBalance(trimmed) > 0) {
-          attributeBuffer = trimmed;
-        } else if (attributeMarksTest(trimmed)) {
-          pendingTestAttribute = true;
-        }
+        if (bracketBalance(trimmed) > 0) attributeBuffer = trimmed;
+        else noteAttribute(trimmed);
         continue;
       }
     }
 
     if (atItemScope && !pendingHead && trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('}')) {
       const match = ITEM_HEAD.exec(trimmed);
-      if (!match) pendingTestAttribute = false;
+      if (!match) { pendingTestAttribute = false; pendingMacroExport = false; }
       if (match) {
         const keyword = match[1];
         const kind = keyword === 'macro_rules!' ? 'macro' : keyword;
@@ -370,7 +399,10 @@ export function scanRustSource(source, options = {}) {
         else name = nameAfter(rest);
         if (name) {
           const isTest = Boolean(top.test || pendingTestAttribute);
-          const visibility = visibilityOf(head);
+          // `#[macro_export]` publishes the macro at the crate root whatever
+          // module it sits in; it is public API without a `pub`.
+          const macroExported = kind === 'macro' && pendingMacroExport;
+          const visibility = macroExported ? 'pub' : visibilityOf(head);
           items.push({
             kind,
             name,
@@ -383,17 +415,18 @@ export function scanRustSource(source, options = {}) {
           if (isTest) testItems += 1;
           else if (kind !== 'impl') {
             productionItems += 1;
-            if (visibility === 'pub' && top.exported) publicItems += 1;
+            if (visibility === 'pub' && (top.exported || macroExported)) publicItems += 1;
           }
           pendingHead = { kind, name, test: isTest, exported: top.exported && visibility === 'pub' };
         }
         pendingTestAttribute = false;
+        pendingMacroExport = false;
       }
     }
 
     // `unsafe` sites on this line, attributed to test or production code by
     // the innermost enclosing item.
-    const inTest = testFile || top.test || testRegions.length > 0 || Boolean(pendingHead && pendingHead.test);
+    const inTest = testFile || top.test || testRegions.length > 0 || Boolean(pendingHead && pendingHead.test) || pendingNestedTest;
     const bucket = inTest ? testUnsafe : unsafeStats;
     if (UNSAFE_FN_HEAD.test(trimmed)) bucket.fns += 1;
     else if (UNSAFE_IMPL_HEAD.test(trimmed)) bucket.impls += 1;
@@ -405,6 +438,10 @@ export function scanRustSource(source, options = {}) {
       const ch = line[c];
       if (ch === '{') {
         depth += 1;
+        if (pendingNestedTest) {
+          testRegions.push(depth);
+          pendingNestedTest = false;
+        }
         if (pendingHead) {
           if (pendingHead.test) testRegions.push(depth);
           if (pendingHead.kind === 'mod') {
@@ -427,6 +464,9 @@ export function scanRustSource(source, options = {}) {
       } else if ((ch === ';' || ch === '=') && pendingHead && depth === scopes[scopes.length - 1].depth) {
         // `mod foo;`, `type A = B;`, `const X: T = …;`, `static S: T = …;`
         pendingHead = null;
+      } else if (ch === ';' && pendingNestedTest) {
+        // A guarded declaration without a body (`#[cfg(test)] fn helper();`).
+        pendingNestedTest = false;
       }
     }
   }
@@ -607,7 +647,8 @@ export function childModuleFiles(relativePath, name) {
   const dir = parts.join('/');
   const anchor = file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs' ? dir : [dir, file.replace(/\.rs$/, '')].filter(Boolean).join('/');
   const base = anchor ? `${anchor}/` : '';
-  return [`${base}${name}.rs`, `${base}${name}/mod.rs`];
+  const stem = bareIdentifier(name);
+  return [`${base}${stem}.rs`, `${base}${stem}/mod.rs`];
 }
 
 function addUnsafe(total, counts) {
@@ -677,11 +718,17 @@ export function buildRustInventory(files, readText, options = {}) {
     let deniesUnsafe = false;
 
     // First pass: every source by its path role. Then resolve out-of-line
-    // modules declared under a test-only attribute (`#[cfg(test)] mod tests;`
-    // in the crate root, `src/tests.rs` on disk): the path rule calls such a
-    // file an ordinary module, but everything in it is test code, as is
-    // everything in the modules it declares in turn — so the set is closed
-    // under declaration before those files are rescanned as test code.
+    // module declarations (`mod x;`) to their files the way rustc does, and
+    // carry two things down that path:
+    //  - test-only status: `#[cfg(test)] mod tests;` names an ordinary module
+    //    by path, but everything in `src/tests.rs` is test code, as is every
+    //    module it declares in turn;
+    //  - export status: `pub` items in a file reached through a private
+    //    `mod detail;` are not public API, so `publicItems` must not count
+    //    them. Files nothing declares (crate roots, `#[path]` targets) keep
+    //    the default, exported.
+    // The sets are closed under declaration before the affected files are
+    // rescanned with the status they inherit.
     const scans = new Map();
     for (const path of sources) {
       const relative = path.slice(cratePath.length + 1);
@@ -690,21 +737,29 @@ export function buildRustInventory(files, readText, options = {}) {
       scans.set(relative, { path, relative, text, role, scan: scanRustSource(text, { testFile: role === 'test' }) });
     }
     const testFiles = new Set([...scans.values()].filter((entry) => entry.role === 'test').map((entry) => entry.relative));
+    const privateFiles = new Set();
     let grew = true;
     while (grew) {
       grew = false;
       for (const entry of scans.values()) {
+        const parentTest = testFiles.has(entry.relative);
+        const parentPrivate = privateFiles.has(entry.relative);
         for (const item of entry.scan.items) {
-          if (item.kind !== 'mod' || !(item.test || testFiles.has(entry.relative))) continue;
+          if (item.kind !== 'mod') continue;
+          const childTest = parentTest || item.test;
+          const childPrivate = parentPrivate || item.visibility !== 'pub';
           for (const candidate of childModuleFiles(entry.relative, item.name)) {
-            if (scans.has(candidate) && !testFiles.has(candidate)) { testFiles.add(candidate); grew = true; }
+            if (!scans.has(candidate)) continue;
+            if (childTest && !testFiles.has(candidate)) { testFiles.add(candidate); grew = true; }
+            if (childPrivate && !privateFiles.has(candidate)) { privateFiles.add(candidate); grew = true; }
           }
         }
       }
     }
-    for (const relative of testFiles) {
-      const entry = scans.get(relative);
-      if (entry.role !== 'test') entry.scan = scanRustSource(entry.text, { testFile: true });
+    for (const entry of scans.values()) {
+      const testFile = testFiles.has(entry.relative);
+      const exported = !privateFiles.has(entry.relative);
+      if (testFile !== (entry.role === 'test') || !exported) entry.scan = scanRustSource(entry.text, { testFile, exported });
     }
 
     for (const entry of scans.values()) {
