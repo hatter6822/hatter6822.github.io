@@ -6,6 +6,7 @@ import {
   buildRustInventory,
   cfgIsTestOnly,
   childModuleFiles,
+  crateDeniesUnsafe,
   parseCargoManifest,
   rustFileRole,
   rustModulePath,
@@ -622,4 +623,140 @@ test('buildRustInventory returns an empty workspace when the tree has no rust di
   assert.equal(inventory.workspaceManifest, '');
   assert.deepEqual(inventory.crates, []);
   assert.deepEqual(inventory.members, []);
+});
+
+test('scanRustSource reads a declaration that shares its line with an attribute', () => {
+  const scan = scanRustSource([
+    '#![allow(dead_code)] pub struct First;',
+    '#[cfg(test)] mod tests {',
+    '    pub fn helper() { unsafe { } }',
+    '    #[test] fn t() {}',
+    '}',
+    '#[macro_export] macro_rules! inline_macro { () => {}; }',
+    '#[inline] #[must_use] pub fn quick() -> u8 { 1 }',
+    '#[cfg(',
+    '    test',
+    ')] pub fn after_multi_line() { unsafe { } }',
+    'impl First {',
+    '    #[cfg(test)] pub fn probe(&self) { unsafe { } }',
+    '    #[inline] pub fn real(&self) { unsafe { } }',
+    '}',
+    'pub fn last() {}'
+  ].join('\n'));
+  assert.deepEqual(scan.items.map((item) => [item.name, item.module, item.test === true, item.line]), [
+    ['First', '', false, 1],
+    ['tests', '', true, 2],
+    ['helper', 'tests', true, 3],
+    ['t', 'tests', true, 4],
+    ['inline_macro', '', false, 6],
+    ['quick', '', false, 7],
+    ['after_multi_line', '', true, 10],
+    ['First', '', false, 11],
+    ['last', '', false, 15]
+  ], 'the declaration after an attribute is read from the same line, and its braces keep the depth in step');
+  assert.equal(scan.productionItems, 4, 'First, inline_macro, quick, last');
+  assert.equal(scan.publicItems, 4);
+  assert.equal(scan.testItems, 4, 'tests, helper, t, after_multi_line');
+  assert.deepEqual(scan.unsafe, { fns: 0, impls: 0, blocks: 1 }, 'the block in real');
+  assert.deepEqual(scan.testUnsafe, { fns: 0, impls: 0, blocks: 3 }, 'helper, after_multi_line and the guarded method probe');
+});
+
+test('scanRustSource keeps a test-only const or static initializer in test code', () => {
+  const scan = scanRustSource([
+    '#[cfg(test)]',
+    'const CHECK: () = {',
+    '    unsafe { }',
+    '};',
+    '#[cfg(test)]',
+    'pub(crate) static GUARD: Lock = Lock::new(',
+    '    unsafe { raw() },',
+    ');',
+    'const PROD: () = {',
+    '    unsafe { }',
+    '};',
+    '#[cfg(test)]',
+    'type Alias = u8;',
+    '#[cfg(test)]',
+    'static PLAIN: std::sync::Mutex<()> = std::sync::Mutex::new(());',
+    'pub fn after() { unsafe { } }'
+  ].join('\n'));
+  assert.deepEqual(scan.items.map((item) => [item.name, item.test === true]), [
+    ['CHECK', true], ['GUARD', true], ['PROD', false], ['Alias', true], ['PLAIN', true], ['after', false]
+  ]);
+  assert.deepEqual(scan.testUnsafe, { fns: 0, impls: 0, blocks: 2 }, 'the blocks inside the two test-only initializers');
+  assert.deepEqual(scan.unsafe, { fns: 0, impls: 0, blocks: 2 }, 'PROD and after: the status does not leak past a `;`');
+});
+
+test('crateDeniesUnsafe parses the lint attribute rather than matching one spelling', () => {
+  assert.equal(crateDeniesUnsafe('#![no_std]\n#![deny(unsafe_code)]\npub fn f() {}\n'), true);
+  assert.equal(crateDeniesUnsafe('#![deny( unsafe_code )]'), true, 'spaces inside the list');
+  assert.equal(crateDeniesUnsafe('#![deny(dead_code, unsafe_code)]'), true, 'one of several lints');
+  assert.equal(crateDeniesUnsafe('#![deny(\n    missing_docs,\n    unsafe_code,\n)]'), true, 'a multi-line list');
+  assert.equal(crateDeniesUnsafe('#![forbid(unsafe_code)]'), true);
+  assert.equal(crateDeniesUnsafe('#![warn(unsafe_code)]'), false, 'a warning is not a denial');
+  assert.equal(crateDeniesUnsafe('#![deny(unsafe_op_in_unsafe_fn)]'), false, 'another lint');
+  assert.equal(crateDeniesUnsafe('#![deny(unsafe_code)]\n#![allow(unsafe_code)]'), false, 'a later allow lifts the deny');
+  assert.equal(crateDeniesUnsafe('#![forbid(unsafe_code)]\n#![allow(unsafe_code)]'), true, 'a forbid cannot be lifted');
+  assert.equal(crateDeniesUnsafe('#![cfg_attr(not(test), deny(unsafe_code))]'), true, 'a predicate that holds in production');
+  assert.equal(crateDeniesUnsafe('#![cfg_attr(test, deny(unsafe_code))]'), false, 'a test-only predicate never holds in production');
+  assert.equal(crateDeniesUnsafe('//! #![deny(unsafe_code)]\n/* #![deny(unsafe_code)] */\n#[deny(unsafe_code)]\nfn f() {}\n'), false, 'comments and an outer attribute on an item are not crate policy');
+  assert.equal(crateDeniesUnsafe(''), false);
+  assert.equal(crateDeniesUnsafe(null), false);
+});
+
+test('parseCargoManifest keeps the package identity and path of a renamed dependency', () => {
+  const manifest = parseCargoManifest([
+    '[package]',
+    'name = "sele4n-hal"',
+    '[dependencies]',
+    'types = { package = "sele4n-types", path = "../types" }',
+    'json = { package = "serde_json", version = "1" }',
+    'log = "0.4"',
+    '[dev-dependencies]',
+    'abi = { path = "../abi", package = "sele4n-abi", features = ["std", "extra"] }',
+    "[target.'cfg(loom)'.dependencies]",
+    'loom-alias = { package = "loom", version = "0.7" }'
+  ].join('\n'));
+  assert.deepEqual(manifest.dependencies, ['sele4n-types', 'serde_json', 'log'], 'listed by package identity, in declaration order');
+  assert.deepEqual(manifest.devDependencies, ['sele4n-abi']);
+  assert.deepEqual(manifest.targetDependencies, [{ cfg: 'cfg(loom)', table: 'dependencies', names: ['loom'] }]);
+  assert.deepEqual(manifest.dependencySpecs, [
+    { table: 'dependencies', cfg: '', name: 'types', package: 'sele4n-types', path: '../types' },
+    { table: 'dependencies', cfg: '', name: 'json', package: 'serde_json', path: '' },
+    { table: 'dependencies', cfg: '', name: 'log', package: 'log', path: '' },
+    { table: 'dev-dependencies', cfg: '', name: 'abi', package: 'sele4n-abi', path: '../abi' },
+    { table: 'dependencies', cfg: 'cfg(loom)', name: 'loom-alias', package: 'loom', path: '' }
+  ], 'an array-valued field inside the inline table does not split the entry');
+});
+
+test('buildRustInventory resolves internal dependencies by package identity, not directory name', () => {
+  const tree = {
+    'rust/Cargo.toml': '[workspace]\nmembers = [\n    "types",\n    "hal",\n]\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n',
+    'rust/types/Cargo.toml': '[package]\nname = "sele4n-types"\nversion.workspace = true\nedition.workspace = true\n',
+    'rust/types/src/lib.rs': '#![no_std]\n#![deny( unsafe_code )]\npub struct Id(u64);\n',
+    'rust/hal/Cargo.toml': [
+      '[package]',
+      'name = "sele4n-hal"',
+      'version.workspace = true',
+      'edition.workspace = true',
+      '[dependencies]',
+      'kernel-types = { package = "sele4n-types", path = "../types" }',
+      'log = "0.4"',
+      '[dev-dependencies]',
+      'sele4n-types = { path = "../types" }',
+      "[target.'cfg(loom)'.dependencies]",
+      'loom-shim = { package = "loom", version = "0.7" }'
+    ].join('\n'),
+    'rust/hal/src/lib.rs': '#![deny(\n    missing_docs,\n    unsafe_code,\n)]\npub fn f() {}\n'
+  };
+  const inventory = buildRustInventory(Object.keys(tree), (path) => tree[path]);
+  assert.deepEqual(inventory.crates.map((crate) => [crate.name, crate.path]), [['sele4n-types', 'rust/types'], ['sele4n-hal', 'rust/hal']], 'a member directory need not be the package name');
+  const hal = inventory.crates[1];
+  assert.deepEqual(hal.internalDependencies, ['sele4n-types'], 'a renamed path dependency is the workspace crate it points at');
+  assert.deepEqual(hal.externalDependencies, ['log']);
+  assert.deepEqual(hal.dependencies, ['sele4n-types', 'log'], 'listed by package identity, in declaration order');
+  assert.deepEqual(hal.devDependencies, ['sele4n-types'], 'the path alone resolves the member');
+  assert.deepEqual(hal.targetDependencies, [{ cfg: 'cfg(loom)', table: 'dependencies', names: ['loom'] }], 'a renamed external dependency reads as its package');
+  assert.equal(inventory.crates[0].deniesUnsafe, true, 'spaces inside the lint list');
+  assert.equal(hal.deniesUnsafe, true, 'a multi-line lint list');
 });

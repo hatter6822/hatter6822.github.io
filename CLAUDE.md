@@ -293,7 +293,18 @@ statistic**; the landing page stays canonical-or-absent.
   never as an external dependency: the HAL's `loom` enters no ordinary build.
 - **`deniesUnsafe` is read from the crate root only** (`src/lib.rs`, or
   `src/main.rs` for a binary-only package). A lint in a `src/bin/*.rs` target
-  speaks for that binary, not for the library.
+  speaks for that binary, not for the library. `crateDeniesUnsafe` parses the
+  inner attributes' argument lists in order — `#![deny(dead_code,
+  unsafe_code)]`, a multi-line list, `forbid`, and a `cfg_attr` whose
+  predicate holds in production all count; `warn` does not, and a later
+  `allow` lifts a deny — never one exact spelling.
+- **A dependency is internal by package identity.** Each member's
+  `[package].name` and directory are read first; an entry is a workspace edge
+  when its package (the table key unless renamed with `package = "…"`) is a
+  member's name or its `path` resolves to a member's directory. Never compare
+  the table key with directory names: a renamed dependency and a member whose
+  directory is not its name both went external that way. Every dependency
+  list carries package identities.
 - **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
   tests;` resolves to `src/tests.rs` or `src/tests/mod.rs`
   (`childModuleFiles`, rustc's rule), that file is rescanned as test code, and
@@ -309,6 +320,12 @@ statistic**; the landing page stays canonical-or-absent.
 - **A test-only attribute on an associated item counts.** `#[cfg(test)]` on a
   method inside an `impl` or `trait` is not an item, but the body it guards is
   test code: its `unsafe` sites go to `testUnsafe`.
+- **An attribute may share its line with the declaration it annotates.**
+  `#[cfg(test)] mod tests {` and `#[macro_export] macro_rules! m {` are read
+  as the attribute *and* the declaration with its braces; the first scanner
+  dropped the rest of such a line, which also left the module body at depth
+  zero. A test-only `const`/`static` keeps its status across a block
+  initializer on later lines, so the `unsafe` sites there are test sites.
 - `validate-data.mjs` reconciles every crate total with its per-file lists,
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.

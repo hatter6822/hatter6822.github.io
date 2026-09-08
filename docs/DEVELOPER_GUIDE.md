@@ -238,8 +238,9 @@ Bundled graph snapshot used by map runtime. Includes:
 - `rust` — the production crate inventory from the same checkout, built by
   `scripts/lib/rust-analysis.mjs`: crates in workspace order with manifest
   facts (description, edition, dependencies split into internal, external,
-  dev, build and target-scoped tables, features), `deniesUnsafe` read from the
-  crate root, and per-file item lists (kind, name, line, visibility,
+  dev, build and target-scoped tables — internal by package identity, never
+  by directory name — features), `deniesUnsafe` read from the crate root with
+  its lint list parsed, and per-file item lists (kind, name, line, visibility,
   inline-module path, `test` flag) with counts — `productionItems`,
   `publicItems`, `testItems`, `unsafe` and `testUnsafe`. Descriptive only; it
   feeds no landing-page statistic. Measured on the current workspace (four

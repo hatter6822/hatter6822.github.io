@@ -177,7 +177,9 @@ fallback.
 `renderRustCrates()` paints the section from `state.rust` alone. The dependency
 strip is a small inline SVG: one node per crate in workspace order, arrows from
 a crate to each internal dependency it declares (`sele4n-sys → sele4n-abi →
-sele4n-types`; `sele4n-hal` stands alone), green when no production unsafe site
+sele4n-types`; `sele4n-hal` stands alone; a dependency is internal when it
+resolves to a workspace package by name or path, so a renamed one still
+draws), green when no production unsafe site
 is recorded and yellow with the site count otherwise. The SVG keeps its
 intrinsic width, is centred when narrower than its figure, and scrolls sideways
 inside `.rust-dependency-scroll` on narrow screens instead of shrinking its

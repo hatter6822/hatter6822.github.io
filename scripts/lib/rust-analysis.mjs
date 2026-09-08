@@ -9,8 +9,9 @@
  * `map-data.json#rust`; the runtime renders it and derives nothing.
  *
  * The scanner is deliberately small. It is not a Rust parser: it recognises
- * item headers at the start of a logical line after comments and string
- * literals have been blanked, which is what the map needs to list a crate's
+ * item headers at the start of a logical line — after comments and string
+ * literals have been blanked and the attributes at the line's start have been
+ * consumed — which is what the map needs to list a crate's
  * surface (functions, types, traits, constants, modules, impl blocks, macros)
  * with visibility and line anchors. Bodies are skipped by brace depth, so items
  * nested inside functions are not reported, but items inside inline `mod`
@@ -244,6 +245,23 @@ function bracketBalance(text) {
   return balance;
 }
 
+/**
+ * Index just past the `]` that closes an attribute in `text`: `open` is the
+ * number of `[` still unclosed from earlier lines (0 when the attribute
+ * starts on this line). -1 when the line does not close it.
+ */
+function attributeClose(text, open) {
+  let balance = open;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === '[') balance += 1;
+    else if (text[i] === ']') {
+      balance -= 1;
+      if (balance <= 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
 function visibilityOf(head) {
   const match = /^pub(?:\(([^)]+)\))?\s/.exec(head);
   if (!match) return 'private';
@@ -349,15 +367,21 @@ export function scanRustSource(source, options = {}) {
   // A test-only attribute below item scope — on an associated method in an
   // `impl` or `trait` — is not an item, but the body it guards is test code:
   // its `unsafe` sites go to testUnsafe. The flag holds until the body opens
-  // (a test region is pushed) or the declaration ends without one (`;`).
+  // (a test region is pushed) or the declaration ends without one (`;`). A
+  // test-only const or static hands its status over the same way at `=`, so
+  // a block initializer on a later line is scanned as test code.
   let pendingNestedTest = false;
 
   for (let idx = 0; idx < lines.length; idx += 1) {
-    const line = lines[idx];
     const lineNo = idx + 1;
-    const trimmed = line.trim();
     const top = scopes[scopes.length - 1];
     const atItemScope = depth === top.depth;
+    // What remains of the line once the attributes at its start are consumed.
+    // Compact Rust puts an attribute and its declaration on one line
+    // (`#[cfg(test)] mod tests {`, `#[macro_export] macro_rules! m {`), so
+    // the declaration and its braces are read from the rest of that line,
+    // not dropped with the attribute.
+    let text = lines[idx];
 
     if (!pendingHead) {
       const noteAttribute = (attribute) => {
@@ -370,20 +394,25 @@ export function scanRustSource(source, options = {}) {
         }
       };
       if (attributeBuffer !== null) {
-        attributeBuffer += '\n' + trimmed;
-        if (bracketBalance(attributeBuffer) <= 0) {
-          noteAttribute(attributeBuffer);
-          attributeBuffer = null;
-        }
-        continue;
+        // A multi-line attribute either closes on this line or runs past it.
+        const close = attributeClose(text, bracketBalance(attributeBuffer));
+        if (close < 0) { attributeBuffer += '\n' + text.trim(); continue; }
+        if (attributeBuffer.startsWith('#[')) noteAttribute(attributeBuffer + '\n' + text.slice(0, close).trim());
+        attributeBuffer = null;
+        text = text.slice(close);
       }
-      if (trimmed.startsWith('#[')) {
-        if (bracketBalance(trimmed) > 0) attributeBuffer = trimmed;
-        else noteAttribute(trimmed);
-        continue;
+      while (/^\s*#!?\[/.test(text)) {
+        const start = text.search(/\S/);
+        const close = attributeClose(text, 0);
+        if (close < 0) { attributeBuffer = text.slice(start); text = ''; break; }
+        // An inner attribute (`#![…]`) speaks for the enclosing scope, not
+        // for the next declaration: only outer attributes are noted.
+        if (text.startsWith('#[', start)) noteAttribute(text.slice(start, close));
+        text = text.slice(close);
       }
     }
 
+    const trimmed = text.trim();
     if (atItemScope && !pendingHead && trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('}')) {
       const match = ITEM_HEAD.exec(trimmed);
       if (!match) { pendingTestAttribute = false; pendingMacroExport = false; }
@@ -434,8 +463,8 @@ export function scanRustSource(source, options = {}) {
     if (blockMatches) bucket.blocks += blockMatches.length;
 
     // Walk braces on this line to track depth and detect module bodies.
-    for (let c = 0; c < line.length; c += 1) {
-      const ch = line[c];
+    for (let c = 0; c < text.length; c += 1) {
+      const ch = text[c];
       if (ch === '{') {
         depth += 1;
         if (pendingNestedTest) {
@@ -462,10 +491,16 @@ export function scanRustSource(source, options = {}) {
         const current = scopes[scopes.length - 1];
         if (scopes.length > 1 && depth < current.depth) scopes.pop();
       } else if ((ch === ';' || ch === '=') && pendingHead && depth === scopes[scopes.length - 1].depth) {
-        // `mod foo;`, `type A = B;`, `const X: T = …;`, `static S: T = …;`
+        // `mod foo;`, `type A = B;`, `const X: T = …;`, `static S: T = …;`.
+        // A test-only const or static may still open a block initializer on
+        // a later line (`const CHECK: () = {` … `};`): the `unsafe` sites in
+        // it are test sites, so its test status outlives the head until that
+        // block opens or the declaration ends.
+        if (ch === '=' && pendingHead.test) pendingNestedTest = true;
         pendingHead = null;
       } else if (ch === ';' && pendingNestedTest) {
-        // A guarded declaration without a body (`#[cfg(test)] fn helper();`).
+        // A guarded declaration without a body (`#[cfg(test)] fn helper();`)
+        // or a test-only initializer without a block (`= Mutex::new(());`).
         pendingNestedTest = false;
       }
     }
@@ -490,16 +525,98 @@ function physicalLineCount(text) {
   return text.endsWith('\n') ? count : count + 1;
 }
 
+const LINT_LEVELS = new Set(['allow', 'warn', 'deny', 'forbid']);
+
+/**
+ * Does a crate root deny `unsafe_code` for the whole crate? The inner
+ * attributes (`#![…]`) are read in order with their argument lists parsed,
+ * not matched as one spelling: `#![deny( unsafe_code )]`, `#![deny(dead_code,
+ * unsafe_code)]`, a multi-line attribute and `#![forbid(unsafe_code)]` all
+ * count, `#![warn(unsafe_code)]` does not, and a later `#![allow(unsafe_code)]`
+ * lifts an earlier deny the way rustc applies lint levels in order (a forbid
+ * cannot be lifted). A `cfg_attr` counts when its predicate holds in a
+ * production build (`cfg_attr(not(test), deny(unsafe_code))`), never when it
+ * is test-only. Comments, strings and outer attributes on items are not
+ * crate policy.
+ */
+export function crateDeniesUnsafe(source) {
+  let denies = false;
+  for (const body of innerAttributes(stripRustCommentsAndStrings(String(source ?? '')))) {
+    const level = unsafeCodeLintLevel(body);
+    if (level === 'forbid') return true;
+    if (level === 'deny') denies = true;
+    else if (level === 'allow' || level === 'warn') denies = false;
+  }
+  return denies;
+}
+
+/** The bodies of a source's inner attributes `#![…]`, in order, brackets balanced across lines. */
+function innerAttributes(text) {
+  const bodies = [];
+  const pattern = /^\s*#!\[/gm;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    const start = match.index + match[0].length;
+    const close = attributeClose(text.slice(start), 1);
+    if (close < 0) break;
+    bodies.push(text.slice(start, start + close - 1));
+    pattern.lastIndex = start + close;
+  }
+  return bodies;
+}
+
+/**
+ * The level an attribute body sets for the `unsafe_code` lint (`allow`,
+ * `warn`, `deny`, `forbid`), or `""` when it says nothing about that lint.
+ */
+function unsafeCodeLintLevel(body) {
+  const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(([\s\S]*)\)\s*$/.exec(body);
+  if (!match) return '';
+  const name = match[1];
+  const args = splitTopLevel(match[2]);
+  if (name === 'cfg_attr') {
+    // `cfg_attr(predicate, attribute, …)`: the attributes apply when the
+    // predicate holds, which a test-only predicate never does in production.
+    if (args.length < 2 || cfgIsTestOnly(args[0])) return '';
+    let level = '';
+    for (const attribute of args.slice(1)) level = unsafeCodeLintLevel(attribute) || level;
+    return level;
+  }
+  if (!LINT_LEVELS.has(name)) return '';
+  return args.some((lint) => lint === 'unsafe_code') ? name : '';
+}
+
+/** Split an argument list at the commas outside any brackets, trimming each part. */
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+    else if (ch === ',' && depth === 0) { parts.push(text.slice(start, i)); start = i + 1; }
+  }
+  parts.push(text.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
 const DEPENDENCY_TABLES = new Set(['dependencies', 'dev-dependencies', 'build-dependencies']);
 
 /**
  * Minimal Cargo.toml reader: `[package]` name/description/edition, the
- * dependency names under `[dependencies]` / `[dev-dependencies]` /
+ * dependencies under `[dependencies]` / `[dev-dependencies]` /
  * `[build-dependencies]`, and — kept apart — the same tables scoped to a
  * target, `[target.'cfg(…)'.dependencies]`, as `targetDependencies:
  * [{ cfg, table, names }]`. A target-scoped table is resolved only when its
  * predicate holds (`loom` under `cfg(loom)` enters no ordinary build), so it
  * must never be reported as an unconditional dependency.
+ *
+ * Every dependency list carries package identities: the table key, unless
+ * the entry renames the package (`alias = { package = "actual", … }`), in
+ * which case `actual`. `dependencySpecs` keeps each entry whole — `{ table,
+ * cfg, name, package, path }` — for the caller to resolve against the
+ * workspace.
  *
  * Workspace inheritance (`edition.workspace = true`) is resolved by the caller
  * against `[workspace.package]`, which this same function reads from the root
@@ -520,6 +637,7 @@ export function parseCargoManifest(source) {
     devDependencies: [],
     buildDependencies: [],
     targetDependencies: [],
+    dependencySpecs: [],
     features: [],
     bins: []
   };
@@ -587,17 +705,39 @@ export function parseCargoManifest(source) {
       continue;
     }
     if (currentTarget) {
-      currentTarget.names.push(key);
+      const spec = dependencySpec(key, value, currentTarget.table, currentTarget.cfg);
+      out.dependencySpecs.push(spec);
+      currentTarget.names.push(spec.package);
       continue;
     }
     if (DEPENDENCY_TABLES.has(section)) {
-      if (section === 'dependencies') out.dependencies.push(key);
-      else if (section === 'dev-dependencies') out.devDependencies.push(key);
-      else out.buildDependencies.push(key);
+      const spec = dependencySpec(key, value, section, '');
+      out.dependencySpecs.push(spec);
+      if (section === 'dependencies') out.dependencies.push(spec.package);
+      else if (section === 'dev-dependencies') out.devDependencies.push(spec.package);
+      else out.buildDependencies.push(spec.package);
     }
   }
 
   return out;
+}
+
+/**
+ * One dependency entry: the table key it is declared under (`name`), the
+ * package it resolves to (`package` — the key unless the entry renames it
+ * with `package = "…"`) and its `path`, if any, read from the inline table.
+ */
+function dependencySpec(name, value, table, cfg) {
+  const spec = { table, cfg, name, package: name, path: '' };
+  const inline = /^\{([\s\S]*)\}$/.exec(value);
+  if (!inline) return spec;
+  for (const field of splitTopLevel(inline[1])) {
+    const pair = /^([A-Za-z0-9_-]+)\s*=\s*"(.*)"$/.exec(field);
+    if (!pair) continue;
+    if (pair[1] === 'package') spec.package = pair[2];
+    else if (pair[1] === 'path') spec.path = pair[2];
+  }
+  return spec;
 }
 
 /** Drop a `# comment` that is not inside a quoted value. */
@@ -667,9 +807,13 @@ function addUnsafe(total, counts) {
  * supplies inherited package fields.
  *
  * `deniesUnsafe` is read from the crate root alone — `src/lib.rs`, or
- * `src/main.rs` for a binary-only package. A `#![deny(unsafe_code)]` in a
- * `src/bin/*.rs` target speaks for that binary, which is its own crate, not
- * for the library.
+ * `src/main.rs` for a binary-only package — by `crateDeniesUnsafe`. A
+ * `#![deny(unsafe_code)]` in a `src/bin/*.rs` target speaks for that binary,
+ * which is its own crate, not for the library.
+ *
+ * A dependency is internal when it resolves to a workspace package, by name
+ * or by path; the lists carry package identities, so a renamed dependency
+ * reads as the crate it is.
  */
 export function buildRustInventory(files, readText, options = {}) {
   const root = String(options.root ?? 'rust');
@@ -690,11 +834,33 @@ export function buildRustInventory(files, readText, options = {}) {
     ...[...crateDirs].filter((dir) => !memberOrder.includes(dir)).sort()
   ];
 
+  // Every manifest first: a dependency is internal when it names a workspace
+  // package — by its `package` identity, or by a `path` into a member's
+  // directory — not when its table key happens to equal a directory name. A
+  // member whose directory is not its package name, and a renamed dependency
+  // (`alias = { package = "sele4n-types", path = … }`), are workspace edges.
+  const manifests = new Map(orderedDirs.map((dir) => [dir, parseCargoManifest(safeRead(readText, `${root}/${dir}/Cargo.toml`))]));
+  const packageNames = new Set();
+  const packagesByPath = new Map();
+  for (const [dir, manifest] of manifests) {
+    if (!manifest.package.name) continue;
+    packageNames.add(manifest.package.name);
+    packagesByPath.set(`${root}/${dir}`, manifest.package.name);
+  }
+  const workspacePackage = (cratePath, spec) => {
+    const byPath = spec.path ? packagesByPath.get(resolvePath(cratePath, spec.path)) : '';
+    if (byPath) return byPath;
+    return packageNames.has(spec.package) ? spec.package : '';
+  };
+
   const crates = [];
   for (const dir of orderedDirs) {
     const cratePath = `${root}/${dir}`;
-    const manifest = parseCargoManifest(safeRead(readText, `${cratePath}/Cargo.toml`));
+    const manifest = manifests.get(dir);
     if (!manifest.package.name) continue;
+    // Dependency lists by package identity, resolved against the workspace.
+    const identity = (spec) => workspacePackage(cratePath, spec) || spec.package;
+    const listed = (table, cfg) => manifest.dependencySpecs.filter((spec) => spec.table === table && spec.cfg === cfg).map(identity);
 
     const inherit = (key) => {
       const value = manifest.package[key];
@@ -764,7 +930,7 @@ export function buildRustInventory(files, readText, options = {}) {
 
     for (const entry of scans.values()) {
       const { path, relative, text, role, scan } = entry;
-      if (relative === crateRoot && /^\s*#!\[(?:deny|forbid)\(unsafe_code\)\]/m.test(text)) deniesUnsafe = true;
+      if (relative === crateRoot) deniesUnsafe = crateDeniesUnsafe(text);
       const items = scan.items.map((item) => ({
         kind: item.kind,
         name: item.name,
@@ -795,8 +961,9 @@ export function buildRustInventory(files, readText, options = {}) {
       addUnsafe(testUnsafeTotal, scan.testUnsafe);
     }
 
-    const internalDeps = manifest.dependencies.filter((dep) => crateDirs.has(dep));
-    const externalDeps = manifest.dependencies.filter((dep) => !crateDirs.has(dep));
+    const unconditional = manifest.dependencySpecs.filter((spec) => spec.table === 'dependencies' && !spec.cfg);
+    const internalDeps = unconditional.map((spec) => workspacePackage(cratePath, spec)).filter(Boolean);
+    const externalDeps = unconditional.filter((spec) => !workspacePackage(cratePath, spec)).map((spec) => spec.package);
 
     crates.push({
       name: manifest.package.name,
@@ -805,12 +972,16 @@ export function buildRustInventory(files, readText, options = {}) {
       description: inherit('description'),
       edition: inherit('edition'),
       version: inherit('version'),
-      dependencies: manifest.dependencies,
+      dependencies: unconditional.map(identity),
       internalDependencies: internalDeps,
       externalDependencies: externalDeps,
-      devDependencies: manifest.devDependencies,
-      buildDependencies: manifest.buildDependencies,
-      targetDependencies: manifest.targetDependencies.map((entry) => ({ cfg: entry.cfg, table: entry.table, names: entry.names.slice() })),
+      devDependencies: listed('dev-dependencies', ''),
+      buildDependencies: listed('build-dependencies', ''),
+      targetDependencies: manifest.targetDependencies.map((entry) => ({
+        cfg: entry.cfg,
+        table: entry.table,
+        names: listed(entry.table, entry.cfg)
+      })),
       features: manifest.features.filter((feature) => feature !== 'default'),
       deniesUnsafe,
       files: crateFiles,
@@ -851,4 +1022,15 @@ function safeRead(readText, path) {
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** `base/relative` with `.` and `..` folded: a dependency `path` against its crate directory. */
+function resolvePath(base, relative) {
+  const parts = String(base).split('/').filter(Boolean);
+  for (const segment of String(relative).split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') parts.pop();
+    else parts.push(segment);
+  }
+  return parts.join('/');
 }

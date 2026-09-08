@@ -1115,7 +1115,29 @@ the correction.
 - **`deniesUnsafe` is read from the crate root.** A `#![deny(unsafe_code)]`
   in a `src/bin/*.rs` target speaks for that binary, which is its own crate,
   not for the library; only `src/lib.rs` (or `src/main.rs` for a binary-only
-  package) sets the flag.
+  package) sets the flag. The lint is parsed, not matched as one spelling:
+  `crateDeniesUnsafe` reads the crate's inner attributes in order and splits
+  their argument lists, so `#![deny( unsafe_code )]`, `#![deny(dead_code,
+  unsafe_code)]`, a multi-line list, `#![forbid(unsafe_code)]` and a
+  `cfg_attr` whose predicate holds in production all set the flag, `warn`
+  does not, and a later `#![allow(unsafe_code)]` lifts an earlier deny.
+- **Dependencies resolve by package identity.** The first inventory compared
+  a dependency's table key with the workspace's directory names, so a member
+  whose directory is not its `[package].name`, or a renamed dependency
+  (`alias = { package = "sele4n-types", path = … }`), would have been an
+  external crate. `buildRustInventory` reads every member manifest first and
+  classifies an entry as internal when its package (the key, or the
+  `package` field when renamed) is a member's name or its `path` resolves to
+  a member's directory; every list carries package identities.
+- **An attribute and its declaration may share a line.** `#[cfg(test)] mod
+  tests {` on one line was consumed whole, so the module and its braces went
+  unread, its body sat at depth zero as production code, and an inline
+  `#[macro_export] macro_rules!` was omitted. The scanner now reads the
+  declaration and its braces from the rest of the line. In the same spirit a
+  test-only `const` or `static` keeps its status across a block initializer
+  on later lines (`const CHECK: () = {` … `};`), so `unsafe` sites in it are
+  test sites; at `=` the head used to be dropped and the block opened in
+  production.
 - **`items` counts declarations.** `impl` blocks have no name or visibility
   of their own, so they are listed in a file's items but not counted;
   `sele4n-types` drops from 87 "items" to 30 declarations. `publicItems`
