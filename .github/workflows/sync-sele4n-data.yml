@@ -58,6 +58,7 @@ jobs:
           node scripts/lib/csp-html.test.mjs
           node scripts/lib/static-values.test.mjs
           node scripts/lib/i18n-locales.test.mjs
+          node scripts/lib/i18n-runtime.test.mjs
 
       - name: Check for changes and commit
         run: |
