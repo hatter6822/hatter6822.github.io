@@ -27,6 +27,7 @@ Run all checks below from repository root:
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
@@ -36,6 +37,7 @@ node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
 node scripts/lib/i18n-locales.test.mjs
+node scripts/lib/i18n-runtime.test.mjs
 node scripts/validate-data.mjs
 node scripts/validate-traces.mjs
 node --check assets/js/map.js
@@ -57,17 +59,18 @@ If you changed UI behavior or layout:
    silently loses and the desktop value leaks into the mobile layout — the most
    common source of layout defects in this repo. See the "CSS override weight"
    section in `CLAUDE.md` before adding a rule inside `@media` or `@supports`.
-3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills).
+3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills, Arrow keys across the declaration tabs).
 4. Confirm declaration context switching works (click declaration → flowchart shows calls/callers → breadcrumb navigation returns to module).
-5. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
-6. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
+5. On `map.html` with no URL state: the workspace opens on `SeLe4n.Kernel.API`, over-budget lanes are grouped by subsystem and open in place, the flow chart is drawn at full size (its rendered width equals its `width` attribute) at 1280, 1366, 1440 and 1920px, and the declaration sidebar sits beside the chart from 1440px and below it under that; the Rust crate cards and the repository inventory render from the bundled snapshot, no card is taller than its content, the production groups are the open ones, a crate's "Show test items" toggle reveals its test code, and opening a group or file survives a locale switch. `node scripts/map-smoke.mjs` checks all of this in headless Chromium (see `docs/TESTING.md`); CI runs it on every push.
+6. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
+7. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
 
 ## Data/sync change checklist
 
 If you changed scripts or map data flow:
 
 1. Run the sync pipeline if needed:
-   - `node scripts/sync-upstream.mjs` (one clone → all three `data/*.json` snapshots)
+   - `node scripts/sync-upstream.mjs` (one clone → all three `data/*.json` snapshots, including the `rust` crate inventory inside `map-data.json`; `SELE4N_REF=<commit>` pins the checkout)
    - `node scripts/apply-static-values.mjs` (stamps index.html **and** every `locales/*.json` bundle)
 2. Run validation script.
 3. Ensure generated JSON is committed when intentionally updated — `index.html`,

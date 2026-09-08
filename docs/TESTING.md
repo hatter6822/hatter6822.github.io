@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.29.0**.
+> Documentation baseline: website release **0.30.0**.
 
 ## Automated checks
 
@@ -10,6 +10,7 @@ This repository uses lightweight Node-based checks.
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
@@ -19,6 +20,7 @@ node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
 node scripts/lib/i18n-locales.test.mjs
+node scripts/lib/i18n-runtime.test.mjs
 ```
 
 Validates:
@@ -27,6 +29,11 @@ Validates:
 - CSP compliance (`csp-html.test.mjs`): static guard asserting `index.html`, `map.html`, `run.html`, and `404.html` carry no inline `style="…"` attributes. The pages ship `style-src 'self'` with no `'unsafe-inline'`, so an inline style is blocked at runtime and silently fails to apply — this catches that regression class at build time (it was found in the wild via a Playwright render: the status-legend swatches rendered colourless until their colours were moved to a CSS class)
 - Simulator runtime (`run-runtime.test.mjs`): boots the real `assets/js/run.js` inside a `vm` context backed by a minimal DOM shim and asserts the end-to-end pipeline — bundled data loads, the SVG stage renders thread chips and boxes, the invariant rail lists the full catalog, the event log lists every step, the inspector populates, transport stepping advances the counter, deep-link URL state (`scenario`/`step`) is restored, and a sandbox perturbation flips a client-side structural check to "violated". Per-scene coverage spans all seven scenes (System, Scheduler, Capability, Memory, VSpace, Information-flow, Services), scene-tab gating, SMP per-core CPU columns in the System and Scheduler scenes, and the VSpace TLB row (a map caches both pages; an unmap shoots down the stale entry with a `⚡ shootdown` marker)
 - Simulator trace analysis (`trace-analysis.mjs`): schema validation (schemaVersion/source/ISO timestamp, invariant catalog shape and uniqueness, sequential step indices, allowed step kinds and op names, `invariants.allHold`/`checked`/`failed` consistency, `checked` ids resolving in the catalog); the deterministic fold engine (`reconstructState`/`scenarioStates` produce one state per step without mutating input, `rqInsert` keeps the run queue priority-ordered and idempotent, `applyOp` throws on dangling thread/endpoint/queue references, `message`/`note` ops are state-neutral); `touchedEntities` categorization; and a full integrity pass over the bundled `data/execution-traces.json` (validates clean + folds every scenario)
+- Rust crate inventory (`rust-analysis.test.mjs`): comment and string stripping that keeps line numbers (nested block comments, raw and byte strings, character literals such as `'"'`); item scanning at item scope with visibility, `unsafe`, inline-module paths, multi-line signatures and `where` clauses, `static mut` naming; `unsafe fn` headers counted at any depth (methods, trait items) with `unsafe impl` and `unsafe { … }` blocks, split between production and test code; `cfgIsTestOnly` over `test`, `all`, `any` and `not` predicates and multi-line attributes; public items counted only under all-`pub` modules; integration-test files as test code throughout; manifest parsing (workspace inheritance, dependency tables, target-scoped tables kept apart, `[[bin]]`); file roles and module paths; anonymous `const _` assertions neither listed nor counted; raw identifiers kept whole; `#[macro_export]` macros public wherever they sit; test-only attributes on associated items sending their `unsafe` sites to the test counters; `childModuleFiles`, out-of-line `#[cfg(test)]` modules (and their submodules) rescanned as test code, and export status carried into files behind private `mod` declarations; `buildRustInventory` assembly in workspace order with the crate-root lint rule
+- Rust inventory validation (`validateMapDataObject`): the optional `rust` block must name files the snapshot's own `files[]` lists, use known item kinds, visibilities and positive lines, carry per-crate totals equal to the per-file sums (`items` over counted kinds outside test code, `testItems` over flagged items, `unsafe` and `testUnsafe` counter by counter, `lines`), keep `publicItems` within `productionItems`, and describe target-scoped dependency tables as `{ cfg, table, names }`; a malformed block is rejected with a message naming the field
+- Code map runtime (`map-runtime.test.mjs`): the workspace defaults to `SeLe4n.Kernel.API` and falls back to the first module only when the snapshot lacks it; `moduleSubsystem` caps at three segments; over-budget lanes group by subsystem (largest first, singletons plain, members listed nested when a group is open, flat within budget and in expanded mode); the live tree path keeps `Main.lean` and drops `tests/` and `SeLe4n/Testing/`; a canonical payload's `repository.head.commit_sha` becomes the graph commit; in-repository imports outside the scope and the library root are labelled as such; `classifyRepositoryPath` files every path into a group and subgroup; `buildRepositoryInventory` keeps production groups first and attaches modules to Lean subgroups; `retainInventory` keeps the tree and Rust inventory across canonical and tree refreshes with their commits; a malformed `rust` block is dropped on normalization; Rust item colouring and ordering; `rustUnsafeSummary` / `rustUnsafeDetail` keep the lint, the production sites and the test sites apart; count labels pluralise in the English fallback; tab selection; locale digit grouping
+- Page structure (`map-toolbar.test.mjs`): the workspace grid is single-column by default and gains the sticky sidebar column only from `90rem`; the declaration explorer is a tablist; `.flowchart-svg` is `width: auto; min-width: 100%` and no rule scales it to its column; the desktop minimum flow width is 900; the default module constant and the lane-grouping functions exist; the Rust crate grid and inventory containers exist and the three sections appear in order; crate cards do not stretch (`align-items: start`) and their file lists are bounded; the dependency SVG keeps its width and is centred; the unsafe cell names production and test sites apart; target-scoped dependencies render under their cfg; open groups, subgroups and files survive a re-render
+- i18n runtime (`i18n-runtime.test.mjs`): `t()` interpolation, plural-family resolution for English (`one`/`other`) and Ukrainian (`one`/`few`/`many`/`other`) counts, and `Intl.NumberFormat` grouping per locale
 - Lean import token extraction
 - interior symbol extraction across all supported declaration kinds and line tracking
 - theorem counting behavior over Lean source text (`theoremCount`, mirroring the copy in `assets/js/map.js`)
@@ -45,7 +52,9 @@ Validates:
 - `isLikelyModuleToken` standalone validation (valid module paths accepted, lowercase/empty/null/malformed rejected)
 - theorem deduplication (`theoremCountFromCodebaseMap` skips modules in `moduleMeta` already counted from `modules[]`)
 - edge case robustness (zero-theorem sources, null/undefined/string inputs to `theoremCount` and `theoremCountFromCodebaseMap`, empty import sources)
-- canonical metrics projection (`canonical-map.test.mjs`, `siteMetricsFromCodebaseMap`) against a fixture shaped like the real `docs/codebase_map.json` at `schema_version` 1.0.0 — production scope (everything outside `tests/`), `lean_toolchain` tag stripping, the comment-aware declaration inventory winning over `readme_sync.proved_theorem_lemma_decls`, and the projection inventing no metric the artifact does not carry (the `buildJobs = modules × 2` regression)
+- production scope (`canonical-map.test.mjs`): the site scope is the artifact's production set minus the in-tree testing framework (`isProductionModule`, `excludedFrameworkModules`); `siteMetricsFromCodebaseMap` counts modules and theorems over it and publishes `lines` as `production_loc` minus the framework files' physical lines when a `lineCount` is supplied, omitting `lines` rather than publishing it over the wrong scope when it is not, and withholding it when `productionLocReproduction` finds the physical count no longer reproduces `production_loc`; `canonicalCrossChecks` reads `production_files` and the theorem tally against the artifact's own scope and reports when the mechanical line count stops reproducing `production_loc`
+- scope enforcement (`validateMapDataObject`): a map module under `tests/` or `SeLe4n/Testing/` is rejected by name and path
+- canonical metrics projection (`canonical-map.test.mjs`, `siteMetricsFromCodebaseMap`) against a fixture shaped like the real `docs/codebase_map.json` at `schema_version` 1.0.0 — production scope, `lean_toolchain` tag stripping, the comment-aware declaration inventory winning over `readme_sync.proved_theorem_lemma_decls`, and the projection inventing no metric the artifact does not carry (the `buildJobs = modules × 2` regression)
 - canonical schema guard (`canonicalMetricsIssues`): each required key, what it feeds, and refusal of an artifact with no usable declaration inventory
 - source-digest reproduction (`canonicalSourcePaths`, `canonicalSourceDigest`, `compareCanonicalPaths`): the generator's scope and ordering, including the component-wise path compare that Python's `PurePath` uses — a flat string compare puts `SeLe4n/Kernel.lean` before `SeLe4n/Kernel/API.lean` and every digest then mismatches plausibly
 - declaration-name recovery (`resolveDeclarationName`): identifiers the artifact truncates at `?` are read back from the verified source line, and the recovered name is adopted only when it *extends* the recorded one, so multi-name declarations (`variable x y z`) are left alone
@@ -100,16 +109,29 @@ node --check assets/js/theme-init.js
 - Repeat both of the above in a long-label locale (`es` or `uk`): menu entries and stat labels should wrap inside their row or track, never widen the page.
 - Switch through every locale at a desktop width and confirm the header menu stays on one line. The centre track caps at 932px once the window reaches 1152px, so a locale whose ten items exceed that wraps at *every* desktop width and widening the window will not reveal the problem — check at 1280px, not 1920px. Current footprints: `zh-CN` 581px, `ja` 777px, `fr` 815px, `en` 816px, `es` 831px, `uk` 857px.
 - When adding or retranslating a `nav.*` label, measure the menu afterwards: these values are layout-constrained. If another surface needs the same words, give it its own key rather than reusing the `nav.*` one (see `footer.code_map`).
+- Confirm `map.html` with no URL state opens on `SeLe4n.Kernel.API`, the URL stays clean until the first selection, and Reset returns to the same view.
+- Confirm the imports lane of `SeLe4n.Kernel.API` shows subsystem group nodes (`SeLe4n.Kernel.IPC`, `SeLe4n.Kernel.Architecture`, …) instead of "+38 more imports"; clicking a group opens its members in place on a dotted guide rail without moving the scroll position, and clicking a member selects that module.
+- Confirm the flow chart is drawn at full size at 1280, 1366, 1440 and 1920px (the SVG's rendered width equals its `width` attribute; a wider layout scrolls inside its frame) — this is the defect that reverted the first 0.30.0.
+- Confirm the declaration sidebar sits beside the chart at 1440px and above and stays visible while the page scrolls, that the pinned sidebar fits a 1440×720 viewport, and that below 1440px it stacks under the chart.
+- Confirm `Main`'s import of `SeLe4n.Testing.MainTraceHarness` renders in the external lane as "in-repo · outside production scope" and its import of `SeLe4n` as "in-repo · library root", not "external dependency".
+- Confirm switching the locale re-labels the sidebar tabs, crate cards and inventory groups without a reload, groups the theorem count the locale's way (`10.929` in Spanish), and pluralises count labels ("1 file", "2 files"; four forms in Ukrainian).
+- Confirm the Rust section shows the dependency strip (`sys → abi → types`, HAL standalone, centred at desktop widths) and four crate cards no taller than their content; that `sele4n-types` and `sele4n-sys` read `none` in the `unsafe` cell, `sele4n-abi` reads `3 sites · 2 fn · 1 block · under item-level allow` with a yellow strip node, and `sele4n-hal` reads `99 sites · 9 fn · 3 impls · 87 blocks · +24 in test code` with the strip agreeing on 99; that the three `deny` crates state `#![deny(unsafe_code)]` in their facts line, that the HAL's facts read `under cfg(loom): loom` and `test-only sele4n-types, sele4n-abi` rather than "external loom"; and that opening a file renders its item list with line links inside a scrolling file list.
+- At a phone width (390px) confirm the crate dependency strip keeps its full width and scrolls sideways inside its own scroller with legible labels, while the page itself does not scroll horizontally.
+- Confirm a crate's "Show N test items" toggle lists the flagged test items with a `test` tag, keeps the files that were open, adds the test sites to each file's `unsafe` tag, and that integration-test files read "test items hidden" until it is on.
+- Confirm the repository inventory opens the two production groups by default with their subgroups closed, that a Lean subgroup lists modules with theorem counts and assurance dots whose buttons select the module and scroll the workspace into view, and that the other groups render their file lists on first open.
+- Confirm the Rust inventory group lists each crate's support files (`Cargo.toml`, `link.ld`, `src/*.S`) with source links beneath the crate line, and the workspace files after the crates.
+- Open a group, a subgroup and a crate file, then switch the locale: everything opened must still be open afterwards.
 - Confirm the compact toolbar is rendered before the interior declaration panel and contains only current module context search and reset, with compact-density toolbar semantics.
 - Confirm map context-search keyboard navigation (Arrow/Home/End) and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
 - Confirm reset clears any search validity errors and preserves a minimal toolbar footprint across desktop/mobile breakpoints.
 - On `index.html`, verify the background animation toggle in the header pauses the WebGL background immediately, updates `aria-pressed`, and resumes animation when toggled again (test on desktop and ~390px mobile viewport).
-- Confirm each interior dropdown (Object, Context/Init, Extension) defaults to `All (N)`, can switch kinds, and deep-link declarations to source lines.
+- Confirm the declaration sidebar's three tabs (Objects, Contexts/Inits, Extensions) carry counts, that Arrow/Home/End move between them, that the active tab's kind selector defaults to `All (N)` and can switch kinds, and that declarations deep-link to source lines.
 - Confirm interior declaration chips and kind-select options are color-coded consistently by declaration kind (selector serves as key for chip colors).
-- Confirm interior declaration ordering is case-insensitive alphabetical within each dropdown selection, including `All` aggregation.
+- Confirm interior declaration ordering is case-insensitive alphabetical within each kind selection, including `All` aggregation.
 - Confirm the `Filter declarations across all kinds…` search box accepts multi-character typing without dropping focus/caret after each keystroke.
-- Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Context-Init/Extension) to the newly selected module.
+- Confirm selecting a different module node in the flow chart updates the sidebar to the newly selected module while keeping the active tab.
+- Confirm typing a module name in the context search, pressing Enter, then immediately clicking a declaration in the sidebar enters declaration context on the first click.
 - Confirm modules-array payload compatibility by testing both string and object module entries, including branch-wrapper payloads where top-level `main` metadata must not become a module node.
 - Confirm legacy symbol compatibility with snapshots that use `symbols.by_kind` and/or `constant` declaration keys.
 - Confirm map live status messaging remains coherent during load/refresh.
@@ -155,6 +177,39 @@ node --check assets/js/theme-init.js
 - Confirm deep links work: `run.html?scenario=<id>&step=<n>&object=<id>&sandbox=1` restores the corresponding view.
 - Confirm `prefers-reduced-motion` disables chip pulses and message animation (states snap instead of animating).
 - Verify desktop and ~390px mobile rendering in both light and dark themes; confirm the theme toggle and background-animation toggle behave as on the other pages.
+
+### Code map smoke probe (Playwright, run by CI)
+
+`scripts/map-smoke.mjs` opens `map.html` in headless Chromium and asserts the
+layout and behaviour guarantees the documentation makes: the workspace opens
+on `SeLe4n.Kernel.API`, over-budget lanes are grouped and open in place, a
+sidebar declaration click enters declaration context right after a search,
+Reset returns to the default view; the flow chart is drawn at 1:1 at 1200,
+1280, 1366, 1440, 1536 and 1920px; the sidebar sits beside the chart from
+1440px and stacks below it under that; the pinned sidebar fits a 1440×720
+viewport; no width scrolls sideways; the console stays clean in both themes,
+at a tablet and a phone width, and through a Spanish deep link whose theorem
+count is grouped `10.929`; with the locale JSON held back until after the
+snapshot has painted, the crate facts must still come out in Spanish, which
+is the first-load repaint. It also checks that the crates' integration tests
+are filed under Tests. For the two lower sections it checks the four crate
+cards and the strip, the inventory group order with the production groups
+open, an inventory module click landing in the workspace, bounded card
+heights, the file and test-item toggles, the `sele4n-abi` and `sele4n-hal`
+unsafe cells, `loom` under its cfg, pluralised count labels, the strip
+scrolling on a phone, and open groups, subgroups and files surviving a
+dispatched `sele4n:locale-changed`.
+
+```bash
+# from the repository root
+npm install --no-save playwright-core        # test-time only; node_modules/ is ignored
+python3 -m http.server 4173 --bind 127.0.0.1 &
+node scripts/map-smoke.mjs                    # PLAYWRIGHT_CHROMIUM=<path> or MAP_SMOKE_CHANNEL=chrome to pick the browser
+```
+
+`.github/workflows/ci.yml` runs the unit tests, the validators, the syntax
+checks and this probe (with the runner's Chrome) on every push and pull
+request. A layout guarantee added to the docs gets a probe assertion.
 
 ### Cross-browser nav stability probe (optional, Playwright)
 

@@ -2080,16 +2080,473 @@ test('normalizeCanonicalPayload scopes the live refresh to production modules', 
   // networked visit disagreed with index.html.
   const normalized = hooks.normalizeCanonicalPayload({
     schema_version: '1.0.0',
+    repository: { head: { commit_sha: 'BB61196FAD5BAA8E189ADE361570F7547B0CFAA6', committed_at_utc: '2026-09-05T15:04:11+00:00' } },
     modules: [
       { module: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean', declarations: [{ kind: 'theorem', name: 'a', line: 1, called: [] }] },
       { module: 'Main', path: 'Main.lean', declarations: [{ kind: 'def', name: 'main', line: 1, called: [] }] },
+      { module: 'SeLe4n.Testing.Helpers', path: 'SeLe4n/Testing/Helpers.lean', declarations: [{ kind: 'def', name: 'mkState', line: 1, called: [] }] },
       { module: 'Tests.Smoke', path: 'tests/Smoke.lean', declarations: [{ kind: 'theorem', name: 'smoke', line: 1, called: [] }] },
       { module: 'Tests.Deep', path: 'tests/deep/Deep.lean', declarations: [{ kind: 'theorem', name: 'deep', line: 1, called: [] }] }
     ]
   });
 
   assert.deepEqual(Array.from(normalized.modules).sort(), ['Main', 'SeLe4n.Kernel.API']);
-  for (const testModule of ['Tests.Smoke', 'Tests.Deep']) {
+  // The artifact names its revision as repository.head.commit_sha; a refresh
+  // that lost it blanked the inventory's provenance note.
+  assert.equal(normalized.commitSha, 'bb61196fad5baa8e189ade361570f7547b0cfaa6', 'the graph commit comes from the artifact');
+  const wrapped = hooks.normalizeCanonicalPayload({ main: { schema_version: '1.0.0', repository: { head: { commit_sha: 'a'.repeat(40) } }, modules: [{ module: 'Main', path: 'Main.lean', declarations: [] }] } });
+  assert.equal(wrapped.commitSha, 'a'.repeat(40), 'a wrapped artifact is read the same way');
+  // The in-tree testing framework is outside the published scope too.
+  for (const testModule of ['Tests.Smoke', 'Tests.Deep', 'SeLe4n.Testing.Helpers']) {
     assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, testModule), `${testModule} must not be graphed`);
   }
+  assert.equal(hooks.isOutsideProductionScope('SeLe4n/Testing/Helpers.lean'), true);
+  assert.equal(hooks.isOutsideProductionScope('tests/Smoke.lean'), true);
+  assert.equal(hooks.isOutsideProductionScope('SeLe4n/Kernel/API.lean'), false);
+});
+
+test('the live tree path takes the same scope as the bundle and includes the entry module', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.isLeanModulePath('SeLe4n/Kernel/API.lean'), true);
+  assert.equal(hooks.isLeanModulePath('Main.lean'), true, 'Main.lean is a production module the tree path must not drop');
+  assert.equal(hooks.isLeanModulePath('SeLe4n/Testing/Helpers.lean'), false);
+  assert.equal(hooks.isLeanModulePath('tests/Smoke.lean'), false);
+  assert.equal(hooks.isLeanModulePath('SeLe4n.lean'), false, 'the library root is not in the canonical inventory');
+  assert.equal(hooks.isLeanModulePath('docs/notes.lean.md'), false);
+});
+
+test('in-repository imports outside the scope are not labelled external dependencies', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.isInRepoOutsideScope('SeLe4n.Testing.MainTraceHarness'), true);
+  assert.equal(hooks.isInRepoOutsideScope('SeLe4n'), true, 'the library root Main imports');
+  assert.equal(hooks.isInRepoOutsideScope('Std.Data.List'), false);
+  assert.equal(hooks.isInRepoOutsideScope('SeLe4nExtra.Thing'), false);
+});
+
+test('Rust test items stay hidden until the crate toggle is on', async () => {
+  const hooks = await loadMapTestHooks();
+  const crate = { name: 'sele4n-sys' };
+  const file = { items: [
+    { kind: 'fn', name: 'send', line: 5, visibility: 'pub' },
+    { kind: 'fn', name: 'send_roundtrip', line: 50, visibility: 'private', test: true }
+  ] };
+  hooks.applyTestState({ rustShowTests: {} });
+  assert.deepEqual(Array.from(hooks.visibleRustItems(crate, file), (item) => item.name), ['send']);
+  hooks.applyTestState({ rustShowTests: { 'sele4n-sys': true } });
+  assert.deepEqual(Array.from(hooks.visibleRustItems(crate, file), (item) => item.name), ['send', 'send_roundtrip']);
+  assert.deepEqual(Array.from(hooks.visibleRustItems({ name: 'other' }, file), (item) => item.name), ['send'], 'the toggle is per crate');
+});
+
+/* ── Redesign: default module, subsystem grouping, repository inventory ─── */
+
+test('the workspace defaults to SeLe4n.Kernel.API when the snapshot carries it', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.defaultModule(), 'SeLe4n.Kernel.API');
+
+  const withApi = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership', path: 'SeLe4n/Kernel/IPC/Invariant/Structural/DualQueueMembership.lean' },
+      { name: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean' }
+    ],
+    moduleMeta: {
+      // The hub with the highest heuristic score must not win the default.
+      'SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership': { theorems: 452 },
+      'SeLe4n.Kernel.API': { theorems: 140 }
+    }
+  });
+  hooks.applyTestState({ modules: withApi.modules, moduleMap: withApi.moduleMap, moduleMeta: withApi.moduleMeta });
+  assert.equal(hooks.defaultModuleName(), 'SeLe4n.Kernel.API');
+
+  const withoutApi = hooks.normalizeMapData({
+    modules: [{ name: 'SeLe4n.Core.Zeta', path: 'SeLe4n/Core/Zeta.lean' }, { name: 'SeLe4n.Core.Alpha', path: 'SeLe4n/Core/Alpha.lean' }]
+  });
+  hooks.applyTestState({ modules: withoutApi.modules, moduleMap: withoutApi.moduleMap, moduleMeta: withoutApi.moduleMeta });
+  assert.equal(hooks.defaultModuleName(), 'SeLe4n.Core.Alpha', 'falls back to the first module in inventory order');
+});
+
+test('moduleSubsystem caps the namespace at three segments', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership'), 'SeLe4n.Kernel.IPC');
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Kernel.IPC.Invariant'), 'SeLe4n.Kernel.IPC');
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Kernel.API'), 'SeLe4n.Kernel');
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Model.Object.Types'), 'SeLe4n.Model.Object');
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Prelude'), 'SeLe4n');
+  assert.equal(hooks.moduleSubsystem('Main'), 'Main');
+  assert.equal(hooks.moduleSubsystem(''), '');
+});
+
+test('over-budget lanes group modules by subsystem and open groups in place', async () => {
+  const hooks = await loadMapTestHooks();
+  const imports = [
+    'SeLe4n.Kernel.IPC.DualQueue', 'SeLe4n.Kernel.IPC.Invariant', 'SeLe4n.Kernel.IPC.CrossCore.Fault',
+    'SeLe4n.Kernel.Architecture.Adapter', 'SeLe4n.Kernel.Architecture.VSpace',
+    'SeLe4n.Kernel.Scheduler.Operations', 'SeLe4n.Kernel.Scheduler.Invariant',
+    'SeLe4n.Kernel.Service.Registry',
+    'SeLe4n.Prelude',
+    'SeLe4n.Kernel.Capability.Operations'
+  ];
+
+  hooks.applyTestState({ neighborLimit: 8, flowShowAll: false, laneGroupsExpanded: { imports: {}, importers: {} } });
+
+  const groups = hooks.groupLaneModules(imports);
+  assert.deepEqual(Array.from(groups, (group) => `${group.key}:${group.members.length}`), [
+    'SeLe4n.Kernel.IPC:3', 'SeLe4n.Kernel.Architecture:2', 'SeLe4n.Kernel.Scheduler:2',
+    'SeLe4n:1', 'SeLe4n.Kernel.Capability:1', 'SeLe4n.Kernel.Service:1'
+  ], 'largest subsystems first, ties alphabetical, input order kept inside a group');
+  assert.deepEqual(Array.from(groups[0].members), ['SeLe4n.Kernel.IPC.DualQueue', 'SeLe4n.Kernel.IPC.Invariant', 'SeLe4n.Kernel.IPC.CrossCore.Fault']);
+
+  const collapsed = hooks.buildLaneEntries(imports, 'imports');
+  assert.equal(collapsed.grouped, true, 'ten imports exceed a budget of eight');
+  assert.deepEqual(Array.from(collapsed.entries, (entry) => entry.type === 'group' ? `group:${entry.key}` : `module:${entry.name}`), [
+    'group:SeLe4n.Kernel.IPC', 'group:SeLe4n.Kernel.Architecture', 'group:SeLe4n.Kernel.Scheduler',
+    'module:SeLe4n.Prelude', 'module:SeLe4n.Kernel.Capability.Operations', 'module:SeLe4n.Kernel.Service.Registry'
+  ], 'singleton subsystems render as plain module nodes');
+  assert.deepEqual(Array.from(collapsed.visibleModules), ['SeLe4n.Prelude', 'SeLe4n.Kernel.Capability.Operations', 'SeLe4n.Kernel.Service.Registry']);
+  assert.equal(collapsed.total, 10);
+
+  hooks.applyTestState({ laneGroupsExpanded: { imports: { 'SeLe4n.Kernel.IPC': true }, importers: {} } });
+  const expanded = hooks.buildLaneEntries(imports, 'imports');
+  const ipcIndex = expanded.entries.findIndex((entry) => entry.type === 'group' && entry.key === 'SeLe4n.Kernel.IPC');
+  assert.equal(expanded.entries[ipcIndex].expanded, true);
+  assert.deepEqual(
+    Array.from(expanded.entries.slice(ipcIndex + 1, ipcIndex + 4), (entry) => [entry.name, entry.nested, entry.groupKey]),
+    [
+      ['SeLe4n.Kernel.IPC.DualQueue', true, 'SeLe4n.Kernel.IPC'],
+      ['SeLe4n.Kernel.IPC.Invariant', true, 'SeLe4n.Kernel.IPC'],
+      ['SeLe4n.Kernel.IPC.CrossCore.Fault', true, 'SeLe4n.Kernel.IPC']
+    ],
+    'an opened group lists its members right below it, nested'
+  );
+  assert.ok(expanded.visibleModules.includes('SeLe4n.Kernel.IPC.DualQueue'));
+
+  const withinBudget = hooks.buildLaneEntries(imports.slice(0, 8), 'imports');
+  assert.equal(withinBudget.grouped, false, 'a lane within budget stays flat');
+  assert.equal(withinBudget.entries.length, 8);
+
+  hooks.applyTestState({ flowShowAll: true });
+  const showAll = hooks.buildLaneEntries(imports, 'imports');
+  assert.equal(showAll.grouped, false, 'expanded flow mode lists every module flat');
+  assert.equal(showAll.entries.length, 10);
+  hooks.applyTestState({ flowShowAll: false });
+});
+
+test('classifyRepositoryPath files every path into a group and subgroup', async () => {
+  const hooks = await loadMapTestHooks();
+  const expect = (path, group, subgroup) => {
+    const result = hooks.classifyRepositoryPath(path);
+    assert.equal(result.group, group, `${path} group`);
+    assert.equal(result.subgroup, subgroup, `${path} subgroup`);
+  };
+  expect('SeLe4n/Kernel/API.lean', 'lean', 'SeLe4n.Kernel');
+  expect('SeLe4n/Kernel/IPC/CrossCore/Fault.lean', 'lean', 'SeLe4n.Kernel.IPC');
+  expect('Main.lean', 'lean', 'Main');
+  expect('SeLe4n.lean', 'lean', 'SeLe4n');
+  expect('SeLe4n/Testing/Helpers.lean', 'tests', 'SeLe4n/Testing');
+  expect('SeLe4n/Prelude.lean', 'lean', 'SeLe4n');
+  expect('rust/sele4n-sys/src/ipc.rs', 'rust', 'sele4n-sys');
+  expect('rust/Cargo.toml', 'rust', 'workspace');
+  expect('tests/SmpPipSuite.lean', 'tests', 'tests');
+  expect('tests/fixtures/smp_ipc_4core.expected', 'tests', 'tests/fixtures');
+  expect('scripts/check_module_axioms.py', 'scripts', 'scripts (python)');
+  expect('scripts/test_rust.sh', 'scripts', 'scripts (shell)');
+  expect('scripts/tests/probe.sh', 'scripts', 'scripts/tests');
+  expect('docs/THREAT_MODEL.md', 'docs', 'docs');
+  expect('docs/dev_history/notes.md', 'docs', 'docs/dev_history');
+  expect('README.md', 'docs', 'repository root');
+  expect('LICENSE', 'docs', 'repository root');
+  expect('.github/workflows/lean_action_ci.yml', 'project', '.github/workflows');
+  expect('lakefile.toml', 'project', 'repository root');
+  expect('assets/logo.png', 'project', 'assets');
+});
+
+test('buildRepositoryInventory keeps production groups first and attaches modules to Lean subgroups', async () => {
+  const hooks = await loadMapTestHooks();
+  const files = [
+    'SeLe4n/Kernel/API.lean', 'SeLe4n/Kernel/IPC/DualQueue.lean', 'SeLe4n/Prelude.lean', 'SeLe4n.lean', 'Main.lean',
+    'rust/Cargo.toml', 'rust/sele4n-sys/src/lib.rs',
+    'tests/Smoke.lean', 'scripts/build.sh', 'docs/SPEC.md', 'README.md', '.github/workflows/ci.yml', 'lakefile.toml'
+  ];
+  const moduleMap = {
+    'SeLe4n.Kernel.API': 'SeLe4n/Kernel/API.lean',
+    'SeLe4n.Kernel.IPC.DualQueue': 'SeLe4n/Kernel/IPC/DualQueue.lean',
+    'SeLe4n.Prelude': 'SeLe4n/Prelude.lean',
+    Main: 'Main.lean'
+  };
+  const inventory = hooks.buildRepositoryInventory(files, moduleMap);
+  assert.deepEqual(Array.from(inventory, (group) => group.id), ['lean', 'rust', 'tests', 'scripts', 'docs', 'project']);
+  assert.deepEqual(Array.from(inventory, (group) => group.production), [true, true, false, false, false, false]);
+
+  const lean = inventory[0];
+  assert.equal(lean.count, 5, 'SeLe4n.lean counts as a production Lean file even without a module entry');
+  assert.equal(lean.modules, 4);
+  assert.deepEqual(Array.from(lean.subgroups, (sub) => sub.key), ['Main', 'SeLe4n', 'SeLe4n.Kernel', 'SeLe4n.Kernel.IPC']);
+  const root = lean.subgroups.find((sub) => sub.key === 'SeLe4n');
+  assert.deepEqual(Array.from(root.modules), ['SeLe4n.Prelude']);
+  assert.deepEqual(Array.from(root.files), ['SeLe4n.lean', 'SeLe4n/Prelude.lean']);
+
+  assert.equal(inventory[1].count, 2);
+  assert.equal(inventory[4].count, 2, 'README joins docs/');
+  assert.equal(inventory[5].count, 2, 'CI and lakefile are project plumbing');
+  assert.equal(inventory.reduce((total, group) => total + group.count, 0), files.length, 'every file lands in exactly one group');
+});
+
+test('retainInventory keeps the file tree and Rust inventory across a canonical refresh', async () => {
+  const hooks = await loadMapTestHooks();
+  const rust = { crates: [{ name: 'sele4n-sys', files: [] }] };
+  const previous = {
+    files: ['SeLe4n/Kernel/API.lean', 'rust/sele4n-sys/src/lib.rs', 'README.md'],
+    rust: rust,
+    inventoryCommit: 'aaaaaaa',
+    rustCommit: 'aaaaaaa'
+  };
+
+  // A canonical live refresh: modules only, so files are just Lean module paths.
+  const canonical = { files: ['SeLe4n/Kernel/API.lean', 'SeLe4n/Kernel/IPC.lean'], commitSha: 'bbbbbbb', rust: null };
+  const retained = hooks.retainInventory(previous, canonical);
+  assert.deepEqual(Array.from(retained.files), previous.files, 'a Lean-only file list is not a tree; keep the previous one');
+  assert.equal(retained.inventoryCommit, 'aaaaaaa');
+  assert.equal(retained.rust, rust);
+  assert.equal(retained.rustCommit, 'aaaaaaa');
+  assert.equal(retained.retainedFiles, true);
+  assert.equal(retained.retainedRust, true);
+
+  // A tree rebuild carries every file but still no Rust inventory.
+  const tree = { files: ['SeLe4n/Kernel/API.lean', 'docs/NEW.md', 'rust/x.rs'], commitSha: 'ccccccc' };
+  const rebuilt = hooks.retainInventory(previous, tree);
+  assert.deepEqual(Array.from(rebuilt.files), tree.files);
+  assert.equal(rebuilt.inventoryCommit, 'ccccccc');
+  assert.equal(rebuilt.rust, rust, 'the bundled Rust inventory survives');
+  assert.equal(rebuilt.rustCommit, 'aaaaaaa');
+  assert.equal(rebuilt.retainedFiles, false);
+
+  // A fresh bundled snapshot replaces both.
+  const bundled = { files: ['SeLe4n/Kernel/API.lean', 'README.md'], commitSha: 'ddddddd', rust: { crates: [{ name: 'sele4n-hal', files: [] }] } };
+  const fresh = hooks.retainInventory(previous, bundled);
+  assert.equal(fresh.rust.crates[0].name, 'sele4n-hal');
+  assert.equal(fresh.rustCommit, 'ddddddd');
+  assert.equal(fresh.inventoryCommit, 'ddddddd');
+
+  // Nothing previous: whatever comes in is used.
+  const cold = hooks.retainInventory(null, canonical);
+  assert.deepEqual(Array.from(cold.files), canonical.files);
+  assert.equal(cold.rust, null);
+  assert.equal(cold.rustCommit, '');
+});
+
+test('normalizeMapData passes a well-formed rust inventory through and drops a malformed one', async () => {
+  const hooks = await loadMapTestHooks();
+  const rust = {
+    root: 'rust',
+    workspaceManifest: 'rust/Cargo.toml',
+    members: ['sele4n-sys'],
+    edition: '2021',
+    version: '0.1.0',
+    rustVersion: '1.94',
+    workspaceFiles: ['rust/Cargo.toml'],
+    crates: [{ name: 'sele4n-sys', path: 'rust/sele4n-sys', files: [] }, { name: '', files: [] }, { name: 'ghost' }]
+  };
+  const normalized = hooks.normalizeMapData({
+    modules: [{ name: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean' }],
+    rust,
+    inventoryCommit: 'abc1234',
+    rustCommit: 'abc1234'
+  });
+  assert.deepEqual(Array.from(normalized.rust.crates, (crate) => crate.name), ['sele4n-sys'], 'crates without a name or file list are dropped');
+  assert.equal(normalized.rust.edition, '2021');
+  assert.deepEqual(Array.from(normalized.rust.members), ['sele4n-sys']);
+  assert.equal(normalized.inventoryCommit, 'abc1234');
+  assert.equal(normalized.rustCommit, 'abc1234');
+
+  assert.equal(hooks.normalizeRustInventory('nope'), null);
+  assert.equal(hooks.normalizeRustInventory({ crates: 'none' }), null);
+  assert.equal(hooks.normalizeRustInventory({ crates: [] }), null);
+  const withoutRust = hooks.normalizeMapData({ modules: [{ name: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean' }] });
+  assert.equal(withoutRust.rust, null);
+});
+
+test('rust item helpers colour by kind and order items for reading', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.rustItemColor('fn'), '#82f0b0', 'fn shares the Lean def colour');
+  assert.equal(hooks.rustItemColor('struct'), '#72d5ff');
+  assert.equal(hooks.rustItemColor('nonsense'), '#8fa3bf');
+
+  const ordered = hooks.sortRustItems([
+    { kind: 'fn', name: 'b', line: 30 },
+    { kind: 'impl', name: 'X', line: 5 },
+    { kind: 'struct', name: 'X', line: 10 },
+    { kind: 'fn', name: 'a', line: 20 },
+    { kind: 'mod', name: 'm', line: 1 }
+  ]);
+  assert.deepEqual(Array.from(ordered, (item) => `${item.kind}:${item.name}`), ['mod:m', 'struct:X', 'fn:a', 'fn:b', 'impl:X'],
+    'types before functions before impl blocks, source order within a kind');
+});
+
+test('pickInteriorMenuGroup keeps the remembered group and otherwise opens the first non-empty one', async () => {
+  const hooks = await loadMapTestHooks();
+  const groups = [
+    { key: 'object', totalCount: 0 },
+    { key: 'contextInit', totalCount: 3 },
+    { key: 'extension', totalCount: 2 }
+  ];
+  assert.equal(hooks.pickInteriorMenuGroup(groups, 'extension'), 'extension');
+  assert.equal(hooks.pickInteriorMenuGroup(groups, 'object'), 'object', 'an explicit choice is kept even when empty');
+  assert.equal(hooks.pickInteriorMenuGroup(groups, ''), 'contextInit', 'the first non-empty group opens by default');
+  assert.equal(hooks.pickInteriorMenuGroup([], ''), 'object');
+});
+
+test('formatCount groups thousands and leaves non-numbers alone', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.formatCount(10937), '10,937');
+  assert.equal(hooks.formatCount(866), '866');
+  assert.equal(hooks.formatCount(0), '0');
+  assert.equal(hooks.formatCount('–'), '–');
+  assert.equal(hooks.formatCount(null), '');
+});
+
+test('seedBundledInventory fills a newer cache from the bundle when the cache lacks the tree or the crates', async () => {
+  const hooks = await loadMapTestHooks();
+  const bundled = {
+    files: ['SeLe4n/Kernel/API.lean', 'rust/sele4n-sys/src/lib.rs', 'README.md'],
+    rust: { crates: [{ name: 'sele4n-sys', files: [] }] },
+    commitSha: 'bbbbbbb'
+  };
+  // A cache from a canonical live refresh: newer, module paths only, no Rust block.
+  const cached = { files: ['SeLe4n/Kernel/API.lean', 'SeLe4n/Kernel/IPC.lean'], rust: null, commitSha: 'ccccccc' };
+  const seeded = hooks.seedBundledInventory(cached, bundled);
+  assert.equal(seeded, cached, 'the cache object itself is returned');
+  assert.equal(seeded.rust, bundled.rust);
+  assert.equal(seeded.rustCommit, 'bbbbbbb');
+  assert.deepEqual(Array.from(seeded.files), bundled.files, 'a Lean-only list yields to the bundled tree');
+  assert.equal(seeded.inventoryCommit, 'bbbbbbb');
+
+  // A cache that already carries both keeps its own.
+  const complete = { files: ['SeLe4n/Kernel/API.lean', 'docs/X.md'], rust: { crates: [{ name: 'sele4n-hal', files: [] }] }, commitSha: 'ddddddd' };
+  const kept = hooks.seedBundledInventory(complete, bundled);
+  assert.equal(kept.rust.crates[0].name, 'sele4n-hal');
+  assert.deepEqual(Array.from(kept.files), complete.files);
+
+  // The bundle winning, or nothing to seed from, is a no-op.
+  assert.equal(hooks.seedBundledInventory(bundled, bundled), bundled);
+  assert.equal(hooks.seedBundledInventory(null, bundled), null);
+  assert.equal(hooks.seedBundledInventory(cached, null), cached);
+});
+
+/* ── Review round: the unsafe lint vs. counted sites, crate support files ── */
+
+test('rustUnsafeSummary keeps the lint, the production sites and the test sites apart', async () => {
+  const hooks = await loadMapTestHooks();
+  // sele4n-abi: `#![deny(unsafe_code)]` at the crate root and three sites in
+  // src/trap.rs under item-level `#[allow(unsafe_code)]`.
+  const abi = hooks.rustUnsafeSummary({ name: 'sele4n-abi', deniesUnsafe: true, unsafe: { fns: 2, impls: 0, blocks: 1 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 } });
+  assert.equal(abi.sites, 3, 'a deny lint is not proof of zero sites');
+  assert.equal(abi.deniesUnsafe, true);
+  assert.equal(abi.exceptions, true);
+  assert.equal(hooks.rustUnsafeDetail(abi), '2 fn · 1 block · under item-level allow', 'zero counters are not listed; the exception is named');
+  // sele4n-hal at dcbd1dd: the headline is the production figure, the test
+  // sites are named apart — never one total that mixes the two.
+  const hal = hooks.rustUnsafeSummary({ name: 'sele4n-hal', deniesUnsafe: false, unsafe: { fns: 9, impls: 3, blocks: 87 }, testUnsafe: { fns: 0, impls: 4, blocks: 20 } });
+  assert.equal(hal.sites, 99, 'fns, impls and blocks in production code');
+  assert.equal(hal.testSites, 24, 'sites in test code are counted apart');
+  assert.equal(hal.exceptions, false);
+  assert.equal(hooks.rustUnsafeDetail(hal), '9 fn · 3 impls · 87 blocks · +24 in test code');
+  const types = hooks.rustUnsafeSummary({ name: 'sele4n-types', deniesUnsafe: true, unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 } });
+  assert.deepEqual([types.sites, types.testSites, types.deniesUnsafe, types.exceptions], [0, 0, true, false]);
+  assert.equal(hooks.rustUnsafeDetail(types), '');
+  assert.deepEqual([hooks.rustUnsafeSummary({}).sites, hooks.rustUnsafeSummary(null).sites], [0, 0], 'a crate without counters reads as zero sites');
+});
+
+test('count labels pluralize in the English fallback and group digits', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.fileCountLabel(1), '1 file');
+  assert.equal(hooks.fileCountLabel(866), '866 files');
+  assert.equal(hooks.moduleCountLabel(1), '1 module');
+  assert.equal(hooks.moduleCountLabel(1303), '1,303 modules');
+  assert.deepEqual(Object.keys(hooks.captureInventoryOpenState()), [], 'no document, no open state');
+});
+
+test('crateSupportFiles lists the crate files the card does not own', async () => {
+  const hooks = await loadMapTestHooks();
+  const files = [
+    'rust/Cargo.toml', 'rust/rust-toolchain.toml',
+    'rust/sele4n-hal/Cargo.toml', 'rust/sele4n-hal/link.ld', 'rust/sele4n-hal/src/boot.S', 'rust/sele4n-hal/src/lib.rs', 'rust/sele4n-hal/src/mmu.rs',
+    'rust/sele4n-types/Cargo.toml', 'rust/sele4n-types/src/lib.rs',
+    'SeLe4n/Kernel/API.lean'
+  ];
+  const inventory = hooks.buildRepositoryInventory(files, { 'SeLe4n.Kernel.API': 'SeLe4n/Kernel/API.lean' });
+  const rustGroup = inventory.find((group) => group.id === 'rust');
+  const hal = { name: 'sele4n-hal', path: 'rust/sele4n-hal', files: [{ path: 'rust/sele4n-hal/src/lib.rs' }, { path: 'rust/sele4n-hal/src/mmu.rs' }] };
+  assert.deepEqual(Array.from(hooks.crateSupportFiles(rustGroup, hal)), ['rust/sele4n-hal/Cargo.toml', 'rust/sele4n-hal/link.ld', 'rust/sele4n-hal/src/boot.S'],
+    'the manifest, linker script and assembly source belong to the crate but not to its card');
+  const types = { name: 'sele4n-types', path: 'rust/sele4n-types', files: [{ path: 'rust/sele4n-types/src/lib.rs' }] };
+  assert.deepEqual(Array.from(hooks.crateSupportFiles(rustGroup, types)), ['rust/sele4n-types/Cargo.toml']);
+  assert.deepEqual(Array.from(hooks.crateSupportFiles(rustGroup, { name: 'ghost', files: [] })), [], 'a crate without a path owns nothing');
+
+  const onCards = new Set([...hal.files, ...types.files].map((file) => file.path));
+  const covered = new Set([...hooks.crateSupportFiles(rustGroup, hal), ...hooks.crateSupportFiles(rustGroup, types), ...onCards]);
+  const leftover = files.filter((path) => path.startsWith('rust/') && !covered.has(path)).sort();
+  assert.deepEqual(leftover, ['rust/Cargo.toml', 'rust/rust-toolchain.toml'], 'only workspace-level files remain for the workspace row');
+});
+
+test('the first locale load repaints only what was painted from fallbacks', async () => {
+  const hooks = await loadMapTestHooks();
+  // Spread: the state object is built in the map's vm realm, and strict deep
+  // equality compares prototypes across realms.
+  assert.deepEqual({ ...hooks.localePaintState() }, { ready: false, painted: false }, 'nothing is looked up at load time');
+  let repaints = 0;
+  const repaint = () => { repaints += 1; };
+  hooks.translate('map.rust_depends_on');
+  assert.equal(hooks.localePaintState().painted, true, 'a lookup before the locale is ready is a fallback');
+  assert.equal(hooks.handleLocaleReady(repaint), true, 'the ready callback repaints what fell back');
+  assert.equal(repaints, 1);
+  assert.deepEqual({ ...hooks.localePaintState() }, { ready: true, painted: false });
+  hooks.translate('map.rust_depends_on');
+  assert.equal(hooks.localePaintState().painted, false, 'lookups after readiness are final');
+  assert.equal(hooks.handleLocaleReady(repaint), false, 'a locale that was ready before anything was painted repaints nothing');
+  assert.equal(repaints, 1);
+});
+
+test('the inventory groups agree with the scanner roles and the published Lean scope', async () => {
+  const hooks = await loadMapTestHooks();
+  const data = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
+  const { isProductionModule } = await import('./canonical-map.mjs');
+  let crateFiles = 0;
+  for (const crate of data.rust.crates) {
+    for (const file of crate.files) {
+      crateFiles += 1;
+      const group = hooks.classifyRepositoryPath(file.path, data.rust.crates).group;
+      assert.equal(group, file.role === 'test' ? 'tests' : 'rust', `${file.path} has role ${file.role}`);
+      assert.equal(hooks.classifyRepositoryPath(file.path).group, group, `${file.path} groups the same way without the crate list`);
+    }
+  }
+  assert.ok(crateFiles > 60, 'the snapshot lists the crate files');
+  let leanFiles = 0;
+  for (const filePath of data.files) {
+    if (!/\.lean$/.test(filePath) || !/^(SeLe4n\/|tests\/|Main\.lean$|SeLe4n\.lean$)/.test(filePath)) continue;
+    leanFiles += 1;
+    const group = hooks.classifyRepositoryPath(filePath).group;
+    assert.equal(group === 'lean', isProductionModule({ path: filePath }), `${filePath} is grouped as ${group}`);
+  }
+  assert.ok(leanFiles > 300, 'the snapshot lists the Lean files');
+});
+
+test('classifyRepositoryPath groups a nested member by the crate that owns its files', async () => {
+  const hooks = await loadMapTestHooks();
+  const crates = [{ name: 'app', path: 'rust/crates/app' }, { name: 'inner', path: 'rust/crates/app/inner' }];
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/crates/app/src/lib.rs', crates) }, { group: 'rust', subgroup: 'crates/app' });
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/crates/app/tests/smoke.rs', crates) }, { group: 'tests', subgroup: 'rust/crates/app/tests' });
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/crates/app/inner/benches/b.rs', crates) }, { group: 'tests', subgroup: 'rust/crates/app/inner/benches' }, 'the deepest crate owns the file');
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/Cargo.toml', crates) }, { group: 'rust', subgroup: 'workspace' });
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/sele4n-abi/tests/conformance.rs') }, { group: 'tests', subgroup: 'rust/sele4n-abi/tests' }, 'the conventional layout needs no crate list');
+});
+
+test('classifyRepositoryPath follows the scanner roles the crate list carries', async () => {
+  const hooks = await loadMapTestHooks();
+  const crates = [
+    { name: 'rootpkg', path: 'rust', files: [{ path: 'rust/src/lib.rs', role: 'lib' }] },
+    { name: 'app', path: 'rust/app', files: [{ path: 'rust/app/checks/conformance.rs', role: 'test' }, { path: 'rust/app/src/lib.rs', role: 'lib' }] }
+  ];
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/app/checks/conformance.rs', crates) }, { group: 'tests', subgroup: 'rust/app/checks' }, 'a manifest-declared test target outside tests/ is test code');
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/app/src/lib.rs', crates) }, { group: 'rust', subgroup: 'app' });
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/src/lib.rs', crates) }, { group: 'rust', subgroup: 'rootpkg' }, 'a root package is named, not sliced to an empty label');
+  assert.deepEqual({ ...hooks.classifyRepositoryPath('rust/Cargo.lock', crates) }, { group: 'rust', subgroup: 'rootpkg' }, 'workspace files belong to the root package when there is one');
 });

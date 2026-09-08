@@ -5,6 +5,7 @@
  *   git clone --depth 1 seLe4n@main
  *     └─ docs/codebase_map.json  ─┬─→ data/site-data.json      (landing page)
  *        Lean sources            ─┤   data/map-data.json       (code map)
+ *        rust/ workspace         ─┘     └─ #rust: crate inventory
  *        docs/execution-traces.json ─→ data/execution-traces.json (simulator)
  *
  * There used to be three scripts, each fetching upstream independently. They
@@ -21,6 +22,21 @@
  * the artifact describes, rather than a later revision that merely sits in the
  * same tree.
  *
+ * The Rust workspace is outside the artifact's scope entirely (its digest covers
+ * Lean sources only), so the code map's crate inventory is read from the same
+ * pinned checkout by `lib/rust-analysis.mjs` and bundled as `map-data.json#rust`.
+ * It is descriptive — files, items, visibility, `unsafe` usage, manifests — and
+ * feeds no landing-page statistic.
+ *
+ * Reproducible regeneration: `SELE4N_REF=<40-hex commit>` pins the checkout to
+ * that revision instead of the tip of `main`, so a data change can be
+ * regenerated and reviewed against one known upstream commit. The snapshot
+ * still records `sourceRef: main`; `commitSha` names the exact revision. A
+ * pinned run regenerates at the requested revision or not at all: when that
+ * revision's Lean sources are not the ones its bundled artifact describes, the
+ * run fails and names the artifact's generation commit, instead of quietly
+ * checking that commit out the way the unpinned sync recovers.
+ *
  * Network shape: one shallow clone, plus one commit fetch on the rare path
  * where upstream has committed Lean changes without regenerating the artifact.
  * No REST calls, so no anonymous rate limit and no token.
@@ -34,6 +50,7 @@ import { join } from 'node:path';
 import {
   canonicalCrossChecks,
   canonicalMetricsIssues,
+  productionLocReproduction,
   canonicalSourceDigest,
   canonicalSourcePaths,
   productionModules,
@@ -42,10 +59,13 @@ import {
   theoremDeclarationCount
 } from './lib/canonical-map.mjs';
 import { extractImportTokens } from './lib/lean-analysis.mjs';
+import { buildRustInventory } from './lib/rust-analysis.mjs';
 import { validateTraceDataObject, scenarioStates } from './lib/trace-analysis.mjs';
 
 const REPO = 'hatter6822/seLe4n';
-const REF = 'main';
+const SOURCE_REF = 'main';
+const REF = process.env.SELE4N_REF || SOURCE_REF;
+const PINNED_COMMIT = /^[0-9a-f]{40}$/i.test(REF) ? REF.toLowerCase() : '';
 const CLONE_URL = `https://github.com/${REPO}.git`;
 const METRICS_PATH = 'docs/codebase_map.json';
 const TRACES_PATH = 'docs/execution-traces.json';
@@ -65,6 +85,29 @@ function formatNumber(n) {
 
 function moduleFromPath(path) {
   return path.replace(/\.lean$/, '').replace(/\//g, '.');
+}
+
+/**
+ * Physical lines the way `wc -l` counts them, plus one for an unterminated
+ * last line. Reproduces the artifact's `production_loc` exactly over its own
+ * files (canonicalCrossChecks says so if it ever stops), which is what makes
+ * subtracting the framework files from that figure sound.
+ */
+function physicalLineCount(buffer) {
+  if (!buffer.length) return 0;
+  let count = 0;
+  for (const byte of buffer) if (byte === 0x0a) count += 1;
+  return buffer[buffer.length - 1] === 0x0a ? count : count + 1;
+}
+
+function lineCounter(work) {
+  return (path) => {
+    try {
+      return physicalLineCount(readFileSync(join(work, path)));
+    } catch {
+      return undefined;
+    }
+  };
 }
 
 function classifyLayer(moduleName) {
@@ -122,8 +165,18 @@ async function acquire() {
 }
 
 async function acquireInto(work) {
-  execFileSync('git', ['clone', '--quiet', '--depth', '1', '--branch', REF, CLONE_URL, work],
-    { stdio: ['ignore', 'ignore', 'pipe'] });
+  if (PINNED_COMMIT) {
+    // A pinned revision: shallow-clone the default branch, then fetch the
+    // commit by SHA (GitHub serves reachable commits) and check it out.
+    execFileSync('git', ['clone', '--quiet', '--depth', '1', CLONE_URL, work],
+      { stdio: ['ignore', 'ignore', 'pipe'] });
+    execFileSync('git', ['-C', work, 'fetch', '--quiet', '--depth', '1', 'origin', PINNED_COMMIT],
+      { stdio: ['ignore', 'ignore', 'pipe'] });
+    git(work, ['checkout', '--quiet', 'FETCH_HEAD']);
+  } else {
+    execFileSync('git', ['clone', '--quiet', '--depth', '1', '--branch', REF, CLONE_URL, work],
+      { stdio: ['ignore', 'ignore', 'pipe'] });
+  }
 
   const mapPath = join(work, METRICS_PATH);
   if (!existsSync(mapPath)) throw new Error(`${REPO}@${REF} has no ${METRICS_PATH}`);
@@ -138,6 +191,13 @@ async function acquireInto(work) {
 
   if (digestOf(work, head.files) !== expected) {
     const generatedAt = codebaseMap.repository.head.commit_sha;
+    if (PINNED_COMMIT) {
+      throw new Error(
+        `SELE4N_REF=${PINNED_COMMIT.slice(0, 7)} carries Lean sources its bundled ${METRICS_PATH} does not describe ` +
+        `(source_digest mismatch); that artifact was generated at ${generatedAt.slice(0, 7)}. A pinned sync regenerates ` +
+        `at the requested revision or not at all — pin ${generatedAt.slice(0, 7)} instead, or run unpinned to recover to it.`
+      );
+    }
     console.warn(
       `⚠️  ${REF} carries Lean sources the artifact has not been regenerated for; ` +
       `pinning to ${generatedAt.slice(0, 7)}, the commit it describes.`
@@ -162,8 +222,23 @@ async function acquireInto(work) {
 
 // ── Snapshot builders ──────────────────────────────────────────────────────
 
-function buildSiteData(codebaseMap, head, sourceDigest) {
-  const metrics = siteMetricsFromCodebaseMap(codebaseMap);
+function buildSiteData(codebaseMap, head, sourceDigest, work) {
+  const metrics = siteMetricsFromCodebaseMap(codebaseMap, { lineCount: lineCounter(work) });
+  if (metrics.lines === undefined) {
+    // Either the framework files could not be counted, or the physical count
+    // over the artifact's own production files no longer reproduces
+    // production_loc — then the subtraction would mix two counting methods,
+    // and no figure is better than a wrong one.
+    const check = productionLocReproduction(codebaseMap, lineCounter(work));
+    if (check.checked && !check.matches) {
+      throw new Error(
+        `lines could not be projected: readme_sync.production_loc says ${check.stated} but the sources count ` +
+        `${check.counted} physical lines over the artifact's production files, so subtracting the framework files ` +
+        `would mix two counting methods. Upstream must regenerate the artifact.`
+      );
+    }
+    throw new Error('lines could not be projected: the framework files to subtract from readme_sync.production_loc were not readable');
+  }
   return {
     version: metrics.version,
     leanVersion: metrics.leanVersion,
@@ -176,9 +251,10 @@ function buildSiteData(codebaseMap, head, sourceDigest) {
     commitSha: head.commitSha.slice(0, 7),
     updatedAt: head.committedAt,
     sourceRepo: REPO,
-    sourceRef: REF,
+    sourceRef: SOURCE_REF,
     metricsSource: METRICS_PATH,
-    // Production Lean only — see the scope note in lib/canonical-map.mjs.
+    // Production Lean only: the artifact's production scope minus the in-tree
+    // testing framework — see the scope note in lib/canonical-map.mjs.
     metricsScope: 'production',
     schemaVersion: codebaseMap.schema_version,
     sourceDigest,
@@ -255,6 +331,9 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
     importsTo,
     importsFrom,
     externalImportsFrom,
+    // The production Rust crates, from the same checkout: the map renders them
+    // beside the Lean modules as the other half of the production code.
+    rust: buildRustInventory(head.files, (path) => readFileSync(join(work, path), 'utf8')),
     commitSha: head.commitSha,
     metricsSource: METRICS_PATH,
     sourceDigest,
@@ -287,9 +366,9 @@ async function writeTraces(work) {
 const { work, codebaseMap, head, sourceDigest, currentWithRef } = await acquire();
 
 try {
-  for (const note of canonicalCrossChecks(codebaseMap)) console.warn(`⚠️  ${note}`);
+  for (const note of canonicalCrossChecks(codebaseMap, { lineCount: lineCounter(work) })) console.warn(`⚠️  ${note}`);
 
-  const siteData = buildSiteData(codebaseMap, head, sourceDigest);
+  const siteData = buildSiteData(codebaseMap, head, sourceDigest, work);
   const mapData = buildMapData(codebaseMap, head, sourceDigest, work);
 
   await writeFile(SITE_FILE, JSON.stringify(siteData, null, 2) + '\n');
@@ -301,9 +380,11 @@ try {
   await writeTraces(work);
 
   const edges = Object.values(mapData.importsFrom).reduce((total, deps) => total + deps.length, 0);
-  console.log(`Synced ${REPO}@${head.commitSha.slice(0, 7)}${currentWithRef ? ` (${REF})` : ' (pinned to the artifact\'s commit)'}`);
+  console.log(`Synced ${REPO}@${head.commitSha.slice(0, 7)}${PINNED_COMMIT ? ' (SELE4N_REF)' : currentWithRef ? ` (${REF})` : ' (pinned to the artifact\'s commit)'}`);
   console.log(`   site-data   v${siteData.version} · ${formatNumber(siteData.theorems)} theorems · ${siteData.lines} lines · ${siteData.modules} modules · ${siteData.admitted} admitted`);
   console.log(`   map-data    ${mapData.modules.length} modules · ${edges} import edges · ${mapData.files.length} files`);
+  const rustFiles = mapData.rust.crates.reduce((total, crate) => total + crate.sourceFiles, 0);
+  console.log(`   rust        ${mapData.rust.crates.length} crate(s) · ${rustFiles} source files · ${mapData.rust.crates.map((crate) => crate.name).join(', ')}`);
 } finally {
   await rm(work, { recursive: true, force: true });
 }

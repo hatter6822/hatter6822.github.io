@@ -141,8 +141,39 @@ assert(/\.interior-menu-item-btn:focus-visible\s*\{[^}]*outline:/s.test(css), "i
 // CSS: interior menu items list should use thin scrollbar for space efficiency
 assert(/\.interior-menu-items\s*\{[^}]*scrollbar-width:\s*thin/s.test(css), "interior menu items list should use thin scrollbar");
 
-// CSS: interior menu grid should use min() to prevent overflow on narrow screens
-assert(/\.interior-menu-grid\s*\{[^}]*minmax\(min\(16rem,\s*100%\)/s.test(css), "interior menu grid should use min() in minmax to prevent overflow on narrow viewports");
+// CSS: the declaration sidebar sits beside the chart on wide viewports and stacks below it otherwise
+assert(/\.workspace-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s.test(css), "workspace grid should default to a single column so the chart keeps its width on narrow viewports");
+assert(/@media \(min-width: 90rem\)[^{]*\{[\s\S]*?\.workspace-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(/.test(css), "workspace grid should add the sidebar column only from 90rem, where the chart keeps a ~900px column");
+assert(/\.flowchart-svg\s*\{[^}]*width:\s*auto;\s*min-width:\s*100%/.test(css), "the flow chart SVG must never be scaled below 1:1 (width: auto; min-width: 100%)");
+assert(!/\.flowchart-svg\s*\{[^}]*[{;]\s*width:\s*100%;/.test(css), "no rule may scale the flow chart to its column");
+assert(/else result = 900;/.test(mapJs), "the desktop minimum flow width is 900; the column decides above that");
+assert(/\.declaration-explorer\s*\{[^}]*position:\s*sticky/s.test(css), "declaration sidebar should be sticky on desktop so a click in it shows its effect on the chart");
+
+// HTML/JS: the declaration explorer is a tabbed single list, not three side-by-side columns
+assert(/class="declaration-explorer"/.test(html), "map markup should place the interior menu inside the declaration-explorer sidebar");
+assert(/setAttribute\("role",\s*"tablist"\)/.test(mapJs), "interior menu should expose its group switcher as a tablist");
+assert(/interior-menu-tab\b/.test(mapJs) && /\.interior-menu-tab\[aria-selected="true"\]/.test(css), "interior menu tabs should exist and style the selected tab");
+assert(!/interior-menu-grid/.test(mapJs), "interior menu should no longer render the three-column grid");
+
+// HTML: the redesigned page carries the Rust crate section and the repository inventory
+assert(/id="rust-crate-grid"/.test(html), "map markup should include the Rust crate grid container");
+assert(/id="repository-inventory-groups"/.test(html), "map markup should include the repository inventory container");
+assert(/data-map="rustCrates"/.test(html), "hero stats should include the Rust crate count");
+assert(/class="map-section-nav"/.test(html), "hero should carry jump links to the page sections");
+const workspaceIndex = html.indexOf('id="module-graph"');
+const rustIndex = html.indexOf('id="rust-crates"');
+const inventoryIndex = html.indexOf('id="repository-inventory"');
+assert(workspaceIndex !== -1 && rustIndex !== -1 && inventoryIndex !== -1, "all three page sections should exist");
+assert(workspaceIndex < rustIndex && rustIndex < inventoryIndex, "the Lean workspace must come first, then Rust crates, then the inventory");
+
+// JS: the default module is the kernel API surface, and the grouped lanes exist
+assert(/var DEFAULT_MODULE = "SeLe4n\.Kernel\.API"/.test(mapJs), "the workspace should default to SeLe4n.Kernel.API");
+assert(/function buildLaneEntries\(/.test(mapJs) && /function groupLaneModules\(/.test(mapJs), "over-budget lanes should group modules by subsystem");
+assert(/\.flow-node\.lane-group\s+rect/.test(css), "subsystem group nodes should have their own style");
+
+// CSS: production groups in the inventory are visually distinguished
+assert(/\.inventory-group\[data-production="true"\]/.test(css), "production inventory groups should be highlighted");
+assert(/\.production-badge\b/.test(css), "production badge style should exist");
 
 // CSS: interior menu item navigable should prevent flex wrapping
 assert(/\.interior-menu-item-navigable\s*\{[^}]*flex-wrap:\s*nowrap/s.test(css), "interior menu item navigable should prevent flex wrapping");
@@ -229,5 +260,21 @@ assert(/verifiableSurfaceArea:\s*verifiableSurfaceArea/.test(mapJs), "verifiable
 
 // CSS: cross-module declaration nodes should have dashed border
 assert(/\.flow-node\.cross-module\s+rect\s*\{[^}]*stroke-dasharray/s.test(css), "cross-module declaration nodes should have dashed stroke");
+
+// Review round on the 0.30.0 redesign: the dependency strip must scroll on
+// phones rather than shrink, and the unsafe lint never stands in for the
+// counted sites.
+assert(/\.rust-dependency-svg\s*\{[^}]*\}/.test(css) && !/\.rust-dependency-svg\s*\{[^}]*max-width/.test(css), "the dependency SVG keeps its intrinsic width so .rust-dependency-scroll can scroll");
+assert(/\.rust-dependency-strip\s*\{[^}]*min-width:\s*0/.test(css), ".rust-dependency-strip needs min-width: 0 so the grid item does not grow to the SVG");
+assert(/\.inventory-crate-support\b/.test(css), "map.css should style the crate support-file rows of the inventory");
+assert(!/rust_unsafe_denied/.test(mapJs), "the unsafe cell shows the counted sites; the deny lint is a separate fact");
+assert(/function rustUnsafeSummary\(/.test(mapJs) && /function crateSupportFiles\(/.test(mapJs), "rustUnsafeSummary and crateSupportFiles should exist");
+assert(/testUnsafe/.test(mapJs) && /function rustUnsafeDetail\(/.test(mapJs), "the unsafe cell names production and test sites separately");
+assert(/targetDependencies/.test(mapJs), "target-scoped dependency tables are rendered under their cfg");
+assert(/function captureInventoryOpenState\(/.test(mapJs) && /data-open-key|dataset\.openKey/.test(mapJs), "open groups, subgroups and files must survive a re-render");
+assert(/\.rust-crate-grid\s*\{[^}]*align-items:\s*start/s.test(css), "crate cards must not stretch to the tallest card");
+assert(/\.rust-crate-files\s*\{[^}]*max-height:/s.test(css), "a crate's file list is bounded and scrolls inside the card");
+assert(/\.rust-dependency-svg\s*\{[^}]*margin-inline:\s*auto/s.test(css), "the dependency strip is centred when narrower than its figure");
+assert(!/testing-framework modules/.test(mapJs), "the production Lean description must not claim the testing framework");
 
 console.log("map-toolbar.test: ok");

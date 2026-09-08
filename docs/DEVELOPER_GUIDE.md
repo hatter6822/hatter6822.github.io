@@ -62,10 +62,10 @@ Edit this file when adding/removing a section, changing metadata defaults, or wi
 ### `map.html` (interactive map page)
 Owns:
 
-- map-specific hero, summary stats, and toolbar shell.
-- `#flowchart-wrap` rendering target for graph content.
+- compact hero: status column with the snapshot stamp, one-line stats strip (`data-map="..."` placeholders, including `rustCrates`), section jump links.
+- the three page sections in the order tests assert: `#module-graph` (toolbar shell, `.workspace-grid` with `#flowchart-wrap` and the `.declaration-explorer` sidebar holding `#flow-node-interior-menu`, side by side from 90rem), `#rust-crates` (`#rust-crate-grid`, rendered by JS), `#repository-inventory` (`#repository-inventory-groups` and `#inventory-provenance`, rendered by JS).
 - compact control surface (context search + reset).
-- map status and stat placeholders (`data-map="..."`).
+- map status and stat placeholders.
 - script load order:
   1. `theme-init.js` in head.
   2. `i18n.js` in head for locale detection and DOM translation.
@@ -102,11 +102,12 @@ Internationalization runtime for multi-language support. Responsibilities:
 - detects preferred locale from URL param (`?lang=`), `localStorage`, or browser `navigator.languages`.
 - fetches the appropriate locale JSON bundle from `/locales/<code>.json`.
 - walks the DOM translating elements with `data-i18n`, `data-i18n-placeholder`, `data-i18n-aria-label`, `data-i18n-title`, and `data-i18n-content` attributes.
-- exposes `window.sele4nI18n` API for JS-side translations: `t(key, vars)`, `setLocale(locale)`, `locale()`, `onReady(cb)`, `translateDOM()`.
-- supports interpolation via `{{variable}}` placeholders in locale strings.
+- exposes `window.sele4nI18n` API for JS-side translations: `t(key, vars)`, `setLocale(locale)`, `locale()`, `formatNumber(n)`, `pluralCategory(n)`, `onReady(cb)`, `translateDOM()`.
+- supports interpolation via `{{variable}}` placeholders in locale strings; a numeric value is grouped by the active locale (`Intl.NumberFormat`).
+- resolves plural families: when `vars.count` is a number and the bundle carries `key_one` / `key_few` / `key_many` / `key_other`, `t()` picks the CLDR category for the count (`Intl.PluralRules`) and falls back to `key_other`, then to `key`. `i18n-locales.test.mjs` compares families across locales; `i18n-runtime.test.mjs` exercises the resolution.
 - initializes and manages the language switcher dropdown UI in the navigation bar.
 - fires `sele4n:locale-changed` CustomEvent when the locale changes.
-- supported locales: `en`, `es`, `fr`, `ja`, `zh-CN`.
+- supported locales: `en`, `es`, `fr`, `ja`, `uk`, `zh-CN`.
 
 ### `locales/*.json`
 Locale string bundles organized by page section. Structure mirrors the site's section hierarchy (`nav`, `hero`, `about`, `architecture`, `comparison`, `features`, `security`, `verification`, `api`, `structure`, `getting_started`, `roadmap`, `footer`, `map`). Each key maps to a translated string with optional `{{variable}}` interpolation.
@@ -151,6 +152,16 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - caches frequently queried DOM elements (`flowchartWrap`, `moduleSearch`, `moduleSearchOptions`, `moduleSearchFeedback`, `moduleSearchLabel`, `flowNodeInteriorMenu`, `mapStatus`, `mainContent`, `moduleResults`) once at boot in a `DOM` namespace object via `cacheDomElements()` to avoid repeated `getElementById` calls during render cycles. All DOM-accessing functions use `DOM.xxx || document.getElementById(...)` fallback pattern.
 - uses batch eviction (120 entries per cycle via `LABEL_WRAP_CACHE_EVICT_BATCH`) for the label-wrap cache to amortize eviction cost and prevent single-entry churn on cache-full renders.
 - manages map status messaging and sync lifecycle feedback.
+- builds the tabbed declaration sidebar (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration; remembers the active tab across module changes.
+- opens on `DEFAULT_MODULE` (`SeLe4n.Kernel.API`) when the URL names no module (`defaultModuleName()`), on load, after a tree rebuild, and on Reset.
+- groups over-budget lanes by subsystem (`moduleSubsystem`, `groupLaneModules`, `buildLaneEntries`, `toggleLaneGroup`, `drawLaneGuide`) and opens groups in place.
+- lays the flow chart out at `max(minimumFlowWidth(), column width)`; from 900px up the minimum is 900, and the CSS never scales the SVG below 1:1, so a wider layout scrolls inside its frame rather than shrinking its text.
+- scopes live payloads and the tree-rebuild path the way the bundle is scoped (`isOutsideProductionScope`, `isLeanModulePath`: nothing under `tests/` or `SeLe4n/Testing/`, plus `Main.lean`), and labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
+- writes the `localStorage` cache only when the serialized snapshot is under `CACHE_MAX_CHARS`; `setCache()` returns whether it wrote. The bundled map is past the quota, so the page is bundle-first in practice.
+- formats every count for the active locale (`formatCount` → `Intl.NumberFormat(document.documentElement.lang)`) and builds count labels from plural families (`fileCountLabel`, `moduleCountLabel`, `theoremCountLabel`, `crateCountLabel`, `pluralEn` for the English fallback).
+- renders the Rust crate section (`renderRustCrates`, `renderRustDependencyStrip`, `renderRustCrateCard`, `renderRustFile`, `renderRustItemList`) and the repository inventory (`classifyRepositoryPath`, `buildRepositoryInventory`, `renderRepositoryGroups`, `renderInventorySubgroup`, `renderInventoryList`) from `state.rust` and `state.files`, once per data load (`renderInventory`) and again on locale change; `captureInventoryOpenState` / `restoreInventoryOpenState` carry every `<details>`'s open state across the rebuild.
+- reads a crate's `unsafe` (production) and `testUnsafe` (test code) counters apart (`rustUnsafeSummary`, `rustUnsafeDetail`), states target-scoped dependency tables under their cfg and dev-dependencies as test-only, and lists Rust test items only behind each card's toggle (`state.rustShowTests`, `visibleRustItems`, `rerenderRustCrateCard`).
+- keeps the file tree and Rust inventory across live refreshes that carry neither (`retainInventory`, `normalizeRustInventory`, `seedBundledInventory`), tracking `inventoryCommit` / `rustCommit`.
 
 If the map visualization, interactions, or data compatibility changes, this is the primary file.
 
@@ -174,6 +185,10 @@ Map-page-only styles:
 - CSS `contain: layout style` on flowchart container for rendering performance.
 - `focus-visible` outlines on interior menu buttons and source links for keyboard accessibility.
 - responsive breakpoints for interior menu items (mobile touch targets, landscape compaction, narrow viewport overflow prevention).
+- the workspace grid: single column by default; chart + sticky declaration sidebar side by side from `90rem`, where the chart keeps a ~900px column; the pinned sidebar's list is viewport-bound so it fits a 720px-tall screen.
+- `.flowchart-svg { width: auto; min-width: 100% }` at every width — the chart is never scaled below 1:1 (a `width: 100%` here once shrank it to 58–86% beside the sidebar).
+- the Rust crate section: dependency strip (intrinsic width, centred, scrolls when wider than its figure), cards on an `align-items: start` grid with bounded, scrolling file lists (`.rust-crate-files`), item lists coloured by kind.
+- the repository inventory: production groups highlighted with a badge, muted secondary groups, module and file lists, support-file rows.
 - map-specific responsive/mobile tuning.
 
 ### `assets/css/run.css`
@@ -195,11 +210,15 @@ The only source of the landing page's statistics. Fields:
 `metricsSource`, `metricsScope`, `sourceRepo` and `sourceRef` are checked
 against fixed values by `validate-data.mjs`, which makes "these figures came
 from the canonical artifact" a claim CI verifies rather than a comment. Scope is
-production Lean: `theorems`, `lines` and `modules` describe one corpus
-(everything outside `tests/`). `commitSha` and `updatedAt` name the commit the
+production Lean: `theorems`, `lines` and `modules` describe one corpus — the
+artifact's production set (everything outside `tests/`) minus the in-tree
+testing framework `SeLe4n/Testing/`. `commitSha` and `updatedAt` name the commit the
 statistics were *measured* at — the artifact's own `repository.head` — not the
-tip of `main`. `lines` is the one metric published pre-grouped (`"330,569"`) so
-the static fallback and the hydrated value render identically.
+tip of `main`. `lines` is the one metric published pre-grouped (`"325,346"`) so
+the static fallback and the hydrated value render identically. `index.html`
+carries a one-line note under the hero stats (`hero.scope_note`) saying the
+framework is excluded, because the kernel README's table comes from the same
+artifact at its wider scope.
 
 Generated by `scripts/sync-upstream.mjs`; validated by `scripts/validate-data.mjs`.
 
@@ -216,6 +235,18 @@ Bundled graph snapshot used by map runtime. Includes:
   calls, and incoming callers via the reverse index the runtime builds from
   it). Before it was bundled, that view was empty until a live GitHub fetch
   completed, and empty forever offline.
+- `rust` — the production crate inventory from the same checkout, built by
+  `scripts/lib/rust-analysis.mjs`: crates in workspace order with manifest
+  facts (description, edition, dependencies split into internal, external,
+  dev, build and target-scoped tables — internal by path, never by name —
+  optional dependencies with their enabling features, features),
+  `deniesUnsafe` read from the crate root with
+  its lint list parsed, and per-file item lists (kind, name, line, visibility,
+  inline-module path, `test` flag) with counts — `productionItems`,
+  `publicItems`, `testItems`, `unsafe` and `testUnsafe`. Descriptive only; it
+  feeds no landing-page statistic. Measured on the current workspace (four
+  crates, 66 source files) the block is about 271 KB raw and 31 KB gzipped;
+  this is the one place that figure is quoted.
 - `commitSha`, `generatedAt` provenance.
 
 Written **compact** (no indentation): at ~4.6 MB (459 KB gzipped) it is the
@@ -298,6 +329,18 @@ Schema gate plus fold dry-run for `data/execution-traces.json`; warns when the b
 ### `scripts/nav-stability-smoke.py`
 Optional Playwright smoke probe for nav-hash stability and active-link determinism across browsers.
 
+### `scripts/map-smoke.mjs`
+Headless-Chromium probe for `map.html` (Tier 3/4; needs `playwright-core` and a
+static server on port 4173): the default module, grouped lanes, sidebar-driven
+declaration context, the flow chart drawn at 1:1 at 1200–1920px, the sidebar
+beside the chart from 1440px and below it under that, the pinned sidebar
+fitting a 720px viewport, no horizontal overflow, a clean console, both themes,
+a tablet and a phone width, a Spanish deep link with locale digit grouping,
+and a locale held back until after the snapshot has painted (the generated
+labels must still come out in Spanish). `.github/workflows/ci.yml` runs it with the runner's Chrome
+(`MAP_SMOKE_CHANNEL=chrome`) after the unit tests on every push and pull
+request; `PLAYWRIGHT_CHROMIUM=<path>` points it at another binary.
+
 ## 8) Script libraries and tests (`scripts/lib/`)
 
 ### `scripts/lib/canonical-map.mjs`
@@ -313,6 +356,14 @@ that field is a bare per-line regex, and on the current artifact it counts 78
 prose lines inside doc comments while missing 15 `protected`/`noncomputable`
 declarations.
 
+The site's production scope also lives here: `isArtifactProductionModule`
+(outside `tests/`), `isProductionModule` (also outside `SeLe4n/Testing/`),
+`artifactProductionModules`, `productionModules`, `excludedFrameworkModules`,
+and the `lines` subtraction in `siteMetricsFromCodebaseMap` driven by the
+`lineCount` option the sync script supplies, guarded by
+`productionLocReproduction`: `lines` is withheld unless the physical count
+reproduces `production_loc` over the artifact's own files.
+
 ### `scripts/lib/lean-analysis.mjs`
 Lean source parsing. Two roles:
 
@@ -322,8 +373,34 @@ Lean source parsing. Two roles:
   map runtime uses when it fetches an individual `.lean` file. The pipeline no
   longer calls them; keeping them here keeps that runtime logic under test.
 
+### `scripts/lib/rust-analysis.mjs`
+The Rust workspace scanner behind `map-data.json#rust`: `stripRustCommentsAndStrings`
+(nested block comments, raw/byte strings, char literals), `scanRustSource` (item
+headers at item scope with visibility, `unsafe`, inline-module path and test
+marking; `unsafe fn` / `unsafe impl` / `unsafe { … }` sites at any depth split
+between production and test code; line counts), `cfgIsTestOnly` and
+`cfgHoldsInProduction` (one three-valued evaluator: a `cfg` predicate is
+test-only for `test` and `all(test, …)`, not for `not(test)` or `any(test,
+feature = "…")`; it holds in every production build for `not(test)`, not for
+a feature or a target), `parseToml` and `parseCargoManifest` (the TOML subset
+Cargo uses, then package fields, workspace inheritance, dependency tables with
+target-scoped tables kept apart, features, `[lib]`, `[[bin]]`), `cargoTargets`
+(the roots Cargo would build: the library root and the binaries, declared or
+conventional, which roles and module paths follow), `rustFileRole` /
+`rustModulePath`, `childModuleFiles` (rustc's rule for where `mod x;` lives:
+crate roots and `mod.rs` files resolve beside themselves, other files under a
+directory of their own name, inline-module path and `#[path]` included), and
+`buildRustInventory`, which assembles the
+crates in workspace order from a file list and a reader, rescanning
+out-of-line modules with the test and export status they inherit from their
+`mod` declarations. Anonymous `const _` assertions are not items; raw
+identifiers keep their `r#`; `#[macro_export]` macros are public; a
+`#[cfg(test)]` on an associated method sends its `unsafe` sites to the test
+counters. Not a Rust parser; it lists a crate's
+surface the way a rustdoc sidebar does, one item header per line.
+
 ### `scripts/lib/data-validation.mjs`
-Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks.
+Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal to per-file sums for items, test items, lines and both `unsafe` counters, target-scoped dependency tables).
 
 ### `scripts/lib/trace-analysis.mjs`
 Trace schema validation and the deterministic fold engine (`reconstructState`/`scenarioStates`) shared by `validate-traces.mjs`, `sync-upstream.mjs`, and the Simulator tests.
@@ -335,14 +412,16 @@ The `data/site-data.json` → `index.html` + `locales/*.json` static-fallback ma
 Node tests for parser and validation correctness:
 
 - `lean-analysis.test.mjs`: parser behavior, edge cases, `isLikelyModuleToken` validation, theorem deduplication, null/empty input guards, noncomputable theorem counting, comment-only continuation line handling, non-numeric metric cell robustness.
+- `rust-analysis.test.mjs`: comment/string stripping with line structure preserved, item scanning (kinds, visibility, `unsafe`, nested-body exclusion, inline modules, multi-line signatures, `static mut`), `unsafe` sites at any depth split by test code, `cfg` predicate reading, public-item reachability, manifest parsing (workspace inheritance, dependency and target-scoped tables, `[[bin]]`), file roles and module paths, and `buildRustInventory` assembly with the crate-root lint rule.
 - `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection, non-string module array entries.
-- `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none).
+- `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none), the default module rule, `moduleSubsystem`, subsystem-grouped lane entries, repository path classification and inventory grouping, inventory retention across canonical and tree refreshes, `rust` block pass-through, Rust item colouring/ordering, the production/test `unsafe` summary and detail line, count-label plural fallbacks, tab selection, and locale digit grouping.
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.
 - `trace-analysis.test.mjs`: trace schema validation and fold-engine determinism (see `docs/TESTING.md`).
 - `run-runtime.test.mjs`: boots the real `assets/js/run.js` in a `vm` DOM shim and exercises the Simulator end-to-end (see `docs/TESTING.md`).
 - `csp-html.test.mjs`: asserts no inline `style="…"` attributes on any HTML page (the strict CSP would silently drop them).
 - `static-values.test.mjs`: pins the static-fallback rewriter mapping and asserts that the committed `index.html` *and* every locale bundle match `data/site-data.json`.
-- `i18n-locales.test.mjs`: locale key parity with `en.json`, no empty values, and every `data-i18n*` key referenced by the pages resolves.
+- `i18n-locales.test.mjs`: locale key parity with `en.json` (plural forms compared as families), no empty values, and every `data-i18n*` key referenced by the pages resolves.
+- `i18n-runtime.test.mjs`: boots the real `i18n.js` in a `vm` shim and checks interpolation, plural-form selection for English and Ukrainian counts, and locale digit grouping.
 
 ## 9) Documentation folder (`docs/`)
 

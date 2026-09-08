@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.29.0`
+- Website version: `0.30.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -36,17 +36,31 @@ one revision produces all three bundled snapshots.
 git clone --depth 1 seLe4n@main
   └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
      Lean sources            ─┤   data/map-data.json           (code map)
+     rust/ workspace         ─┘     └─ #rust: crate inventory
      docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
 ```
 
 Every published statistic is projected from the canonical
 `docs/codebase_map.json` — the artifact from which seLe4n's own README table is
 generated — and the sync fails rather than publishing a partial projection when
-an expected key is missing. The Lean sources supply exactly one thing the
+an expected key is missing. The published scope is production Lean: the
+artifact's production set (everything outside `tests/`) minus the in-tree
+testing framework under `SeLe4n/Testing/`, whose eight modules are framework
+code rather than kernel. Modules and theorems are counted over that inventory;
+lines are the artifact's `production_loc` minus the framework files, measured on
+the digest-verified sources. The kernel's own README table is rendered from the
+same artifact at its wider scope, so the landing page says under its hero stats
+that the framework is excluded. The Lean sources supply exactly one thing the
 artifact does not record, the import graph, and the artifact's
 `source_sync.source_digest` is verified over those sources first, so the
 snapshots cannot blend two revisions. The site and map snapshots record the same
 `commitSha` and `sourceDigest`; `validate-data.mjs` fails if they disagree.
+
+The same checkout's `rust/` workspace is scanned by `scripts/lib/rust-analysis.mjs`
+into `map-data.json#rust`: the four production crates with their manifest
+facts, per-file item lists, and `unsafe` sites counted at any depth and split
+between production and test code. It is descriptive and feeds no landing-page
+statistic.
 
 `apply-static-values.mjs` then stamps those values into `index.html` (the
 `data-live` spans, JSON-LD version, snapshot timestamp) and into every
@@ -65,6 +79,7 @@ node scripts/validate-traces.mjs
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
@@ -74,6 +89,7 @@ node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
 node scripts/lib/i18n-locales.test.mjs
+node scripts/lib/i18n-runtime.test.mjs
 ```
 
 ## Runtime data strategy
@@ -98,6 +114,47 @@ tested and validated in CI.
 
 `map.html` and `run.html` still refresh their larger payloads from GitHub, with
 the bundled snapshot as the fallback.
+
+## Code map layout (0.30.0)
+
+`map.html` is the **Lean module workspace**. It opens on `SeLe4n.Kernel.API`
+— the kernel's unified public API, the entry-point surface the subsystems
+compose into — whenever the URL carries no `module=`. Its flow chart shows the
+selected module's imports, dependents, proof pair, nearest linked-proof path
+and external imports; a lane with more modules than the detail budget is
+grouped by subsystem (`SeLe4n.Kernel.IPC`, `SeLe4n.Kernel.Architecture`, …)
+and each group opens in place. The chart is always drawn at full size and
+scrolls inside its frame when it is wider than its column. The declaration
+sidebar lists the module's interior declarations in three tabs (Objects,
+Contexts/Inits, Extensions); from 1440px it sits beside the chart and follows
+the scroll, below that it stacks under the chart.
+
+The **Rust production crates** section renders one card per workspace crate
+(`sele4n-types`, `sele4n-abi`, `sele4n-sys`, `sele4n-hal`) from
+`data/map-data.json#rust`: description and edition from `Cargo.toml`, internal
+and external dependencies (a target-scoped table such as `loom` under
+`cfg(loom)` is stated under its cfg, dev-dependencies as test-only), feature
+flags, per-file item lists with visibility and line anchors, and `unsafe`
+usage read from the sources — the sites in production code as the headline,
+the sites in test code named apart, and the crate-level
+`#![deny(unsafe_code)]` lint as a separate fact, so `sele4n-abi`'s three
+exception sites under its lint stay visible. Test items are bundled too and
+listed behind a per-crate toggle, so the cards describe the production surface
+by default; file lists are bounded and scroll inside their card. A small
+dependency diagram shows the `sys → abi → types` chain and the standalone HAL.
+
+The **repository inventory** lists every file in the seLe4n tree, grouped:
+production Lean (by subsystem, each module opening in the workspace),
+production Rust (linking to the crate cards, with each crate's manifest, linker
+script and assembly files listed beneath), then tests, scripts, documentation
+and project tooling as closed, muted groups whose file lists render on first
+open and link to the source at the snapshot commit. Whatever a reader has
+opened survives the live refresh and a locale switch.
+
+`node scripts/map-smoke.mjs` checks all of this in headless Chromium against a
+local static server (`python3 -m http.server 4173`); it needs `playwright-core`
+on `NODE_PATH` or installed next to the repository. `.github/workflows/ci.yml`
+runs it, and every unit test and validator, on each push and pull request.
 
 ## Code map declaration context and interior explorer
 

@@ -1,6 +1,6 @@
 # Codebase Map: End-to-End Guide
 
-> Documentation baseline: website release **0.29.0**.
+> Documentation baseline: website release **0.30.0**.
 
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
@@ -9,12 +9,87 @@ The map page provides a single operational and proof-aware architecture view of 
 - module metadata,
 - and source-level symbol interior links.
 
+## Page structure (0.30.0)
+
+`map.html` is three sections, in this order (asserted by
+`map-toolbar.test.mjs`):
+
+1. **Lean module workspace** — toolbar, flow chart and the declaration
+   sidebar. Production code is the subject.
+2. **Rust production crates** — a dependency strip and one card per workspace
+   crate, rendered from `map-data.json#rust`.
+3. **Repository inventory** — every file in the tree, grouped as production
+   Lean, production Rust, tests, scripts, documentation, and project tooling.
+   The two production groups open by default and carry a badge; the others are
+   closed and muted, and their file lists render on first open.
+
+The hero above them is one compact block: title, lead, live status, the
+snapshot timestamp, a one-line stats strip (`Lean modules`, `Theorems`,
+`Import edges`, `Ops/Inv pairs`, `Linked pairs`, `Rust crates`, `Files`) and
+jump links to the three sections. Every count is grouped by the active locale
+(`formatCount()`), and every count label is a plural family resolved by
+`t(key, { count })`.
+
+### Default view
+
+With no `module=` in the URL the workspace opens on **`SeLe4n.Kernel.API`**,
+the kernel's unified public API — the entry-point surface the subsystems
+compose into. `DEFAULT_MODULE` is declared once in `assets/js/map.js`;
+`defaultModuleName()` returns it when the snapshot carries it and the first
+module in inventory order otherwise. Reset returns to the same view.
+
+The previous release opened on `Main`: it sorted modules by name and selected
+the first. Its live tree rebuild then dropped `Main.lean` (the path filter only
+admitted `SeLe4n/**`), the selection became invalid, and the chooser fell back
+to the first entry of the score-sorted list,
+`SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership` — so a networked
+visitor saw one module for a few seconds and another afterwards. The tree path
+now keeps `Main.lean` (`isLeanModulePath`).
+
+### Subsystem-grouped lanes
+
+`SeLe4n.Kernel.API` imports 46 modules; a lane budget of eight used to show
+eight of them and a "+38 more imports" node. Over budget, a lane now groups its
+modules by `moduleSubsystem()` — the parent namespace capped at three segments,
+so `SeLe4n.Kernel.IPC.Invariant.Defs` files under `SeLe4n.Kernel.IPC` and
+`SeLe4n.Kernel.API` under `SeLe4n.Kernel` — and renders one node per group
+(largest first; singletons stay plain module nodes). Clicking a group opens it
+in place: its members render indented below it on a dotted guide rail and the
+scroll position is kept. Group state is transient and resets on module change.
+Expanded flow mode (`fullflow=1`) still lists every module flat.
+
+### Chart width
+
+The flow chart is laid out at `max(minimumFlowWidth(), column width)`, where
+the minimum is 900 from 900px up (and scales with the viewport on phones), and
+`.flowchart-svg` is `width: auto; min-width: 100%`, so the SVG is never drawn
+below 1:1: a layout wider than its column scrolls sideways inside
+`.flowchart-wrap`. The first 0.30.0 kept a fixed 1180px minimum and
+`width: 100%`, which scaled the chart to 0.58–0.86 beside the sidebar at every
+desktop width; `scripts/map-smoke.mjs` now asserts the rendered width equals
+the `width` attribute at six desktop widths.
+
+### Declaration sidebar
+
+The interior declaration explorer is a sidebar beside the chart on viewports of
+90rem (1440px) and up — the narrowest width that leaves the chart a ~900px
+column — sticky, so a click in it always shows its effect on the chart, with a
+viewport-bound list height so it fits a 720px-tall screen while pinned. Below
+90rem it stacks under the chart. It shows the module name with a source link
+and a one-line summary (declarations, theorems, fan-in/out, assurance), the
+filter box, three tabs (`Objects`, `Contexts/Inits`, `Extensions`, each with
+its count) and, for the active tab, the kind selector and the declaration list.
+The active tab is remembered across module changes; the first non-empty group
+opens by default. Tabs are a `role="tablist"` with Arrow/Home/End roving focus.
+
 ## Where the bundled snapshot comes from
 
 `data/map-data.json` is built by `scripts/sync-upstream.mjs`, the site's single
 data pipeline, from one verified checkout of seLe4n. It graphs exactly the
 production corpus the landing page counts — the canonical
-`docs/codebase_map.json` production module list — and takes its declarations
+`docs/codebase_map.json` production module list minus the in-tree testing
+framework under `SeLe4n/Testing/` (see `docs/ARCHITECTURE.md` §"Scope: the
+in-tree testing framework is not production") — and takes its declarations
 from that artifact rather than re-parsing them, because the artifact's parser
 tracks nested block-comment depth and strips string literals. Only the import
 edges are read from the Lean sources, because only the import edges are missing
@@ -97,6 +172,87 @@ fallback.
   - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.
   - All declarations display a clickable name that enters declaration context, providing uniform navigation regardless of call-graph presence.
 
+## Rust production crates
+
+`renderRustCrates()` paints the section from `state.rust` alone. The dependency
+strip is a small inline SVG: one node per crate in workspace order, arrows from
+a crate to each internal dependency it declares (`sele4n-sys → sele4n-abi →
+sele4n-types`; `sele4n-hal` stands alone; a dependency is internal when it
+resolves to a workspace package by name or path, so a renamed one still
+draws), green when no production unsafe site
+is recorded and yellow with the site count otherwise. The SVG keeps its
+intrinsic width, is centred when narrower than its figure, and scrolls sideways
+inside `.rust-dependency-scroll` on narrow screens instead of shrinking its
+labels.
+
+Each card shows the crate's description, source-file and line counts, the
+declaration count with the public share, and an `unsafe` cell. The cell's
+headline is the number of sites in production code (`rustUnsafeSummary()`
+reads `unsafe`); its detail line names the non-zero counters ("2 fn · 1
+block"), the item-level `#[allow(unsafe_code)]` exception when the crate
+declares `#![deny(unsafe_code)]` and still carries sites — `sele4n-abi` does,
+for its syscall trap — and "+N in test code" from `testUnsafe`. The lint
+itself is a separate fact on the facts line, so a deny lint never stands in
+for the counts. The facts line also states internal dependencies, external
+(unconditional) dependencies, target-scoped tables under their cfg ("under
+cfg(loom): loom"), dev-dependencies as test-only, optional dependencies with
+the features that enable them, features, edition and the
+test-item count.
+
+Below the facts sits one `<details>` per source file — crate root first, then
+modules, binaries, build scripts, integration tests — in a bounded list that
+scrolls inside the card (`.rust-crate-files`), so the HAL's 33 files do not
+set the height of the row; `.rust-crate-grid` is `align-items: start` for the
+same reason. A file's item list renders on first open, sorted
+types-before-functions-before-impls and by line within a kind, each item
+linking to its line at the snapshot commit. Item kinds reuse the Lean
+declaration palette so one colour means one thing across both halves of the
+production code. Each card with test code carries a "Show N test items" toggle
+(`aria-pressed`); switching it re-renders that card alone, keeps the files the
+reader had open, lists the flagged items with a `test` tag, and adds the test
+sites to each file's `unsafe` tag. Integration-test files, whose every item is
+test code, show a "test items hidden" note until the toggle is on.
+
+External imports — tokens the production graph does not contain — read
+"external dependency" for Lean/Std libraries, "in-repo · library root" for the
+`SeLe4n` root that `Main` imports, and "in-repo · outside production scope"
+for the `SeLe4n.Testing.*` framework.
+
+## Repository inventory
+
+`classifyRepositoryPath()` files every path into one of six groups and a
+subgroup: `lean` (`SeLe4n/**/*.lean` except the testing framework, `Main.lean`,
+`SeLe4n.lean`; subgroup = `moduleSubsystem()` of the module name), `rust`
+(`rust/**`; subgroup = crate directory or `workspace`), `tests` (`tests/**` and
+the in-tree framework `SeLe4n/Testing/**`), `scripts` (subgrouped by language
+at the top level, by directory below), `docs` (`docs/**` plus root Markdown and
+`LICENSE`), and `project` (`.github`, `.claude`, `assets`, toolchain and build
+manifests). `buildRepositoryInventory()` attaches module names to Lean
+subgroups so the production Lean group can list modules with their theorem
+count and assurance dot, each a button that selects the module and scrolls the
+workspace into view. The Rust group lists each crate with a link to its card
+and, beneath it, the files the card does not own — `Cargo.toml`, `link.ld`,
+the `.S` sources — as a "support files" row (`crateSupportFiles()`), then
+whatever no crate directory covers as workspace files, so the cards and the
+inventory together account for every path under `rust/`. Every other list is
+plain file links to the source at the inventory commit. Lists render on the
+first `toggle` of their `<details>`, so 866 anchors are not built for a
+section most visitors never expand.
+
+A crate's `tests/`, `benches/` and `examples/` directories are filed under
+Tests, matching the scanner's `test` role; the runtime test checks the
+grouping against the bundled snapshot file by file, for Rust and for Lean.
+
+The production groups open by default; every subgroup inside them is closed,
+so a subsystem's modules appear on a click (the section lead says exactly
+that). `renderInventory()` rebuilds both this section and the crate cards on
+every live refresh and locale switch; it captures the open state of every
+`<details>` by its `data-open-key` first and re-applies it after, so what the
+reader opened survives — including the lazily rendered lists, since setting
+`open` fires `toggle`. The first locale load fires no switch event, so the map
+repaints these sections once from `sele4nI18n.onReady()` when any label was
+painted before the locale arrived, and not otherwise.
+
 ## Accessibility and mobile
 
 - Skip link and landmark regions are present.
@@ -148,14 +304,15 @@ Declaration search suggestions are rendered with distinct styling (italic text, 
 
 ## Upstream module structure (reflected in map data)
 
-The seLe4n codebase now comprises 273 total modules across 4 layers:
+The published production corpus comprises 303 modules across 4 layers (the
+eight `SeLe4n.Testing.*` framework modules are outside it):
 
 | Layer | Module count | Description |
 |-------|-------------|-------------|
-| kernel | 236 | Core kernel subsystems |
+| kernel | 268 | Core kernel subsystems |
 | platform | 17 | Simulator and RPi5 bindings |
-| model | 12 | Object types, structures, state |
-| other | 8 | Testing framework and root modules |
+| model | 14 | Object types, structures, state |
+| other | 4 | Root modules (`Main`, `SeLe4n.Kernel`, `SeLe4n.Model`, `SeLe4n.Platform`) |
 
 Key structural features visible in the map:
 

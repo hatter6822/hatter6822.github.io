@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.29.0`
+**Website version:** `0.30.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -21,6 +21,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 ```bash
 # Parser and validation tests (all must pass, zero warnings)
 node scripts/lib/lean-analysis.test.mjs
+node scripts/lib/rust-analysis.test.mjs
 node scripts/lib/canonical-map.test.mjs
 node scripts/lib/data-validation.test.mjs
 node scripts/lib/map-runtime.test.mjs
@@ -29,6 +30,7 @@ node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/static-values.test.mjs
 node scripts/lib/i18n-locales.test.mjs
+node scripts/lib/i18n-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 
 # Bundled data integrity
@@ -59,7 +61,7 @@ node scripts/apply-static-values.mjs   # stamp index.html + locales/*.json from 
 | 1 | Unit tests (`scripts/lib/*.test.mjs`) | Every commit |
 | 2 | Data validation (`scripts/validate-data.mjs`) | Every commit, after data changes |
 | 3 | Manual browser verification (desktop + mobile) | UI/layout changes |
-| 4 | Playwright nav stability probe (`scripts/nav-stability-smoke.py`) | Navigation behavior changes |
+| 4 | Playwright probes: `scripts/map-smoke.mjs` (code map layout and behaviour in headless Chromium; CI runs it on every push) and `scripts/nav-stability-smoke.py` (navigation) | Map layout, navigation or scroll behaviour changes |
 
 Run at least Tiers 0-2 before any commit. Tier 3 for front-end changes. Tier 4 when touching navigation or scroll behavior.
 
@@ -69,11 +71,14 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~4,985 | Largest runtime; read in chunks of ≤500 lines |
+| `assets/js/map.js` | ~6,500 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~2,500 | Map runtime tests |
 | `assets/css/style.css` | ~2,020 | Global design system |
 | `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
-| `assets/css/map.css` | ~818 | Map-specific styles |
+| `assets/css/map.css` | ~1,400 | Map-specific styles (hero, workspace, chart, sidebar, Rust cards, inventory) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
+| `scripts/lib/rust-analysis.mjs` | ~1,450 | Rust crate inventory scanner, TOML reader |
+| `scripts/lib/rust-analysis.test.mjs` | ~1,200 | Rust scanner tests |
 | `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
@@ -96,6 +101,13 @@ statistics come from `data/site-data.json` alone, which
 `docs/codebase_map.json`; `index.html` ships with those same values stamped into
 the markup, so a failed fetch degrades to the correct numbers. `connect-src` is
 `'self'` on that page to keep it that way.
+
+**`map.html` is bundle-first in practice.** The serialized map snapshot is past
+the ~5M-unit `localStorage` quota, so step 2 never has anything to hydrate:
+`setCache()` skips the write above `CACHE_MAX_CHARS` (4 MiB of UTF-16 units)
+and returns `false` instead of throwing into an empty `catch`. The cache code
+stays (it works for smaller snapshots and the unit tests cover it), but no
+feature may depend on the map cache persisting between visits.
 
 ### One pipeline, one revision
 
@@ -123,9 +135,29 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   estimate and a `modules × 2` build-job count all shipped as facts this way.
 - A missing key aborts the sync (`canonicalMetricsIssues`). Publishing a partial
   projection is how the page drifted in the first place.
-- Scope is **production Lean** (everything outside `tests/`), so the headline
-  figures describe one corpus. Recorded as `metricsScope` and pinned by
-  `validate-data.mjs`.
+- Scope is **production Lean**: the artifact's production set (everything
+  outside `tests/`) **minus the in-tree testing framework** `SeLe4n/Testing/`,
+  so the headline figures describe one corpus. `modules` and `theorems` are
+  counted over that inventory; `lines` is the artifact's `production_loc` minus
+  the framework files' physical lines, measured on the digest-verified sources
+  (the same count reproduces `production_loc` exactly, and
+  `canonicalCrossChecks` says so if it ever stops). Recorded as `metricsScope`
+  and pinned by `validate-data.mjs`, which also rejects any map module under
+  `tests/` or `SeLe4n/Testing/`. The scope lives in one place,
+  `scripts/lib/canonical-map.mjs` (`isProductionModule`). Because the kernel's
+  own README table is rendered from the same artifact at its wider scope, the
+  landing page says so under the hero stats (`hero.scope_note`); keep that
+  sentence whenever the figures are shown without it.
+- `SELE4N_REF=<40-hex commit> node scripts/sync-upstream.mjs` regenerates the
+  snapshots at a pinned upstream revision, so a data change can be reviewed
+  against one known commit. The snapshot still records `sourceRef: main`. A
+  pinned run regenerates at that revision or not at all: on a source-digest
+  mismatch it fails and names the artifact's generation commit, instead of
+  checking that commit out the way the unpinned sync recovers.
+- `lines` is published only while a physical count over the artifact's own
+  production files reproduces `production_loc` (`productionLocReproduction`);
+  otherwise the subtraction would mix two counting methods and the sync
+  refuses to publish rather than quote a wrong figure.
 - Theorem counts come from the artifact's comment-aware `modules[].declarations`
   inventory, **not** from `readme_sync.proved_theorem_lemma_decls`. That field is
   a bare per-line regex: on the current artifact it counts 78 prose lines inside
@@ -142,6 +174,246 @@ its own copy of the `data-live` spans **and the numbers inside them**. They
 silently drifted to `546` while `index.html` said `574`. Any change touching a
 metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
 `locales/` must be committed together.
+
+### Code map page structure (0.30.0)
+
+`map.html` is three sections, in this order, and the order is asserted by
+`map-toolbar.test.mjs`: the **Lean module workspace** (toolbar, flow chart,
+declaration sidebar), the **Rust production crates**, and the **repository
+inventory**. Production code is the subject; everything else is viewable but
+visually secondary (closed `<details>`, muted chrome).
+
+- The workspace opens on `SeLe4n.Kernel.API` whenever the URL carries no
+  `module=`. `DEFAULT_MODULE` in `map.js` is the one place that says so;
+  `defaultModuleName()` falls back to the first module only when the snapshot
+  lacks the API module. The previous release opened on `Main` (the first
+  module in name order); when a live tree rebuild dropped `Main.lean`, the
+  chooser fell back to the top-scored module,
+  `SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership`. Never
+  reintroduce the score heuristic as a default, and keep `Main.lean` in the
+  tree path (`isLeanModulePath`).
+- A lane with more modules than the detail budget groups them by
+  `moduleSubsystem()` (the parent namespace, capped at three segments) and opens
+  each group in place. The budget cut ("+38 more imports") is kept only for
+  expanded flow mode.
+- **The chart is never drawn below 1:1.** `.flowchart-svg` is `width: auto;
+  min-width: 100%` at every width, and `minimumFlowWidth()` returns 900 from
+  900px up, so the layout is `max(900, column width)` and a wider layout
+  scrolls inside `.flowchart-wrap`. Never put `width: 100%` back on the SVG
+  and never raise the desktop minimum: a fixed 1180 beside the sidebar scaled
+  the chart to 0.58–0.86 at every desktop width, which is what got 0.30.0
+  reverted the first time.
+- The declaration sidebar sits beside the chart only from **90rem** (1440px),
+  the narrowest viewport that leaves the chart a ~900px column beside a
+  22.5rem sidebar (75rem left 738px). It is sticky there, and its list height
+  is viewport-bound so the pinned sidebar fits a 720px-tall screen. Below
+  90rem it stacks under the chart.
+- Imports the graph does not contain are labelled by what they are: `SeLe4n`
+  is "in-repo · library root", `SeLe4n.Testing.*` is "in-repo · outside
+  production scope", everything else "external dependency".
+- Re-selecting the current module must not repaint the declaration sidebar
+  unless it shows another module: the search field's `change` fires on blur,
+  and rebuilding the list under the pointer swallowed the click that caused it.
+- Generated labels are painted with `t()` at render time, and the first
+  locale load dispatches no `sele4n:locale-changed` event. `setupLocaleReady()`
+  registers on `sele4nI18n.onReady()` before anything paints, and the callback
+  repaints the sections once, only if a lookup fell back before the locale
+  arrived (`paintedBeforeLocale`, set by `t()` itself). A non-English locale
+  that landed after the bundled snapshot otherwise left every generated label
+  in English; the probe holds the locale back to prove the repaint.
+- Count labels use plural families (`key_one` / `key_few` / `key_many` /
+  `key_other`) resolved by `t(key, { count })`, and every number handed to
+  `t()` or `formatCount()` is grouped by the active locale (`10,929`,
+  `10 929`, `10.929`). Never hard-code a separator or a plural in a string.
+- The Rust cards render `map-data.json#rust` and derive nothing. Test items
+  are listed only behind each card's toggle; `crate.items` counts production
+  declarations alone. `rustUnsafeSummary()` reads `unsafe` (production) and
+  `testUnsafe` apart: the card's headline is the production figure, the detail
+  line names the fn/impl/block counts, the item-level `allow` exception
+  (`sele4n-abi`) and "+N in test code", and the strip sums production sites.
+  Never show one total that mixes the two; the reverted build's "118 sites"
+  was neither figure.
+- A target-scoped dependency table is stated under its cfg ("under
+  cfg(loom): loom"), dev-dependencies as "test-only"; only unconditional
+  tables are "external".
+- Every file under `rust/` has one entry on the page: the crate cards own the
+  `.rs` sources and `crateSupportFiles()` lists the rest (`Cargo.toml`,
+  `link.ld`, `.S`) per crate in the inventory, then the workspace files.
+- The inventory's Tests group and the scanner's `test` role are one scope:
+  `rust/<crate>/{tests,benches,examples}/` is test code in
+  `classifyRepositoryPath()` as it is in `rustFileRole()`, and the Lean groups
+  follow `isProductionModule`. The classifier takes the snapshot's crate list
+  and groups a file by the crate whose directory owns it (the deepest one), so
+  a nested member groups correctly; the conventional `rust/<crate>/` path is
+  the fallback without a list. `map-runtime.test.mjs` checks both against
+  every file of the bundled snapshot, so the two definitions cannot drift.
+- Content sets a card's height: `.rust-crate-grid` is `align-items: start`
+  and `.rust-crate-files` is bounded (`max-height`, scrolls inside the card).
+  With the default `stretch`, the HAL's 33-file card once set a 3,000px row
+  and three quarters of the section was blank. The dependency strip SVG keeps
+  its `width` attribute, is centred when narrower than its figure, and scrolls
+  inside `.rust-dependency-scroll` when wider.
+- A live refresh may carry no repository tree (the canonical artifact lists
+  only Lean modules) and never carries a Rust inventory. `retainInventory()`
+  keeps the previous tree and crates in that case and records the commit each
+  was taken at, so the inventory sections do not empty out on a networked
+  visit.
+- A canonical refresh names its revision as `repository.head.commit_sha`;
+  `normalizeCanonicalPayload` adopts it as `commitSha`, and the provenance
+  note states the inventory's own revisions even when the graph's is unknown.
+- `renderInventory()` rebuilds both sections from scratch, on every live
+  refresh and locale switch, so it captures the open state of every
+  `<details>` (`data-open-key`) first and re-applies it after. Never rebuild
+  these sections without that: the refresh lands seconds after first paint,
+  exactly when a reader has started opening things.
+- Count labels ("303 modules", "1 file", "Show 61 test items") come from
+  plural families through `t(key, { count })`; the English fallbacks go
+  through `pluralEn()`. No string may hard-code a plural or a separator.
+- `node scripts/map-smoke.mjs` renders the page in headless Chromium and
+  asserts the guarantees above (chart at 1:1 at 1200–1920, sidebar placement,
+  the pinned sidebar at 720p, no sideways overflow, clean console, both
+  themes, a Spanish deep link, a locale held back until after the snapshot
+  paints, the crate cards and inventory, bounded card
+  heights, pluralised labels, `loom` under its cfg, and open state surviving a
+  re-render). `.github/workflows/ci.yml` runs it with the
+  runner's Chrome on every push. A layout guarantee the docs make gets a probe
+  assertion.
+
+### Rust crate inventory (`map-data.json#rust`)
+
+`scripts/lib/rust-analysis.mjs` scans the `rust/` workspace of the same pinned
+checkout and bundles one descriptive block: crates in workspace order, each
+with its manifest facts, per-file item lists (kind, name, line, visibility,
+inline-module path, `test` flag) and counts. It feeds **no landing-page
+statistic**; the landing page stays canonical-or-absent.
+
+- **Counts describe the production surface.** `items` counts nameable
+  declarations (`fn`, `struct`, `enum`, `union`, `trait`, `type`, `const`,
+  `static`, `mod`, `macro_rules!`) outside test code; `impl` blocks are listed
+  but not counted. `publicItems` counts those declared `pub` whose enclosing
+  inline modules are all `pub`. `testItems` is everything flagged `test`.
+- **`unsafe` and `testUnsafe` are two counters with one definition each**:
+  `unsafe fn` headers at any depth (free functions and methods alike),
+  `unsafe impl` blocks and `unsafe { … }` blocks, attributed to test or
+  production by the innermost enclosing item. An earlier scanner counted
+  functions and impls at file scope only, and blocks everywhere including test
+  modules, so the HAL's total was neither figure; never reintroduce a counter
+  that mixes scopes.
+  An `unsafe` keyword that ends a line binds to the block, `fn` or `impl`
+  that starts the next non-blank line (`let x = unsafe` / `{ … }`), so a site
+  split across lines is still a site.
+- **Test code is decided by the `cfg` predicate, not by the word `test`.**
+  `cfgIsTestOnly` treats `cfg(test)` and `cfg(all(test, …))` as test-only, and
+  `cfg(not(test))` and `cfg(any(test, feature = "…"))` as production, because
+  those compile into production builds. `#[test]` functions, everything inside
+  a marked module or block, and every line of an integration-test file are
+  test code. One three-valued evaluator (`evaluateCfg`) answers both questions
+  the scanner asks of a predicate — is it test-only, does it hold in every
+  production build — so the two cannot drift apart.
+- **Target-scoped dependency tables stay separate.** `[target.'cfg(loom)'
+  .dependencies]` is bundled as `targetDependencies: [{ cfg, table, names }]`,
+  never as an external dependency: the HAL's `loom` enters no ordinary build.
+- **`deniesUnsafe` is read from the crate root only**: the library root
+  (`[lib] path`, else `src/lib.rs`) or, for a package without one, its first
+  binary root — `src/main.rs`, a `[[bin]] path`, or a conventional
+  `src/bin/<name>.rs` / `src/bin/<name>/main.rs` target, in that order;
+  `autobins = false` turns the conventional binaries off, `src/main.rs`
+  included, and `autolib = false` the conventional library. A `[[test]]`,
+  `[[bench]]` or `[[example]]` path outside the conventional directories is
+  test code. `cargoTargets` is the one place
+  those rules live; roles and module paths follow from it, so a file nested
+  under a directory-style binary is that binary's module, not a root. A lint
+  in a `src/bin/*.rs` target speaks for that binary, not for the library.
+  `crateDeniesUnsafe` parses the
+  inner attributes' argument lists in order — `#![deny(dead_code,
+  unsafe_code)]`, a multi-line list, `forbid`, and a `cfg_attr` whose
+  predicate holds in every production build (`not(test)`) all count; `warn`
+  does not, a feature- or target-conditional `cfg_attr` is no crate policy,
+  and a later `allow` lifts a deny — never one exact spelling.
+- **A dependency is internal by path, and listed by package identity.** Each
+  member's manifest is read first; an entry is a workspace edge only when its
+  `path` — its own, or the one it inherits through `[workspace.dependencies]`
+  — resolves to a member's directory, which is the one way Cargo resolves a
+  dependency to a member. Never compare the table key with directory names,
+  and never match by package name alone: a renamed dependency and a member
+  whose directory is not its name went external the first way, and a
+  registry dependency that shares a member's name went internal the second.
+  Every dependency list carries package identities (the `package` field when
+  renamed, else the key).
+  An `optional = true` entry is no unconditional edge: it is listed under
+  `optionalDependencies` with the features that enable it
+  (`enablingFeatures`: `dep:name`, `name`, `name/…`, or the implicit feature
+  of the same name), and the strip draws nothing for it.
+- **Manifests are read structurally.** `parseToml` reads the TOML subset
+  Cargo uses (sub-tables, dotted keys, one-line and multi-line arrays, inline
+  tables, three-quoted strings, comments) into an object and
+  `parseCargoManifest` takes its facts from that; an entry written
+  `{ workspace = true }` resolves through the root's `[workspace.dependencies]`.
+  The line-shaped reader it replaced silently dropped a `[dependencies.foo]`
+  sub-table, a dotted `foo.path = "…"` and a one-line `members = ["a", "b"]`.
+  Packages are discovered at any depth under `rust/` (`crates/app` is a valid
+  member path), ordered by `[workspace] members` with globs expanded
+  (`crates/*`), then the packages the workspace does not list; build output
+  under `target/` is skipped, and a package nested inside another owns its
+  own files.
+  A non-virtual workspace's root package (`rust/Cargo.toml` carrying
+  `[package]`) is a member too, first in order, and owns the files no nested
+  package does.
+  Packages the workspace `exclude`s are left out, as Cargo leaves them out of
+  the workspace, even when a member glob matches them.
+- **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
+  tests;` resolves to `src/tests.rs` or `src/tests/mod.rs`
+  (`childModuleFiles`, rustc's rule), that file is rescanned as test code, and
+  so is every module it declares in turn.
+- **`const _: () = assert!(…)` is anonymous**: neither listed nor counted. The
+  first snapshot carried 37 items named `_`. A raw identifier (`fn r#match`)
+  keeps its prefix as its name and resolves to the bare file name as a module.
+- **Public means reachable.** `publicItems` counts `pub` items whose enclosing
+  inline modules are all `pub` *and* whose file is reached through `pub mod`
+  declarations from the crate root (`buildRustInventory` carries export
+  status into out-of-line files alongside test status). A `#[macro_export]`
+  macro is public wherever it sits.
+  Export status starts at the target roots and travels only through `pub mod`
+  declarations, so a file nothing declares — stale, generated input,
+  `include!`d — is unreachable and its `pub` items are not public API.
+- **Attributes bind by one rule at every depth.** An outer attribute binds to
+  the next construct — an item at item scope, an associated method, a `use`,
+  a statement — and the body that construct opens is a test region when the
+  attribute is test-only. The binding is released by the `{` that opens the
+  body, the `;` that ends the construct, the `,` that ends a field, a variant
+  or a match arm, or the `}` that closes the enclosing body; an `=` completes
+  the header only, so a test-only `const`/`static` keeps its status across a
+  block initializer, and a `;`, `,` or `=` inside `(…)`, `[…]` or `<…>` ends
+  nothing. An attribute may share its
+  line with its declaration (`#[cfg(test)] mod tests {`). `#[test]`,
+  `#[<path>::test]` and a test-only `cfg` mark tests; `#![cfg(test)]` at the
+  top of a file or an inline module makes that whole scope test code. Three
+  earlier scanners each bound attributes for one scope or one construct kind
+  and misfiled `unsafe` sites for the others: never add a scope-specific
+  flag again.
+- **Module files follow rustc's rule in full.** `mod x;` resolves under the
+  directory the declaring file owns, one level deeper per enclosing inline
+  module (`mod outer { mod x; }` is `outer/x.rs`), or to the file a
+  `#[path = "…"]` names; an inline `mod x { … }` names no file. A crate root
+  (`src/lib.rs`, `src/main.rs`, a `src/bin/<name>.rs` or
+  `src/bin/<name>/main.rs` binary, or a root the manifest declares) and a
+  `mod.rs` own the directory they sit in; any other file, a directory-style
+  binary's nested module included, owns a directory of its own name. Test and
+  export status travel down that resolution (`childModuleFiles`).
+  A test crate root (`tests/<name>.rs`, `tests/<name>/main.rs`, a declared
+  `[[test]]` path) resolves `mod common;` beside itself, so
+  `tests/common/mod.rs` is a module of the test crates, not a target.
+- **The scanner's boundaries are designed, not gaps.** It reads declarations,
+  not paths: `pub use` re-exports do not make a private module's items
+  public; an `include!`d file is neither part of the including file nor
+  reachable through a module declaration; macro-generated items are
+  invisible; one declaration is read per line; `unsafe trait` declarations
+  are not sites (the counters are `unsafe fn`, `unsafe impl` and `unsafe { …
+  }`). Moving any of these changes published figures: it is a decision to
+  state, not a patch to slip in.
+- `validate-data.mjs` reconciles every crate total with its per-file lists,
+  counter by counter, and rejects a crate file the snapshot's `files[]` does
+  not list.
 
 ### Map data normalization
 
@@ -227,7 +499,9 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Change area | Primary file(s) |
 |-------------|-----------------|
 | Map graph behavior | `assets/js/map.js` |
-| Map controls/layout | `map.html`, `assets/css/map.css` |
+| Map browser smoke probe | `scripts/map-smoke.mjs` |
+| Continuous integration | `.github/workflows/ci.yml` |
+| Map controls/layout/sections | `map.html`, `assets/css/map.css` |
 | Landing page metrics | `assets/js/site.js`, `index.html` |
 | Navigation behavior | `assets/js/header-nav.js` |
 | Theme switching | `assets/js/theme-init.js` |
@@ -237,6 +511,7 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Locale key parity | `scripts/lib/i18n-locales.test.mjs`, `locales/*.json` |
 | Internationalization | `assets/js/i18n.js`, `locales/*.json` |
 | Lean parsing | `scripts/lib/lean-analysis.mjs` |
+| Rust crate inventory (map) | `scripts/lib/rust-analysis.mjs` |
 | Data validation | `scripts/lib/data-validation.mjs` |
 | Global styles | `assets/css/style.css` |
 | Simulator (kernel-in-action) | `run.html`, `assets/js/run.js`, `assets/css/run.css` |

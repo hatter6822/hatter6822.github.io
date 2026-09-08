@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.29.0**.
+> Documentation baseline: website release **0.30.0**.
 
 ## Audit summary
 
@@ -816,8 +816,10 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
 - **Scope is production Lean.** `proved_theorem_lemma_decls` is production-only
   by construction upstream, so modules (`production_files`) and lines
   (`production_loc`) are taken production-only too. The three headline figures
-  describe one corpus and match the README exactly. `metricsScope: "production"`
-  records the decision in the data.
+  describe one corpus. `metricsScope: "production"` records the decision in the
+  data. Since 0.30.0 the corpus also leaves out the in-tree testing framework
+  (§"Scope: the in-tree testing framework is not production" below), which is
+  why the figures sit below the kernel README's and the landing page says so.
 - **Provenance is checkable.** The snapshot carries `metricsSource`,
   `metricsScope`, `sourceRepo`, `sourceRef`, `schemaVersion` and `sourceDigest`,
   and `validate-data.mjs` pins the first four to exact values. `commitSha` and
@@ -1002,3 +1004,465 @@ all offline.
   path assigns last-wins too, so bundled and live agree. Qualifying the names is
   not available: the `called` targets are recorded unqualified as well, and
   every lookup would miss.
+
+## Production scope narrowed to the kernel (0.30.0)
+
+### Scope: the in-tree testing framework is not production
+
+The artifact's production definition is every module outside `tests/`, which
+includes `SeLe4n/Testing/` — eight modules of harness, fixtures, invariant
+checks and state builders that ship in the library tree. Asked directly, the
+project owner chose to exclude them from production for the map and the landing
+page together, accepting the change to the published figures:
+
+| | before | after |
+|---|---|---|
+| modules | 311 | 303 |
+| theorems | 10,937 | 10,929 |
+| lines | 330,569 | 325,346 |
+
+`lines` needed care. The artifact records `production_loc` for its own scope
+and nothing per module, and the rule is that a metric never comes from outside
+the artifact. The subtraction is anchored to the canonical figure: the eight
+files' physical lines are measured on the digest-verified sources — the corpus
+the artifact describes — and subtracted from `production_loc`. That is sound
+only if the artifact's count uses the same method, so `canonicalCrossChecks`
+recomputes `production_loc` over the artifact's own files with the same
+counter and reports if it ever stops matching (today it matches exactly:
+330,569). Without a line counter, `siteMetricsFromCodebaseMap` omits `lines`
+and the sync refuses to publish, rather than quoting the wider scope.
+
+The artifact's self-consistency notes keep reading the artifact against its
+own scope (`production_files` 311, the 11,000 regex tally against 10,937), so
+the narrowing shows up as a documented subtraction rather than as a
+disagreement. `validate-data.mjs` rejects any map module under `tests/` or
+`SeLe4n/Testing/`.
+
+The kernel's own README table is rendered from the same artifact at its wider
+scope, so the two sites quote different totals for the same commit. Rather than
+leave a reader to reconcile them, `index.html` carries one sentence under the
+hero stats (`hero.scope_note`, in every locale) saying the framework is
+excluded. The disclosure is part of the decision: the figures are not to be
+shown without it.
+
+### Reproducible regeneration
+
+`SELE4N_REF=<40-hex commit> node scripts/sync-upstream.mjs` pins the checkout
+to that revision instead of the tip of `main` (a shallow clone, then a fetch of
+the commit by SHA). The snapshots still record `sourceRef: main`; `commitSha`
+names the exact revision. It exists so a data change can be regenerated and
+reviewed against one known upstream commit; the scheduled sync keeps using
+`main`.
+
+A pinned run regenerates at the requested revision or not at all. The unpinned
+sync recovers from a source-digest mismatch by checking out the commit the
+artifact was generated at; a pinned run that did the same would silently
+produce a snapshot of a different revision while its log said `(SELE4N_REF)`,
+which a reviewer of the pin would take at face value. It fails instead and
+names the generation commit to pin.
+
+The `lines` subtraction has the same discipline. `productionLocReproduction`
+checks that a physical count over the artifact's own production files
+reproduces `production_loc`; when it does not, the two figures come from
+different methods, `siteMetricsFromCodebaseMap` withholds `lines`, and the
+sync refuses to publish with a message naming both numbers. The first
+re-landing only warned and published the mixed figure.
+
+## Rust crate inventory in the map snapshot (0.30.0)
+
+The canonical artifact inventories Lean and nothing else, so the code map's
+view of the production Rust crates — the user-space syscall wrappers and the
+bare-metal HAL — is projected by `scripts/lib/rust-analysis.mjs` from the same
+pinned checkout and bundled as `map-data.json#rust`. It is descriptive: crates
+in workspace order, each with its manifest facts, per-file item lists and
+counts. It feeds no landing-page statistic; the landing page stays
+canonical-or-absent. `validate-data.mjs` reconciles every crate total with its
+per-file lists and rejects a crate file the snapshot's `files[]` does not list.
+`docs/DEVELOPER_GUIDE.md` (§`data/map-data.json`) quotes its measured size.
+
+### What the counts mean
+
+An audit of the first version of this scanner found that its headline
+numbers did not mean what the page said they meant. Each rule below records
+the correction.
+
+- **`unsafe` sites are counted at any depth and split by test code.** The
+  first scanner counted `unsafe fn` and `unsafe impl` at file scope only —
+  a method inside an `impl` was never seen — while counting `unsafe { … }`
+  blocks everywhere, test modules included, so the HAL's "118 sites" was
+  neither a production nor a total figure. `scanRustSource` now recognises
+  `unsafe fn` headers wherever they sit (free functions, methods, trait
+  items; anchored at the line start so a function-pointer type is not a
+  site), `unsafe impl` blocks and `unsafe { … }` blocks, and attributes each
+  to `unsafe` or `testUnsafe` by the innermost enclosing item. On the HAL at
+  `dcbd1dd` that is 9 functions, 3 impls and 87 blocks in production code,
+  and 0, 4 and 20 in test code.
+  The seventh round found the one shape the per-line regexes could not see:
+  an `unsafe` keyword ending a line with its block, `fn` or `impl` on the
+  next. The scanner keeps that token pending across blank lines and counts
+  the construct that follows.
+- **Test code is decided by the `cfg` predicate.** The first scanner flagged
+  any attribute containing the word `test`, so `#[cfg(any(feature =
+  "hw_target", test))]` hid a hardware-build constant behind the test
+  toggle, and `#[cfg(not(test))]` would have filed the production side of a
+  split as test code. `cfgIsTestOnly` parses the predicate: `test` and
+  `all(test, …)` are test-only; `any(test, …)` and `not(…)` are not.
+  `#[test]` functions, everything inside a marked module or block, and every
+  line of an integration-test file are test code; items in it carry
+  `test: true`. One three-valued evaluator (`evaluateCfg`) answers both
+  questions the scanner asks of a predicate — is it test-only, does it hold
+  in every production build — so the two cannot drift apart.
+- **Target-scoped dependency tables are kept apart.** The HAL declares `loom`
+  under `[target.'cfg(loom)'.dependencies]`, which no ordinary build
+  resolves; the first scanner folded it into `dependencies` and the card
+  called it an external runtime dependency. `parseCargoManifest` now returns
+  such tables as `targetDependencies: [{ cfg, table, names }]`, and
+  `externalDependencies` covers unconditional tables only.
+- **`deniesUnsafe` is read from the crate root.** A `#![deny(unsafe_code)]`
+  in a `src/bin/*.rs` target speaks for that binary, which is its own crate,
+  not for the library; the library root (`[lib] path`, else `src/lib.rs`)
+  or, for a package without one, its first binary root sets the flag, and
+  `cargoTargets` finds those roots the way Cargo does: `src/main.rs`, the
+  `[[bin]]` paths, then the conventional `src/bin/<name>.rs` and
+  `src/bin/<name>/main.rs` targets unless `autobins = false`. The sixth
+  review round found both halves of that: `src/bin/` matched every nested
+  file as a root, and a conventional binary never entered the root set, so
+  its lint went unread. The lint is parsed, not matched as one spelling:
+  `crateDeniesUnsafe` reads the crate's inner attributes in order and splits
+  their argument lists, so `#![deny( unsafe_code )]`, `#![deny(dead_code,
+  unsafe_code)]`, a multi-line list, `#![forbid(unsafe_code)]` and a
+  `cfg_attr` whose predicate holds in every production build all set the
+  flag; `warn` does not, a `cfg_attr` conditional on a feature or a target
+  is not the crate's policy, and a later `#![allow(unsafe_code)]` lifts an
+  earlier deny.
+  The seventh round completed the target model: `autobins = false` turns
+  `src/main.rs` off as well as `src/bin/`, as Cargo does, `autolib = false`
+  turns `src/lib.rs` off, and declared `[[test]]`, `[[bench]]` and
+  `[[example]]` paths outside the conventional directories are test roots
+  rather than production modules.
+- **Dependencies resolve by package identity.** The first inventory compared
+  a dependency's table key with the workspace's directory names, so a member
+  whose directory is not its `[package].name`, or a renamed dependency
+  (`alias = { package = "sele4n-types", path = … }`), would have been an
+  external crate. `buildRustInventory` reads every member manifest first and
+  classifies an entry as internal only when its `path` — its own, or the one
+  it inherits through `[workspace.dependencies]` — resolves to a member's
+  directory, which is the one way Cargo resolves a dependency to a member; a
+  registry dependency that shares a member's name (`util = "1"`) stays
+  external, which the sixth round found the name-based fallback getting
+  wrong. Every list carries package identities.
+  An `optional = true` entry is compiled only when a feature enables it, so
+  it is no unconditional edge: it is listed under `optionalDependencies` with
+  its enabling features and the strip draws nothing for it.
+- **Attributes bind by one rule at every depth.** Four review rounds found
+  the same class of defect in four places: attributes were bound at item
+  scope by one flag and below it by another, dropped at `=`, discarded with
+  the rest of an inline `#[cfg(test)] mod tests {` line, and read only as
+  `#[test]`. Each gap filed `unsafe` sites under production. The scanner now
+  has one rule: an outer attribute binds to the next construct at any depth
+  — item, associated method, `use`, statement — and the body that construct
+  opens is a test region when the attribute is test-only; the `{` that
+  opens the body, the `;` that ends the construct, the `,` that ends a
+  field, a variant or a match arm, or the `}` that closes the enclosing
+  body releases the binding; an `=` completes the header only, and a `;`,
+  `,` or `=` inside `(…)`, `[…]` or `<…>` ends nothing. The fifth review
+  round found the comma case: a `#[cfg(test)]` field's binding survived its
+  struct and marked the next item. `#[test]`, `#[<path>::test]` and a
+  test-only `cfg` mark tests;
+  `#![cfg(test)]` at the top of a file or an inline module makes the whole
+  scope test code.
+- **Module files follow rustc's rule in full.** `mod x;` resolves under the
+  directory the declaring file owns, one level deeper per enclosing inline
+  module (`mod outer { mod x; }` is `outer/x.rs`), or to the file a
+  `#[path = "…"]` names; an inline `mod x { … }` names no file, so a
+  same-named file elsewhere inherits nothing from it. A crate root —
+  `src/lib.rs`, `src/main.rs`, a `src/bin/<name>.rs` or `src/bin/<name>/main.rs`
+  binary, or a root the manifest declares with `[lib] path` or `[[bin]]
+  path` — owns the directory it sits in, as a `mod.rs` does; any other file,
+  a directory-style binary's nested module included, owns a directory of
+  its own name. The roots come from the manifest first, so a binary at
+  `tool/runner.rs` is a root rather than a module and its lint speaks for
+  the package. Test and export status travel down that resolution, export
+  status through the inline modules' own visibility as well.
+  A test crate root (`tests/<name>.rs`, `tests/<name>/main.rs`, a declared
+  `[[test]]` path) resolves `mod common;` beside itself, so the shared
+  `tests/common/mod.rs` idiom is a module of the test crates.
+- **The scanner's boundaries are designed.** Seven review rounds moved the
+  scanner from a line-shaped heuristic to a model of rustc's item, attribute
+  and module rules and of Cargo's target, member and dependency rules. What
+  remains outside it is deliberate: `pub use` re-exports are not followed,
+  `include!`d files are not spliced, macro-generated items are invisible, one
+  declaration is read per line, and `unsafe trait` declarations are not
+  counted as sites. Each of these would change published figures if crossed,
+  so each is a decision for the maintainers rather than a patch.
+- **Manifests are read structurally.** The first reader matched Cargo.toml
+  line shapes and dropped whatever it did not recognise: a
+  `[dependencies.foo]` sub-table, a dotted `foo.path = "…"`, a one-line
+  `members = ["a", "b"]`. `parseToml` now reads the TOML subset Cargo uses
+  into an object and `parseCargoManifest` takes its facts from that,
+  resolving `{ workspace = true }` entries through the root manifest's
+  `[workspace.dependencies]`. Packages are discovered at any depth under the
+  root and ordered by `[workspace] members` with globs expanded, then the
+  packages the workspace does not list; the first inventory looked one
+  directory deep and silently published nothing for a nested member.
+  A non-virtual workspace — `rust/Cargo.toml` carrying `[package]` as well as
+  `[workspace]` — has its root package as a member too, first in order,
+  owning the files no nested package does; the first discovery discarded the
+  root manifest outright.
+  `[workspace] exclude` is honoured: an excluded package is no workspace
+  crate even when a member glob matches it, and its files stay workspace
+  files.
+- **`items` counts declarations.** `impl` blocks have no name or visibility
+  of their own, so they are listed in a file's items but not counted;
+  `sele4n-types` drops from 87 "items" to 30 declarations. `publicItems`
+  counts items declared `pub` whose enclosing inline modules are all `pub`,
+  which is what a reader of the crate can reach; the first scanner ignored
+  every item inside an inline module.
+  Export status is reachability: it starts at the target roots and travels
+  only through `pub mod` declarations, so a file nothing declares is
+  unreachable and its `pub` items are not public API — until the seventh
+  round such a file started as exported.
+
+- **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
+  tests;` marks only the declaration; the file it names, `src/tests.rs`, is
+  an ordinary module by path. `buildRustInventory` resolves such declarations
+  the way rustc does (`childModuleFiles`), closes the set under the modules
+  those files declare, and rescans them as test code, so their helpers,
+  impls and `unsafe` sites are counted apart from production.
+- **`const _: () = assert!(…)` is anonymous.** `_` is not a name; the
+  assertion is neither listed nor counted. The first snapshot carried 37
+  items named `_`, 33 of them counted as production declarations. A raw
+  identifier (`fn r#match`) keeps its prefix, which is the name as written;
+  the first scanner captured `r`.
+- **Public means reachable.** A `pub` item in a file reached through a
+  private `mod detail;` is not public API; `buildRustInventory` now carries
+  export status down the module tree the same way it carries test status,
+  and `scanRustSource` takes it as `options.exported`. A `#[macro_export]`
+  macro is published at the crate root whatever module it sits in, so it
+  counts as public without a `pub`; the HAL's four exported macros read as
+  private before.
+- **A test-only attribute on an associated item counts.** `#[cfg(test)]` on
+  a method inside an `impl` or `trait` never reached the item scanner, so an
+  `unsafe fn` or `unsafe { … }` it guarded went to the production counters.
+  The scanner now notes test-only attributes at any depth and opens a test
+  region at the body they guard.
+
+The scanner remains a line scanner, not a parser: it reads one item header
+per line after comments and strings are blanked, skips bodies by brace depth,
+and reports items inside inline `mod` blocks with their module path.
+
+## Code map workspace redesign (0.30.0)
+
+The first 0.30.0 landed and was reverted within an hour: the chart rendered
+wrong on desktop, and a sentence described a default view the previous release
+never had. The redesign is re-landed here with the audit's findings folded in,
+and each decision below records what it corrects.
+
+### Default view
+
+The workspace opens on `SeLe4n.Kernel.API` whenever the URL carries no
+`module=`. It is the kernel's unified public API — the module's own docstring
+calls it "the public entry-point surface for the seLe4n kernel model" — and the
+block the landing page's architecture diagram links to, so it is the right
+first thing to see; the earlier copy called it "the syscall surface", which is
+`SeLe4n.Kernel.SyscallDispatchEntry`'s job. `DEFAULT_MODULE` is declared once;
+`defaultModuleName()` falls back to the first module only when the snapshot
+lacks the API module.
+
+What the previous release did is worth recording accurately, because the first
+0.30.0 got it wrong: it opened on `Main`, the first module after
+`normalizeMapData` sorted the inventory by name. Its live tree rebuild then
+dropped `Main.lean` — `isLeanModulePath` admitted only `SeLe4n/**` — so the
+selection became invalid and `renderContextChooser` fell back to the first
+entry of the score-sorted list, `…IPC.Invariant.Structural.DualQueueMembership`.
+The docs had described that second state as "the default". The tree path now
+keeps `Main.lean`; the score heuristic stays out of the default.
+
+### Subsystem-grouped lanes
+
+A lane over the detail budget groups its modules by parent namespace
+(`moduleSubsystem`, capped at three segments) and renders one node per group;
+clicking a group opens its members in place on a guide rail, keeping the scroll
+position. The "+N more" cut survives only in expanded flow mode.
+
+### The chart is never drawn below 1:1
+
+`minimumFlowWidth()` used to return a fixed 1180 for every viewport over
+900px, and `.flowchart-svg { width: 100% }` scaled the SVG to fit its column.
+That was harmless while the chart spanned the container, and fatal once the
+declaration sidebar took 360px of the row: the column was 738–1071px at
+1200–1536px, and the chart rendered at 0.58–0.86 with 11px labels painting at
+7–9px. Measured on the reverted build:
+
+| Viewport | Chart column | Scale |
+|---|---|---|
+| 1200 | 738 | 0.578 |
+| 1280 | 815 | 0.644 |
+| 1366 | 901 | 0.716 |
+| 1440 | 975 | 0.779 |
+| 1536 | 1071 | 0.860 |
+| 1920 | 1199 | 0.969 |
+
+Two rules replace that. The SVG is `width: auto; min-width: 100%` at every
+width, so it is never drawn below 1:1 and a layout wider than its frame scrolls
+inside `.flowchart-wrap` (the behaviour phones already had). And the desktop
+minimum is 900 — the narrowest width at which three lanes stay readable — so
+the layout is `max(900, column width)` and the column decides above that. The
+two-column breakpoint moved from 75rem to **90rem** (1440px), the narrowest
+viewport that leaves the chart a ~900px column beside a 22.5rem sidebar; below
+it the sidebar stacks under the chart, as it did below 75rem before. The
+pinned sidebar's list height is `calc(100vh − nav − 20rem)` so the sidebar
+fits a 720px-tall screen. `scripts/map-smoke.mjs` asserts the rendered SVG
+width equals its `width` attribute at 1200, 1280, 1366, 1440, 1536 and 1920,
+the sidebar placement on both sides of 90rem, and the pinned sidebar at
+1440×720; CI runs it on every push.
+
+### The map cache is bundle-first in practice
+
+`localStorage` allows about 5M UTF-16 units per origin. The serialized map
+snapshot is past that, so `setCache()`'s write threw and was swallowed on
+every visit, and the schema-4 hydration and retention paths ran only in unit
+tests. `setCache()` now returns `false` above `CACHE_MAX_CHARS` (4 MiB of
+UTF-16 units) without attempting the write. The cache code stays — it is
+correct for smaller snapshots — but the documentation and the design no longer
+lean on it: every visit renders the bundled snapshot and then refreshes live.
+
+### Plural forms and digit grouping
+
+`t(key, { count })` resolves plural families (`key_one` / `key_few` /
+`key_many` / `key_other`, chosen by `Intl.PluralRules`) and groups numeric
+values by the active locale; `formatCount()` in `map.js` does the same for the
+stats strip. The parity test compares plural forms as families, since Ukrainian
+needs four and Japanese one. This replaces strings such as "1 modules" and a
+comma hard-coded into every locale.
+
+## Rust crate cards and repository inventory (0.30.0)
+
+The two sections below the workspace render `map-data.json#rust` and the
+repository tree. They are the part of the first 0.30.0 that changed most on
+re-landing, because most of what the audit found sat here.
+
+### Page structure
+
+`map.html` is three sections in a fixed order — the Lean module workspace,
+the Rust production crates, the repository inventory — and
+`map-toolbar.test.mjs` asserts the order. The hero above them is one compact
+block with a one-line stats strip and jump links to the three sections. The
+hero lead no longer calls the crates "user-space" (the HAL is bare-metal,
+and the landing page's own diagram says "3 user-space crates") or "beside"
+the workspace (they are below it); the inventory lead no longer says "the
+production code opens by default" when only the production *groups* do and
+every subgroup inside is closed.
+
+### Rust crate cards
+
+Each card reads the scanner's corrected counters. The `unsafe` cell's headline
+is the number of sites in production code; a detail line names the non-zero
+counters, the item-level `#[allow(unsafe_code)]` exception under a crate-level
+deny (`sele4n-abi`), and "+N in test code" from `testUnsafe`. The reverted
+build showed one figure per crate that mixed file-scope functions with
+test-module blocks; a reader quoting "118 unsafe sites" for the HAL would
+have quoted neither its production nor its total count. It now reads 99
+sites in production code and 24 more in test code. The crate-level lint stays
+a separate fact on the facts line, which also states target-scoped tables
+under their cfg ("under cfg(loom): loom") and dev-dependencies as test-only,
+so the HAL's "no runtime crate dependencies" no longer sits next to "external
+loom".
+
+Content sets a card's height. The grid used the default `align-items:
+stretch`, so the HAL's 33-file card set a 3,000px row at 1440 and 1920 and
+three quarters of a 3,400px section was blank, with the inventory beginning
+4,700–6,300px down the page. `.rust-crate-grid` is now `align-items: start`
+and `.rust-crate-files` is bounded like `.rust-item-list` (26rem, scrolling
+inside the card). The dependency strip SVG is centred when it is narrower than
+its figure and scrolls inside `.rust-dependency-scroll` when it is wider, on
+phones as before. The probe asserts no card is taller than 1,400px.
+
+### Repository inventory and retention
+
+`classifyRepositoryPath()` files each of the 866 paths into six groups; the
+production groups (Lean by subsystem with module buttons, Rust linking to the
+cards plus each crate's support files — manifest, linker script, assembly —
+that no card lists) open by default and carry a badge, the rest are closed and
+muted. Lists render on first open. Two live-refresh paths would otherwise empty
+the section: a canonical refresh arrives with `files[]` reduced to Lean module
+paths, and no refresh ever carries a Rust inventory. `retainInventory()` keeps
+the previous tree and crates in those cases and records the commit each was
+taken at, and the section says so when it differs from the module graph's
+commit. The artifact names its own revision as `repository.head.commit_sha`
+and has no top-level `commitSha`, so a live canonical refresh once cleared
+`state.commitSha` and the note went blank in exactly the mixed-snapshot case
+it exists for; `normalizeCanonicalPayload` now adopts the artifact's revision,
+and the note states the inventory's own revisions even when the graph's is
+unknown.
+
+The Tests group and the scanner's `test` role describe one scope. The first
+inventory filed every path under `rust/` as production Rust, so the crates'
+integration tests appeared under "Production Rust" while the Tests group
+omitted them, although the crate cards listed the same files as test code.
+`classifyRepositoryPath()` now takes the snapshot's crate list and groups a
+file by the crate whose directory owns it, filing that crate's `tests/`,
+`benches/` and `examples/` under Tests as `rustFileRole()` does — so a nested
+member groups correctly too — with the conventional `rust/<crate>/` path as
+the fallback; the Lean groups follow `isProductionModule`.
+`map-runtime.test.mjs` checks both against every file of the bundled
+snapshot, with and without the crate list.
+
+Both sections are rebuilt from scratch by `renderInventory()` on every live
+refresh and locale switch, and on a networked visit the refresh lands a few
+seconds after first paint — exactly when a reader has started opening things.
+The reverted build closed whatever they had opened. Every `<details>` now
+carries a stable `data-open-key`, `captureInventoryOpenState()` records the
+states before the rebuild and `restoreInventoryOpenState()` re-applies them
+after; setting `open` fires `toggle`, so the lazily rendered lists come back
+as well. The probe dispatches `sele4n:locale-changed` with a group, a subgroup
+and a crate file open and asserts they stay open.
+
+The first locale load is a different event from a locale switch: `i18n.js`
+translates the static DOM and runs its ready callbacks, but dispatches no
+`sele4n:locale-changed`. A non-English locale that arrived after the bundled
+snapshot had painted therefore left every generated label — crate cards,
+inventory, count labels — in its English fallback. `t()` now records that a
+lookup fell back before the locale was ready, `setupLocaleReady()` registers
+on `sele4nI18n.onReady()` before anything paints, and the callback repaints
+the sections once, only when that record is set; when the locale was ready
+first the callback runs at once and nothing repaints. The probe holds the
+locale JSON back until after the snapshot has painted and asserts the crate
+facts end up in Spanish.
+
+### Rust test items behind a toggle
+
+The owner asked for Rust test code to be viewable rather than only counted.
+Test items are bundled with `test: true` and each card with test code carries
+a "Show N test items" toggle. The headline counts describe the production
+surface; the toggle re-renders that card alone, re-opens the files the reader
+had open, lists the flagged items with a `test` tag and adds the test sites to
+each file's `unsafe` tag; `validate-data.mjs` reconciles the flagged items
+with the per-file and per-crate `testItems` counts. The block's measured size
+is quoted once, in `docs/DEVELOPER_GUIDE.md`; the reverted build's documents
+quoted three different figures and one of them described a design that had
+already changed.
+
+### Count labels
+
+"1 modules", "1 files" and "2 fn · 1 blocks · 0 impl allowed by exception"
+were all on the reverted page. Every count label is now a plural family
+resolved by `t(key, { count })` — `count_files_one` / `count_files_other`,
+four forms in Ukrainian, one in Japanese and Chinese — with `pluralEn()` as
+the English fallback, and zero counters are not listed. The i18n parity test
+compares plural forms as families.
+
+### Two defects the browser pass found
+
+- A declaration click made right after a search was swallowed. The search
+  field's `change` fires on blur — on the mousedown of that click — and ran
+  `choose()` → `selectModule()` on the already-selected module, which
+  unconditionally repainted the declaration list, so the button under the
+  pointer was replaced before mouseup. Re-selecting the current module now
+  repaints the sidebar only when it shows another module.
+- The same blur path re-resolved the declaration already shown and re-rendered
+  and re-scrolled the chart for nothing; `selectDeclaration()` now returns
+  early for the declaration it is already on.
+
+Both were pre-existing; the headless probe (`scripts/map-smoke.mjs`) that
+found them is checked in and runs in CI so the sequence stays covered.
