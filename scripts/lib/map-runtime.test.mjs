@@ -2083,13 +2083,153 @@ test('normalizeCanonicalPayload scopes the live refresh to production modules', 
     modules: [
       { module: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean', declarations: [{ kind: 'theorem', name: 'a', line: 1, called: [] }] },
       { module: 'Main', path: 'Main.lean', declarations: [{ kind: 'def', name: 'main', line: 1, called: [] }] },
+      { module: 'SeLe4n.Testing.Helpers', path: 'SeLe4n/Testing/Helpers.lean', declarations: [{ kind: 'def', name: 'mkState', line: 1, called: [] }] },
       { module: 'Tests.Smoke', path: 'tests/Smoke.lean', declarations: [{ kind: 'theorem', name: 'smoke', line: 1, called: [] }] },
       { module: 'Tests.Deep', path: 'tests/deep/Deep.lean', declarations: [{ kind: 'theorem', name: 'deep', line: 1, called: [] }] }
     ]
   });
 
   assert.deepEqual(Array.from(normalized.modules).sort(), ['Main', 'SeLe4n.Kernel.API']);
-  for (const testModule of ['Tests.Smoke', 'Tests.Deep']) {
+  // The in-tree testing framework is outside the published scope too.
+  for (const testModule of ['Tests.Smoke', 'Tests.Deep', 'SeLe4n.Testing.Helpers']) {
     assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, testModule), `${testModule} must not be graphed`);
   }
+  assert.equal(hooks.isOutsideProductionScope('SeLe4n/Testing/Helpers.lean'), true);
+  assert.equal(hooks.isOutsideProductionScope('tests/Smoke.lean'), true);
+  assert.equal(hooks.isOutsideProductionScope('SeLe4n/Kernel/API.lean'), false);
 });
+
+test('the live tree path takes the same scope as the bundle and includes the entry module', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.isLeanModulePath('SeLe4n/Kernel/API.lean'), true);
+  assert.equal(hooks.isLeanModulePath('Main.lean'), true, 'Main.lean is a production module the tree path must not drop');
+  assert.equal(hooks.isLeanModulePath('SeLe4n/Testing/Helpers.lean'), false);
+  assert.equal(hooks.isLeanModulePath('tests/Smoke.lean'), false);
+  assert.equal(hooks.isLeanModulePath('SeLe4n.lean'), false, 'the library root is not in the canonical inventory');
+  assert.equal(hooks.isLeanModulePath('docs/notes.lean.md'), false);
+});
+
+test('in-repository imports outside the scope are not labelled external dependencies', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.isInRepoOutsideScope('SeLe4n.Testing.MainTraceHarness'), true);
+  assert.equal(hooks.isInRepoOutsideScope('SeLe4n'), true, 'the library root Main imports');
+  assert.equal(hooks.isInRepoOutsideScope('Std.Data.List'), false);
+  assert.equal(hooks.isInRepoOutsideScope('SeLe4nExtra.Thing'), false);
+});
+
+/* ── Redesign: default module, subsystem grouping ───────────────────────── */
+
+test('the workspace defaults to SeLe4n.Kernel.API when the snapshot carries it', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.defaultModule(), 'SeLe4n.Kernel.API');
+
+  const withApi = hooks.normalizeMapData({
+    modules: [
+      { name: 'SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership', path: 'SeLe4n/Kernel/IPC/Invariant/Structural/DualQueueMembership.lean' },
+      { name: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean' }
+    ],
+    moduleMeta: {
+      // The hub with the highest heuristic score must not win the default.
+      'SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership': { theorems: 452 },
+      'SeLe4n.Kernel.API': { theorems: 140 }
+    }
+  });
+  hooks.applyTestState({ modules: withApi.modules, moduleMap: withApi.moduleMap, moduleMeta: withApi.moduleMeta });
+  assert.equal(hooks.defaultModuleName(), 'SeLe4n.Kernel.API');
+
+  const withoutApi = hooks.normalizeMapData({
+    modules: [{ name: 'SeLe4n.Core.Zeta', path: 'SeLe4n/Core/Zeta.lean' }, { name: 'SeLe4n.Core.Alpha', path: 'SeLe4n/Core/Alpha.lean' }]
+  });
+  hooks.applyTestState({ modules: withoutApi.modules, moduleMap: withoutApi.moduleMap, moduleMeta: withoutApi.moduleMeta });
+  assert.equal(hooks.defaultModuleName(), 'SeLe4n.Core.Alpha', 'falls back to the first module in inventory order');
+});
+
+test('moduleSubsystem caps the namespace at three segments', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership'), 'SeLe4n.Kernel.IPC');
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Kernel.IPC.Invariant'), 'SeLe4n.Kernel.IPC');
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Kernel.API'), 'SeLe4n.Kernel');
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Model.Object.Types'), 'SeLe4n.Model.Object');
+  assert.equal(hooks.moduleSubsystem('SeLe4n.Prelude'), 'SeLe4n');
+  assert.equal(hooks.moduleSubsystem('Main'), 'Main');
+  assert.equal(hooks.moduleSubsystem(''), '');
+});
+
+test('over-budget lanes group modules by subsystem and open groups in place', async () => {
+  const hooks = await loadMapTestHooks();
+  const imports = [
+    'SeLe4n.Kernel.IPC.DualQueue', 'SeLe4n.Kernel.IPC.Invariant', 'SeLe4n.Kernel.IPC.CrossCore.Fault',
+    'SeLe4n.Kernel.Architecture.Adapter', 'SeLe4n.Kernel.Architecture.VSpace',
+    'SeLe4n.Kernel.Scheduler.Operations', 'SeLe4n.Kernel.Scheduler.Invariant',
+    'SeLe4n.Kernel.Service.Registry',
+    'SeLe4n.Prelude',
+    'SeLe4n.Kernel.Capability.Operations'
+  ];
+
+  hooks.applyTestState({ neighborLimit: 8, flowShowAll: false, laneGroupsExpanded: { imports: {}, importers: {} } });
+
+  const groups = hooks.groupLaneModules(imports);
+  assert.deepEqual(Array.from(groups, (group) => `${group.key}:${group.members.length}`), [
+    'SeLe4n.Kernel.IPC:3', 'SeLe4n.Kernel.Architecture:2', 'SeLe4n.Kernel.Scheduler:2',
+    'SeLe4n:1', 'SeLe4n.Kernel.Capability:1', 'SeLe4n.Kernel.Service:1'
+  ], 'largest subsystems first, ties alphabetical, input order kept inside a group');
+  assert.deepEqual(Array.from(groups[0].members), ['SeLe4n.Kernel.IPC.DualQueue', 'SeLe4n.Kernel.IPC.Invariant', 'SeLe4n.Kernel.IPC.CrossCore.Fault']);
+
+  const collapsed = hooks.buildLaneEntries(imports, 'imports');
+  assert.equal(collapsed.grouped, true, 'ten imports exceed a budget of eight');
+  assert.deepEqual(Array.from(collapsed.entries, (entry) => entry.type === 'group' ? `group:${entry.key}` : `module:${entry.name}`), [
+    'group:SeLe4n.Kernel.IPC', 'group:SeLe4n.Kernel.Architecture', 'group:SeLe4n.Kernel.Scheduler',
+    'module:SeLe4n.Prelude', 'module:SeLe4n.Kernel.Capability.Operations', 'module:SeLe4n.Kernel.Service.Registry'
+  ], 'singleton subsystems render as plain module nodes');
+  assert.deepEqual(Array.from(collapsed.visibleModules), ['SeLe4n.Prelude', 'SeLe4n.Kernel.Capability.Operations', 'SeLe4n.Kernel.Service.Registry']);
+  assert.equal(collapsed.total, 10);
+
+  hooks.applyTestState({ laneGroupsExpanded: { imports: { 'SeLe4n.Kernel.IPC': true }, importers: {} } });
+  const expanded = hooks.buildLaneEntries(imports, 'imports');
+  const ipcIndex = expanded.entries.findIndex((entry) => entry.type === 'group' && entry.key === 'SeLe4n.Kernel.IPC');
+  assert.equal(expanded.entries[ipcIndex].expanded, true);
+  assert.deepEqual(
+    Array.from(expanded.entries.slice(ipcIndex + 1, ipcIndex + 4), (entry) => [entry.name, entry.nested, entry.groupKey]),
+    [
+      ['SeLe4n.Kernel.IPC.DualQueue', true, 'SeLe4n.Kernel.IPC'],
+      ['SeLe4n.Kernel.IPC.Invariant', true, 'SeLe4n.Kernel.IPC'],
+      ['SeLe4n.Kernel.IPC.CrossCore.Fault', true, 'SeLe4n.Kernel.IPC']
+    ],
+    'an opened group lists its members right below it, nested'
+  );
+  assert.ok(expanded.visibleModules.includes('SeLe4n.Kernel.IPC.DualQueue'));
+
+  const withinBudget = hooks.buildLaneEntries(imports.slice(0, 8), 'imports');
+  assert.equal(withinBudget.grouped, false, 'a lane within budget stays flat');
+  assert.equal(withinBudget.entries.length, 8);
+
+  hooks.applyTestState({ flowShowAll: true });
+  const showAll = hooks.buildLaneEntries(imports, 'imports');
+  assert.equal(showAll.grouped, false, 'expanded flow mode lists every module flat');
+  assert.equal(showAll.entries.length, 10);
+  hooks.applyTestState({ flowShowAll: false });
+});
+
+test('pickInteriorMenuGroup keeps the remembered group and otherwise opens the first non-empty one', async () => {
+  const hooks = await loadMapTestHooks();
+  const groups = [
+    { key: 'object', totalCount: 0 },
+    { key: 'contextInit', totalCount: 3 },
+    { key: 'extension', totalCount: 2 }
+  ];
+  assert.equal(hooks.pickInteriorMenuGroup(groups, 'extension'), 'extension');
+  assert.equal(hooks.pickInteriorMenuGroup(groups, 'object'), 'object', 'an explicit choice is kept even when empty');
+  assert.equal(hooks.pickInteriorMenuGroup(groups, ''), 'contextInit', 'the first non-empty group opens by default');
+  assert.equal(hooks.pickInteriorMenuGroup([], ''), 'object');
+});
+
+test('formatCount groups thousands and leaves non-numbers alone', async () => {
+  const hooks = await loadMapTestHooks();
+  assert.equal(hooks.formatCount(10937), '10,937');
+  assert.equal(hooks.formatCount(866), '866');
+  assert.equal(hooks.formatCount(0), '0');
+  assert.equal(hooks.formatCount('–'), '–');
+  assert.equal(hooks.formatCount(null), '');
+});
+
+/* ── Review round: the unsafe lint vs. counted sites, crate support files ── */

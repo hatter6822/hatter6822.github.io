@@ -27,7 +27,15 @@
   };
 
   var CACHE_KEY = "sele4n-code-map-v9";
-  var CACHE_SCHEMA_VERSION = 3;
+  /* localStorage holds about 5M UTF-16 units per origin. The serialized map
+     snapshot is past that, so the write below would throw and be swallowed,
+     and map.html is bundle-first in practice: every visit renders the bundled
+     snapshot and then refreshes live. The ceiling makes that explicit and
+     skips the attempt instead of paying for it; setCache() reports whether it
+     wrote so the behaviour is observable (see the "Runtime data strategy"
+     note in CLAUDE.md). */
+  var CACHE_MAX_CHARS = 4 * 1024 * 1024;
+  var CACHE_SCHEMA_VERSION = 4;
   var CACHE_TTL_MS = 60 * 60 * 1000;
   var CACHE_MAX_STALE_MS = 30 * 24 * 60 * 60 * 1000;
   var LIVE_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -43,6 +51,10 @@
   var LABEL_WRAP_CACHE_LIMIT = 1200;
   var LABEL_WRAP_CACHE_EVICT_BATCH = 120;
   var ASSURANCE_CACHE = Object.create(null);
+
+  /* The module the workspace opens on when the URL carries no `module=`: the
+     kernel's syscall surface, which every other subsystem composes into. */
+  var DEFAULT_MODULE = "SeLe4n.Kernel.API";
 
   /* Cached DOM element references — populated once on boot to avoid repeated getElementById calls */
   var DOM = {
@@ -168,7 +180,9 @@
     declarationGraph: Object.create(null),
     declarationReverseGraph: Object.create(null),
     declarationIndex: Object.create(null),
-    declarationLanesExpanded: false
+    declarationLanesExpanded: false,
+    interiorMenuGroup: "object",
+    laneGroupsExpanded: { imports: Object.create(null), importers: Object.create(null) }
   };
 
   var renderScheduled = false;
@@ -288,7 +302,8 @@
       els = document.querySelectorAll('[data-map="' + key + '"]');
       NODE_CACHE[key] = els;
     }
-    for (var i = 0; i < els.length; i++) els[i].textContent = String(value);
+    var text = typeof value === "number" ? formatCount(value) : String(value);
+    for (var i = 0; i < els.length; i++) els[i].textContent = text;
   }
 
   function formatGeneratedAt(value) {
@@ -424,6 +439,35 @@
 
   function moduleBase(moduleName) {
     return moduleName.replace(/\.(Operations|Invariant)$/, "");
+  }
+
+  /* The namespace a module is filed under, capped at three segments so deep
+     trees still group at the subsystem level:
+       SeLe4n.Kernel.IPC.Invariant.Defs → SeLe4n.Kernel.IPC
+       SeLe4n.Kernel.API                → SeLe4n.Kernel
+       SeLe4n.Prelude                   → SeLe4n
+       Main                             → Main */
+  function moduleSubsystem(moduleName) {
+    var parts = String(moduleName || "").split(".").filter(Boolean);
+    if (parts.length <= 1) return parts[0] || "";
+    return parts.slice(0, Math.min(parts.length - 1, 3)).join(".");
+  }
+
+  function defaultModuleName() {
+    if (state.moduleMap[DEFAULT_MODULE]) return DEFAULT_MODULE;
+    return state.modules[0] || null;
+  }
+
+  function formatCount(value) {
+    if (typeof value !== "number" || !isFinite(value)) return String(value === null || value === undefined ? "" : value);
+    var rounded = Math.round(value);
+    try { return new Intl.NumberFormat(documentLocale()).format(rounded); } catch (e) {}
+    return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+
+  function documentLocale() {
+    var root = typeof document !== "undefined" && document ? document.documentElement : null;
+    return (root && root.lang) || "en";
   }
 
   function theoremCount(text) {
@@ -1111,6 +1155,9 @@
   function selectDeclaration(declName, moduleName) {
     var mod = moduleName || declarationModuleOf(declName);
     if (!mod || !state.moduleMap[mod]) return;
+    /* The search field re-resolves its value on blur; when that value is the
+       declaration already shown, there is nothing to re-render or re-scroll. */
+    if (state.flowContext === "declaration" && state.selectedDeclaration === declName && state.selectedDeclarationModule === mod) return;
     state.flowContext = "declaration";
     state.selectedDeclaration = declName;
     state.selectedDeclarationModule = mod;
@@ -1255,17 +1302,21 @@
     if (cachedMinFlowWidth > 0 && now - cachedMinFlowWidthTs < 200) return cachedMinFlowWidth;
     var width = window.innerWidth || 1200;
     var result;
-    /* Scale SVG width proportionally so mobile devices don't get an
-       excessively wide canvas.  On very small screens (≤420px) the old
-       fixed 900px created ~2.4× horizontal scrolling; the new formula
-       keeps the graph readable while limiting pan distance.
-       The multiplier (2.15–2.35×) ensures three-lane layouts still fit
-       without overlapping, but the user only scrolls ~1× viewport width
-       instead of ~1.5×. */
+    /* The layout is laid out at max(this minimum, the chart column's width),
+       and the SVG is never drawn below 1:1 — `.flowchart-svg` has
+       `width: auto; min-width: 100%`, so a layout wider than its column
+       scrolls sideways inside the frame instead of shrinking its text.
+
+       On phones the minimum scales with the viewport (2.1–2.25×) so three
+       lanes fit without overlapping while the reader pans about one viewport
+       width. From 900px up the column decides: 900 is the narrowest width at
+       which three lanes stay readable, and a fixed 1180 here once forced a
+       0.58–0.86 scale-down at every desktop width once the declaration
+       sidebar took its share of the row. */
     if (width <= 420) result = Math.max(720, Math.round(width * 2.25));
     else if (width <= 640) result = Math.max(820, Math.round(width * 2.1));
     else if (width <= 900) result = Math.max(920, Math.round(width * 1.4));
-    else result = 1180;
+    else result = 900;
     cachedMinFlowWidth = result;
     cachedMinFlowWidthTs = now;
     return result;
@@ -1274,7 +1325,12 @@
   function selectModule(name, preserveScroll) {
     if (!name || !state.moduleMap[name]) return;
     if (state.selectedModule === name && state.flowContext === "module") {
-      renderFlowNodeInteriorMenu(name);
+      /* Re-selecting the current module only repaints the sidebar when it shows
+         another module. An unconditional repaint here rebuilt the declaration
+         list under the pointer: the search field's blur fires `change` →
+         `choose()` → this branch on mousedown, so the button being clicked was
+         replaced before mouseup and the click never landed. */
+      if (state.interiorMenuModule !== name) renderFlowNodeInteriorMenu(name);
       return;
     }
     state.selectedModule = name;
@@ -1282,6 +1338,7 @@
     state.selectedDeclaration = "";
     state.selectedDeclarationModule = "";
     state.declarationLanesExpanded = false;
+    state.laneGroupsExpanded = { imports: Object.create(null), importers: Object.create(null) };
     state.flowScrollTarget = preserveScroll ? "" : name;
     if (state.interiorMenuModule !== name) {
       state.interiorMenuModule = name;
@@ -1309,7 +1366,8 @@
     updateModuleResults(list.length);
 
     if (list.length && list.indexOf(state.selectedModule) === -1) {
-      state.selectedModule = list[0];
+      var fallback = defaultModuleName();
+      state.selectedModule = fallback && list.indexOf(fallback) !== -1 ? fallback : list[0];
       syncUrlState();
     }
 
@@ -1370,6 +1428,35 @@
     ];
   }
 
+  /* Import tokens the graph does not contain are external to the production
+     corpus. Most are Lean/Std libraries; a few are in-repository modules the
+     published scope leaves out — the SeLe4n library root and the
+     SeLe4n.Testing framework — and saying "external dependency" of those
+     would be wrong. */
+  function isInRepoOutsideScope(name) {
+    return /^SeLe4n(?:\.|$)/.test(String(name || ""));
+  }
+
+  function isLibraryRoot(name) {
+    return String(name || "") === "SeLe4n";
+  }
+
+  function externalImportSubtitle(name) {
+    if (isLibraryRoot(name)) return t("map.external_library_root") || "in-repo \u00B7 library root";
+    return isInRepoOutsideScope(name)
+      ? (t("map.external_in_repo") || "in-repo \u00B7 outside production scope")
+      : (t("map.external_dependency") || "external dependency");
+  }
+
+  function externalImportTooltip(name, importer) {
+    var role = isLibraryRoot(name)
+      ? "The library root that re-exports the production modules: " + name
+      : isInRepoOutsideScope(name)
+        ? "In-repository module outside the published production scope: " + name
+        : "External import: " + name;
+    return role + "\nImported by " + importer;
+  }
+
   function flowLaneLabelVisibility(options) {
     var source = options || {};
     var importsVisible = Number(source.importCount || 0) > 0;
@@ -1387,6 +1474,26 @@
       linkedPath: linkedPathVisible,
       external: externalVisible
     };
+  }
+
+  function pickInteriorMenuGroup(groups, remembered) {
+    for (var i = 0; i < groups.length; i++) if (groups[i].key === remembered) return remembered;
+    for (var j = 0; j < groups.length; j++) if (groups[j].totalCount > 0) return groups[j].key;
+    return groups.length ? groups[0].key : "object";
+  }
+
+  function interiorMenuSummary(moduleName, interior) {
+    var degree = moduleDegree(moduleName);
+    var assurance = assuranceForModule(moduleName);
+    var total = formatCount(interior.total || 0);
+    var theorems = formatCount(degree.theorems || 0);
+    var parts = [
+      t("map.summary_declarations", { count: total }) || (total + " declarations"),
+      t("map.summary_theorems", { count: theorems }) || (theorems + " theorems"),
+      "←" + degree.incoming + " →" + degree.outgoing
+    ];
+    if (assurance && assurance.label) parts.push(assurance.label);
+    return parts.join(" · ");
   }
 
   function renderFlowNodeInteriorMenu(selected) {
@@ -1421,6 +1528,43 @@
         totalCount: interiorGroupItemCount(interior, kinds)
       };
     });
+    /* One group is open at a time. The choice survives module changes so a
+       reader scanning theorems across modules stays on Objects. */
+    var activeKey = pickInteriorMenuGroup(groups, state.interiorMenuGroup);
+    state.interiorMenuGroup = activeKey;
+    var group = groups[0];
+    for (var gi = 0; gi < groups.length; gi++) if (groups[gi].key === activeKey) group = groups[gi];
+
+    var head = document.createElement("div");
+    head.className = "interior-menu-head";
+    /* h3: the workspace section carries the h2, so the sidebar is one level below it. */
+    var heading = document.createElement("h3");
+    heading.className = "interior-menu-title";
+    heading.textContent = t("map.declarations_title") || "Declarations";
+    head.appendChild(heading);
+    var moduleLine = document.createElement("div");
+    moduleLine.className = "interior-menu-module";
+    var moduleLabel = document.createElement("span");
+    moduleLabel.className = "interior-menu-module-name";
+    moduleLabel.textContent = selected;
+    moduleLine.appendChild(moduleLabel);
+    var sourceLink = moduleSourceLink(selected);
+    if (sourceLink) {
+      var sourceAnchor = document.createElement("a");
+      sourceAnchor.className = "interior-menu-source";
+      sourceAnchor.href = sourceLink.href;
+      sourceAnchor.target = "_blank";
+      sourceAnchor.rel = "noopener noreferrer";
+      sourceAnchor.title = sourceLink.title;
+      sourceAnchor.textContent = t("map.open_source") || "Source ↗";
+      moduleLine.appendChild(sourceAnchor);
+    }
+    head.appendChild(moduleLine);
+    var summaryLine = document.createElement("p");
+    summaryLine.className = "interior-menu-summary";
+    summaryLine.textContent = interiorMenuSummary(selected, interior);
+    head.appendChild(summaryLine);
+    menu.appendChild(head);
 
     var controls = document.createElement("div");
     controls.className = "interior-menu-controls";
@@ -1432,7 +1576,7 @@
     queryInput.id = "interior-symbol-filter";
     queryInput.className = "interior-menu-search";
     queryInput.type = "search";
-    queryInput.placeholder = t("map.filter_placeholder") || "Filter declarations across all kinds\u2026";
+    queryInput.placeholder = t("map.filter_placeholder") || "Filter declarations across all kinds…";
     queryInput.autocomplete = "off";
     queryInput.spellcheck = false;
     queryInput.value = state.interiorMenuQuery || "";
@@ -1445,8 +1589,52 @@
     controls.appendChild(queryInput);
     menu.appendChild(controls);
 
-    var grid = document.createElement("div");
-    grid.className = "interior-menu-grid";
+    var tabs = document.createElement("div");
+    tabs.className = "interior-menu-tabs";
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", t("map.declaration_groups") || "Declaration groups");
+    var tabButtons = [];
+    for (var ti = 0; ti < groups.length; ti++) {
+      (function (entry) {
+        var tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = "interior-menu-tab";
+        tab.id = "interior-menu-tab-" + entry.key;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", entry.key === activeKey ? "true" : "false");
+        tab.setAttribute("aria-controls", "interior-menu-panel");
+        tab.tabIndex = entry.key === activeKey ? 0 : -1;
+        tab.dataset.group = entry.key;
+        tab.appendChild(document.createTextNode(entry.label + " "));
+        var count = document.createElement("span");
+        count.className = "interior-menu-count";
+        count.textContent = formatCount(entry.totalCount);
+        tab.appendChild(count);
+        tab.addEventListener("click", function () {
+          if (state.interiorMenuGroup === entry.key) return;
+          state.interiorMenuGroup = entry.key;
+          renderFlowNodeInteriorMenu(selected);
+          var next = document.getElementById("interior-menu-tab-" + entry.key);
+          if (next) next.focus();
+        });
+        tabButtons.push(tab);
+        tabs.appendChild(tab);
+      })(groups[ti]);
+    }
+    tabs.addEventListener("keydown", function (event) {
+      var key = event.key;
+      if (key !== "ArrowRight" && key !== "ArrowLeft" && key !== "Home" && key !== "End") return;
+      var current = tabButtons.indexOf(document.activeElement);
+      if (current === -1) return;
+      var next = current;
+      if (key === "ArrowRight") next = (current + 1) % tabButtons.length;
+      else if (key === "ArrowLeft") next = (current - 1 + tabButtons.length) % tabButtons.length;
+      else if (key === "Home") next = 0;
+      else next = tabButtons.length - 1;
+      event.preventDefault();
+      tabButtons[next].click();
+    });
+    menu.appendChild(tabs);
 
     function symbolSourceHref(moduleName, entry) {
       if (!moduleName || !state.moduleMap[moduleName]) return "";
@@ -1457,140 +1645,131 @@
       return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath + lineAnchor;
     }
 
-    for (var g = 0; g < groups.length; g++) {
-      (function (group) {
-        var column = document.createElement("section");
-        column.className = "interior-menu-column";
+    var column = document.createElement("section");
+    column.className = "interior-menu-column";
+    column.id = "interior-menu-panel";
+    column.setAttribute("role", "tabpanel");
+    column.setAttribute("aria-labelledby", "interior-menu-tab-" + activeKey);
 
-        var top = document.createElement("div");
-        top.className = "interior-menu-column-top";
+    var top = document.createElement("div");
+    top.className = "interior-menu-column-top";
 
-        /* h2, not h4: map.html's only other heading is the page h1, so a level-4
-           heading here leaves a 1 -> 4 gap in the document outline. */
-        var heading = document.createElement("h2");
-        heading.textContent = group.label;
-        top.appendChild(heading);
-
-        var select = document.createElement("select");
-        select.className = "interior-kind-select";
-        select.setAttribute("aria-label", "Filter " + group.label + " by kind");
-        var allOption = document.createElement("option");
-        allOption.value = INTERIOR_KIND_ALL_VALUE;
-        allOption.textContent = t("map.all_count", { count: group.totalCount }) || ("All (" + group.totalCount + ")");
-        allOption.selected = group.selectedKind === INTERIOR_KIND_ALL_VALUE;
-        select.appendChild(allOption);
-        for (var i = 0; i < group.kinds.length; i++) {
-          var kind = group.kinds[i];
-          var option = document.createElement("option");
-          option.value = kind;
-          option.textContent = symbolKindLabel(kind) + " (" + (interior.byKind[kind] || []).length + ")";
-          applyInteriorKindColor(option, kind, true);
-          if (kind === group.selectedKind) option.selected = true;
-          select.appendChild(option);
-        }
-
-        function tintSelectToCurrentKind() {
-          var activeOption = select.options[select.selectedIndex];
-          var activeKind = activeOption && activeOption.value !== INTERIOR_KIND_ALL_VALUE ? activeOption.value : "";
-          applyInteriorKindColor(select, activeKind, false);
-        }
-
-        tintSelectToCurrentKind();
-        top.appendChild(select);
-        column.appendChild(top);
-
-        var list = document.createElement("ul");
-        list.className = "interior-menu-items";
-
-        var emptyNote = null;
-
-        function showEmptyNote(message) {
-          list.innerHTML = "";
-          if (list.parentNode) list.parentNode.removeChild(list);
-          if (!emptyNote) {
-            emptyNote = document.createElement("p");
-            emptyNote.className = "panel-note";
-            emptyNote.style.margin = "0";
-          }
-          emptyNote.textContent = message;
-          if (emptyNote.parentNode !== column) column.appendChild(emptyNote);
-        }
-
-        function ensureListAttached() {
-          if (emptyNote && emptyNote.parentNode) emptyNote.parentNode.removeChild(emptyNote);
-          if (list.parentNode !== column) column.appendChild(list);
-        }
-
-        function repaintList() {
-          list.innerHTML = "";
-          var activeKind = select.value;
-          var items = interiorItemsForSelection(interior, group.kinds, activeKind, query);
-          if (!items.length) {
-            var msg = query ? "No declarations match this filter." : (activeKind === INTERIOR_KIND_ALL_VALUE ? "No declarations detected for this kind group." : "No declarations detected for this kind.");
-            showEmptyNote(msg);
-            return;
-          }
-
-          ensureListAttached();
-
-          var listFragment = document.createDocumentFragment();
-          for (var j = 0; j < items.length; j++) {
-            var li = document.createElement("li");
-            li.className = "interior-menu-item";
-            var isSelectedDecl = state.flowContext === "declaration" && items[j].name === state.selectedDeclaration;
-            if (isSelectedDecl) li.classList.add("interior-menu-item-active");
-            li.dataset.kindLabel = symbolKindLabel(items[j].__kind || activeKind);
-            applyInteriorKindColor(li, items[j].__kind || activeKind, false);
-            var hasCallData = Boolean(state.declarationGraph[items[j].name]) || Boolean(state.declarationReverseGraph[items[j].name]);
-            var isNavigable = hasCallData || Boolean(state.moduleMap[selected]);
-            if (isNavigable) {
-              li.classList.add("interior-menu-item-navigable");
-              var btn = document.createElement("button");
-              btn.type = "button";
-              btn.className = "interior-menu-item-btn";
-              btn.textContent = items[j].name;
-              btn.title = "View declaration call graph for " + items[j].name;
-              btn.dataset.decl = items[j].name;
-              btn.addEventListener("click", (function (itemName) {
-                return function () { selectDeclaration(itemName, selected); };
-              })(items[j].name));
-              li.appendChild(btn);
-            } else {
-              var linkHref = symbolSourceHref(selected, items[j]);
-              if (linkHref) {
-                var link = document.createElement("a");
-                link.href = linkHref;
-                link.target = "_blank";
-                link.rel = "noopener noreferrer";
-                link.textContent = items[j].name;
-                link.title = items[j].line > 0 ? "Open declaration at line " + items[j].line : "Open declaration source";
-                li.appendChild(link);
-              } else {
-                var nameSpan = document.createElement("span");
-                nameSpan.textContent = items[j].name;
-                li.appendChild(nameSpan);
-              }
-            }
-            listFragment.appendChild(li);
-          }
-          list.appendChild(listFragment);
-        }
-
-        select.addEventListener("change", function () {
-          state.interiorMenuSelections[group.key] = select.value;
-          tintSelectToCurrentKind();
-          repaintList();
-        });
-        column.appendChild(list);
-        repaintList();
-        grid.appendChild(column);
-      })(groups[g]);
+    var select = document.createElement("select");
+    select.className = "interior-kind-select";
+    select.setAttribute("aria-label", "Filter " + group.label + " by kind");
+    var allOption = document.createElement("option");
+    allOption.value = INTERIOR_KIND_ALL_VALUE;
+    allOption.textContent = t("map.all_count", { count: group.totalCount }) || ("All (" + group.totalCount + ")");
+    allOption.selected = group.selectedKind === INTERIOR_KIND_ALL_VALUE;
+    select.appendChild(allOption);
+    for (var i = 0; i < group.kinds.length; i++) {
+      var kind = group.kinds[i];
+      var option = document.createElement("option");
+      option.value = kind;
+      option.textContent = symbolKindLabel(kind) + " (" + (interior.byKind[kind] || []).length + ")";
+      applyInteriorKindColor(option, kind, true);
+      if (kind === group.selectedKind) option.selected = true;
+      select.appendChild(option);
     }
 
-    /* Batch-append the grid in a single DOM operation to minimize reflows */
-    var gridFragment = document.createDocumentFragment();
-    gridFragment.appendChild(grid);
-    menu.appendChild(gridFragment);
+    function tintSelectToCurrentKind() {
+      var activeOption = select.options[select.selectedIndex];
+      var activeKind = activeOption && activeOption.value !== INTERIOR_KIND_ALL_VALUE ? activeOption.value : "";
+      applyInteriorKindColor(select, activeKind, false);
+    }
+
+    tintSelectToCurrentKind();
+    top.appendChild(select);
+    column.appendChild(top);
+
+    var list = document.createElement("ul");
+    list.className = "interior-menu-items";
+
+    var emptyNote = null;
+
+    function showEmptyNote(message) {
+      list.innerHTML = "";
+      if (list.parentNode) list.parentNode.removeChild(list);
+      if (!emptyNote) {
+        emptyNote = document.createElement("p");
+        emptyNote.className = "panel-note interior-menu-empty";
+      }
+      emptyNote.textContent = message;
+      if (emptyNote.parentNode !== column) column.appendChild(emptyNote);
+    }
+
+    function ensureListAttached() {
+      if (emptyNote && emptyNote.parentNode) emptyNote.parentNode.removeChild(emptyNote);
+      if (list.parentNode !== column) column.appendChild(list);
+    }
+
+    function repaintList() {
+      list.innerHTML = "";
+      var activeKind = select.value;
+      var items = interiorItemsForSelection(interior, group.kinds, activeKind, query);
+      if (!items.length) {
+        var msg = query
+          ? (t("map.no_declarations_filter") || "No declarations match this filter.")
+          : (activeKind === INTERIOR_KIND_ALL_VALUE
+            ? (t("map.no_declarations_group") || "No declarations detected for this kind group.")
+            : (t("map.no_declarations_kind") || "No declarations detected for this kind."));
+        showEmptyNote(msg);
+        return;
+      }
+
+      ensureListAttached();
+
+      var listFragment = document.createDocumentFragment();
+      for (var j = 0; j < items.length; j++) {
+        var li = document.createElement("li");
+        li.className = "interior-menu-item";
+        var isSelectedDecl = state.flowContext === "declaration" && items[j].name === state.selectedDeclaration;
+        if (isSelectedDecl) li.classList.add("interior-menu-item-active");
+        li.dataset.kindLabel = symbolKindLabel(items[j].__kind || activeKind);
+        applyInteriorKindColor(li, items[j].__kind || activeKind, false);
+        var hasCallData = Boolean(state.declarationGraph[items[j].name]) || Boolean(state.declarationReverseGraph[items[j].name]);
+        var isNavigable = hasCallData || Boolean(state.moduleMap[selected]);
+        if (isNavigable) {
+          li.classList.add("interior-menu-item-navigable");
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "interior-menu-item-btn";
+          btn.textContent = items[j].name;
+          btn.title = "View declaration call graph for " + items[j].name;
+          btn.dataset.decl = items[j].name;
+          btn.addEventListener("click", (function (itemName) {
+            return function () { selectDeclaration(itemName, selected); };
+          })(items[j].name));
+          li.appendChild(btn);
+        } else {
+          var linkHref = symbolSourceHref(selected, items[j]);
+          if (linkHref) {
+            var link = document.createElement("a");
+            link.href = linkHref;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = items[j].name;
+            link.title = items[j].line > 0 ? "Open declaration at line " + items[j].line : "Open declaration source";
+            li.appendChild(link);
+          } else {
+            var nameSpan = document.createElement("span");
+            nameSpan.textContent = items[j].name;
+            li.appendChild(nameSpan);
+          }
+        }
+        listFragment.appendChild(li);
+      }
+      list.appendChild(listFragment);
+    }
+
+    select.addEventListener("change", function () {
+      state.interiorMenuSelections[group.key] = select.value;
+      tintSelectToCurrentKind();
+      repaintList();
+    });
+    column.appendChild(list);
+    repaintList();
+    menu.appendChild(column);
 
     if (hadFocus) {
       var newInput = document.getElementById("interior-symbol-filter");
@@ -1619,8 +1798,10 @@
     var charWidth = prefersCompactViewport() ? 7.0 : 6.4;
     var maxChars = Math.max(minChars || 10, Math.floor((width || 180) / charWidth));
     /* Split on common delimiters but prefer dots for Lean qualified names
-       (e.g. SeLe4n.Kernel.Operations → ["SeLe4n", ".", "Kernel", ".", "Operations"]) */
-    var tokens = String(text).split(/([._/\-])/);
+       (e.g. SeLe4n.Kernel.Operations → ["SeLe4n", ".", "Kernel", ".", "Operations"]).
+       Spaces split too, so prose subtitles ("12 modules · click to expand")
+       wrap at word boundaries instead of being chunked mid-word. */
+    var tokens = String(text).split(/([._/\-\s])/);
     var lines = [];
     var current = "";
 
@@ -2076,10 +2257,13 @@
     var allImports = (state.importsFrom[selected] || []).slice().sort(sortByScoreThenName);
     var allImporters = (state.importsTo[selected] || []).slice().sort(sortByScoreThenName);
     var allExternal = state.externalImportsFrom[selected] || [];
-    var importBudget = state.flowShowAll ? allImports.length : state.neighborLimit;
-    var impactBudget = state.flowShowAll ? allImporters.length : state.neighborLimit;
-    var imports = allImports.slice(0, importBudget);
-    var importers = allImporters.slice(0, impactBudget);
+    /* Hub modules import far more than one lane can stack (SeLe4n.Kernel.API
+       pulls in 46). Over budget, a lane groups its modules by subsystem instead
+       of cutting the list at the budget, and each group opens in place. */
+    var importLane = buildLaneEntries(allImports, "imports");
+    var importerLane = buildLaneEntries(allImporters, "importers");
+    var imports = importLane.visibleModules;
+    var importers = importerLane.visibleModules;
     var externalBudget = state.flowShowAll ? allExternal.length : 12;
     var external = allExternal.slice(0, externalBudget);
     var proofRelated = relatedProofModules(selected);
@@ -2171,22 +2355,50 @@
     var laneYStart = layout.laneYStart;
     var laneGapY = layout.laneGapY;
 
-    function stackedLayout(names, width, subtitleFn, compactHint, includeSourceLinks) {
-      var nodes = [];
-      var cursor = laneYStart;
-      for (var ii = 0; ii < names.length; ii++) {
-        var subtitleText = subtitleFn ? subtitleFn(names[ii]) : "";
-        var srcLink = includeSourceLinks ? moduleSourceLink(names[ii]) : null;
-        /* Module nodes always have assurance indicators */
-        var height = nodeContentHeight(names[ii], subtitleText, width, compactHint, srcLink ? srcLink.label : "", true);
-        nodes.push({ name: names[ii], y: cursor, h: height, subtitle: subtitleText, sourceLink: srcLink });
-        cursor += height + laneGapY;
-      }
-      return { nodes: nodes, bottom: names.length ? (cursor - laneGapY) : laneYStart + 44 };
+    var laneNestIndent = 18;
+
+    function laneGroupTitle(entry) {
+      return (entry.expanded ? "\u25BE " : "\u25B8 ") + entry.label;
     }
 
-    var importLayout = stackedLayout(imports, sideWidth, moduleSummary, false, true);
-    var importerLayout = stackedLayout(importers, sideWidth, moduleSummary, false, true);
+    function laneGroupSummary(entry) {
+      var theorems = 0;
+      for (var gi = 0; gi < entry.members.length; gi++) theorems += moduleDegree(entry.members[gi]).theorems;
+      var counts = t("map.lane_group_summary", { count: entry.members.length, theorems: formatCount(theorems) })
+        || (entry.members.length + " modules \u00B7 " + formatCount(theorems) + " thm");
+      var hint = entry.expanded
+        ? (t("map.group_collapse") || "click to collapse")
+        : (t("map.group_expand") || "click to expand");
+      return counts + " \u00B7 " + hint;
+    }
+
+    function stackedLayout(entries, width, subtitleFn, compactHint, includeSourceLinks) {
+      var nodes = [];
+      var cursor = laneYStart;
+      for (var ii = 0; ii < entries.length; ii++) {
+        var entry = entries[ii];
+        if (entry.type === "group") {
+          var groupTitle = laneGroupTitle(entry);
+          var groupSubtitle = laneGroupSummary(entry);
+          var groupHeight = nodeContentHeight(groupTitle, groupSubtitle, width, true, "", false);
+          nodes.push({ entry: entry, name: groupTitle, x: 0, w: width, y: cursor, h: groupHeight, subtitle: groupSubtitle, sourceLink: null });
+          cursor += groupHeight + laneGapY;
+          continue;
+        }
+        var indent = entry.nested ? laneNestIndent : 0;
+        var nodeWidth = width - indent;
+        var subtitleText = subtitleFn ? subtitleFn(entry.name) : "";
+        var srcLink = includeSourceLinks ? moduleSourceLink(entry.name) : null;
+        /* Module nodes always have assurance indicators */
+        var height = nodeContentHeight(entry.name, subtitleText, nodeWidth, compactHint, srcLink ? srcLink.label : "", true);
+        nodes.push({ entry: entry, name: entry.name, x: indent, w: nodeWidth, y: cursor, h: height, subtitle: subtitleText, sourceLink: srcLink });
+        cursor += height + laneGapY;
+      }
+      return { nodes: nodes, bottom: entries.length ? (cursor - laneGapY) : laneYStart + 44 };
+    }
+
+    var importLayout = stackedLayout(importLane.entries, sideWidth, moduleSummary, false, true);
+    var importerLayout = stackedLayout(importerLane.entries, sideWidth, moduleSummary, false, true);
     var laneBottom = Math.max(importLayout.bottom, importerLayout.bottom);
 
     var centerSourceLink = moduleSourceLink(selected);
@@ -2283,7 +2495,7 @@
       var externalNodeHeights = [];
       for (var ex = 0; ex < external.length; ex++) {
         var exRow = Math.floor(ex / externalPerRow);
-        var exH = nodeContentHeight(external[ex], "external dependency", externalWidth, true, "", false);
+        var exH = nodeContentHeight(external[ex], externalImportSubtitle(external[ex]), externalWidth, true, "", false);
         externalNodeHeights.push(exH);
         externalRowHeights[exRow] = Math.max(externalRowHeights[exRow] || 0, exH);
       }
@@ -2345,10 +2557,11 @@
       flowLaneLabel(labelLayer, text, x, y, color);
     }
 
-    function createNode(name, x, y, w, h, color, subtitle, tooltip, active, isStatic, assuranceLevel, onActivate, metaLink) {
+    function createNode(name, x, y, w, h, color, subtitle, tooltip, active, isStatic, assuranceLevel, onActivate, metaLink, extraClass) {
       var className = "flow-node" + (active ? " active" : "") + (isStatic ? " static" : "");
       if (onActivate) className += " action";
       if (assuranceLevel && !isStatic) className += " assurance-" + assuranceLevel;
+      if (extraClass) className += " " + extraClass;
       var interactive = !isStatic || Boolean(onActivate);
       var ariaLabel = interactive ? (onActivate ? name : ("Select module " + name)) : name;
       var activator = interactive ? (onActivate || function () { selectModule(name, false); }) : null;
@@ -2361,20 +2574,51 @@
 
     var center = createNode(selected, centerX, centerY, centerWidth, centerHeight, "#7c9cff", moduleSummary(selected), nodeTooltip(selected, "Selected module context"), true, false, contextFor(selected).assurance.level, null, centerSourceLink);
 
-    var importNodes = [];
-    for (var i = 0; i < importLayout.nodes.length; i++) {
-      var importItem = importLayout.nodes[i];
-      importNodes.push(createNode(importItem.name, leftX, importItem.y, sideWidth, importItem.h, "#35c98f", importItem.subtitle, nodeTooltip(importItem.name, "Imported dependency"), false, false, contextFor(importItem.name).assurance.level, null, importItem.sourceLink));
+    function laneGroupTooltip(entry, roleLabel) {
+      return roleLabel + "\n" + entry.label + "\n" + entry.members.length + " modules:\n" + entry.members.join("\n");
     }
 
-    var importerNodes = [];
-    for (var j = 0; j < importerLayout.nodes.length; j++) {
-      var importerItem = importerLayout.nodes[j];
-      importerNodes.push(createNode(importerItem.name, rightX, importerItem.y, sideWidth, importerItem.h, "#ffad42", importerItem.subtitle, nodeTooltip(importerItem.name, "Impacted module"), false, false, contextFor(importerItem.name).assurance.level, null, importerItem.sourceLink));
+    function renderLane(layout, laneX, color, laneKey, roleLabel, groupRoleLabel) {
+      /* Returns the nodes that get an edge to the centre: group nodes and
+         top-level module nodes. Opened members hang off their group on a
+         guide line instead, so one expanded subsystem does not fan a dozen
+         curves into the centre node. */
+      var edgeNodes = [];
+      var openGroup = null;
+      var lastMember = null;
+
+      function closeGroup() {
+        if (openGroup && lastMember) drawLaneGuide(edgeLayer, openGroup, lastMember, color);
+        openGroup = null;
+        lastMember = null;
+      }
+
+      for (var li = 0; li < layout.nodes.length; li++) {
+        var item = layout.nodes[li];
+        if (item.entry.type === "group") {
+          closeGroup();
+          var groupNode = createNode(item.name, laneX + item.x, item.y, item.w, item.h, color, item.subtitle, laneGroupTooltip(item.entry, groupRoleLabel), false, true, "", toggleLaneGroup(laneKey, item.entry.key), null, "lane-group" + (item.entry.expanded ? " lane-group-open" : ""));
+          edgeNodes.push(groupNode);
+          if (item.entry.expanded) openGroup = groupNode;
+          continue;
+        }
+        var moduleNode = createNode(item.name, laneX + item.x, item.y, item.w, item.h, color, item.subtitle, nodeTooltip(item.name, roleLabel), false, false, contextFor(item.name).assurance.level, null, item.sourceLink, item.entry.nested ? "lane-member" : "");
+        if (item.entry.nested) {
+          lastMember = moduleNode;
+        } else {
+          closeGroup();
+          edgeNodes.push(moduleNode);
+        }
+      }
+      closeGroup();
+      return edgeNodes;
     }
 
-    var hasHiddenImports = allImports.length > imports.length;
-    var hasHiddenImporters = allImporters.length > importers.length;
+    var importNodes = renderLane(importLayout, leftX, "#35c98f", "imports", "Imported dependency", "Imported subsystem");
+    var importerNodes = renderLane(importerLayout, rightX, "#ffad42", "importers", "Impacted module", "Impacted subsystem");
+
+    var hasHiddenImports = !importLane.grouped && allImports.length > imports.length;
+    var hasHiddenImporters = !importerLane.grouped && allImporters.length > importers.length;
     var canMinimizeImports = state.flowShowAll && allImports.length > state.neighborLimit;
     var canMinimizeImporters = state.flowShowAll && allImporters.length > state.neighborLimit;
 
@@ -2432,8 +2676,8 @@
       for (var z = 0; z < externalItems.length; z++) {
         var externalItem = externalItems[z];
         var isMorePlaceholder = externalItem.name.charAt(0) === "+";
-        var extSubtitle = isMorePlaceholder ? "" : "external dependency";
-        var extNode = createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", extSubtitle, isMorePlaceholder ? "" : "External import: " + externalItem.name + "\nImported by " + selected, false, true, "");
+        var extSubtitle = isMorePlaceholder ? "" : externalImportSubtitle(externalItem.name);
+        var extNode = createNode(externalItem.name, externalItem.x, externalItem.y, externalWidth, externalItem.h, "#b9c0d0", extSubtitle, isMorePlaceholder ? "" : externalImportTooltip(externalItem.name, selected), false, true, "");
         if (!isMorePlaceholder) externalEdgeNodes.push(extNode);
       }
       /* Draw subtle edges from center to each external import node */
@@ -2770,6 +3014,86 @@
       wrap.scrollTop = previousScrollTop;
       wrap.style.removeProperty("scroll-behavior");
     }
+  }
+
+  /* ── Lane grouping ─────────────────────────────────────────────────────── */
+
+  function groupLaneModules(names) {
+    var buckets = Object.create(null);
+    var order = [];
+    for (var i = 0; i < names.length; i++) {
+      var key = moduleSubsystem(names[i]);
+      if (!buckets[key]) {
+        buckets[key] = [];
+        order.push(key);
+      }
+      buckets[key].push(names[i]);
+    }
+    var groups = [];
+    for (var j = 0; j < order.length; j++) {
+      groups.push({ key: order[j], label: order[j], members: buckets[order[j]].slice() });
+    }
+    /* Largest subsystems first; the input order (by score) is kept inside each group. */
+    groups.sort(function (a, b) { return b.members.length - a.members.length || a.key.localeCompare(b.key); });
+    return groups;
+  }
+
+  function buildLaneEntries(allNames, laneKey) {
+    var names = Array.isArray(allNames) ? allNames : [];
+    var limit = Math.max(1, Number(state.neighborLimit) || 8);
+    var total = names.length;
+    if (state.flowShowAll || total <= limit) {
+      var visible = state.flowShowAll ? names.slice() : names.slice(0, limit);
+      var flat = [];
+      for (var i = 0; i < visible.length; i++) flat.push({ type: "module", name: visible[i], nested: false });
+      return { grouped: false, entries: flat, visibleModules: visible, total: total, groups: [] };
+    }
+
+    var groups = groupLaneModules(names);
+    var expanded = (state.laneGroupsExpanded && state.laneGroupsExpanded[laneKey]) || Object.create(null);
+    var entries = [];
+    var shown = [];
+    for (var g = 0; g < groups.length; g++) {
+      var group = groups[g];
+      if (group.members.length === 1) {
+        entries.push({ type: "module", name: group.members[0], nested: false });
+        shown.push(group.members[0]);
+        continue;
+      }
+      var isOpen = Boolean(expanded[group.key]);
+      entries.push({ type: "group", key: group.key, label: group.label, members: group.members, expanded: isOpen });
+      if (!isOpen) continue;
+      for (var m = 0; m < group.members.length; m++) {
+        entries.push({ type: "module", name: group.members[m], nested: true, groupKey: group.key });
+        shown.push(group.members[m]);
+      }
+    }
+    return { grouped: true, entries: entries, visibleModules: shown, total: total, groups: groups };
+  }
+
+  function toggleLaneGroup(laneKey, groupKey) {
+    return function () {
+      if (!state.laneGroupsExpanded[laneKey]) state.laneGroupsExpanded[laneKey] = Object.create(null);
+      var lane = state.laneGroupsExpanded[laneKey];
+      if (lane[groupKey]) delete lane[groupKey];
+      else lane[groupKey] = true;
+      /* Keep the scroll position: the group opens in place. */
+      state.flowScrollTarget = "";
+      scheduleRender();
+    };
+  }
+
+  function drawLaneGuide(layer, groupNode, lastMember, color) {
+    var x = groupNode.x + 9;
+    var top = groupNode.y + groupNode.h;
+    var bottom = lastMember.y + lastMember.h / 2;
+    if (bottom <= top) return;
+    var path = createSvgNode("path", {
+      d: "M " + x + " " + top + " L " + x + " " + bottom + " L " + lastMember.x + " " + bottom,
+      "class": "flow-line lane-guide",
+      stroke: color
+    });
+    layer.appendChild(path);
   }
 
   function isTypingTarget(target) {
@@ -3128,13 +3452,18 @@
 
   function setCache(data, commitSha) {
     try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({
+      var json = JSON.stringify({
         schema: CACHE_SCHEMA_VERSION,
         ts: Date.now(),
         commitSha: commitSha || "",
         data: data
-      }));
-    } catch (e) {}
+      });
+      if (json.length > CACHE_MAX_CHARS) return false;
+      localStorage.setItem(CACHE_KEY, json);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   function getLiveSyncMeta() {
@@ -3219,8 +3548,11 @@
     });
   }
 
+  /* Production Lean by the published scope: the library tree without the
+     in-tree testing framework, plus the kernel entry module. */
   function isLeanModulePath(path) {
-    return /^SeLe4n\/.*\.lean$/.test(path || "");
+    var candidate = String(path || "");
+    return /^SeLe4n\/(?!Testing\/).*\.lean$/.test(candidate) || candidate === "Main.lean";
   }
 
   function moduleInventoryFromTree(tree) {
@@ -3619,11 +3951,17 @@
   }
 
   /* The canonical artifact inventories production AND test modules, while the
-     bundled snapshot graphs the production corpus alone — the same modules the
-     landing page counts. Applying the artifact verbatim replaced a 311-module
-     map with a 381-module one, so a networked visit silently disagreed with
-     index.html. Scope the live payload the way scripts/sync-upstream.mjs scopes
-     the bundled one. */
+     bundled snapshot graphs the published production scope alone — the same
+     modules the landing page counts. Applying the artifact verbatim replaced a
+     311-module map with a 381-module one, so a networked visit silently
+     disagreed with index.html. Scope the live payload the way
+     scripts/sync-upstream.mjs scopes the bundled one: nothing under tests/, and
+     nothing from the in-tree testing framework under SeLe4n/Testing/. */
+  function isOutsideProductionScope(path) {
+    var candidate = String(path || "");
+    return candidate.indexOf("tests/") === 0 || candidate.indexOf("SeLe4n/Testing/") === 0;
+  }
+
   function productionScopedPayload(payload) {
     if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return payload;
 
@@ -3634,7 +3972,7 @@
 
     scoped.modules = payload.modules.filter(function (entry) {
       if (!entry || typeof entry !== "object") return true;
-      return String(entry.path || "").indexOf("tests/") !== 0;
+      return !isOutsideProductionScope(entry.path);
     });
 
     return scoped;
@@ -3743,7 +4081,7 @@
     buildSearchIndex();
 
     buildPairs();
-    if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
+    if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = defaultModuleName();
     if (state.flowContext === "declaration" && state.selectedDeclaration) {
       var resolvedModule = declarationModuleOf(state.selectedDeclaration);
       if (resolvedModule && state.moduleMap[resolvedModule]) {
@@ -3980,7 +4318,7 @@
           state.commitSha = latestCommitSha || "";
           state.generatedAt = new Date().toISOString();
           buildPairs();
-          if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = state.modules[0] || null;
+          if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = defaultModuleName();
           scheduleRender();
           syncUrlState();
           var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
@@ -4717,9 +5055,10 @@
           returnToModuleContext();
         }
 
-        /* Reset selected module to the first module (same default as initial data load) */
-        var firstModule = state.modules[0] || null;
+        /* Reset to the same module a first visit opens on */
+        var firstModule = defaultModuleName();
         state.selectedModule = firstModule;
+        state.laneGroupsExpanded = { imports: Object.create(null), importers: Object.create(null) };
 
         /* Clear interior menu state */
         state.interiorMenuModule = "";
@@ -4854,6 +5193,15 @@
     });
   }
 
+  function setupLocaleRerender() {
+    /* Everything below the hero is rendered from data with t() lookups at
+       render time, so a locale switch only needs a repaint. */
+    window.addEventListener("sele4n:locale-changed", function () {
+      LABEL_WRAP_CACHE.clear();
+      scheduleRender();
+    });
+  }
+
   function setupFlowchartResize() {
     var resizeTimer = null;
     window.addEventListener("resize", function () {
@@ -4882,6 +5230,7 @@
     setupFilters();
     setupKeyboardNavigation();
     setupFlowchartResize();
+    setupLocaleRerender();
     setupLiveSyncPolling();
     hydrateFilterControls();
 
@@ -4963,6 +5312,20 @@
       relatedProofModules: relatedProofModules,
       findNearestLinkedPath: findNearestLinkedPath,
       buildPairs: buildPairs,
+      defaultModuleName: defaultModuleName,
+      defaultModule: function () { return DEFAULT_MODULE; },
+      moduleSubsystem: moduleSubsystem,
+      groupLaneModules: groupLaneModules,
+      buildLaneEntries: buildLaneEntries,
+      isOutsideProductionScope: isOutsideProductionScope,
+      isLeanModulePath: isLeanModulePath,
+      isInRepoOutsideScope: isInRepoOutsideScope,
+      pickInteriorMenuGroup: pickInteriorMenuGroup,
+      formatCount: formatCount,
+      setCache: setCache,
+      cacheMaxChars: function () { return CACHE_MAX_CHARS; },
+      isLibraryRoot: isLibraryRoot,
+      externalImportSubtitle: externalImportSubtitle,
       applyTestState: function (patch) {
         if (patch.declarationGraph) state.declarationGraph = patch.declarationGraph;
         if (patch.declarationReverseGraph) state.declarationReverseGraph = patch.declarationReverseGraph;
@@ -4979,6 +5342,12 @@
         if (typeof patch.declarationLanesExpanded === "boolean") state.declarationLanesExpanded = patch.declarationLanesExpanded;
         if (typeof patch.flowContext === "string") state.flowContext = patch.flowContext;
         if (typeof patch.selectedDeclaration === "string") state.selectedDeclaration = patch.selectedDeclaration;
+        if (typeof patch.selectedModule === "string") state.selectedModule = patch.selectedModule;
+        if (typeof patch.neighborLimit === "number") state.neighborLimit = patch.neighborLimit;
+        if (typeof patch.flowShowAll === "boolean") state.flowShowAll = patch.flowShowAll;
+        if (patch.laneGroupsExpanded) state.laneGroupsExpanded = patch.laneGroupsExpanded;
+        if (patch.files) state.files = patch.files;
+        if (typeof patch.commitSha === "string") state.commitSha = patch.commitSha;
         // Rebuild declarationIndex from moduleMeta when moduleMeta is patched
         if (patch.moduleMeta && !patch.declarationIndex) {
           var idx = Object.create(null);

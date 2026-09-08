@@ -9,6 +9,66 @@ The map page provides a single operational and proof-aware architecture view of 
 - module metadata,
 - and source-level symbol interior links.
 
+## Page structure (0.30.0)
+
+`map.html` is the **Lean module workspace**: toolbar, flow chart and the
+declaration sidebar. The hero above it is one compact block: title, lead, live
+status, the snapshot timestamp and a one-line stats strip (`Lean modules`,
+`Theorems`, `Import edges`, `Ops/Inv pairs`, `Linked pairs`, `Files`). Every
+count is grouped by the active locale (`formatCount()`).
+
+### Default view
+
+With no `module=` in the URL the workspace opens on **`SeLe4n.Kernel.API`**,
+the kernel's unified public API — the entry-point surface the subsystems
+compose into. `DEFAULT_MODULE` is declared once in `assets/js/map.js`;
+`defaultModuleName()` returns it when the snapshot carries it and the first
+module in inventory order otherwise. Reset returns to the same view.
+
+The previous release opened on `Main`: it sorted modules by name and selected
+the first. Its live tree rebuild then dropped `Main.lean` (the path filter only
+admitted `SeLe4n/**`), the selection became invalid, and the chooser fell back
+to the first entry of the score-sorted list,
+`SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership` — so a networked
+visitor saw one module for a few seconds and another afterwards. The tree path
+now keeps `Main.lean` (`isLeanModulePath`).
+
+### Subsystem-grouped lanes
+
+`SeLe4n.Kernel.API` imports 46 modules; a lane budget of eight used to show
+eight of them and a "+38 more imports" node. Over budget, a lane now groups its
+modules by `moduleSubsystem()` — the parent namespace capped at three segments,
+so `SeLe4n.Kernel.IPC.Invariant.Defs` files under `SeLe4n.Kernel.IPC` and
+`SeLe4n.Kernel.API` under `SeLe4n.Kernel` — and renders one node per group
+(largest first; singletons stay plain module nodes). Clicking a group opens it
+in place: its members render indented below it on a dotted guide rail and the
+scroll position is kept. Group state is transient and resets on module change.
+Expanded flow mode (`fullflow=1`) still lists every module flat.
+
+### Chart width
+
+The flow chart is laid out at `max(minimumFlowWidth(), column width)`, where
+the minimum is 900 from 900px up (and scales with the viewport on phones), and
+`.flowchart-svg` is `width: auto; min-width: 100%`, so the SVG is never drawn
+below 1:1: a layout wider than its column scrolls sideways inside
+`.flowchart-wrap`. The first 0.30.0 kept a fixed 1180px minimum and
+`width: 100%`, which scaled the chart to 0.58–0.86 beside the sidebar at every
+desktop width; `scripts/map-smoke.mjs` now asserts the rendered width equals
+the `width` attribute at six desktop widths.
+
+### Declaration sidebar
+
+The interior declaration explorer is a sidebar beside the chart on viewports of
+90rem (1440px) and up — the narrowest width that leaves the chart a ~900px
+column — sticky, so a click in it always shows its effect on the chart, with a
+viewport-bound list height so it fits a 720px-tall screen while pinned. Below
+90rem it stacks under the chart. It shows the module name with a source link
+and a one-line summary (declarations, theorems, fan-in/out, assurance), the
+filter box, three tabs (`Objects`, `Contexts/Inits`, `Extensions`, each with
+its count) and, for the active tab, the kind selector and the declaration list.
+The active tab is remembered across module changes; the first non-empty group
+opens by default. Tabs are a `role="tablist"` with Arrow/Home/End roving focus.
+
 ## Where the bundled snapshot comes from
 
 `data/map-data.json` is built by `scripts/sync-upstream.mjs`, the site's single

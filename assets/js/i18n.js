@@ -98,13 +98,47 @@
   /* ── String lookup with interpolation ─────────────────── */
 
   function t(key, vars) {
-    var value = lookup(key);
+    var value = lookupForCount(key, vars);
     if (!value) return key;
     if (!vars) return value;
 
     return value.replace(/\{\{(\w+)\}\}/g, function (match, name) {
-      return vars[name] !== undefined ? String(vars[name]) : match;
+      var replacement = vars[name];
+      if (replacement === undefined) return match;
+      return typeof replacement === "number" ? formatNumber(replacement) : String(replacement);
     });
+  }
+
+  /* Plural forms: when `vars.count` is a number and the locale carries
+     `key_one` / `key_few` / `key_many` / `key_other` variants, pick the CLDR
+     category for the count (Ukrainian needs four; English two; Japanese and
+     Chinese one). A key with no variants resolves as before. */
+  function lookupForCount(key, vars) {
+    if (vars && typeof vars.count === "number") {
+      var variant = lookup(key + "_" + pluralCategory(vars.count));
+      if (variant) return variant;
+      var fallback = lookup(key + "_other");
+      if (fallback) return fallback;
+    }
+    return lookup(key);
+  }
+
+  function pluralCategory(count) {
+    try {
+      return new Intl.PluralRules(currentLocale).select(count);
+    } catch (e) {
+      return count === 1 ? "one" : "other";
+    }
+  }
+
+  /* Digits are grouped the way the active locale groups them (10,929 in
+     English, 10 929 in Ukrainian, 10.929 in Spanish). */
+  function formatNumber(value) {
+    try {
+      return new Intl.NumberFormat(currentLocale).format(value);
+    } catch (e) {
+      return String(value);
+    }
   }
 
   function lookup(key) {
@@ -306,6 +340,8 @@
   var api = {
     t: t,
     locale: function () { return currentLocale; },
+    formatNumber: formatNumber,
+    pluralCategory: pluralCategory,
     setLocale: setLocale,
     supportedLocales: function () { return SUPPORTED_LOCALES.slice(); },
     localeLabels: function () {

@@ -1112,3 +1112,88 @@ the correction.
 The scanner remains a line scanner, not a parser: it reads one item header
 per line after comments and strings are blanked, skips bodies by brace depth,
 and reports items inside inline `mod` blocks with their module path.
+
+## Code map workspace redesign (0.30.0)
+
+The first 0.30.0 landed and was reverted within an hour: the chart rendered
+wrong on desktop, and a sentence described a default view the previous release
+never had. The redesign is re-landed here with the audit's findings folded in,
+and each decision below records what it corrects.
+
+### Default view
+
+The workspace opens on `SeLe4n.Kernel.API` whenever the URL carries no
+`module=`. It is the kernel's unified public API — the module's own docstring
+calls it "the public entry-point surface for the seLe4n kernel model" — and the
+block the landing page's architecture diagram links to, so it is the right
+first thing to see; the earlier copy called it "the syscall surface", which is
+`SeLe4n.Kernel.SyscallDispatchEntry`'s job. `DEFAULT_MODULE` is declared once;
+`defaultModuleName()` falls back to the first module only when the snapshot
+lacks the API module.
+
+What the previous release did is worth recording accurately, because the first
+0.30.0 got it wrong: it opened on `Main`, the first module after
+`normalizeMapData` sorted the inventory by name. Its live tree rebuild then
+dropped `Main.lean` — `isLeanModulePath` admitted only `SeLe4n/**` — so the
+selection became invalid and `renderContextChooser` fell back to the first
+entry of the score-sorted list, `…IPC.Invariant.Structural.DualQueueMembership`.
+The docs had described that second state as "the default". The tree path now
+keeps `Main.lean`; the score heuristic stays out of the default.
+
+### Subsystem-grouped lanes
+
+A lane over the detail budget groups its modules by parent namespace
+(`moduleSubsystem`, capped at three segments) and renders one node per group;
+clicking a group opens its members in place on a guide rail, keeping the scroll
+position. The "+N more" cut survives only in expanded flow mode.
+
+### The chart is never drawn below 1:1
+
+`minimumFlowWidth()` used to return a fixed 1180 for every viewport over
+900px, and `.flowchart-svg { width: 100% }` scaled the SVG to fit its column.
+That was harmless while the chart spanned the container, and fatal once the
+declaration sidebar took 360px of the row: the column was 738–1071px at
+1200–1536px, and the chart rendered at 0.58–0.86 with 11px labels painting at
+7–9px. Measured on the reverted build:
+
+| Viewport | Chart column | Scale |
+|---|---|---|
+| 1200 | 738 | 0.578 |
+| 1280 | 815 | 0.644 |
+| 1366 | 901 | 0.716 |
+| 1440 | 975 | 0.779 |
+| 1536 | 1071 | 0.860 |
+| 1920 | 1199 | 0.969 |
+
+Two rules replace that. The SVG is `width: auto; min-width: 100%` at every
+width, so it is never drawn below 1:1 and a layout wider than its frame scrolls
+inside `.flowchart-wrap` (the behaviour phones already had). And the desktop
+minimum is 900 — the narrowest width at which three lanes stay readable — so
+the layout is `max(900, column width)` and the column decides above that. The
+two-column breakpoint moved from 75rem to **90rem** (1440px), the narrowest
+viewport that leaves the chart a ~900px column beside a 22.5rem sidebar; below
+it the sidebar stacks under the chart, as it did below 75rem before. The
+pinned sidebar's list height is `calc(100vh − nav − 20rem)` so the sidebar
+fits a 720px-tall screen. `scripts/map-smoke.mjs` asserts the rendered SVG
+width equals its `width` attribute at 1200, 1280, 1366, 1440, 1536 and 1920,
+the sidebar placement on both sides of 90rem, and the pinned sidebar at
+1440×720; CI runs it on every push.
+
+### The map cache is bundle-first in practice
+
+`localStorage` allows about 5M UTF-16 units per origin. The serialized map
+snapshot is past that, so `setCache()`'s write threw and was swallowed on
+every visit, and the schema-4 hydration and retention paths ran only in unit
+tests. `setCache()` now returns `false` above `CACHE_MAX_CHARS` (4 MiB of
+UTF-16 units) without attempting the write. The cache code stays — it is
+correct for smaller snapshots — but the documentation and the design no longer
+lean on it: every visit renders the bundled snapshot and then refreshes live.
+
+### Plural forms and digit grouping
+
+`t(key, { count })` resolves plural families (`key_one` / `key_few` /
+`key_many` / `key_other`, chosen by `Intl.PluralRules`) and groups numeric
+values by the active locale; `formatCount()` in `map.js` does the same for the
+stats strip. The parity test compares plural forms as families, since Ukrainian
+needs four and Japanese one. This replaces strings such as "1 modules" and a
+comma hard-coded into every locale.

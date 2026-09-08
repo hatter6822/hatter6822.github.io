@@ -89,6 +89,7 @@ node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
 node scripts/lib/i18n-locales.test.mjs
+node scripts/lib/i18n-runtime.test.mjs
 ```
 
 ## Runtime data strategy
@@ -113,6 +114,25 @@ tested and validated in CI.
 
 `map.html` and `run.html` still refresh their larger payloads from GitHub, with
 the bundled snapshot as the fallback.
+
+## Code map layout (0.30.0)
+
+`map.html` is the **Lean module workspace**. It opens on `SeLe4n.Kernel.API`
+— the kernel's unified public API, the entry-point surface the subsystems
+compose into — whenever the URL carries no `module=`. Its flow chart shows the
+selected module's imports, dependents, proof pair, nearest linked-proof path
+and external imports; a lane with more modules than the detail budget is
+grouped by subsystem (`SeLe4n.Kernel.IPC`, `SeLe4n.Kernel.Architecture`, …)
+and each group opens in place. The chart is always drawn at full size and
+scrolls inside its frame when it is wider than its column. The declaration
+sidebar lists the module's interior declarations in three tabs (Objects,
+Contexts/Inits, Extensions); from 1440px it sits beside the chart and follows
+the scroll, below that it stacks under the chart.
+
+`node scripts/map-smoke.mjs` checks all of this in headless Chromium against a
+local static server (`python3 -m http.server 4173`); it needs `playwright-core`
+on `NODE_PATH` or installed next to the repository. `.github/workflows/ci.yml`
+runs it, and every unit test and validator, on each push and pull request.
 
 ## Code map declaration context and interior explorer
 

@@ -30,6 +30,7 @@ node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/static-values.test.mjs
 node scripts/lib/i18n-locales.test.mjs
+node scripts/lib/i18n-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 
 # Bundled data integrity
@@ -60,7 +61,7 @@ node scripts/apply-static-values.mjs   # stamp index.html + locales/*.json from 
 | 1 | Unit tests (`scripts/lib/*.test.mjs`) | Every commit |
 | 2 | Data validation (`scripts/validate-data.mjs`) | Every commit, after data changes |
 | 3 | Manual browser verification (desktop + mobile) | UI/layout changes |
-| 4 | Playwright nav stability probe (`scripts/nav-stability-smoke.py`) | Navigation behavior changes |
+| 4 | Playwright probes: `scripts/map-smoke.mjs` (code map layout and behaviour in headless Chromium; CI runs it on every push) and `scripts/nav-stability-smoke.py` (navigation) | Map layout, navigation or scroll behaviour changes |
 
 Run at least Tiers 0-2 before any commit. Tier 3 for front-end changes. Tier 4 when touching navigation or scroll behavior.
 
@@ -70,12 +71,13 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~4,985 | Largest runtime; read in chunks of ≤500 lines |
+| `assets/js/map.js` | ~5,380 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~2,240 | Map runtime tests |
 | `assets/css/style.css` | ~2,020 | Global design system |
 | `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
-| `assets/css/map.css` | ~818 | Map-specific styles |
+| `assets/css/map.css` | ~980 | Map-specific styles (hero, workspace, chart, sidebar) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
-| `scripts/lib/rust-analysis.mjs` | ~640 | Rust crate inventory scanner |
+| `scripts/lib/rust-analysis.mjs` | ~750 | Rust crate inventory scanner |
 | `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
@@ -98,6 +100,13 @@ statistics come from `data/site-data.json` alone, which
 `docs/codebase_map.json`; `index.html` ships with those same values stamped into
 the markup, so a failed fetch degrades to the correct numbers. `connect-src` is
 `'self'` on that page to keep it that way.
+
+**`map.html` is bundle-first in practice.** The serialized map snapshot is past
+the ~5M-unit `localStorage` quota, so step 2 never has anything to hydrate:
+`setCache()` skips the write above `CACHE_MAX_CHARS` (4 MiB of UTF-16 units)
+and returns `false` instead of throwing into an empty `catch`. The cache code
+stays (it works for smaller snapshots and the unit tests cover it), but no
+feature may depend on the map cache persisting between visits.
 
 ### One pipeline, one revision
 
@@ -157,6 +166,53 @@ its own copy of the `data-live` spans **and the numbers inside them**. They
 silently drifted to `546` while `index.html` said `574`. Any change touching a
 metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
 `locales/` must be committed together.
+
+### Code map page structure (0.30.0)
+
+`map.html` is the **Lean module workspace**: toolbar, flow chart and the
+declaration sidebar. Production code is the subject.
+
+- The workspace opens on `SeLe4n.Kernel.API` whenever the URL carries no
+  `module=`. `DEFAULT_MODULE` in `map.js` is the one place that says so;
+  `defaultModuleName()` falls back to the first module only when the snapshot
+  lacks the API module. The previous release opened on `Main` (the first
+  module in name order); when a live tree rebuild dropped `Main.lean`, the
+  chooser fell back to the top-scored module,
+  `SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership`. Never
+  reintroduce the score heuristic as a default, and keep `Main.lean` in the
+  tree path (`isLeanModulePath`).
+- A lane with more modules than the detail budget groups them by
+  `moduleSubsystem()` (the parent namespace, capped at three segments) and opens
+  each group in place. The budget cut ("+38 more imports") is kept only for
+  expanded flow mode.
+- **The chart is never drawn below 1:1.** `.flowchart-svg` is `width: auto;
+  min-width: 100%` at every width, and `minimumFlowWidth()` returns 900 from
+  900px up, so the layout is `max(900, column width)` and a wider layout
+  scrolls inside `.flowchart-wrap`. Never put `width: 100%` back on the SVG
+  and never raise the desktop minimum: a fixed 1180 beside the sidebar scaled
+  the chart to 0.58–0.86 at every desktop width, which is what got 0.30.0
+  reverted the first time.
+- The declaration sidebar sits beside the chart only from **90rem** (1440px),
+  the narrowest viewport that leaves the chart a ~900px column beside a
+  22.5rem sidebar (75rem left 738px). It is sticky there, and its list height
+  is viewport-bound so the pinned sidebar fits a 720px-tall screen. Below
+  90rem it stacks under the chart.
+- Imports the graph does not contain are labelled by what they are: `SeLe4n`
+  is "in-repo · library root", `SeLe4n.Testing.*` is "in-repo · outside
+  production scope", everything else "external dependency".
+- Re-selecting the current module must not repaint the declaration sidebar
+  unless it shows another module: the search field's `change` fires on blur,
+  and rebuilding the list under the pointer swallowed the click that caused it.
+- Count labels use plural families (`key_one` / `key_few` / `key_many` /
+  `key_other`) resolved by `t(key, { count })`, and every number handed to
+  `t()` or `formatCount()` is grouped by the active locale (`10,929`,
+  `10 929`, `10.929`). Never hard-code a separator or a plural in a string.
+- `node scripts/map-smoke.mjs` renders the page in headless Chromium and
+  asserts the guarantees above (chart at 1:1 at 1200–1920, sidebar placement,
+  the pinned sidebar at 720p, no sideways overflow, clean console, both
+  themes, a Spanish deep link). `.github/workflows/ci.yml` runs it with the
+  runner's Chrome on every push. A layout guarantee the docs make gets a probe
+  assertion.
 
 ### Rust crate inventory (`map-data.json#rust`)
 
@@ -278,6 +334,8 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Change area | Primary file(s) |
 |-------------|-----------------|
 | Map graph behavior | `assets/js/map.js` |
+| Map browser smoke probe | `scripts/map-smoke.mjs` |
+| Continuous integration | `.github/workflows/ci.yml` |
 | Map controls/layout | `map.html`, `assets/css/map.css` |
 | Landing page metrics | `assets/js/site.js`, `index.html` |
 | Navigation behavior | `assets/js/header-nav.js` |

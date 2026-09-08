@@ -141,8 +141,27 @@ assert(/\.interior-menu-item-btn:focus-visible\s*\{[^}]*outline:/s.test(css), "i
 // CSS: interior menu items list should use thin scrollbar for space efficiency
 assert(/\.interior-menu-items\s*\{[^}]*scrollbar-width:\s*thin/s.test(css), "interior menu items list should use thin scrollbar");
 
-// CSS: interior menu grid should use min() to prevent overflow on narrow screens
-assert(/\.interior-menu-grid\s*\{[^}]*minmax\(min\(16rem,\s*100%\)/s.test(css), "interior menu grid should use min() in minmax to prevent overflow on narrow viewports");
+// CSS: the declaration sidebar sits beside the chart on wide viewports and stacks below it otherwise
+assert(/\.workspace-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s.test(css), "workspace grid should default to a single column so the chart keeps its width on narrow viewports");
+assert(/@media \(min-width: 90rem\)[^{]*\{[\s\S]*?\.workspace-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(/.test(css), "workspace grid should add the sidebar column only from 90rem, where the chart keeps a ~900px column");
+assert(/\.flowchart-svg\s*\{[^}]*width:\s*auto;\s*min-width:\s*100%/.test(css), "the flow chart SVG must never be scaled below 1:1 (width: auto; min-width: 100%)");
+assert(!/\.flowchart-svg\s*\{[^}]*[{;]\s*width:\s*100%;/.test(css), "no rule may scale the flow chart to its column");
+assert(/else result = 900;/.test(mapJs), "the desktop minimum flow width is 900; the column decides above that");
+assert(/\.declaration-explorer\s*\{[^}]*position:\s*sticky/s.test(css), "declaration sidebar should be sticky on desktop so a click in it shows its effect on the chart");
+
+// HTML/JS: the declaration explorer is a tabbed single list, not three side-by-side columns
+assert(/class="declaration-explorer"/.test(html), "map markup should place the interior menu inside the declaration-explorer sidebar");
+assert(/setAttribute\("role",\s*"tablist"\)/.test(mapJs), "interior menu should expose its group switcher as a tablist");
+assert(/interior-menu-tab\b/.test(mapJs) && /\.interior-menu-tab\[aria-selected="true"\]/.test(css), "interior menu tabs should exist and style the selected tab");
+assert(!/interior-menu-grid/.test(mapJs), "interior menu should no longer render the three-column grid");
+
+// JS: the default module is the kernel API surface, and the grouped lanes exist
+assert(/var DEFAULT_MODULE = "SeLe4n\.Kernel\.API"/.test(mapJs), "the workspace should default to SeLe4n.Kernel.API");
+assert(/function buildLaneEntries\(/.test(mapJs) && /function groupLaneModules\(/.test(mapJs), "over-budget lanes should group modules by subsystem");
+assert(/\.flow-node\.lane-group\s+rect/.test(css), "subsystem group nodes should have their own style");
+
+// CSS: the production badge on the workspace heading has its own style
+assert(/\.production-badge\b/.test(css), "production badge style should exist");
 
 // CSS: interior menu item navigable should prevent flex wrapping
 assert(/\.interior-menu-item-navigable\s*\{[^}]*flex-wrap:\s*nowrap/s.test(css), "interior menu item navigable should prevent flex wrapping");

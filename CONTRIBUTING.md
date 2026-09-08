@@ -37,6 +37,7 @@ node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
 node scripts/lib/i18n-locales.test.mjs
+node scripts/lib/i18n-runtime.test.mjs
 node scripts/validate-data.mjs
 node scripts/validate-traces.mjs
 node --check assets/js/map.js
@@ -58,10 +59,11 @@ If you changed UI behavior or layout:
    silently loses and the desktop value leaks into the mobile layout — the most
    common source of layout defects in this repo. See the "CSS override weight"
    section in `CLAUDE.md` before adding a rule inside `@media` or `@supports`.
-3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills).
+3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills, Arrow keys across the declaration tabs).
 4. Confirm declaration context switching works (click declaration → flowchart shows calls/callers → breadcrumb navigation returns to module).
-5. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
-6. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
+5. On `map.html` with no URL state: the workspace opens on `SeLe4n.Kernel.API`, over-budget lanes are grouped by subsystem and open in place, the flow chart is drawn at full size (its rendered width equals its `width` attribute) at 1280, 1366, 1440 and 1920px, and the declaration sidebar sits beside the chart from 1440px and below it under that. `node scripts/map-smoke.mjs` checks all of this in headless Chromium (see `docs/TESTING.md`); CI runs it on every push.
+6. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
+7. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
 
 ## Data/sync change checklist
 

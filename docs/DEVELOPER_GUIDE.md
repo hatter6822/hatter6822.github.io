@@ -65,6 +65,7 @@ Owns:
 - map-specific hero, summary stats, and toolbar shell.
 - `#flowchart-wrap` rendering target for graph content.
 - compact control surface (context search + reset).
+- the workspace grid: `#flowchart-wrap` and the `.declaration-explorer` sidebar (`#flow-node-interior-menu`), side by side from 90rem and stacked below that.
 - map status and stat placeholders (`data-map="..."`).
 - script load order:
   1. `theme-init.js` in head.
@@ -102,11 +103,12 @@ Internationalization runtime for multi-language support. Responsibilities:
 - detects preferred locale from URL param (`?lang=`), `localStorage`, or browser `navigator.languages`.
 - fetches the appropriate locale JSON bundle from `/locales/<code>.json`.
 - walks the DOM translating elements with `data-i18n`, `data-i18n-placeholder`, `data-i18n-aria-label`, `data-i18n-title`, and `data-i18n-content` attributes.
-- exposes `window.sele4nI18n` API for JS-side translations: `t(key, vars)`, `setLocale(locale)`, `locale()`, `onReady(cb)`, `translateDOM()`.
-- supports interpolation via `{{variable}}` placeholders in locale strings.
+- exposes `window.sele4nI18n` API for JS-side translations: `t(key, vars)`, `setLocale(locale)`, `locale()`, `formatNumber(n)`, `pluralCategory(n)`, `onReady(cb)`, `translateDOM()`.
+- supports interpolation via `{{variable}}` placeholders in locale strings; a numeric value is grouped by the active locale (`Intl.NumberFormat`).
+- resolves plural families: when `vars.count` is a number and the bundle carries `key_one` / `key_few` / `key_many` / `key_other`, `t()` picks the CLDR category for the count (`Intl.PluralRules`) and falls back to `key_other`, then to `key`. `i18n-locales.test.mjs` compares families across locales; `i18n-runtime.test.mjs` exercises the resolution.
 - initializes and manages the language switcher dropdown UI in the navigation bar.
 - fires `sele4n:locale-changed` CustomEvent when the locale changes.
-- supported locales: `en`, `es`, `fr`, `ja`, `zh-CN`.
+- supported locales: `en`, `es`, `fr`, `ja`, `uk`, `zh-CN`.
 
 ### `locales/*.json`
 Locale string bundles organized by page section. Structure mirrors the site's section hierarchy (`nav`, `hero`, `about`, `architecture`, `comparison`, `features`, `security`, `verification`, `api`, `structure`, `getting_started`, `roadmap`, `footer`, `map`). Each key maps to a translated string with optional `{{variable}}` interpolation.
@@ -151,6 +153,13 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - caches frequently queried DOM elements (`flowchartWrap`, `moduleSearch`, `moduleSearchOptions`, `moduleSearchFeedback`, `moduleSearchLabel`, `flowNodeInteriorMenu`, `mapStatus`, `mainContent`, `moduleResults`) once at boot in a `DOM` namespace object via `cacheDomElements()` to avoid repeated `getElementById` calls during render cycles. All DOM-accessing functions use `DOM.xxx || document.getElementById(...)` fallback pattern.
 - uses batch eviction (120 entries per cycle via `LABEL_WRAP_CACHE_EVICT_BATCH`) for the label-wrap cache to amortize eviction cost and prevent single-entry churn on cache-full renders.
 - manages map status messaging and sync lifecycle feedback.
+- builds the tabbed declaration sidebar (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration; remembers the active tab across module changes.
+- opens on `DEFAULT_MODULE` (`SeLe4n.Kernel.API`) when the URL names no module (`defaultModuleName()`), on load, after a tree rebuild, and on Reset.
+- groups over-budget lanes by subsystem (`moduleSubsystem`, `groupLaneModules`, `buildLaneEntries`, `toggleLaneGroup`, `drawLaneGuide`) and opens groups in place.
+- lays the flow chart out at `max(minimumFlowWidth(), column width)`; from 900px up the minimum is 900, and the CSS never scales the SVG below 1:1, so a wider layout scrolls inside its frame rather than shrinking its text.
+- scopes live payloads and the tree-rebuild path the way the bundle is scoped (`isOutsideProductionScope`, `isLeanModulePath`: nothing under `tests/` or `SeLe4n/Testing/`, plus `Main.lean`), and labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
+- writes the `localStorage` cache only when the serialized snapshot is under `CACHE_MAX_CHARS`; `setCache()` returns whether it wrote. The bundled map is past the quota, so the page is bundle-first in practice.
+- formats every count for the active locale (`formatCount` → `Intl.NumberFormat(document.documentElement.lang)`).
 
 If the map visualization, interactions, or data compatibility changes, this is the primary file.
 
@@ -174,6 +183,8 @@ Map-page-only styles:
 - CSS `contain: layout style` on flowchart container for rendering performance.
 - `focus-visible` outlines on interior menu buttons and source links for keyboard accessibility.
 - responsive breakpoints for interior menu items (mobile touch targets, landscape compaction, narrow viewport overflow prevention).
+- the workspace grid: single column by default; chart + sticky declaration sidebar side by side from `90rem`, where the chart keeps a ~900px column; the pinned sidebar's list is viewport-bound so it fits a 720px-tall screen.
+- `.flowchart-svg { width: auto; min-width: 100% }` at every width — the chart is never scaled below 1:1 (a `width: 100%` here once shrank it to 58–86% beside the sidebar).
 - map-specific responsive/mobile tuning.
 
 ### `assets/css/run.css`
@@ -312,6 +323,17 @@ Schema gate plus fold dry-run for `data/execution-traces.json`; warns when the b
 ### `scripts/nav-stability-smoke.py`
 Optional Playwright smoke probe for nav-hash stability and active-link determinism across browsers.
 
+### `scripts/map-smoke.mjs`
+Headless-Chromium probe for `map.html` (Tier 3/4; needs `playwright-core` and a
+static server on port 4173): the default module, grouped lanes, sidebar-driven
+declaration context, the flow chart drawn at 1:1 at 1200–1920px, the sidebar
+beside the chart from 1440px and below it under that, the pinned sidebar
+fitting a 720px viewport, no horizontal overflow, a clean console, both themes,
+a tablet and a phone width, and a Spanish deep link with locale digit
+grouping. `.github/workflows/ci.yml` runs it with the runner's Chrome
+(`MAP_SMOKE_CHANNEL=chrome`) after the unit tests on every push and pull
+request; `PLAYWRIGHT_CHROMIUM=<path>` points it at another binary.
+
 ## 8) Script libraries and tests (`scripts/lib/`)
 
 ### `scripts/lib/canonical-map.mjs`
@@ -377,7 +399,8 @@ Node tests for parser and validation correctness:
 - `run-runtime.test.mjs`: boots the real `assets/js/run.js` in a `vm` DOM shim and exercises the Simulator end-to-end (see `docs/TESTING.md`).
 - `csp-html.test.mjs`: asserts no inline `style="…"` attributes on any HTML page (the strict CSP would silently drop them).
 - `static-values.test.mjs`: pins the static-fallback rewriter mapping and asserts that the committed `index.html` *and* every locale bundle match `data/site-data.json`.
-- `i18n-locales.test.mjs`: locale key parity with `en.json`, no empty values, and every `data-i18n*` key referenced by the pages resolves.
+- `i18n-locales.test.mjs`: locale key parity with `en.json` (plural forms compared as families), no empty values, and every `data-i18n*` key referenced by the pages resolves.
+- `i18n-runtime.test.mjs`: boots the real `i18n.js` in a `vm` shim and checks interpolation, plural-form selection for English and Ukrainian counts, and locale digit grouping.
 
 ## 9) Documentation folder (`docs/`)
 

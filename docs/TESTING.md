@@ -20,6 +20,7 @@ node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
 node scripts/lib/i18n-locales.test.mjs
+node scripts/lib/i18n-runtime.test.mjs
 ```
 
 Validates:
@@ -30,6 +31,9 @@ Validates:
 - Simulator trace analysis (`trace-analysis.mjs`): schema validation (schemaVersion/source/ISO timestamp, invariant catalog shape and uniqueness, sequential step indices, allowed step kinds and op names, `invariants.allHold`/`checked`/`failed` consistency, `checked` ids resolving in the catalog); the deterministic fold engine (`reconstructState`/`scenarioStates` produce one state per step without mutating input, `rqInsert` keeps the run queue priority-ordered and idempotent, `applyOp` throws on dangling thread/endpoint/queue references, `message`/`note` ops are state-neutral); `touchedEntities` categorization; and a full integrity pass over the bundled `data/execution-traces.json` (validates clean + folds every scenario)
 - Rust crate inventory (`rust-analysis.test.mjs`): comment and string stripping that keeps line numbers (nested block comments, raw and byte strings, character literals such as `'"'`); item scanning at item scope with visibility, `unsafe`, inline-module paths, multi-line signatures and `where` clauses, `static mut` naming; `unsafe fn` headers counted at any depth (methods, trait items) with `unsafe impl` and `unsafe { … }` blocks, split between production and test code; `cfgIsTestOnly` over `test`, `all`, `any` and `not` predicates and multi-line attributes; public items counted only under all-`pub` modules; integration-test files as test code throughout; manifest parsing (workspace inheritance, dependency tables, target-scoped tables kept apart, `[[bin]]`); file roles and module paths; `buildRustInventory` assembly in workspace order with the crate-root lint rule
 - Rust inventory validation (`validateMapDataObject`): the optional `rust` block must name files the snapshot's own `files[]` lists, use known item kinds, visibilities and positive lines, carry per-crate totals equal to the per-file sums (`items` over counted kinds outside test code, `testItems` over flagged items, `unsafe` and `testUnsafe` counter by counter, `lines`), keep `publicItems` within `productionItems`, and describe target-scoped dependency tables as `{ cfg, table, names }`; a malformed block is rejected with a message naming the field
+- Code map runtime (`map-runtime.test.mjs`): the workspace defaults to `SeLe4n.Kernel.API` and falls back to the first module only when the snapshot lacks it; `moduleSubsystem` caps at three segments; over-budget lanes group by subsystem (largest first, singletons plain, members listed nested when a group is open, flat within budget and in expanded mode); the live tree path keeps `Main.lean` and drops `tests/` and `SeLe4n/Testing/`; in-repository imports outside the scope and the library root are labelled as such; tab selection; locale digit grouping
+- Page structure (`map-toolbar.test.mjs`): the workspace grid is single-column by default and gains the sticky sidebar column only from `90rem`; the declaration explorer is a tablist; `.flowchart-svg` is `width: auto; min-width: 100%` and no rule scales it to its column; the desktop minimum flow width is 900; the default module constant and the lane-grouping functions exist
+- i18n runtime (`i18n-runtime.test.mjs`): `t()` interpolation, plural-family resolution for English (`one`/`other`) and Ukrainian (`one`/`few`/`many`/`other`) counts, and `Intl.NumberFormat` grouping per locale
 - Lean import token extraction
 - interior symbol extraction across all supported declaration kinds and line tracking
 - theorem counting behavior over Lean source text (`theoremCount`, mirroring the copy in `assets/js/map.js`)
@@ -105,16 +109,23 @@ node --check assets/js/theme-init.js
 - Repeat both of the above in a long-label locale (`es` or `uk`): menu entries and stat labels should wrap inside their row or track, never widen the page.
 - Switch through every locale at a desktop width and confirm the header menu stays on one line. The centre track caps at 932px once the window reaches 1152px, so a locale whose ten items exceed that wraps at *every* desktop width and widening the window will not reveal the problem — check at 1280px, not 1920px. Current footprints: `zh-CN` 581px, `ja` 777px, `fr` 815px, `en` 816px, `es` 831px, `uk` 857px.
 - When adding or retranslating a `nav.*` label, measure the menu afterwards: these values are layout-constrained. If another surface needs the same words, give it its own key rather than reusing the `nav.*` one (see `footer.code_map`).
+- Confirm `map.html` with no URL state opens on `SeLe4n.Kernel.API`, the URL stays clean until the first selection, and Reset returns to the same view.
+- Confirm the imports lane of `SeLe4n.Kernel.API` shows subsystem group nodes (`SeLe4n.Kernel.IPC`, `SeLe4n.Kernel.Architecture`, …) instead of "+38 more imports"; clicking a group opens its members in place on a dotted guide rail without moving the scroll position, and clicking a member selects that module.
+- Confirm the flow chart is drawn at full size at 1280, 1366, 1440 and 1920px (the SVG's rendered width equals its `width` attribute; a wider layout scrolls inside its frame) — this is the defect that reverted the first 0.30.0.
+- Confirm the declaration sidebar sits beside the chart at 1440px and above and stays visible while the page scrolls, that the pinned sidebar fits a 1440×720 viewport, and that below 1440px it stacks under the chart.
+- Confirm `Main`'s import of `SeLe4n.Testing.MainTraceHarness` renders in the external lane as "in-repo · outside production scope" and its import of `SeLe4n` as "in-repo · library root", not "external dependency".
+- Confirm switching the locale re-labels the sidebar tabs without a reload and groups the theorem count the locale's way (`10.929` in Spanish).
 - Confirm the compact toolbar is rendered before the interior declaration panel and contains only current module context search and reset, with compact-density toolbar semantics.
 - Confirm map context-search keyboard navigation (Arrow/Home/End) and keyboard traversal still function.
 - Confirm flow legend chips render in the flowchart upper-right corner (not as detached panels) and remain visible while panning/scrolling the chart.
 - Confirm reset clears any search validity errors and preserves a minimal toolbar footprint across desktop/mobile breakpoints.
 - On `index.html`, verify the background animation toggle in the header pauses the WebGL background immediately, updates `aria-pressed`, and resumes animation when toggled again (test on desktop and ~390px mobile viewport).
-- Confirm each interior dropdown (Object, Context/Init, Extension) defaults to `All (N)`, can switch kinds, and deep-link declarations to source lines.
+- Confirm the declaration sidebar's three tabs (Objects, Contexts/Inits, Extensions) carry counts, that Arrow/Home/End move between them, that the active tab's kind selector defaults to `All (N)` and can switch kinds, and that declarations deep-link to source lines.
 - Confirm interior declaration chips and kind-select options are color-coded consistently by declaration kind (selector serves as key for chip colors).
-- Confirm interior declaration ordering is case-insensitive alphabetical within each dropdown selection, including `All` aggregation.
+- Confirm interior declaration ordering is case-insensitive alphabetical within each kind selection, including `All` aggregation.
 - Confirm the `Filter declarations across all kinds…` search box accepts multi-character typing without dropping focus/caret after each keystroke.
-- Confirm selecting a different module node in the flow chart updates all three interior declaration scrollboxes (Object/Context-Init/Extension) to the newly selected module.
+- Confirm selecting a different module node in the flow chart updates the sidebar to the newly selected module while keeping the active tab.
+- Confirm typing a module name in the context search, pressing Enter, then immediately clicking a declaration in the sidebar enters declaration context on the first click.
 - Confirm modules-array payload compatibility by testing both string and object module entries, including branch-wrapper payloads where top-level `main` metadata must not become a module node.
 - Confirm legacy symbol compatibility with snapshots that use `symbols.by_kind` and/or `constant` declaration keys.
 - Confirm map live status messaging remains coherent during load/refresh.
@@ -160,6 +171,30 @@ node --check assets/js/theme-init.js
 - Confirm deep links work: `run.html?scenario=<id>&step=<n>&object=<id>&sandbox=1` restores the corresponding view.
 - Confirm `prefers-reduced-motion` disables chip pulses and message animation (states snap instead of animating).
 - Verify desktop and ~390px mobile rendering in both light and dark themes; confirm the theme toggle and background-animation toggle behave as on the other pages.
+
+### Code map smoke probe (Playwright, run by CI)
+
+`scripts/map-smoke.mjs` opens `map.html` in headless Chromium and asserts the
+layout and behaviour guarantees the documentation makes: the workspace opens
+on `SeLe4n.Kernel.API`, over-budget lanes are grouped and open in place, a
+sidebar declaration click enters declaration context right after a search,
+Reset returns to the default view; the flow chart is drawn at 1:1 at 1200,
+1280, 1366, 1440, 1536 and 1920px; the sidebar sits beside the chart from
+1440px and stacks below it under that; the pinned sidebar fits a 1440×720
+viewport; no width scrolls sideways; the console stays clean in both themes,
+at a tablet and a phone width, and through a Spanish deep link whose theorem
+count is grouped `10.929`.
+
+```bash
+# from the repository root
+npm install --no-save playwright-core        # test-time only; node_modules/ is ignored
+python3 -m http.server 4173 --bind 127.0.0.1 &
+node scripts/map-smoke.mjs                    # PLAYWRIGHT_CHROMIUM=<path> or MAP_SMOKE_CHANNEL=chrome to pick the browser
+```
+
+`.github/workflows/ci.yml` runs the unit tests, the validators, the syntax
+checks and this probe (with the runner's Chrome) on every push and pull
+request. A layout guarantee added to the docs gets a probe assertion.
 
 ### Cross-browser nav stability probe (optional, Playwright)
 
