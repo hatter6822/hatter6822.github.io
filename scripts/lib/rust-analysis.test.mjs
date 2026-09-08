@@ -1241,3 +1241,17 @@ test('buildRustInventory treats a source file nothing declares as unreachable', 
   assert.equal(byPath['src/orphan.rs'].productionItems, 1, 'it is still a declaration in the tree');
   assert.equal(x.publicItems, 2, 'api and reachable');
 });
+
+test('buildRustInventory leaves out a package the workspace excludes', () => {
+  const tree = {
+    'rust/Cargo.toml': '[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/old"]\n[workspace.package]\nversion = "0.1.0"\nedition = "2021"\n',
+    'rust/crates/app/Cargo.toml': '[package]\nname = "app"\nversion.workspace = true\nedition.workspace = true\n',
+    'rust/crates/app/src/lib.rs': 'pub fn run() {}\n',
+    'rust/crates/old/Cargo.toml': '[package]\nname = "old"\nversion = "0.0.1"\nedition = "2021"\n',
+    'rust/crates/old/src/lib.rs': 'pub fn stale() { unsafe { } }\n'
+  };
+  const inventory = buildRustInventory(Object.keys(tree), (path) => tree[path]);
+  assert.deepEqual(inventory.crates.map((crate) => crate.name), ['app'], 'an excluded package is no workspace crate even though the member glob matches it');
+  assert.ok(inventory.workspaceFiles.includes('rust/crates/old/src/lib.rs'), 'its files stay listed as workspace files');
+  assert.deepEqual(parseCargoManifest('[workspace]\nmembers = ["a"]\nexclude = ["b", "c/*"]\n').exclude, ['b', 'c/*']);
+});

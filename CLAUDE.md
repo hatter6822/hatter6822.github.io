@@ -359,6 +359,8 @@ statistic**; the landing page stays canonical-or-absent.
   A non-virtual workspace's root package (`rust/Cargo.toml` carrying
   `[package]`) is a member too, first in order, and owns the files no nested
   package does.
+  Packages the workspace `exclude`s are left out, as Cargo leaves them out of
+  the workspace, even when a member glob matches them.
 - **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
   tests;` resolves to `src/tests.rs` or `src/tests/mod.rs`
   (`childModuleFiles`, rustc's rule), that file is rescanned as test code, and
@@ -401,6 +403,14 @@ statistic**; the landing page stays canonical-or-absent.
   A test crate root (`tests/<name>.rs`, `tests/<name>/main.rs`, a declared
   `[[test]]` path) resolves `mod common;` beside itself, so
   `tests/common/mod.rs` is a module of the test crates, not a target.
+- **The scanner's boundaries are designed, not gaps.** It reads declarations,
+  not paths: `pub use` re-exports do not make a private module's items
+  public; an `include!`d file is neither part of the including file nor
+  reachable through a module declaration; macro-generated items are
+  invisible; one declaration is read per line; `unsafe trait` declarations
+  are not sites (the counters are `unsafe fn`, `unsafe impl` and `unsafe { …
+  }`). Moving any of these changes published figures: it is a decision to
+  state, not a patch to slip in.
 - `validate-data.mjs` reconciles every crate total with its per-file lists,
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.

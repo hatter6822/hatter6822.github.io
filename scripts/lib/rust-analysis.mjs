@@ -39,6 +39,17 @@
  * production builds too), everything inside a module or block so marked, and
  * every line of an integration-test file. Items in it are listed with
  * `test: true` so the map can show them behind a per-crate toggle.
+ *
+ * Designed boundaries, stated so they are not mistaken for gaps: the scanner
+ * reads declarations, not paths, so `pub use` re-exports do not make a private
+ * module's items public; a file an `include!` splices in is neither read as
+ * part of the including file nor reachable through a module declaration;
+ * items a macro invocation generates are invisible; one declaration is read
+ * per line, the first, so a line carrying two is one; `unsafe trait`
+ * declarations are not counted as sites (the three counters are `unsafe fn`,
+ * `unsafe impl` and `unsafe { … }`); and `<…>` is a group only where it
+ * follows an identifier or `::`, the way generics are written. Moving any of
+ * these changes published figures and is a decision, not a patch.
  */
 
 export const RUST_ITEM_KINDS = Object.freeze([
@@ -958,6 +969,7 @@ export function parseCargoManifest(source) {
     examples: [],
     featureTable: {},
     members: [],
+    exclude: [],
     dependencies: [],
     devDependencies: [],
     buildDependencies: [],
@@ -974,6 +986,7 @@ export function parseCargoManifest(source) {
   }
   const workspace = tableOf(toml.workspace);
   if (Array.isArray(workspace.members)) out.members = workspace.members.filter((member) => typeof member === 'string');
+  if (Array.isArray(workspace.exclude)) out.exclude = workspace.exclude.filter((entry) => typeof entry === 'string');
   for (const [key, value] of Object.entries(tableOf(workspace.package))) {
     if (typeof value === 'string') out.workspacePackage[key] = value;
   }
@@ -1228,16 +1241,21 @@ export function buildRustInventory(files, readText, options = {}) {
     packageDirs.push(dir);
   }
   packageDirs.sort();
+  // `[workspace] exclude` removes a package from the workspace even when a
+  // member glob matches it; Cargo treats it as an independent package, so
+  // the inventory leaves it out and its files stay workspace files.
+  const excluded = rootManifest.exclude.map(globToRegExp);
+  const workspaceDirs = packageDirs.filter((dir) => !excluded.some((matcher) => matcher.test(dir)));
   const memberDirs = [];
   for (const pattern of rootManifest.members) {
     const matcher = globToRegExp(pattern);
-    for (const dir of packageDirs) if (matcher.test(dir) && !memberDirs.includes(dir)) memberDirs.push(dir);
+    for (const dir of workspaceDirs) if (matcher.test(dir) && !memberDirs.includes(dir)) memberDirs.push(dir);
   }
   // A non-virtual workspace — `rust/Cargo.toml` carrying `[package]` as well
   // as `[workspace]` — has the root directory (`.`) as a member too, listed
   // or not, and it comes first.
   const rootPackage = rootManifest.package.name ? ['.'] : [];
-  const orderedDirs = [...rootPackage, ...memberDirs, ...packageDirs.filter((dir) => !memberDirs.includes(dir))];
+  const orderedDirs = [...rootPackage, ...memberDirs, ...workspaceDirs.filter((dir) => !memberDirs.includes(dir))];
   const crateDirPath = (dir) => (dir === '.' ? root : `${root}/${dir}`);
 
   // Every manifest first, because dependency edges resolve against the

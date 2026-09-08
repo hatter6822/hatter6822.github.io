@@ -1187,6 +1187,14 @@ the correction.
   A test crate root (`tests/<name>.rs`, `tests/<name>/main.rs`, a declared
   `[[test]]` path) resolves `mod common;` beside itself, so the shared
   `tests/common/mod.rs` idiom is a module of the test crates.
+- **The scanner's boundaries are designed.** Seven review rounds moved the
+  scanner from a line-shaped heuristic to a model of rustc's item, attribute
+  and module rules and of Cargo's target, member and dependency rules. What
+  remains outside it is deliberate: `pub use` re-exports are not followed,
+  `include!`d files are not spliced, macro-generated items are invisible, one
+  declaration is read per line, and `unsafe trait` declarations are not
+  counted as sites. Each of these would change published figures if crossed,
+  so each is a decision for the maintainers rather than a patch.
 - **Manifests are read structurally.** The first reader matched Cargo.toml
   line shapes and dropped whatever it did not recognise: a
   `[dependencies.foo]` sub-table, a dotted `foo.path = "…"`, a one-line
@@ -1201,6 +1209,9 @@ the correction.
   `[workspace]` — has its root package as a member too, first in order,
   owning the files no nested package does; the first discovery discarded the
   root manifest outright.
+  `[workspace] exclude` is honoured: an excluded package is no workspace
+  crate even when a member glob matches it, and its files stay workspace
+  files.
 - **`items` counts declarations.** `impl` blocks have no name or visibility
   of their own, so they are listed in a file's items but not counted;
   `sele4n-types` drops from 87 "items" to 30 declarations. `publicItems`
