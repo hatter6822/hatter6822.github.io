@@ -1639,10 +1639,99 @@ that is a pre-existing surface, called out here rather than half-converted.
 - The Rust sidebar opened on an empty Types tab, because the remembered group
   defaulted to a real group key and a crate root declares only modules. The
   remembered Rust group now starts unset, so the first non-empty group opens.
-- The `pub` chip on sidebar items was being squeezed to 8px by the flex line
-  and clipped by the item's min-height: it needed `white-space: nowrap` so the
-  name wraps instead. The probe now fails on any sidebar item whose content
-  overflows its box.
+- The `pub` chip on sidebar items measured 8px wide and its text spilled out of
+  it. Read as a flex line squeezing the chip, and answered with `white-space:
+  nowrap`; the 8px was something else, and the chip stayed broken. See "The
+  card's prose bullet stops at the card's own list" below.
 - The scope buttons were 36px tall on a phone against the 2.6rem every other
   control on that toolbar gets. A `min-height` on the strip does not reach a
   stretched child; it belongs on the button, which is the tap target.
+
+## The card's prose bullet stops at the card's own list (0.32.0)
+
+Every public Rust declaration in the code map's sidebar showed its `pub` chip as
+a green sliver under the row's left border, the word itself spilling out of it
+and across the name. The chip was never a chip: `style.css` gives a card's list
+items a bullet —
+
+```css
+.card ul li::before { content: ""; position: absolute; left: 0; top: 0.7rem;
+                      width: 6px; height: 6px; border-radius: 50%; }
+```
+
+— and the workspace is one `<article class="card">`, so that rule reached the
+sidebar's `<ul>`. `map.css` re-generated the same pseudo-element with `content:
+"pub"` and its own colour, padding and radius, at a weight that won every
+property it named. It named no geometry. The chip kept `position: absolute; left:
+0; top: 0.7rem; width: 6px; height: 6px` from the bullet: a 6px box, out of
+flow, at the row's bottom-left corner, with three letters of 9px text overflowing
+it. 0.31.0 read the 8.3px computed width as a flex line squeezing the chip and
+answered with `white-space: nowrap`; an out-of-flow box is not a flex item, so
+that changed nothing.
+
+The fix is at the base rule, not the override. Prose bullets now apply to a
+card's own list — `.card > ul > li` — and stop at the first nested widget that
+happens to be a list. Every bullet list on the landing page is a direct child of
+its card, so all five pages render identically (verified by full-page screenshot
+comparison, dark and light, 1440px and 390px); the two list widgets inside
+`map.html`'s card stop inheriting prose. The chip declares no box at all now: it
+is an ordinary flex item, measured from its own text.
+
+The same leak was quietly rewriting the module search listbox, which had been
+undoing it one property at a time and losing the ones it never named:
+`.module-search-option`'s `padding: 0.4rem 0.5rem` lost to the bullet rule's
+`0.25rem 0 0.25rem 1.25rem`, `.module-search-option-decl`'s 2px accent border sat
+behind a dot at `left: 0`, and `.card ul`'s `margin-top: 0.75rem` beat the
+listbox's own `margin: 0`, dropping the popup 12px below the field it belongs to.
+All three were corrected by the same scoping change.
+
+Two probe assertions came out of it, because neither symptom was visible to the
+checks already there:
+
+- `map-smoke.mjs` measures the chip through `getComputedStyle(li, '::before')`
+  — in flow, at least as wide as two of its own glyphs and as tall as one, with
+  the name starting clear of it. The existing "nothing is clipped" reading
+  compares `scrollHeight` against `clientHeight`, and generated content in an
+  absolutely positioned box contributes to neither: it stayed green for a whole
+  release while the chip was broken.
+- It also reads the search listbox while it is open: rows carry no marker and
+  keep their own inset rather than a prose indent.
+
+Both fail against the pre-fix stylesheet, which is the only evidence that they
+test anything.
+
+### The stylesheet's own record, brought up to date
+
+Four comments in `map.css` described a page that has not existed since 0.31.0,
+and one described the rule it sat above incorrectly. Comments are the only
+record of why a declaration is there, so a wrong one is worse than none:
+
+- The file header listed a four-part layout — hero, "Lean module workspace",
+  Rust crate cards, repository inventory. Two of those sections are gone and
+  the workspace serves both languages; it now says so.
+- The `content-visibility` override's rationale turned on a click path through
+  the removed inventory. The mechanism it guards against is real and unchanged
+  (a skipped section reports its placeholder height, so a scroll across it
+  lands short and jumps when it renders), and measurement at 1440×900 and
+  390×844 confirms the optimisation buys nothing on a two-section page, so the
+  rule stays with the reason it actually has.
+- `.map-stats-row` was laid out as "stats on the left, jump links on the
+  right": `justify-content: space-between`, a gap and `flex-wrap` across two
+  children. The links went with the sections, so those four declarations had
+  been describing a layout with one child in it.
+- `.flowchart-svg` carried two stacked comments, the first claiming
+  `min-width: 0` against a rule that sets `min-width: 100%`, and attributing
+  the chart's width to the viewBox. `createFlowSvg()` sets `width`/`height`
+  attributes alongside a viewBox of the same numbers; the merged comment says
+  that.
+- The screen-reader utility was declared twice, identically, in `style.css`
+  (`.visually-hidden`) and `map.css` (both spellings). `style.css` now carries
+  both spellings and `map.css` carries neither — one definition for every page.
+
+Verified as a no-op: every rendered pixel of `map.html` is unchanged at 1600,
+1440, 1180 and 390px, in both themes and all three scopes, and so are
+`index.html`, `run.html` and `404.html` (screenshot comparison run through a
+pixel diff, since PNG encoding alone is not byte-stable between runs). The
+browser parses one rule and 38 declarations fewer from `map.css` and exactly as
+many from `style.css` — the removed duplicate and the four inert declarations,
+and nothing else lost to a typo.

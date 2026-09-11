@@ -173,7 +173,9 @@ If the map visualization, interactions, or data compatibility changes, this is t
 Global stylesheet for shared layout/design system:
 
 - base tokens, colors, typography, and spacing.
-- shared nav, buttons, cards, sections, utilities.
+- shared nav, buttons, cards, sections, utilities — among them the
+  screen-reader-only utility under both spellings (`.visually-hidden`, and
+  `.sr-only`, which `map.js` writes), defined here once for every page.
 - responsive behavior used by both pages.
 
 ### `assets/css/map.css`
@@ -182,7 +184,6 @@ Map-page-only styles:
 - flowchart workspace and toolbar layout.
 - graph node/edge visual semantics.
 - interior declaration panel styling with flex layout, hover states, CSS transitions, and kind label right-alignment.
-- `.sr-only` / `.visually-hidden` screen-reader utility class.
 - `:empty` state hiding for interior menu pre-selection.
 - CSS `contain: layout style` on flowchart container for rendering performance.
 - `focus-visible` outlines on interior menu buttons and source links for keyboard accessibility.

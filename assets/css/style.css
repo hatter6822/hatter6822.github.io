@@ -197,8 +197,9 @@ em {
   font-style: italic;
 }
 
-/* --- Screen-reader-only utility --- */
-.visually-hidden {
+/* --- Screen-reader-only utility (both spellings; map.js writes `sr-only`) --- */
+.visually-hidden,
+.sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -742,15 +743,27 @@ html:not([data-theme="light"]) .hero-subtitle {
   color: var(--text);
   line-height: 1.7;
 }
-.card ul {
+/* Prose bullets for a card's own list — and only for that. Written as a
+   descendant selector this reached every list *widget* nested in a card too:
+   the code map's workspace is one card, so its declaration list and its search
+   listbox were handed a 0.75rem top margin, a 1.25rem indent and an absolutely
+   positioned 6px dot none of them asked for. A widget could only undo that
+   property by property, at a higher weight, and whatever it left unnamed stayed
+   — which is how the declaration list's `pub` chip inherited `position:
+   absolute; width: 6px; height: 6px` and painted the word across the row's
+   corner. The child combinator keeps the landing page's card lists (every one
+   of them is a direct child) and leaves nested widgets to style themselves; a
+   prose list that needs bullets from deeper inside a card needs a rule of its
+   own. */
+.card > ul {
   margin-top: 0.75rem;
 }
-.card ul li {
+.card > ul > li {
   padding: 0.25rem 0 0.25rem 1.25rem;
   position: relative;
   line-height: 1.6;
 }
-.card ul li::before {
+.card > ul > li::before {
   content: "";
   position: absolute;
   left: 0;
