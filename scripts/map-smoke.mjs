@@ -12,6 +12,11 @@
  * console stays clean — at desktop, laptop, tablet and phone widths, in both
  * themes, and through a Spanish deep link.
  *
+ * Since 0.31.0 it also drives the scope toggle: the Rust chart has to hold the
+ * same 1:1 guarantee as the Lean one, the Lean/Rust boundary band has to
+ * appear in the combined scope and vanish in the single-language ones, and a
+ * boundary node has to carry the reader across into the other language.
+ *
  * Live GitHub refreshes are blocked inside the page so the run is deterministic
  * and equivalent to an offline visit.
  *
@@ -97,6 +102,7 @@ function metrics(page) {
     return {
       url: location.search,
       search: document.getElementById('module-search').value,
+      results: (document.getElementById('module-results') || {}).textContent || '',
       scrollWidth: document.documentElement.scrollWidth,
       innerWidth: window.innerWidth,
       innerHeight: window.innerHeight,
@@ -110,16 +116,29 @@ function metrics(page) {
       } : null,
       laneGroups: document.querySelectorAll('.flow-node.lane-group').length,
       tabs: Array.from(document.querySelectorAll('.interior-menu-tab')).map((t) => t.getAttribute('aria-selected')),
+      tabLabels: Array.from(document.querySelectorAll('.interior-menu-tab')).map((t) => t.textContent.trim()),
       declarationItems: document.querySelectorAll('.interior-menu-item').length,
+      clippedItems: Array.from(document.querySelectorAll('.interior-menu-item')).filter((li) => li.scrollHeight > li.clientHeight + 1).length,
+      pubChips: Array.from(document.querySelectorAll('.interior-menu-item[data-visibility="pub"]')).length,
       stats: Array.from(document.querySelectorAll('[data-map]')).map((el) => `${el.getAttribute('data-map')}=${el.textContent}`),
-      // @cards-start
-      crates: document.querySelectorAll('.rust-crate').length,
-      crateStrip: Boolean(document.querySelector('.rust-dependency-svg')),
-      inventoryGroups: Array.from(document.querySelectorAll('.inventory-group')).map((g) => g.dataset.group + (g.open ? '(open)' : '')),
-      // @cards-end
+      scope: (document.querySelector('.map-scope-option.is-active') || {}).dataset?.scope || '',
+      scopeOptions: Array.from(document.querySelectorAll('.map-scope-option')).map((b) => `${b.dataset.scope}:${b.textContent.trim()}`),
+      scopeHeights: Array.from(document.querySelectorAll('.map-scope-option'), (b) => Math.round(b.getBoundingClientRect().height)),
+      badge: (document.getElementById('workspace-scope-badge') || {}).textContent || '',
+      rustNodes: document.querySelectorAll('.flow-node-rust').length,
+      bridgeNodes: document.querySelectorAll('.flow-node-bridge').length,
+      legend: Array.from(document.querySelectorAll('.legend-item')).map((el) => el.textContent.trim()),
+      laneLabels: Array.from(document.querySelectorAll('.flow-lane-label')).map((el) => el.textContent.trim()),
+      sections: document.querySelectorAll('main .map-section').length,
       h2s: Array.from(document.querySelectorAll('h2')).map((h) => h.textContent)
     };
   });
+}
+
+async function setScope(page, scope) {
+  await page.click(`.map-scope-option[data-scope="${scope}"]`);
+  await page.waitForTimeout(450);
+  return metrics(page);
 }
 
 /* The chart is drawn at 1:1 when its rendered width equals its `width`
@@ -148,13 +167,12 @@ async function shot(page, name) {
   check(m.sidebar && m.sidebar.left > m.wrap.left + m.wrap.width - 5, 'sidebar sits beside the chart at 1440');
   check(chartAtScale(m), `flow chart drawn at 1:1 (${chartSummary(m)})`);
   check(m.wrap.top < 900, `chart starts inside the first viewport (top=${m.wrap.top})`);
-  // @cards-start
-  check(m.crates === 4 && m.crateStrip, 'four Rust crate cards and the dependency strip rendered');
-  check(m.inventoryGroups.join(',') === 'lean(open),rust(open),tests,scripts,docs,project', `inventory groups in order, production open (${m.inventoryGroups.join(',')})`);
-  const testSubgroups = await page.evaluate(() => Array.from(document.querySelectorAll('.inventory-group[data-group="tests"] .inventory-subgroup-key')).map((el) => el.textContent.trim()));
-  check(['rust/sele4n-abi/tests', 'rust/sele4n-hal/tests'].every((key) => testSubgroups.some((text) => text.indexOf(key) !== -1)), `the crates' integration tests are filed under Tests (${testSubgroups.filter((text) => /rust\//.test(text)).join(', ') || 'none'})`);
-  check(m.stats.some((s) => s === 'rustCrates=4'), 'Rust crates stat = 4');
-  // @cards-end
+  check(m.sections === 1, `the page is one section (${m.sections})`);
+  check(/\b366\b/.test(m.results), `the results note counts the whole active scope, not just the Lean half (${JSON.stringify(m.results)})`);
+  check(m.scope === 'both' && m.scopeOptions.join(' ') === 'lean:Lean both:Lean + Rust rust:Rust', `scope toggle offers all three readings, opening on Lean + Rust (${m.scopeOptions.join(' ')})`);
+  check(/Lean 4 \+ Rust/.test(m.badge), `the workspace badge names the active scope (${JSON.stringify(m.badge)})`);
+  check(m.stats.some((s) => s === 'rustCrates=4') && m.stats.some((s) => s === 'rustModules=63') && m.stats.some((s) => s === 'bridgeLinks=194'),
+    `hero stats carry the Rust and boundary figures (${m.stats.filter((s) => /^(rust|bridge)/.test(s)).join(', ')})`);
   check(errors.length === 0, `no console errors ${JSON.stringify(errors)}`);
   await shot(page, 'desktop-dark');
 
@@ -190,78 +208,74 @@ async function shot(page, name) {
   const reset = await metrics(page);
   check(reset.search === 'SeLe4n.Kernel.API' && !/decl=/.test(reset.url), 'reset returns to the default module view');
 
-  // @cards-start
-  await page.click('.inventory-group[data-group="lean"] .inventory-subgroup summary');
-  await page.waitForTimeout(200);
-  await page.click('.inventory-module-btn');
-  let scrolled = false;
-  try {
-    await page.waitForFunction(() => document.getElementById('module-graph').getBoundingClientRect().top < 200, null, { timeout: 4000 });
-    // The scroll must also settle there: scroll anchoring once dragged the
-    // viewport back to the inventory after the workspace had been reached.
-    await page.waitForTimeout(900);
-    scrolled = await page.evaluate(() => document.getElementById('module-graph').getBoundingClientRect().top < 200);
-  } catch {}
-  const afterInventory = await metrics(page);
-  const workspaceTop = await page.evaluate(() => Math.round(document.getElementById('module-graph').getBoundingClientRect().top));
-  check(scrolled && afterInventory.search !== 'SeLe4n.Kernel.API', `an inventory module opens in the workspace and the scroll settles there (module=${afterInventory.search}, workspace top=${workspaceTop})`);
-
-  const cardHeights = await page.evaluate(() => Array.from(document.querySelectorAll('.rust-crate'), (c) => Math.round(c.getBoundingClientRect().height)));
-  check(cardHeights.length === 4 && Math.max(...cardHeights) <= 1400, `crate cards are bounded in height (${cardHeights.join(', ')})`);
-
-  await page.click('#crate-sele4n-sys .rust-file-summary');
-  await page.waitForTimeout(200);
-  const productionItems = await page.evaluate(() => document.querySelectorAll('#crate-sele4n-sys .rust-item').length);
-  check(productionItems > 0, 'a crate file expands into its item list');
-  check((await page.evaluate(() => document.querySelectorAll('#crate-sele4n-sys .rust-item-test').length)) === 0, 'test items are hidden by default');
-  await page.click('#crate-sele4n-sys .rust-tests-toggle');
-  await page.waitForTimeout(300);
-  // The crate root has no test code; open a module file that does.
-  await page.click('#crate-sele4n-sys .rust-file[data-role="module"] .rust-file-summary');
-  await page.waitForTimeout(300);
-  const toggled = await page.evaluate(() => ({
-    pressed: document.querySelector('#crate-sele4n-sys .rust-tests-toggle').getAttribute('aria-pressed'),
-    open: document.querySelectorAll('#crate-sele4n-sys .rust-file-details[open]').length,
-    items: document.querySelectorAll('#crate-sele4n-sys .rust-item').length,
-    testItems: document.querySelectorAll('#crate-sele4n-sys .rust-item-test').length
-  }));
-  check(toggled.pressed === 'true' && toggled.open === 2 && toggled.items > productionItems && toggled.testItems > 0, `the test-item toggle keeps the open file open and lists flagged test items ${JSON.stringify(toggled)}`);
-  const rustFacts = await page.evaluate(() => ({
-    abiUnsafeCell: (document.querySelector('#crate-sele4n-abi .rust-stat-unsafe dd') || {}).textContent || '',
-    halUnsafeCell: (document.querySelector('#crate-sele4n-hal .rust-stat-unsafe dd') || {}).textContent || '',
-    abiStripNode: (document.querySelector('a[href="#crate-sele4n-abi"] .rust-dependency-node') || { getAttribute: () => '' }).getAttribute('class') || '',
-    lintFacts: Array.from(document.querySelectorAll('.rust-crate-facts')).filter((p) => /deny\(unsafe_code\)/.test(p.textContent)).length,
-    halFacts: (document.querySelector('#crate-sele4n-hal .rust-crate-facts') || {}).textContent || '',
-    supportLinks: document.querySelectorAll('.inventory-crate-support .inventory-file-link').length,
-    singular: Array.from(document.querySelectorAll('.inventory-subgroup-meta, .rust-crate-facts, .rust-stat-unsafe dd')).map((el) => el.textContent).filter((text) => /\b1 (files|modules|theorems|blocks|impls|crates)\b|\b0 (impl|impls|blocks|fn)\b/.test(text))
-  }));
-  check(/3 sites/.test(rustFacts.abiUnsafeCell) && /rust-unsafe/.test(rustFacts.abiStripNode), `sele4n-abi shows its three counted sites despite its deny lint ${JSON.stringify(rustFacts.abiUnsafeCell)}`);
-  check(/99 sites/.test(rustFacts.halUnsafeCell), `sele4n-hal shows its production sites only (${JSON.stringify(rustFacts.halUnsafeCell)})`);
-  check(rustFacts.lintFacts === 3, `three crates state #![deny(unsafe_code)] as a separate fact (${rustFacts.lintFacts})`);
-  check(/cfg\(loom\)/.test(rustFacts.halFacts) && !/external/.test(rustFacts.halFacts), `loom is shown under its cfg, not as an external dependency (${JSON.stringify(rustFacts.halFacts)})`);
-  check(rustFacts.supportLinks >= 4, `crate support files are linked from the inventory (${rustFacts.supportLinks})`);
-  check(rustFacts.singular.length === 0, `count labels are pluralized ${JSON.stringify(rustFacts.singular)}`);
-
-  // A locale switch and a live refresh both repaint the sections; whatever the
-  // reader had open must survive the repaint.
-  await page.click('.inventory-group[data-group="tests"] > summary');
-  await page.waitForTimeout(200);
-  const openBefore = await page.evaluate(() => ({
-    tests: document.querySelector('.inventory-group[data-group="tests"]').open,
-    subgroups: document.querySelectorAll('.inventory-subgroup[open]').length,
-    files: document.querySelectorAll('#crate-sele4n-sys .rust-file-details[open]').length
-  }));
-  await page.evaluate(() => window.dispatchEvent(new Event('sele4n:locale-changed')));
+  /* The foreign-function seam, from the Lean side. SeLe4n.Platform.FFI
+     declares the opaque functions the HAL defines, so the combined scope has
+     to draw a boundary band there and nowhere else on this page. */
+  await page.click('#module-search', { clickCount: 3 });
+  await page.keyboard.type('SeLe4n.Platform.FFI');
+  await page.keyboard.press('Enter');
   await page.waitForTimeout(500);
-  const openAfter = await page.evaluate(() => ({
-    tests: document.querySelector('.inventory-group[data-group="tests"]').open,
-    subgroups: document.querySelectorAll('.inventory-subgroup[open]').length,
-    files: document.querySelectorAll('#crate-sele4n-sys .rust-file-details[open]').length,
-    pressed: document.querySelector('#crate-sele4n-sys .rust-tests-toggle').getAttribute('aria-pressed')
-  }));
-  check(openBefore.tests && openAfter.tests && openAfter.subgroups === openBefore.subgroups && openAfter.files === openBefore.files && openAfter.pressed === 'true', `open groups, subgroups and files survive a re-render ${JSON.stringify({ openBefore, openAfter })}`);
-  // @cards-end
+  const seam = await metrics(page);
+  check(seam.bridgeNodes >= 1, `the Lean chart draws the boundary band in the combined scope (${seam.bridgeNodes} node(s))`);
+  check(seam.laneLabels.some((label) => /implemented in Rust/i.test(label)), `the band says which way the boundary points (${JSON.stringify(seam.laneLabels)})`);
+  check(seam.legend.some((item) => /Lean declares/.test(item)), 'the legend gains the boundary entries in the combined scope');
+  check(chartAtScale(seam), `the chart is still drawn at 1:1 with the band (${chartSummary(seam)})`);
+  check(seam.scrollWidth <= seam.innerWidth, 'the band adds no sideways overflow');
+
+  /* Crossing over: a boundary node carries the reader into the other language,
+     and the Rust chart takes over. */
+  await page.click('.flow-node-bridge');
+  await page.waitForTimeout(500);
+  const crossed = await metrics(page);
+  check(crossed.search === 'sele4n-hal::ffi', `a boundary node crosses into the other language (${crossed.search})`);
+  check(/module=sele4n-hal%3A%3Affi|module=sele4n-hal::ffi/.test(crossed.url), `the Rust node is linkable (${crossed.url})`);
+  check(crossed.rustNodes > 0 && crossed.bridgeNodes >= 1, `the Rust chart renders, boundary included (${crossed.rustNodes} Rust nodes, ${crossed.bridgeNodes} boundary)`);
+  check(crossed.tabs.length === 4 && crossed.tabLabels.join(',') === 'Types 0,Functions 80,Impls/Mods 0,Tests 74',
+    `the sidebar switches to the Rust groups (${crossed.tabLabels.join(', ')})`);
+  check(chartAtScale(crossed), `the Rust chart holds the same 1:1 guarantee (${chartSummary(crossed)})`);
+  check(crossed.scrollWidth <= crossed.innerWidth, 'the Rust chart adds no sideways overflow');
+
+  /* Narrowing to Rust drops the boundary; narrowing to Lean drops the Rust
+     node with it and falls back to the scope's own default. */
+  const rustOnly = await setScope(page, 'rust');
+  check(rustOnly.scope === 'rust' && /scope=rust/.test(rustOnly.url), `the scope rides the URL (${rustOnly.url})`);
+  check(rustOnly.laneLabels.some((label) => /Declared alongside, in sele4n-hal/.test(label)),
+    `a leaf module browses its crate through its siblings (${JSON.stringify(rustOnly.laneLabels)})`);
+  const openTab = rustOnly.tabLabels[rustOnly.tabs.indexOf('true')] || '';
+  check(/ [1-9]/.test(openTab), `the Rust sidebar opens on a group that has something in it (open: ${openTab}; all: ${rustOnly.tabLabels.join(', ')})`);
+  check(rustOnly.search === 'sele4n-hal::ffi', 'a Rust node survives the narrowing to the Rust scope');
+  check(rustOnly.bridgeNodes === 0 && !rustOnly.legend.some((item) => /Lean declares/.test(item)), 'the Rust-only reading draws no boundary');
+  check(/production · Rust/.test(rustOnly.badge), `the badge follows the scope (${JSON.stringify(rustOnly.badge)})`);
+  check(chartAtScale(rustOnly) && rustOnly.scrollWidth <= rustOnly.innerWidth, `Rust-only chart at 1:1 with no overflow (${chartSummary(rustOnly)})`);
+
+  const leanOnly = await setScope(page, 'lean');
+  check(leanOnly.scope === 'lean' && /scope=lean/.test(leanOnly.url), 'the Lean scope rides the URL too');
+  check(leanOnly.search === 'SeLe4n.Kernel.API', `a Rust selection falls back to the Lean default (${leanOnly.search})`);
+  check(leanOnly.rustNodes === 0 && leanOnly.bridgeNodes === 0, 'no Rust node survives into the Lean-only reading');
+  check(leanOnly.tabs.length === 3, 'the sidebar returns to the Lean groups');
+  check(/\b303\b/.test(leanOnly.results) && !/\b366\b/.test(leanOnly.results), `and the results note follows the scope (${JSON.stringify(leanOnly.results)})`);
+
+  const back = await setScope(page, 'both');
+  check(back.scope === 'both' && !/scope=/.test(back.url), 'the default scope leaves the URL clean again');
+
   check(errors.length === 0, `still no console errors after interactions ${JSON.stringify(errors)}`);
+  await context.close();
+}
+
+{
+  /* A Rust deep link has to reconstruct the whole reading from the URL alone. */
+  console.log('\n[deep link, rust scope]');
+  const { context, page, errors } = await open(1440, 900, { query: '?scope=rust&module=sele4n-abi%3A%3Aargs%3A%3Acspace' });
+  const m = await metrics(page);
+  check(m.scope === 'rust' && m.search === 'sele4n-abi::args::cspace', `a Rust deep link restores scope and node (${m.scope}, ${m.search})`);
+  const deepTab = m.tabLabels[m.tabs.indexOf('true')] || '';
+  check(/ [1-9]/.test(deepTab) && m.declarationItems > 0, `the Rust sidebar opens on a populated group (open: ${deepTab}; ${m.declarationItems} items)`);
+  check(m.pubChips > 0 && m.clippedItems === 0, `public Rust items are marked and nothing is clipped (${m.pubChips} pub of ${m.declarationItems}, ${m.clippedItems} clipped)`);
+  check(m.laneLabels.some((label) => /Module path/.test(label)), `the module path lane names the enclosing modules (${JSON.stringify(m.laneLabels)})`);
+  check(chartAtScale(m), `Rust chart at 1:1 from a cold load (${chartSummary(m)})`);
+  check(m.scrollWidth <= m.innerWidth, 'no horizontal overflow on a Rust deep link');
+  check(errors.length === 0, `no console errors (rust deep link) ${JSON.stringify(errors)}`);
+  await shot(page, 'rust-scope');
   await context.close();
 }
 
@@ -324,15 +338,10 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   check(m.scrollWidth <= m.innerWidth, 'no horizontal page overflow at 390');
   check(m.search === 'SeLe4n.Kernel.API', 'default module (phone)');
   check(chartAtScale(m), `flow chart at 1:1 on a phone (${chartSummary(m)})`);
-  // @cards-start
-  const strip = await page.evaluate(() => {
-    const scroller = document.querySelector('.rust-dependency-scroll');
-    const svg = document.querySelector('.rust-dependency-svg');
-    if (!scroller || !svg) return null;
-    return { scrollWidth: scroller.scrollWidth, clientWidth: scroller.clientWidth, svgWidth: Math.round(svg.getBoundingClientRect().width), svgAttr: Number(svg.getAttribute('width')) };
-  });
-  check(Boolean(strip) && strip.svgWidth >= strip.svgAttr - 1 && strip.scrollWidth > strip.clientWidth, `dependency strip keeps its width and scrolls sideways at 390 ${JSON.stringify(strip)}`);
-  // @cards-end
+  check(m.scopeHeights.length === 3 && Math.min(...m.scopeHeights) >= 40, `scope options stay tappable at 390 (${m.scopeHeights.join(', ')}px)`);
+  const rustPhone = await setScope(page, 'rust');
+  check(rustPhone.scrollWidth <= rustPhone.innerWidth, 'the Rust chart adds no sideways overflow at 390');
+  check(chartAtScale(rustPhone), `Rust chart at 1:1 on a phone (${chartSummary(rustPhone)})`);
   check(errors.length === 0, 'no console errors (phone)');
   await shot(page, 'phone');
   await context.close();
@@ -345,8 +354,7 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   check(m.search === 'SeLe4n.Model.State.SystemState', 'deep link restores declaration context');
   check(m.h2s.some((h) => /Espacio de trabajo/.test(h)), 'section headings translated');
   check(m.stats.some((s) => /^theorems=10\.929$/.test(s)), `theorem count grouped the Spanish way (${m.stats.find((s) => /^theorems=/.test(s))})`);
-  const facts = await page.evaluate(() => Array.from(document.querySelectorAll('.rust-crate-facts')).map((el) => el.textContent));
-  check(facts.length === 4 && facts.some((f) => /depende de/.test(f)), 'crate facts are in the active locale');
+  check(m.scopeOptions.join(' ') === 'lean:Lean both:Lean + Rust rust:Rust', `the scope labels are language names, the same in every locale (${m.scopeOptions.join(' ')})`);
   check(errors.length === 0, 'no console errors (es)');
   await context.close();
 }
@@ -357,9 +365,10 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   // generated labels must still end up in Spanish: i18n.js dispatches no event
   // for its first load, so the map's ready callback has to repaint them.
   const { context, page, errors } = await open(1440, 900, { locale: 'es', holdLocaleMs: 2500 });
-  const facts = await page.evaluate(() => Array.from(document.querySelectorAll('.rust-crate-facts')).map((el) => el.textContent));
-  check(facts.length === 4 && facts.some((f) => /depende de/.test(f)) && !facts.some((f) => /depends on|test-only/.test(f)), `crate facts repainted into the late locale (${facts.find((f) => /depende|depends/.test(f)) || facts[0]})`);
   const m = await metrics(page);
+  check(m.laneLabels.some((label) => /Importaciones usadas/.test(label)) && !m.laneLabels.some((label) => /Imports used by/.test(label)),
+    `chart lane labels repainted into the late locale (${JSON.stringify(m.laneLabels)})`);
+  check(m.legend.some((item) => /Importaciones \(dependencias\)|Importaciones/.test(item)), `the legend repainted too (${JSON.stringify(m.legend.slice(0, 3))})`);
   check(m.h2s.some((h) => /Espacio de trabajo/.test(h)), 'static headings translated by the late locale');
   check(errors.length === 0, 'no console errors (late locale)');
   await context.close();

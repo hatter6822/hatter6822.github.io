@@ -1,6 +1,6 @@
 # Codebase Map: End-to-End Guide
 
-> Documentation baseline: website release **0.30.0**.
+> Documentation baseline: website release **0.31.0**.
 
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
@@ -9,26 +9,37 @@ The map page provides a single operational and proof-aware architecture view of 
 - module metadata,
 - and source-level symbol interior links.
 
-## Page structure (0.30.0)
+## Page structure (0.31.0)
 
-`map.html` is three sections, in this order (asserted by
-`map-toolbar.test.mjs`):
+`map.html` is **one section** — the production module workspace — and
+`map-toolbar.test.mjs` asserts that it is the only one. The Rust crate card
+grid and the repository file inventory that stood beside it through 0.30.0 are
+gone; the Rust half of the codebase is navigated in the workspace itself.
 
-1. **Lean module workspace** — toolbar, flow chart and the declaration
-   sidebar. Production code is the subject.
-2. **Rust production crates** — a dependency strip and one card per workspace
-   crate, rendered from `map-data.json#rust`.
-3. **Repository inventory** — every file in the tree, grouped as production
-   Lean, production Rust, tests, scripts, documentation, and project tooling.
-   The two production groups open by default and carry a badge; the others are
-   closed and muted, and their file lists render on first open.
+The workspace toolbar carries a **scope toggle**: a three-option radiogroup
+choosing which languages the workspace is read in.
 
-The hero above them is one compact block: title, lead, live status, the
-snapshot timestamp, a one-line stats strip (`Lean modules`, `Theorems`,
-`Import edges`, `Ops/Inv pairs`, `Linked pairs`, `Rust crates`, `Files`) and
-jump links to the three sections. Every count is grouped by the active locale
+| scope | nodes | boundary |
+|-------|-------|----------|
+| `lean` | Lean production modules | not drawn |
+| `both` *(default)* | both languages | drawn |
+| `rust` | Rust production source files | not drawn |
+
+The scope rides the URL as `scope=` (omitted at the default), so a reading is
+linkable, and `DEFAULT_SCOPE` in `map.js` is the one place that names the
+default — the static markup marks the same option active so the toggle does not
+flash on boot, and `map-toolbar.test.mjs` checks the two agree. Switching scope
+keeps the selected node when it survives the switch and falls back to that
+scope's own default when it does not. The section heading's badge names the
+active scope (`production · Lean 4 + Rust`).
+
+The hero above it is one compact block: title, lead, live status, the snapshot
+timestamp and a one-line stats strip (`Lean modules`, `Theorems`,
+`Import edges`, `Ops/Inv pairs`, `Linked pairs`, `Rust crates`,
+`Rust modules`, `Boundary links`). Every count is grouped by the active locale
 (`formatCount()`), and every count label is a plural family resolved by
-`t(key, { count })`.
+`t(key, { count })`. The jump-link row is gone with the sections it pointed at,
+and so is the `Files` stat, whose subject was the inventory.
 
 ### Default view
 
@@ -151,6 +162,7 @@ fallback.
 
 - **Context search:** the unified context search bar accepts both module names and dot-appended declaration queries (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`). The label updates dynamically ("Context search — module" / "Context search — declaration") to indicate the current context. Selecting a declaration via the search bar automatically syncs the flowchart to declaration context.
 - **Dot-append declaration search:** type `Module.Name.declarationName` in the context search bar to navigate directly to a declaration within a module. The search progressively tries shorter module prefixes, then matches the remaining suffix against declarations in that module. Exact matches select immediately; partial/prefix matches appear as suggestions with distinct italic styling and a left border accent. Declaration suggestions are also selectable via keyboard (Arrow keys + Enter) and mouse click.
+- **Scope toggle:** the three options are a radiogroup, so the active one is the only tab stop and the arrow keys move the choice rather than just the focus; Home/End jump to the first and last. The toggle is offered even when a scope would be empty, and says why by disabling the option rather than hiding it.
 - **Keyboard walk:** `j` and `k` outside input controls.
 - **Detail levels:** compact/balanced/expanded (Arrow keys cycle; Home/End jump to first/last preset).
 - **Toolbar layout:** the context search toolbar is placed before the interior declaration panel and only includes context search and reset in a compact density-tagged shell.
@@ -172,86 +184,131 @@ fallback.
   - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.
   - All declarations display a clickable name that enters declaration context, providing uniform navigation regardless of call-graph presence.
 
-## Rust production crates
+## Rust scope
 
-`renderRustCrates()` paints the section from `state.rust` alone. The dependency
-strip is a small inline SVG: one node per crate in workspace order, arrows from
-a crate to each internal dependency it declares (`sele4n-sys → sele4n-abi →
-sele4n-types`; `sele4n-hal` stands alone; a dependency is internal when it
-resolves to a workspace package by name or path, so a renamed one still
-draws), green when no production unsafe site
-is recorded and yellow with the site count otherwise. The SVG keeps its
-intrinsic width, is centred when narrower than its figure, and scrolls sideways
-inside `.rust-dependency-scroll` on narrow screens instead of shrinking its
-labels.
+`buildRustGraph()` projects `state.rust` into a node graph once per data load.
+One node per production source file, addressed by the Rust module path that
+reaches it:
 
-Each card shows the crate's description, source-file and line counts, the
-declaration count with the public share, and an `unsafe` cell. The cell's
-headline is the number of sites in production code (`rustUnsafeSummary()`
-reads `unsafe`); its detail line names the non-zero counters ("2 fn · 1
-block"), the item-level `#[allow(unsafe_code)]` exception when the crate
-declares `#![deny(unsafe_code)]` and still carries sites — `sele4n-abi` does,
-for its syscall trap — and "+N in test code" from `testUnsafe`. The lint
-itself is a separate fact on the facts line, so a deny lint never stands in
-for the counts. The facts line also states internal dependencies, external
-(unconditional) dependencies, target-scoped tables under their cfg ("under
-cfg(loom): loom"), dev-dependencies as test-only, optional dependencies with
-the features that enable them, features, edition and the
-test-item count.
+| file | node |
+|------|------|
+| `rust/sele4n-abi/src/lib.rs` | `sele4n-abi` |
+| `rust/sele4n-abi/src/args/cspace.rs` | `sele4n-abi::args::cspace` |
+| `rust/sele4n-hal/build.rs` | `sele4n-hal::build` |
+| `rust/sele4n-hal/src/bin/rw_lock_oracle.rs` | `sele4n-hal::bin::rw_lock_oracle` |
 
-Below the facts sits one `<details>` per source file — crate root first, then
-modules, binaries, build scripts, integration tests — in a bounded list that
-scrolls inside the card (`.rust-crate-files`), so the HAL's 33 files do not
-set the height of the row; `.rust-crate-grid` is `align-items: start` for the
-same reason. A file's item list renders on first open, sorted
-types-before-functions-before-impls and by line within a kind, each item
-linking to its line at the snapshot commit. Item kinds reuse the Lean
-declaration palette so one colour means one thing across both halves of the
-production code. Each card with test code carries a "Show N test items" toggle
-(`aria-pressed`); switching it re-renders that card alone, keeps the files the
-reader had open, lists the flagged items with a `test` tag, and adds the test
-sites to each file's `unsafe` tag. Integration-test files, whose every item is
-test code, show a "test items hidden" note until the toggle is on.
+A target that is its own crate root — a binary, the build script — carries that
+target as a path segment so the address is unambiguous, and the node's own
+subtitle and tooltip say which kind of target it is, so the segment is never
+mistaken for a module of the library. If a crate ever declared a module named
+after one of its targets, the collision is broken by falling back to the file
+path rather than dropping a file. **Test targets are not nodes**: production
+code is the map's subject, exactly as the Lean scope leaves out `tests/` and
+`SeLe4n/Testing/`. The crate root's summary still names the crate's test
+surface, so nothing is hidden.
 
-External imports — tokens the production graph does not contain — read
+A module hangs off the module that declares it, up to its target root, and the
+child edges are the inverse of those parent edges. The chart's lanes are:
+
+- **left** — the module path that reaches this file, root first, so the column
+  reads downwards the way the path does;
+- **right** — the modules this file declares; for a leaf, which declares none,
+  the modules its *parent* declares alongside it, with the edges drawn from
+  that parent because that is who declares them;
+- **below** — the crate's dependency context: workspace crates, external
+  (unconditional) dependencies, target-scoped tables under their cfg ("under
+  cfg(loom)"), dev-dependencies as test-only, build dependencies as build-time,
+  and optional dependencies with the features that enable them. A dependency
+  that names a workspace member is navigable whichever table it came from — the
+  HAL reaches `sele4n-types` only as a dev-dependency, and that edge is still
+  worth following.
+
+Node summaries carry the counts the crate cards used to. A file's summary reads
+"80 items · 75 pub · 2,390 lines · 2 unsafe sites · 74 tests"; a crate root's
+adds the crate: "33 files · 814 items · 99 unsafe sites (9 fn · 3 impls · 87
+blocks · +24 in test code)". `rustUnsafeSummary()` keeps the crate-level
+`#![deny(unsafe_code)]` lint and the counted sites apart, and the production
+sites and the test sites apart — never one total that mixes the two — so
+`sele4n-abi`'s three exception sites under its lint stay visible.
+
+The declaration sidebar serves both languages through one renderer:
+`interiorForNode()` hands it the same shape either way. For a Rust node the
+tabs are **Types** (`struct`, `enum`, `union`, `trait`, `type`), **Functions**
+(`fn`, `const`, `static`), **Impls/Mods** (`impl`, `mod`, `macro_rules!`) and
+**Tests**, the last holding every test item under a `test:` kind prefix so no
+second control is needed. Public items carry a `pub` chip. Rust items have no
+call graph in the snapshot, so an item resolves to its source line rather than
+to a declaration view. The open tab is remembered per language, and starts
+unset for Rust so a crate root — which declares only modules — does not open on
+an empty Types tab.
+
+The sidebar's own listing count and the snapshot's `productionItems` are two
+different quantities: an `impl` block is listed but never counted as a
+declaration. They live in different places on purpose — the node summary quotes
+the snapshot's figure, the sidebar's stays inside the sidebar.
+
+## Lean ↔ Rust boundary
+
+`buildBridgeIndex()` matches the two halves declaration by declaration.
+`toBridgeKey()` normalises a name to snake case, so `ffiGicAcknowledge` and
+`ffi_gic_acknowledge` are one key, as are `ThreadId`/`thread_id` and
+`MAX_LABEL`/`maxLabel`. The Rust side contributes `pub` production items of a
+nameable kind (`impl` blocks and `mod` declarations are named after other
+things and never match); the Lean side contributes declarations, not scopes (a
+`namespace ThreadId` is not a second declaration of `ThreadId`).
+
+`bridgeRelation()` then reads the pair's meaning off the **Lean declaration's
+own kind**:
+
+| Rust | Lean | relation | meaning |
+|------|------|----------|---------|
+| `pub fn` | `opaque`, `axiom` | `implements` | Lean declares it with no Lean body; Rust defines it. The kernel calls **down**. |
+| `pub fn` | `def`, `abbrev` | `invokes` | in a user-space crate: Lean implements it, the wrapper names the same operation. Rust calls **up**. |
+| `pub fn` | `def`, `abbrev` | `mirrors` | in the HAL: specification and machine code either side of the seam, not a call. |
+| type / constant | any | `shares` | the data that crosses the boundary. |
+
+Only `implements` is a certainty read straight from the data. The crate's
+stratum — `RUST_CRATE_STRATUM`, four entries restating what the crates' own
+manifests say of themselves — is the one editorial fact the model needs, and it
+only ever decides how a matched *function* is labelled, never whether a pair
+exists. A crate the table does not name is "shared": it gets no direction
+rather than a guessed one.
+
+On the bundled snapshot this resolves to 194 links over 48 module pairs. The
+largest is `SeLe4n.Platform.FFI` ↔ `sele4n-hal::ffi`: 68 `opaque` declarations
+the HAL defines, which is the foreign-function seam itself. `sele4n-sys`'s
+wrappers reach the kernel operations they name (`cspace_mint` ↔
+`SeLe4n.Kernel.Capability.Operations.cspaceMint`), and `sele4n-types` shares
+the ABI vocabulary with `SeLe4n.Prelude`.
+
+In the `both` scope a selected node grows a **boundary band** under its own
+context — three rows at most, one per direction — and the same band appears
+mirrored on the other side, because both readings index the same edge objects
+and so cannot disagree. An edge names the declarations behind it ("cspaceCopy,
+cspaceMint, cspaceMove +1 more") rather than counting them, because the names
+are the evidence; its tooltip lists the pairs. Clicking one crosses into the
+other language. The legend gains three entries in this scope and loses them
+again in the single-language ones.
+
+External imports — tokens the production Lean graph does not contain — read
 "external dependency" for Lean/Std libraries, "in-repo · library root" for the
 `SeLe4n` root that `Main` imports, and "in-repo · outside production scope"
 for the `SeLe4n.Testing.*` framework.
 
-## Repository inventory
+## Chart chrome and localisation
 
-`classifyRepositoryPath()` files every path into one of six groups and a
-subgroup: `lean` (`SeLe4n/**/*.lean` except the testing framework, `Main.lean`,
-`SeLe4n.lean`; subgroup = `moduleSubsystem()` of the module name), `rust`
-(`rust/**`; subgroup = crate directory or `workspace`), `tests` (`tests/**` and
-the in-tree framework `SeLe4n/Testing/**`), `scripts` (subgrouped by language
-at the top level, by directory below), `docs` (`docs/**` plus root Markdown and
-`LICENSE`), and `project` (`.github`, `.claude`, `assets`, toolchain and build
-manifests). `buildRepositoryInventory()` attaches module names to Lean
-subgroups so the production Lean group can list modules with their theorem
-count and assurance dot, each a button that selects the module and scrolls the
-workspace into view. The Rust group lists each crate with a link to its card
-and, beneath it, the files the card does not own — `Cargo.toml`, `link.ld`,
-the `.S` sources — as a "support files" row (`crateSupportFiles()`), then
-whatever no crate directory covers as workspace files, so the cards and the
-inventory together account for every path under `rust/`. Every other list is
-plain file links to the source at the inventory commit. Lists render on the
-first `toggle` of their `<details>`, so 866 anchors are not built for a
-section most visitors never expand.
+Every label a reader sees in a chart — lane labels, budget-node affordances
+("+38 more imports", "Return to Compact mode"), the boundary band's row
+headings, both legends — is painted with `t()` at render time and falls back to
+English only until a locale lands. Each label is looked up once and used for
+both the node's measurement and its painting: a translated label measured at
+its English width wraps wrongly. The first locale load dispatches no
+`sele4n:locale-changed` event, so `setupLocaleReady()` repaints once from
+`sele4nI18n.onReady()` when any lookup fell back before the locale arrived, and
+not otherwise; `scripts/map-smoke.mjs` holds the locale JSON back to prove it.
 
-A crate's `tests/`, `benches/` and `examples/` directories are filed under
-Tests, matching the scanner's `test` role; the runtime test checks the
-grouping against the bundled snapshot file by file, for Rust and for Lean.
-
-The production groups open by default; every subgroup inside them is closed,
-so a subsystem's modules appear on a click (the section lead says exactly
-that). `renderInventory()` rebuilds both this section and the crate cards on
-every live refresh and locale switch; it captures the open state of every
-`<details>` by its `data-open-key` first and re-applies it after, so what the
-reader opened survives — including the lazily rendered lists, since setting
-`open` fires `toggle`. The first locale load fires no switch event, so the map
-repaints these sections once from `sele4nI18n.onReady()` when any label was
-painted before the locale arrived, and not otherwise.
+Node tooltips and the SVG's `aria-label` summary remain English across all
+three charts. That is a pre-existing surface this release did not change.
 
 ## Accessibility and mobile
 

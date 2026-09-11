@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.30.0`
+**Website version:** `0.31.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -71,11 +71,11 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~6,500 | Largest runtime; read in chunks of ≤500 lines |
-| `scripts/lib/map-runtime.test.mjs` | ~2,500 | Map runtime tests |
+| `assets/js/map.js` | ~7,000 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~2,700 | Map runtime tests |
 | `assets/css/style.css` | ~2,020 | Global design system |
 | `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
-| `assets/css/map.css` | ~1,400 | Map-specific styles (hero, workspace, chart, sidebar, Rust cards, inventory) |
+| `assets/css/map.css` | ~1,100 | Map-specific styles (hero, workspace, scope toggle, chart, sidebar) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
 | `scripts/lib/rust-analysis.mjs` | ~1,450 | Rust crate inventory scanner, TOML reader |
 | `scripts/lib/rust-analysis.test.mjs` | ~1,200 | Rust scanner tests |
@@ -175,18 +175,35 @@ silently drifted to `546` while `index.html` said `574`. Any change touching a
 metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
 `locales/` must be committed together.
 
-### Code map page structure (0.30.0)
+### Code map page structure (0.31.0)
 
-`map.html` is three sections, in this order, and the order is asserted by
-`map-toolbar.test.mjs`: the **Lean module workspace** (toolbar, flow chart,
-declaration sidebar), the **Rust production crates**, and the **repository
-inventory**. Production code is the subject; everything else is viewable but
-visually secondary (closed `<details>`, muted chrome).
+`map.html` is **one section**, the production module workspace, and
+`map-toolbar.test.mjs` asserts it is the only one. Through 0.30.0 it carried
+two more — a Rust crate card grid and a repository file inventory — and both
+are gone: the Rust codebase is navigated in the workspace itself, behind a
+scope toggle. Production code is the subject in every scope.
+
+#### Scope
+
+- Three readings, chosen by the toolbar's radiogroup and carried in the URL as
+  `scope=`: `lean` (Lean modules alone), `both` (the default — both languages
+  with the boundary between them drawn) and `rust` (the Rust workspace alone).
+  `SCOPES` and `DEFAULT_SCOPE` in `map.js` are the one place that says so, and
+  the static markup must mark the same option active or the toggle flashes on
+  boot — `map-toolbar.test.mjs` checks the two agree.
+- Switching scope keeps the selected node when it survives the switch and falls
+  back to that scope's own default when it does not. `DEFAULT_MODULE` is
+  unchanged: every scope carrying Lean still opens on `SeLe4n.Kernel.API`.
+- Node names come off the URL, so `sanitizeModuleName()` is a tight whitelist:
+  `[A-Za-z0-9_.:-]` and nothing else. It had to widen for `::` and the hyphen a
+  crate name may carry; never widen it further.
+
+#### The Lean chart
 
 - The workspace opens on `SeLe4n.Kernel.API` whenever the URL carries no
   `module=`. `DEFAULT_MODULE` in `map.js` is the one place that says so;
   `defaultModuleName()` falls back to the first module only when the snapshot
-  lacks the API module. The previous release opened on `Main` (the first
+  lacks the API module. A previous release opened on `Main` (the first
   module in name order); when a live tree rebuild dropped `Main.lean`, the
   chooser fell back to the top-scored module,
   `SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership`. Never
@@ -202,7 +219,9 @@ visually secondary (closed `<details>`, muted chrome).
   scrolls inside `.flowchart-wrap`. Never put `width: 100%` back on the SVG
   and never raise the desktop minimum: a fixed 1180 beside the sidebar scaled
   the chart to 0.58–0.86 at every desktop width, which is what got 0.30.0
-  reverted the first time.
+  reverted the first time. **The Rust chart reuses `computeFlowLayout()` and
+  `createFlowSvg()` for exactly this reason** — never give it a layout of its
+  own.
 - The declaration sidebar sits beside the chart only from **90rem** (1440px),
   the narrowest viewport that leaves the chart a ~900px column beside a
   22.5rem sidebar (75rem left 738px). It is sticky there, and its list height
@@ -214,70 +233,109 @@ visually secondary (closed `<details>`, muted chrome).
 - Re-selecting the current module must not repaint the declaration sidebar
   unless it shows another module: the search field's `change` fires on blur,
   and rebuilding the list under the pointer swallowed the click that caused it.
+
+#### The Rust chart
+
+- **A node is one production Rust source file**, addressed by the Rust module
+  path that reaches it (`sele4n-abi::args::cspace`); a crate's library root is
+  the bare crate name. A target that is its own crate root — a binary, the
+  build script — takes that target as a path segment
+  (`sele4n-hal::bin::rw_lock_oracle`) and the node states which kind of target
+  it is, so the segment is never read as a module of the library.
+- **Test targets are not nodes.** Production code is the map's subject, as the
+  Lean scope leaves out `tests/` and `SeLe4n/Testing/`. The crate root's
+  summary still names the crate's test surface, so nothing is hidden.
+- Lanes: the module path that reaches the file (left), the modules it declares
+  (right) and the crate's dependency context (below). A **leaf declares
+  nothing**, so its right lane holds the modules its *parent* declares
+  alongside it, with the edges drawn from that parent — never from the centre,
+  which would assert a relation that does not exist.
+- The sidebar's four Rust tabs are Types, Functions, Impls/Mods and Tests, the
+  last holding every test item under a `test:` kind prefix. The remembered Rust
+  group starts **unset** so a crate root, which declares only modules, does not
+  open on an empty Types tab.
+- A Rust kind is a keyword: `fn` reads `fn` in every locale. Only the "(test)"
+  qualifier around it is prose.
+- The sidebar's listing count and the snapshot's `productionItems` are two
+  quantities — an `impl` block is listed but never counted. Keep them apart:
+  the node summary quotes the snapshot's figure, the sidebar's stays inside the
+  sidebar.
+
+#### The Lean ↔ Rust boundary
+
+- Two declarations are the same declaration when `toBridgeKey()` folds them to
+  one key (snake case, `r#` stripped, anonymous names excluded). The Rust side
+  contributes `pub` production items of a nameable kind only: `impl` and `mod`
+  are named after other things, and without the `pub` filter `fn main` in a
+  build script matches `Main.main`.
+- **Direction comes from the Lean declaration's kind, not from the crate.** A
+  Lean `opaque`/`axiom` has no Lean body, so a Rust `fn` of that name is its
+  implementation and the kernel calls down (`implements`). Everything else is
+  labelled as what it is: `invokes` (a user-space wrapper naming a Lean-
+  implemented operation), `mirrors` (a HAL routine of the same name either side
+  of the seam — not a call) and `shares` (a type or constant on both sides).
+- `RUST_CRATE_STRATUM` is the one editorial fact in the model, four entries
+  restating what the crates' manifests say of themselves. It only ever decides
+  how a matched **function** is labelled, never whether a pair exists, and a
+  crate it does not name is "shared" — no direction rather than a guessed one.
+  Never grow it into a heuristic over crate descriptions.
+- Both readings index the same edge objects (`byLean` and `byRust` hold the
+  same records), so the Lean view and the Rust view of one edge cannot drift
+  apart. An edge **names** the declarations behind it rather than counting
+  them: the names are the evidence.
+- The band is what the combined scope adds. `bridgeBandsFor()` returns nothing
+  in `lean` and `rust` scope, and the legend loses its boundary entries with
+  it.
+
+#### Chrome, localisation and data retention
+
 - Generated labels are painted with `t()` at render time, and the first
   locale load dispatches no `sele4n:locale-changed` event. `setupLocaleReady()`
   registers on `sele4nI18n.onReady()` before anything paints, and the callback
-  repaints the sections once, only if a lookup fell back before the locale
+  repaints once, only if a lookup fell back before the locale
   arrived (`paintedBeforeLocale`, set by `t()` itself). A non-English locale
   that landed after the bundled snapshot otherwise left every generated label
   in English; the probe holds the locale back to prove the repaint.
+- **Every visible label in every chart goes through `t()`** — lane labels,
+  budget-node affordances, the boundary band's rows, both legends. Each is
+  looked up **once** and used for both the node's measurement and its painting:
+  a translated label measured at its English width wraps wrongly. Node tooltips
+  and the SVG `aria-label` summaries are still English; that is a known
+  pre-existing surface, not a licence to add more.
 - Count labels use plural families (`key_one` / `key_few` / `key_many` /
   `key_other`) resolved by `t(key, { count })`, and every number handed to
   `t()` or `formatCount()` is grouped by the active locale (`10,929`,
   `10 929`, `10.929`). Never hard-code a separator or a plural in a string.
-- The Rust cards render `map-data.json#rust` and derive nothing. Test items
-  are listed only behind each card's toggle; `crate.items` counts production
-  declarations alone. `rustUnsafeSummary()` reads `unsafe` (production) and
-  `testUnsafe` apart: the card's headline is the production figure, the detail
-  line names the fn/impl/block counts, the item-level `allow` exception
-  (`sele4n-abi`) and "+N in test code", and the strip sums production sites.
-  Never show one total that mixes the two; the reverted build's "118 sites"
-  was neither figure.
+- The Rust graph renders `map-data.json#rust` and derives nothing beyond the
+  module tree and the boundary match. `rustUnsafeSummary()` reads `unsafe`
+  (production) and `testUnsafe` apart: the node's headline is the production
+  figure, the detail names the fn/impl/block counts, the item-level `allow`
+  exception (`sele4n-abi`) and "+N in test code". Never show one total that
+  mixes the two; a reverted build's "118 sites" was neither figure. The crate
+  lint (`deniesUnsafe`) is a separate fact and never stands in for the counts.
 - A target-scoped dependency table is stated under its cfg ("under
-  cfg(loom): loom"), dev-dependencies as "test-only"; only unconditional
-  tables are "external".
-- Every file under `rust/` has one entry on the page: the crate cards own the
-  `.rs` sources and `crateSupportFiles()` lists the rest (`Cargo.toml`,
-  `link.ld`, `.S`) per crate in the inventory, then the workspace files.
-- The inventory's Tests group and the scanner's `test` role are one scope:
-  `rust/<crate>/{tests,benches,examples}/` is test code in
-  `classifyRepositoryPath()` as it is in `rustFileRole()`, and the Lean groups
-  follow `isProductionModule`. The classifier takes the snapshot's crate list
-  and groups a file by the crate whose directory owns it (the deepest one), so
-  a nested member groups correctly; the conventional `rust/<crate>/` path is
-  the fallback without a list. `map-runtime.test.mjs` checks both against
-  every file of the bundled snapshot, so the two definitions cannot drift.
-- Content sets a card's height: `.rust-crate-grid` is `align-items: start`
-  and `.rust-crate-files` is bounded (`max-height`, scrolls inside the card).
-  With the default `stretch`, the HAL's 33-file card once set a 3,000px row
-  and three quarters of the section was blank. The dependency strip SVG keeps
-  its `width` attribute, is centred when narrower than its figure, and scrolls
-  inside `.rust-dependency-scroll` when wider.
+  cfg(loom)"), dev-dependencies as "test-only", build dependencies as
+  "build-time"; only unconditional tables are "external". A dependency is
+  navigable when it names a workspace member, whichever table it came from.
 - A live refresh may carry no repository tree (the canonical artifact lists
   only Lean modules) and never carries a Rust inventory. `retainInventory()`
   keeps the previous tree and crates in that case and records the commit each
-  was taken at, so the inventory sections do not empty out on a networked
-  visit.
+  was taken at, so the Rust half does not empty out on a networked visit. A
+  tree refresh changes the Lean declarations, so `buildBridgeIndex()` must run
+  again with it.
 - A canonical refresh names its revision as `repository.head.commit_sha`;
-  `normalizeCanonicalPayload` adopts it as `commitSha`, and the provenance
-  note states the inventory's own revisions even when the graph's is unknown.
-- `renderInventory()` rebuilds both sections from scratch, on every live
-  refresh and locale switch, so it captures the open state of every
-  `<details>` (`data-open-key`) first and re-applies it after. Never rebuild
-  these sections without that: the refresh lands seconds after first paint,
-  exactly when a reader has started opening things.
-- Count labels ("303 modules", "1 file", "Show 61 test items") come from
-  plural families through `t(key, { count })`; the English fallbacks go
-  through `pluralEn()`. No string may hard-code a plural or a separator.
+  `normalizeCanonicalPayload` adopts it as `commitSha`. Rust nodes link at
+  `state.rustCommit` and Lean modules at `state.commitSha`
+  (`nodeSourceRef()`), because the two halves can be a commit apart.
 - `node scripts/map-smoke.mjs` renders the page in headless Chromium and
-  asserts the guarantees above (chart at 1:1 at 1200–1920, sidebar placement,
-  the pinned sidebar at 720p, no sideways overflow, clean console, both
-  themes, a Spanish deep link, a locale held back until after the snapshot
-  paints, the crate cards and inventory, bounded card
-  heights, pluralised labels, `loom` under its cfg, and open state surviving a
-  re-render). `.github/workflows/ci.yml` runs it with the
-  runner's Chrome on every push. A layout guarantee the docs make gets a probe
-  assertion.
+  asserts the guarantees above (chart at 1:1 at 1200–1920 in **both** scopes,
+  sidebar placement, the pinned sidebar at 720p, no sideways overflow, clean
+  console, both themes, a Spanish deep link, a locale held back until after the
+  snapshot paints, the scope toggle end to end, the boundary band's direction,
+  crossing into the other language, a Rust deep link, tappable scope options on
+  a phone, and nothing clipped in the sidebar). `.github/workflows/ci.yml` runs
+  it with the runner's Chrome on every push. A layout guarantee the docs make
+  gets a probe assertion.
 
 ### Rust crate inventory (`map-data.json#rust`)
 
@@ -499,6 +557,7 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Change area | Primary file(s) |
 |-------------|-----------------|
 | Map graph behavior | `assets/js/map.js` |
+| Map scope toggle + Rust graph + boundary | `assets/js/map.js` |
 | Map browser smoke probe | `scripts/map-smoke.mjs` |
 | Continuous integration | `.github/workflows/ci.yml` |
 | Map controls/layout/sections | `map.html`, `assets/css/map.css` |

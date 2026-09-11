@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark light">
   <title>seLe4n Codebase Map</title>
-  <meta name="description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and guided traversal context." data-i18n-content="meta.map_description">
+  <meta name="description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, the Rust crate module trees, theorem coupling, and the declaration-level boundary between the two languages." data-i18n-content="meta.map_description">
   <meta property="og:title" content="seLe4n Codebase Map" data-i18n-content="meta.map_og_title">
-  <meta property="og:description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and guided traversal context." data-i18n-content="meta.map_og_description">
+  <meta property="og:description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, the Rust crate module trees, theorem coupling, and the declaration-level boundary between the two languages." data-i18n-content="meta.map_og_description">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sele4n.org/map.html">
   <meta property="og:image" content="https://sele4n.org/assets/images/favicon.png">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:image" content="https://sele4n.org/assets/images/favicon.png">
   <meta name="twitter:title" content="seLe4n Codebase Map" data-i18n-content="meta.map_og_title">
-  <meta name="twitter:description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and guided traversal context." data-i18n-content="meta.map_og_description">
+  <meta name="twitter:description" content="Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, the Rust crate module trees, theorem coupling, and the declaration-level boundary between the two languages." data-i18n-content="meta.map_og_description">
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
@@ -35,7 +35,7 @@
     "@context": "https://schema.org",
     "@type": "WebApplication",
     "name": "seLe4n Adaptive Codebase Navigator",
-    "description": "Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, Rust syscall wrappers, theorem coupling, and guided traversal context.",
+    "description": "Interactive architecture map for the seLe4n codebase. Explore Lean module dependencies, the Rust crate module trees, theorem coupling, and the declaration-level boundary between the two languages.",
     "url": "https://sele4n.org/map.html",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Any"
@@ -89,7 +89,7 @@
         <div class="code-map-hero-main">
           <p class="hero-label" data-i18n="map.hero_label">seLe4n Architecture Intelligence</p>
           <h1 data-i18n="map.hero_title">Adaptive Codebase Navigator</h1>
-          <p class="section-lead code-map-lead" data-i18n="map.hero_lead">The production kernel, module by module: dependencies, impact edges, proof links and declarations for every Lean module, the Rust crates below them (user-space wrappers and the bare-metal HAL), and the rest of the repository one click away.</p>
+          <p class="section-lead code-map-lead" data-i18n="map.hero_lead">The production kernel, module by module: dependencies, impact edges, proof links and declarations for every Lean module, the Rust crates below and above it (the bare-metal HAL and the user-space syscall wrappers), and the declaration-level boundary where the two languages meet.</p>
         </div>
         <div class="code-map-header-meta" role="status" aria-live="polite">
           <p id="map-status" class="map-status" data-i18n="map.loading">Loading codebase map…</p>
@@ -104,13 +104,9 @@
             <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_ops_inv_pairs">Ops/Inv Pairs</dt><dd data-map="proofPairs">-</dd></div>
             <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_linked_pairs">Linked Pairs</dt><dd data-map="linkedPairs">-</dd></div>
             <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_rust_crates">Rust Crates</dt><dd data-map="rustCrates">-</dd></div>
-            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_files">Files</dt><dd data-map="files">-</dd></div>
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_rust_modules">Rust Modules</dt><dd data-map="rustModules">-</dd></div>
+            <div class="stat-card"><dt class="stat-title" data-i18n="map.stat_bridge_links">Boundary Links</dt><dd data-map="bridgeLinks">-</dd></div>
           </dl>
-          <nav class="map-section-nav" aria-label="Page sections" data-i18n-aria-label="map.section_nav_label">
-            <a href="#module-graph" data-i18n="map.nav_workspace">Lean workspace</a>
-            <a href="#rust-crates" data-i18n="map.nav_rust">Rust crates</a>
-            <a href="#repository-inventory" data-i18n="map.nav_inventory">Repository inventory</a>
-          </nav>
         </div>
       </div>
     </header>
@@ -119,13 +115,21 @@
       <div class="container map-workspace">
         <div class="map-section-heading">
           <div class="map-section-heading-text">
-            <h2 id="workspace-title" data-i18n="map.workspace_title">Lean module workspace</h2>
-            <p data-i18n="map.workspace_lead">Imports, dependents, proof pair and declarations for every production Lean module. Opens on SeLe4n.Kernel.API, the kernel&rsquo;s unified public API: the entry-point surface the subsystems compose into.</p>
+            <h2 id="workspace-title" data-i18n="map.workspace_title">Production module workspace</h2>
+            <p data-i18n="map.workspace_lead">Imports, dependents, proof pair and declarations for every production Lean module, the Rust crates&rsquo; own module trees, and the boundary where the two meet. Opens on SeLe4n.Kernel.API, the kernel&rsquo;s unified public API.</p>
           </div>
-          <span class="production-badge production-badge-static"><span data-i18n="map.production_badge">production</span> · Lean 4</span>
+          <span class="production-badge production-badge-static" id="workspace-scope-badge"><span data-i18n="map.production_badge">production</span> · Lean 4 + Rust</span>
         </div>
         <article class="card constellation-panel">
           <form class="map-toolbar" id="map-toolbar" role="search" aria-label="Module controls" aria-controls="flowchart-wrap" data-density="compact">
+            <div class="control-group control-group-scope">
+              <span class="control-label" id="map-scope-label" data-i18n="map.scope_label">Languages</span>
+              <div class="map-scope-toggle" id="map-scope-toggle" role="radiogroup" aria-labelledby="map-scope-label">
+                <button type="button" class="map-scope-option" role="radio" aria-checked="false" data-scope="lean" data-i18n="map.scope_lean">Lean</button>
+                <button type="button" class="map-scope-option is-active" role="radio" aria-checked="true" data-scope="both" data-i18n="map.scope_both">Lean + Rust</button>
+                <button type="button" class="map-scope-option" role="radio" aria-checked="false" data-scope="rust" data-i18n="map.scope_rust">Rust</button>
+              </div>
+            </div>
             <div class="control-group control-group-wide">
               <label for="module-search" data-i18n="map.context_search">Context search</label>
               <input id="module-search" type="text" placeholder="Module or Module.declaration" data-i18n-placeholder="map.search_placeholder" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="module-search-options" aria-describedby="module-search-feedback">
@@ -157,31 +161,6 @@
       </div>
     </section>
 
-    <section class="section map-section" id="rust-crates" aria-labelledby="rust-crates-title">
-      <div class="container map-workspace">
-        <div class="map-section-heading">
-          <div class="map-section-heading-text">
-            <h2 id="rust-crates-title" data-i18n="map.rust_title">Rust production crates</h2>
-            <p data-i18n="map.rust_lead">The user-space syscall wrappers and the bare-metal HAL, inventoried from the same seLe4n checkout as the Lean map: every source file with its items, their visibility, and where unsafe code lives.</p>
-          </div>
-          <span class="production-badge production-badge-static"><span data-i18n="map.production_badge">production</span> · Rust</span>
-        </div>
-        <div id="rust-crate-grid" class="rust-crate-grid"></div>
-      </div>
-    </section>
-
-    <section class="section section-alt map-section" id="repository-inventory" aria-labelledby="inventory-title">
-      <div class="container map-workspace">
-        <div class="map-section-heading">
-          <div class="map-section-heading-text">
-            <h2 id="inventory-title" data-i18n="map.inventory_title">Repository inventory</h2>
-            <p data-i18n="map.inventory_lead">Every file in the seLe4n repository, grouped by what it is. The production groups open by default and each subsystem lists its modules on a click; tests, scripts, documentation and tooling are one click away too, each file linked to its source at the snapshot commit.</p>
-          </div>
-          <p id="inventory-provenance" class="inventory-provenance"></p>
-        </div>
-        <div id="repository-inventory-groups" class="inventory-groups"></div>
-      </div>
-    </section>
   </main>
 
   <footer class="footer footer-compact">
