@@ -17,18 +17,23 @@ import {
   resolveSourceAnchors
 } from './source-anchors.mjs';
 
-const LINK = (path, line, label) =>
-  `<a href="https://github.com/hatter6822/seLe4n/blob/main/${path}#L${line}" target="_blank" rel="noopener noreferrer" class="code-link"><code>${label}</code></a>`;
+const LINK = (path, line, label, ref = 'main') =>
+  `<a href="https://github.com/hatter6822/seLe4n/blob/${ref}/${path}#L${line}" target="_blank" rel="noopener noreferrer" class="code-link"><code>${label}</code></a>`;
 
 test('collects a line-anchored, code-labelled blob link', () => {
   const found = collectSourceAnchors(`prose ${LINK('SeLe4n/Model/State.lean', 689, 'SystemState')} prose`);
-  assert.deepEqual(found, [{ path: 'SeLe4n/Model/State.lean', line: 689, label: 'SystemState' }]);
+  assert.deepEqual(found, [{ ref: 'main', path: 'SeLe4n/Model/State.lean', line: 689, label: 'SystemState' }]);
+});
+
+test('collects a link already stamped at a commit, so re-running is idempotent', () => {
+  const found = collectSourceAnchors(LINK('SeLe4n/Model/State.lean', 638, 'SystemState', 'c386166'));
+  assert.deepEqual(found, [{ ref: 'c386166', path: 'SeLe4n/Model/State.lean', line: 638, label: 'SystemState' }]);
 });
 
 test('collects the same link out of a locale file, where the quotes are escaped', () => {
   const json = JSON.stringify({ text: LINK('SeLe4n/Model/State.lean', 689, 'SystemState') });
   assert.deepEqual(collectSourceAnchors(json), [
-    { path: 'SeLe4n/Model/State.lean', line: 689, label: 'SystemState' }
+    { ref: 'main', path: 'SeLe4n/Model/State.lean', line: 689, label: 'SystemState' }
   ]);
 });
 
@@ -84,6 +89,33 @@ test('stamps a moved declaration onto both surfaces', () => {
   const locale = applySourceAnchors(JSON.stringify({ text: html }), anchors);
   assert.match(locale, /Policy\.lean#L281\\"/);
   assert.deepEqual(Object.keys(JSON.parse(locale)), ['text']);
+});
+
+test('an anchored link names the revision its line belongs to', () => {
+  // The unpinned sync falls back to the artifact's generation commit when
+  // upstream has moved ahead of it, so a line resolved there is not a line on
+  // `main`. A link that carries a line carries the commit too.
+  const anchors = { 'SeLe4n/Model/State.lean': { SystemState: 638 } };
+  const out = applySourceAnchors(LINK('SeLe4n/Model/State.lean', 689, 'SystemState'), anchors, 'c386166');
+  assert.match(out, /blob\/c386166\/SeLe4n\/Model\/State\.lean#L638"/);
+
+  // Re-stamping at a new revision replaces the old one rather than stacking.
+  const again = applySourceAnchors(out, { 'SeLe4n/Model/State.lean': { SystemState: 700 } }, 'deadbee');
+  assert.match(again, /blob\/deadbee\/SeLe4n\/Model\/State\.lean#L700"/);
+});
+
+test('without a revision the link keeps the ref it has', () => {
+  const anchors = { 'SeLe4n/Model/State.lean': { SystemState: 638 } };
+  const out = applySourceAnchors(LINK('SeLe4n/Model/State.lean', 689, 'SystemState'), anchors);
+  assert.match(out, /blob\/main\/SeLe4n\/Model\/State\.lean#L638"/);
+});
+
+test('a revision that is not a plain ref is ignored rather than injected', () => {
+  const anchors = { 'SeLe4n/Model/State.lean': { SystemState: 638 } };
+  for (const bad of ['../../evil', 'a/b', '"onmouseover=', '']) {
+    const out = applySourceAnchors(LINK('SeLe4n/Model/State.lean', 689, 'SystemState'), anchors, bad);
+    assert.match(out, /blob\/main\/SeLe4n\/Model\/State\.lean#L638"/, String(bad));
+  }
 });
 
 test('leaves an anchor the inventory does not carry exactly as written', () => {

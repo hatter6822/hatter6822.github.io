@@ -207,3 +207,19 @@ test('every line anchor on the real page is one the snapshot resolved', async ()
   assert.deepEqual(unresolved, [],
     'these deep links carry a hand-written line number — re-run scripts/sync-upstream.mjs, or fix the path if the declaration moved file');
 });
+
+test('every anchored deep link on the real page names the resolved revision', async () => {
+  // A line number against a branch is a line number on a moving target: the
+  // unpinned sync falls back to the artifact's generation commit, and a line
+  // resolved there is not a line on `main`.
+  const html = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
+  const data = JSON.parse(await readFile(new URL('../../data/site-data.json', import.meta.url), 'utf8'));
+
+  const refs = new Set(
+    [...html.matchAll(/\/blob\/([^/"]+)\/[^"#]+#L\d+/g)].map((match) => match[1])
+  );
+
+  assert.ok(refs.size > 0, 'index.html carries anchored deep links');
+  assert.deepEqual([...refs], [data.sourceAnchorRef],
+    'anchored links all name data/site-data.json#sourceAnchorRef');
+});

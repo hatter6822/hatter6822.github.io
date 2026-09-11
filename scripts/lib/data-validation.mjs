@@ -312,6 +312,13 @@ export function validateSiteDataObject(data) {
   errors.push(...subsystemErrors(data.subsystems));
   errors.push(...sourceAnchorErrors(data.sourceAnchors));
 
+  // The revision the anchor lines were resolved against, written into every
+  // anchored href. A branch name here would put a line number on a moving
+  // target, which is the failure the anchors exist to prevent.
+  if (data.sourceAnchorRef !== undefined && !/^[0-9a-f]{7,40}$/.test(String(data.sourceAnchorRef))) {
+    errors.push('site-data.json: sourceAnchorRef must be a commit id, not a branch name');
+  }
+
   return errors;
 }
 

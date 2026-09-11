@@ -123,7 +123,7 @@ export function applyStaticValues(html, data) {
   if (typeof html !== 'string') throw new TypeError('html must be a string');
   if (!data || typeof data !== 'object') return html;
 
-  let out = applySourceAnchors(replaceLiveValues(html, data), data.sourceAnchors);
+  let out = applySourceAnchors(replaceLiveValues(html, data), data.sourceAnchors, data.sourceAnchorRef);
 
   if (hasValue(data.version)) {
     out = out.replace(/("version":\s*")[^"]*(")/g, `$1${escapeReplacement(data.version)}$2`);
@@ -154,5 +154,5 @@ export function applyStaticValues(html, data) {
 export function applyLocaleStaticValues(json, data) {
   if (typeof json !== 'string') throw new TypeError('json must be a string');
   if (!data || typeof data !== 'object') return json;
-  return applySourceAnchors(replaceLiveValues(json, data), data.sourceAnchors);
+  return applySourceAnchors(replaceLiveValues(json, data), data.sourceAnchors, data.sourceAnchorRef);
 }

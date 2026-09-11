@@ -2892,3 +2892,29 @@ test('a declaration deep link is refused when the scope cannot show its module',
 
   assert.ok(!hooks.nodeExists('SeLe4n.Kernel.API'), 'the Lean module is outside the Rust scope');
 });
+
+test('a declaration search is refused when the scope cannot show its module', async () => {
+  // The URL-restore path was fixed first; this is the interactive one. The
+  // search field accepts a typed or chosen declaration through
+  // selectDeclaration(), whose guard checked state.moduleMap — the Lean
+  // inventory regardless of scope — so in scope=rust it selected the Lean
+  // module while the toggle and badge still read Rust.
+  const { hooks } = await loadBundledState();
+
+  hooks.setScope('both');
+  const before = hooks.selectionState();
+  const leanModule = hooks.scopeNodes().find((name) => !hooks.isRustNode(name));
+  assert.ok(leanModule, 'the combined scope carries Lean modules');
+
+  hooks.setScope('rust');
+  const rustSelection = hooks.selectionState().module;
+  assert.ok(hooks.isRustNode(rustSelection), 'the Rust scope opens on a Rust node');
+
+  hooks.selectDeclaration('apiInvariantBundle', leanModule);
+  assert.equal(hooks.selectionState().module, rustSelection,
+    'a Lean declaration does not pull a Lean module in under a Rust badge');
+  assert.notEqual(hooks.selectionState().context, 'declaration');
+
+  hooks.setScope('both');
+  assert.ok(before, 'the combined scope is restored for later tests');
+});

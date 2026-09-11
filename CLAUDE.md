@@ -216,6 +216,30 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   a declaration that left its file is an editorial call (the link may belong
   somewhere else entirely), so fix the path by hand and let the next sync
   resolve it. See `scripts/lib/source-anchors.mjs`.
+- **An anchored link names the commit its line belongs to**, recorded as
+  `sourceAnchorRef` and written into the href in place of `main`. A line number
+  against a branch is a line number on a moving target: the unpinned sync falls
+  back to the artifact's generation commit when upstream has committed Lean
+  changes without regenerating the artifact, and a line resolved there is not a
+  line on `main`. Bare file and tree links still track `main` — only a link
+  that carries a line carries a revision.
+- **"All the syscalls have wrappers" is verified before it is published.**
+  `syscalls` counts Lean `SyscallId` constructors and knows nothing about
+  `sele4n-sys`, so on its own it would let a new Lean syscall land before its
+  wrapper and have the next sync silently upgrade the claim; the prose it
+  replaced said "27 of 30", which is the proof these surfaces lag each other.
+  `assertSyscallWrapperCoverage()` folds case and separators (Lean
+  `cspaceMint`, Rust `SyscallId::CSpaceMint`) and fails the sync naming any
+  syscall the wrapper crate does not reference. This is a **gate on publishing
+  a figure, not a figure**: the landing page still states nothing the Rust
+  inventory derives.
+- **The `unsafe` claim is about an operation, not a block.** `sele4n-abi`
+  declares `raw_syscall` twice — one per target, only one of which compiles —
+  and the call site is itself an `unsafe` block, so the scanner counts two
+  `unsafe fn` and two blocks while the kernel has exactly one unsafe
+  *operation*, the `svc #0` `asm!`. Upstream's own comment says as much. Saying
+  "one unsafe block" contradicted the counters the code map ships from the same
+  revision; say "operation".
 - Never write a metric into `index.html` or a locale by hand. Every literal copy
   is stamped by `scripts/apply-static-values.mjs`; `static-values.test.mjs`
   fails when the committed tree drifts.

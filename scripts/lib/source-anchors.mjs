@@ -23,7 +23,7 @@
  * a claim nobody made.
  */
 
-const BLOB_PREFIX = 'https://github.com/hatter6822/seLe4n/blob/main/';
+const BLOB_BASE = 'https://github.com/hatter6822/seLe4n/blob/';
 
 /**
  * Labels that name something other than the declaration they link to.
@@ -38,16 +38,19 @@ const LABEL_ALIASES = Object.freeze({
 });
 
 /**
- * Match a blob link that carries a line anchor and a `<code>` label.
+ * Match a blob link that carries a revision, a line anchor and a `<code>` label.
  *
  * Written to survive both surfaces: index.html quotes attributes with `"`,
  * and a locale file stores the same HTML as a JSON string, where every quote
  * arrives escaped as `\"`. Anything between the href and the label is skipped
  * (target, rel, class), but not another tag that opens an element, so a link
  * whose label is plain prose is left alone.
+ *
+ * The revision is captured rather than fixed at `main`, so re-running over an
+ * already-stamped page is idempotent.
  */
 const ANCHOR_PATTERN = new RegExp(
-  '(href=(?:"|\\\\")' + BLOB_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^"#\\\\]+)#L)(\\d+)' +
+  '(href=(?:"|\\\\")' + BLOB_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')([A-Za-z0-9_.\\-]+)(/)([^"#\\\\]+)(#L)(\\d+)' +
     '((?:"|\\\\")[^<>]*>\\s*<code>)([^<]+)(</code>)',
   'g'
 );
@@ -101,7 +104,12 @@ export function collectSourceAnchors(text) {
   if (typeof text !== 'string') return found;
 
   for (const match of text.matchAll(ANCHOR_PATTERN)) {
-    found.push({ path: match[2], line: Number(match[3]), label: decodeLabel(match[5]) });
+    found.push({
+      ref: match[2],
+      path: match[4],
+      line: Number(match[6]),
+      label: decodeLabel(match[8])
+    });
   }
 
   return found;
@@ -181,14 +189,25 @@ export function resolveSourceAnchors(anchors, readSource) {
  * Pure string → string, like the metric rewriter beside it. A link whose
  * (path, label) pair the inventory does not carry keeps the anchor it has:
  * the stamper never removes a line number it could not confirm.
+ *
+ * `revision` is the commit the lines were resolved against, and it is written
+ * into the href. A line number only means anything against a fixed revision:
+ * these links used to say `blob/main/` while the sync had resolved them on an
+ * older checkout — the artifact's generation commit, which the unpinned sync
+ * falls back to when upstream has committed Lean changes without regenerating
+ * the artifact. The published line was then the old commit's, on `main`'s
+ * file. The bare file and tree links elsewhere on the page still track `main`;
+ * only a link that carries a line names the revision that line belongs to.
  */
-export function applySourceAnchors(text, anchors) {
+export function applySourceAnchors(text, anchors, revision) {
   if (typeof text !== 'string') throw new TypeError('text must be a string');
   if (!anchors || typeof anchors !== 'object') return text;
 
-  return text.replace(ANCHOR_PATTERN, (whole, head, path, line, middle, label, tail) => {
+  const ref = typeof revision === 'string' && /^[A-Za-z0-9_.-]+$/.test(revision) ? revision : '';
+
+  return text.replace(ANCHOR_PATTERN, (whole, head, currentRef, slash, path, hash, line, middle, label, tail) => {
     const resolved = anchors[path]?.[decodeLabel(label)];
     if (!Number.isInteger(resolved) || resolved < 1) return whole;
-    return `${head}${resolved}${middle}${label}${tail}`;
+    return `${head}${ref || currentRef}${slash}${path}${hash}${resolved}${middle}${label}${tail}`;
   });
 }

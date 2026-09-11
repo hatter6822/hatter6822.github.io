@@ -63,7 +63,7 @@ import {
   theoremDeclarationCount
 } from './lib/canonical-map.mjs';
 import { collectSourceAnchors, resolveSourceAnchors } from './lib/source-anchors.mjs';
-import { extractImportTokens } from './lib/lean-analysis.mjs';
+import { extractImportTokens, inductiveConstructors } from './lib/lean-analysis.mjs';
 import { buildRustInventory } from './lib/rust-analysis.mjs';
 import { validateTraceDataObject, scenarioStates } from './lib/trace-analysis.mjs';
 
@@ -75,6 +75,8 @@ const CLONE_URL = `https://github.com/${REPO}.git`;
 const METRICS_PATH = 'docs/codebase_map.json';
 const MANIFEST_PATH = 'lakefile.toml';
 const TRACES_PATH = 'docs/execution-traces.json';
+/* The user-space crate whose wrappers the landing page says cover the whole syscall surface. */
+const WRAPPER_CRATE = 'sele4n-sys';
 
 const ROOT = new URL('../', import.meta.url);
 const SITE_FILE = new URL('data/site-data.json', ROOT);
@@ -165,6 +167,64 @@ async function buildSourceAnchors(work) {
   }
 
   return resolved;
+}
+
+/**
+ * The page says the Rust wrappers cover *all* the syscalls. Check it.
+ *
+ * `syscalls` counts constructors of Lean's `SyscallId` and knows nothing about
+ * `sele4n-sys`, so on its own it would let a new Lean syscall land before its
+ * wrapper and have the next sync silently upgrade the page's claim to complete
+ * coverage. The prose it replaced said "27 of 30", which is the proof that
+ * these two surfaces can and do lag each other.
+ *
+ * So the coverage is verified rather than assumed, the way `niSteps` is: every
+ * constructor must be named in the wrapper crate's production sources. This is
+ * a gate on publishing a figure, not a figure of its own — the landing page
+ * still states nothing the Rust inventory derives, which is the rule in
+ * lib/canonical-map.mjs.
+ */
+function assertSyscallWrapperCoverage(codebaseMap, work, rust, published) {
+  const owner = productionModules(codebaseMap).find((moduleInfo) =>
+    (moduleInfo.declarations || []).some((d) => d?.name === 'SyscallId' && d?.kind === 'inductive'));
+  if (!owner) throw new Error('syscall wrapper coverage: no production module declares `inductive SyscallId`');
+
+  const constructors = inductiveConstructors(readFileSync(join(work, owner.path), 'utf8'), 'SyscallId') || [];
+  if (constructors.length !== published) {
+    throw new Error(
+      `syscall wrapper coverage: the snapshot publishes ${published} syscalls but \`SyscallId\` has ` +
+      `${constructors.length} constructors`
+    );
+  }
+
+  const crate = (rust?.crates || []).find((entry) => entry.name === WRAPPER_CRATE);
+  if (!crate) throw new Error(`syscall wrapper coverage: ${WRAPPER_CRATE} is not in the Rust inventory`);
+
+  // The two sides spell a syscall differently — Lean `cspaceMint`, Rust
+  // `SyscallId::CSpaceMint` — so the comparison folds case and separators, the
+  // same normalization the code map's boundary matcher uses. Matching the Lean
+  // spelling literally is what this check got wrong first, and the gate caught
+  // it: it reported 19 of 35 missing against a crate that names all 35.
+  const fold = (name) => String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  let text = '';
+  for (const file of crate.files || []) {
+    if (file.role === 'test') continue;
+    try { text += `\n${readFileSync(join(work, file.path), 'utf8')}`; } catch { /* listed but unreadable */ }
+  }
+
+  const wrapped = new Set(
+    [...text.matchAll(/\bSyscallId::([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => fold(match[1]))
+  );
+
+  const missing = constructors.filter((name) => !wrapped.has(fold(name)));
+  if (missing.length) {
+    throw new Error(
+      `syscall wrapper coverage: ${missing.length} of ${constructors.length} syscalls have no wrapper in ` +
+      `${WRAPPER_CRATE} (${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ', …' : ''}). The landing page ` +
+      `claims the wrappers cover all of them — correct the prose or wait for the wrappers.`
+    );
+  }
 }
 
 function lineCounter(work) {
@@ -368,8 +428,12 @@ function buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors) {
     // into the markup until 0.32.0, where ten of twelve had gone stale.
     subsystems: subsystemMetricsFromCodebaseMap(codebaseMap),
     // Where each deep link's declaration is written in this revision, so the
-    // page's `#L` anchors are stamped rather than maintained by hand.
+    // page's `#L` anchors are stamped rather than maintained by hand. The
+    // revision goes with them: the unpinned sync falls back to the artifact's
+    // generation commit when upstream has moved ahead of it, and a line
+    // resolved there is not a line on `main`.
     sourceAnchors,
+    sourceAnchorRef: head.commitSha,
     commitSha: head.commitSha.slice(0, 7),
     updatedAt: head.committedAt,
     sourceRepo: REPO,
@@ -497,6 +561,7 @@ try {
   const sourceAnchors = await buildSourceAnchors(work);
   const siteData = buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors);
   const mapData = buildMapData(codebaseMap, head, sourceDigest, work);
+  assertSyscallWrapperCoverage(codebaseMap, work, mapData.rust, siteData.syscalls);
 
   await writeFile(SITE_FILE, JSON.stringify(siteData, null, 2) + '\n');
   // Written compact: this snapshot is the dominant payload on map.html, and

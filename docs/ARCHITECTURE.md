@@ -853,11 +853,20 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
   reconciles each layer against the code map's graph, so the two pages cannot
   describe different kernels.
 - **Deep-link line anchors are stamped, not maintained.** `sourceAnchors` maps
-  `path → label → line` for every `…/blob/main/<file>#L<n>` link the page
-  carries; sixteen of thirty-seven pointed at unrelated code by 0.31.0. The
-  sync discovers the links by reading the committed page, so adding one needs
-  no pipeline change, and a label it cannot resolve is reported rather than
-  repointed — a declaration that moved file is an editorial decision.
+  `path → label → line` for every anchored blob link the page carries; sixteen
+  of thirty-seven pointed at unrelated code by 0.31.0. The sync discovers the
+  links by reading the committed page, so adding one needs no pipeline change,
+  and a label it cannot resolve is reported rather than repointed — a
+  declaration that moved file is an editorial decision. The href names the
+  commit the line was resolved at (`sourceAnchorRef`) rather than `main`,
+  because the unpinned sync falls back to the artifact's generation commit and
+  a line resolved there is not a line on the branch tip.
+- **A coverage claim is gated on coverage.** The page says the Rust wrappers
+  cover all the syscalls; `syscalls` counts Lean constructors and cannot see
+  `sele4n-sys`, so `assertSyscallWrapperCoverage()` checks the correspondence
+  and fails the sync when a syscall has no wrapper. The figure stays
+  canonical-or-absent — the Rust inventory gates publication, it derives
+  nothing.
 - **`admitted` is derived, not asserted.** It counts `axiom` declarations plus
   declarations whose `called` list reaches `sorry`/`sorryAx`, and returns
   `undefined` rather than a published `0` when the artifact carries no

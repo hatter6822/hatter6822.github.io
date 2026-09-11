@@ -191,17 +191,23 @@ for (const [width, height, label] of [
   const { context, page, errors } = await open(1440, 900, { theme: 'light' });
   console.log('\n[light theme, deep links]');
 
-  const unresolved = await page.$$eval('a[href*="/blob/main/"]', (links) =>
+  const anchored = await page.$$eval('a[href*="/blob/"]', (links) =>
     links.map((link) => {
-      const anchor = /\/blob\/main\/([^#]+)#L(\d+)$/.exec(link.getAttribute('href'));
+      const anchor = /\/blob\/([^/]+)\/([^#]+)#L(\d+)$/.exec(link.getAttribute('href'));
       const code = link.querySelector('code');
-      return anchor && code ? [anchor[1], code.textContent.trim(), Number(anchor[2])] : null;
+      return anchor && code ? [anchor[1], anchor[2], code.textContent.trim(), Number(anchor[3])] : null;
     }).filter(Boolean));
 
-  const stale = unresolved.filter(([path, label, line]) => SITE_DATA.sourceAnchors?.[path]?.[label] !== line);
-  check(unresolved.length > 20, `the page carries its deep links (${unresolved.length})`);
+  const stale = anchored.filter(([, path, label, line]) => SITE_DATA.sourceAnchors?.[path]?.[label] !== line);
+  check(anchored.length > 20, `the page carries its deep links (${anchored.length})`);
   check(stale.length === 0,
-    `every anchor matches the resolved inventory${stale.length ? ` — ${stale.slice(0, 4).map(([p, l, n]) => `${p}#L${n} (${l})`).join(', ')}` : ''}`);
+    `every anchor matches the resolved inventory${stale.length ? ` — ${stale.slice(0, 4).map(([, p, l, n]) => `${p}#L${n} (${l})`).join(', ')}` : ''}`);
+
+  // A line number only means anything against a fixed revision, so an anchored
+  // link names the commit its line was resolved at rather than a branch.
+  const wrongRef = anchored.filter(([ref]) => ref !== SITE_DATA.sourceAnchorRef);
+  check(wrongRef.length === 0,
+    `every anchored link names the resolved revision${wrongRef.length ? ` — ${[...new Set(wrongRef.map(([r]) => r))].join(', ')}` : ''}`);
 
   const overflow = await sideways(page);
   check(overflow <= 0, `no sideways overflow in light theme (${overflow}px)`);

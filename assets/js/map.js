@@ -1328,7 +1328,11 @@
 
   function selectDeclaration(declName, moduleName) {
     var mod = moduleName || declarationModuleOf(declName);
-    if (!mod || !state.moduleMap[mod]) return;
+    /* `nodeExists`, not `moduleMap`: a declaration resolves to a Lean module,
+       which the Rust-only scope does not show. The search field accepts a
+       typed or chosen declaration through here, so guarding only the URL path
+       left the interactive one selecting a Lean module under a Rust badge. */
+    if (!mod || !nodeExists(mod)) return;
     /* The search field re-resolves its value on blur; when that value is the
        declaration already shown, there is nothing to re-render or re-scroll. */
     if (state.flowContext === "declaration" && state.selectedDeclaration === declName && state.selectedDeclarationModule === mod) return;
@@ -6988,6 +6992,7 @@
       bridgeBandsFor: bridgeBandsFor,
       bridgeBandRows: bridgeBandRows,
       bridgeUndirected: function () { return JSON.parse(JSON.stringify(BRIDGE_UNDIRECTED)); },
+      selectDeclaration: selectDeclaration,
       urlSafeNodeSegment: urlSafeNodeSegment,
       flowScrollTarget: function () { return state.flowScrollTarget; },
       selectionState: function () {
