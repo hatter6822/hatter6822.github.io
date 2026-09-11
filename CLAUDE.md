@@ -204,8 +204,9 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   name, reconciles every layer against `map-data`'s graph, and
   `static-values.test.mjs` rejects a page span the snapshot cannot fill — so a
   diagram label cannot go back to being hand-written. A figure that is a *sum*
-  of two layers (`462 theorems across Object (218) and State (244)`) keeps the
-  total as a literal beside the two live spans.
+  of two layers (`462 theorems across Object (218) and State (244)`) is an
+  entry with `namespaces` (plural) rather than a literal: a hard-coded total
+  beside two live components contradicts them the first time either moves.
 - `sourceAnchors` records where each deep link's declaration is written
   (`path → label → line`). Sixteen of the page's thirty-seven `#L` anchors
   pointed at unrelated code by 0.31.0. The sync reads the committed surfaces to
@@ -248,7 +249,18 @@ scope toggle. Production code is the subject in every scope.
   unchanged: every scope carrying Lean still opens on `SeLe4n.Kernel.API`.
 - Node names come off the URL, so `sanitizeModuleName()` is a tight whitelist:
   `[A-Za-z0-9_.:-]` and nothing else. It had to widen for `::` and the hyphen a
-  crate name may carry; never widen it further.
+  crate name may carry; never widen it further. Anything the runtime *builds*
+  into a node name goes through `urlSafeNodeSegment()` first — the collision
+  suffix for two Rust files with one name used to be `@` plus a slash-bearing
+  path, which the whitelist rejects, so the node could be selected but not
+  reloaded or shared.
+- Switching scope replaces a selection the new scope cannot show, and sets the
+  replacement as `flowScrollTarget`. An empty target means "keep the scroll you
+  had" on desktop, which left the fallback node off-screen after scrolling down
+  a band and narrowing the scope.
+- A `decl=` in the URL only restores when `nodeExists()` accepts the module it
+  resolves to. `scope=rust` paired with a Lean declaration otherwise pulled the
+  Lean module into the selection while the toggle and badge still read Rust.
 
 #### The Lean chart
 
@@ -326,6 +338,15 @@ scope toggle. Production code is the subject in every scope.
   labelled as what it is: `invokes` (a user-space wrapper naming a Lean-
   implemented operation), `mirrors` (a HAL routine of the same name either side
   of the seam — not a call) and `shares` (a type or constant on both sides).
+- **Each of the four relations gets its own band, its own colour and its own
+  legend row.** `mirrors` was folded into `shared` and so was relabelled
+  "definitions shared across the boundary", which is the opposite of what it
+  means: two implementations of one contract, not one definition both sides
+  hold.
+- **Only `implements` and `invokes` are drawn with an arrowhead.**
+  `BRIDGE_UNDIRECTED` is the one place that says so, and `drawFlowEdge()` omits
+  `marker-end` for those relations. An arrow on a shared type asserts a call
+  that does not happen.
 - `RUST_CRATE_STRATUM` is the one editorial fact in the model, four entries
   restating what the crates' manifests say of themselves. It only ever decides
   how a matched **function** is labelled, never whether a pair exists, and a
@@ -378,7 +399,11 @@ scope toggle. Production code is the subject in every scope.
 - A canonical refresh names its revision as `repository.head.commit_sha`;
   `normalizeCanonicalPayload` adopts it as `commitSha`. Rust nodes link at
   `state.rustCommit` and Lean modules at `state.commitSha`
-  (`nodeSourceRef()`), because the two halves can be a commit apart.
+  (`nodeSourceRef()`), because the two halves can be a commit apart. When they
+  are, `renderInventoryProvenance()` says so under the "Generated" stamp
+  (`#map-inventory-note`, `map.inventory_retained`) — the header publishes Rust
+  Modules and Boundary Links beside one timestamp, which otherwise reads as a
+  single coherent snapshot. The note is hidden when the two agree.
 - `node scripts/map-smoke.mjs` renders the page in headless Chromium and
   asserts the guarantees above (chart at 1:1 at 1200–1920 in **both** scopes,
   sidebar placement, the pinned sidebar at 720p, no sideways overflow, clean

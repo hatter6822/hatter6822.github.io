@@ -267,6 +267,12 @@ own kind**:
 | `pub fn` | `def`, `abbrev` | `mirrors` | in the HAL: specification and machine code either side of the seam, not a call. |
 | type / constant | any | `shares` | the data that crosses the boundary. |
 
+Each relation draws its own band, in its own colour, with its own legend row.
+`implements` and `invokes` are calls and carry an arrowhead; `mirrors` and
+`shares` are not and do not (`BRIDGE_UNDIRECTED`). Both were wrong in the first
+build: `mirrors` fell into the shared band and was relabelled as a shared
+definition, and every boundary edge was drawn with an arrow.
+
 Only `implements` is a certainty read straight from the data. The crate's
 stratum — `RUST_CRATE_STRATUM`, four entries restating what the crates' own
 manifests say of themselves — is the one editorial fact the model needs, and it

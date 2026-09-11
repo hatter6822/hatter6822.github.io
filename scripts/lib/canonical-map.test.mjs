@@ -31,6 +31,7 @@ import {
   resolveDeclarationName,
   siteMetricsFromCodebaseMap,
   subsystemMetricsFromCodebaseMap,
+  subsystemNamespaces,
   symbolsFromDeclarations,
   theoremDeclarationCount,
 } from './canonical-map.mjs';
@@ -596,4 +597,36 @@ test('crossCoreNonInterferenceCount counts the SMP half by its naming convention
     }]
   };
   assert.equal(crossCoreNonInterferenceCount(map), 2);
+});
+
+test('a subsystem can sum several namespaces without double-counting', () => {
+  // "462 theorems across Object (218) and State (244)" was the last total the
+  // page stated as a literal beside two live components — internally
+  // inconsistent the moment either component moved.
+  const map = {
+    modules: [
+      { module: 'SeLe4n.Model.Object', path: 'SeLe4n/Model/Object.lean',
+        declarations: [{ kind: 'theorem', name: 'a' }] },
+      { module: 'SeLe4n.Model.Object.Types', path: 'SeLe4n/Model/Object/Types.lean',
+        declarations: [{ kind: 'theorem', name: 'b' }, { kind: 'lemma', name: 'c' }] },
+      { module: 'SeLe4n.Model.State', path: 'SeLe4n/Model/State.lean',
+        declarations: [{ kind: 'theorem', name: 'd' }] }
+    ]
+  };
+
+  const metrics = subsystemMetricsFromCodebaseMap(map);
+  assert.deepEqual(metrics['model-object'], { modules: 2, theorems: 3 });
+  assert.deepEqual(metrics['model-state'], { modules: 1, theorems: 1 });
+  assert.deepEqual(metrics['model-object-state'], { modules: 3, theorems: 4 },
+    'the sum entry equals its components');
+});
+
+test('subsystemNamespaces reads both entry shapes', () => {
+  // The projection filters each module once against `.some(namespace)`, so an
+  // entry whose namespaces overlap cannot double-count; this pins the reader
+  // both shapes go through.
+  assert.deepEqual(subsystemNamespaces({ namespaces: ['A', 'A.B'] }), ['A', 'A.B']);
+  assert.deepEqual(subsystemNamespaces({ namespace: 'A' }), ['A']);
+  assert.deepEqual(subsystemNamespaces({}), []);
+  assert.deepEqual(subsystemNamespaces(undefined), []);
 });

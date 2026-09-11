@@ -138,9 +138,16 @@
   var BRIDGE_COLORS = {
     implements: "#ff9068",
     invokes: "#5ed3c0",
-    mirrors: "#a08bd4",
+    mirrors: "#7f9cf5",
     shares: "#a08bd4"
   };
+
+  /* `implements` and `invokes` are calls and are drawn with an arrowhead.
+     `mirrors` and `shares` are not: one is the same routine written either
+     side of the seam, the other a definition both sides hold. Drawing either
+     with an arrow asserts a call that does not exist, so this is the one place
+     that says which relations carry direction. */
+  var BRIDGE_UNDIRECTED = { mirrors: true, shares: true };
 
   /* Rust declaration groups for the sidebar, mirroring the Lean grouping.
      Test items are bucketed under a "test:" kind prefix so one group holds
@@ -180,7 +187,8 @@
     mainContent: null,
     moduleResults: null,
     scopeToggle: null,
-    workspaceBadge: null
+    workspaceBadge: null,
+    inventoryNote: null
   };
 
   function cacheDomElements() {
@@ -195,6 +203,7 @@
     DOM.moduleResults = document.getElementById("module-results");
     DOM.scopeToggle = document.getElementById("map-scope-toggle");
     DOM.workspaceBadge = document.getElementById("workspace-scope-badge");
+    DOM.inventoryNote = document.getElementById("map-inventory-note");
   }
 
   var DETAIL_PRESETS = {
@@ -509,6 +518,13 @@
      carry. Nothing else — no slash, no space, no angle bracket. */
   function sanitizeModuleName(value) {
     return /^[A-Za-z0-9_.:-]+$/.test(value) ? value : "";
+  }
+
+  /* Fold arbitrary text into the node-name whitelist, so anything built into a
+     node name can round-trip through `module=` in the URL. Runs of rejected
+     characters collapse to one `-`; a path separator is one of them. */
+  function urlSafeNodeSegment(value) {
+    return String(value || "").replace(/[^A-Za-z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "");
   }
 
   function sanitizeScope(value) {
@@ -1611,12 +1627,40 @@
 
   /* The boundary entries only appear in the scope that draws the boundary, so
      the Lean-only and Rust-only readings keep their original legends. */
+  /* Say so when the Rust half is a commit behind the Lean graph.
+   *
+   * A live canonical refresh advances the Lean modules and carries no Rust
+   * inventory at all, so `retainInventory()` keeps the bundled crates and the
+   * commit they were taken at. That is the designed behaviour — the Rust half
+   * must not empty out on a networked visit — but the header publishes Rust
+   * Modules and Boundary Links beside one "Generated" stamp, which reads as a
+   * single coherent snapshot. Through 0.30.0 the crate cards carried this
+   * note; removing those sections took the only disclosure with them.
+   *
+   * Painted from the same data as the stats and hidden when the two halves
+   * agree, so the ordinary case stays quiet. */
+  function renderInventoryProvenance() {
+    var note = DOM.inventoryNote || document.getElementById("map-inventory-note");
+    if (!note) return;
+
+    var graphCommit = String(state.commitSha || "").slice(0, 7);
+    var rustCommit = String(state.rustCommit || "").slice(0, 7);
+    var behind = Boolean(state.rust) && rustCommit && graphCommit && rustCommit !== graphCommit;
+
+    note.hidden = !behind;
+    note.textContent = behind
+      ? (t("map.inventory_retained", { rust: rustCommit, graph: graphCommit })
+        || ("Rust inventory from commit " + rustCommit + "; the Lean graph is synced to " + graphCommit + "."))
+      : "";
+  }
+
   function bridgeLegendItems() {
     if (state.scope !== "both") return [];
     return [
       { separator: true },
       { label: t("map.legend_bridge_implements") || "Lean declares → Rust implements", color: BRIDGE_COLORS.implements, group: "bridge" },
       { label: t("map.legend_bridge_invokes") || "Rust wrapper → Lean operation", color: BRIDGE_COLORS.invokes, group: "bridge" },
+      { label: t("map.legend_bridge_mirrors") || "Mirrored either side (no call)", color: BRIDGE_COLORS.mirrors, group: "bridge" },
       { label: t("map.legend_bridge_shares") || "Shared definition", color: BRIDGE_COLORS.shares, group: "bridge" }
     ];
   }
@@ -2227,7 +2271,11 @@
     path.setAttribute("class", "flow-line" + (dashed ? " proof-link" : ""));
     path.setAttribute("stroke", color);
     path.style.color = color;
-    path.setAttribute("marker-end", "url(#flow-arrow)");
+    /* An arrowhead is a claim about direction. Every lane edge makes one, but
+       a boundary relation that the model calls undirected — a shared type, a
+       routine mirrored either side of the seam — must not: an arrow there
+       reads as a call that does not happen. */
+    if (!opts.undirected) path.setAttribute("marker-end", "url(#flow-arrow)");
     layer.appendChild(path);
   }
 
@@ -3027,10 +3075,12 @@
     if (fromRust) {
       push(bands.implements, "implements", "map.bridge_declared_in_lean", "Declared in Lean · implemented here", false);
       push(bands.invokes, "invokes", "map.bridge_kernel_operations", "Kernel operations this wrapper calls", true);
+      push(bands.mirrors, "mirrors", "map.bridge_mirrored", "Written on both sides of the seam", false);
       push(bands.shared, "shares", "map.bridge_shared", "Definitions shared across the boundary", false);
     } else {
       push(bands.invokes, "invokes", "map.bridge_called_from_rust", "Called from Rust user space", false);
       push(bands.implements, "implements", "map.bridge_implemented_in_rust", "Declared here · implemented in Rust", true);
+      push(bands.mirrors, "mirrors", "map.bridge_mirrored", "Written on both sides of the seam", false);
       push(bands.shared, "shares", "map.bridge_shared", "Definitions shared across the boundary", false);
     }
     return rows;
@@ -3096,12 +3146,16 @@
         );
         drawn.push(node);
       }
+      var undirected = Boolean(BRIDGE_UNDIRECTED[band.row.relation]);
       for (var d = 0; d < drawn.length; d++) {
-        var variant = { rank: d, total: drawn.length, spread: Math.min(40, drawn.length * 5), vertical: true };
+        var variant = {
+          rank: d, total: drawn.length, spread: Math.min(40, drawn.length * 5),
+          vertical: true, undirected: undirected
+        };
         if (band.row.outbound) {
-          drawFlowEdge(context.edgeLayer, context.center, drawn[d], band.row.color, band.row.relation === "shares", variant);
+          drawFlowEdge(context.edgeLayer, context.center, drawn[d], band.row.color, undirected, variant);
         } else {
-          drawFlowEdge(context.edgeLayer, drawn[d], context.center, band.row.color, band.row.relation === "shares", variant);
+          drawFlowEdge(context.edgeLayer, drawn[d], context.center, band.row.color, undirected, variant);
         }
       }
     }
@@ -3912,8 +3966,10 @@
         if (!name) continue;
         /* Two files can only collide when a crate declares a module named
            after one of its own targets; keep both by falling back to the
-           path, so no file is silently dropped. */
-        if (byName[name]) name = name + "@" + file.relativePath;
+           path, so no file is silently dropped. The suffix has to survive
+           sanitizeModuleName() — a node the URL cannot carry is a node whose
+           selection is lost on reload and cannot be shared. */
+        if (byName[name]) name = name + "::" + urlSafeNodeSegment(file.relativePath);
         if (byName[name]) continue;
 
         var record = {
@@ -4130,15 +4186,20 @@
      definitions the two sides share. Empty in `lean` and `rust` scope — the
      boundary is what the combined reading adds. */
   function bridgeBandsFor(name) {
-    var empty = { implements: [], invokes: [], shared: [], total: 0 };
+    var empty = { implements: [], invokes: [], mirrors: [], shared: [], total: 0 };
     if (state.scope !== "both" || !state.bridge) return empty;
     var edges = isRustNode(name) ? state.bridge.byRust[name] : state.bridge.byLean[name];
     if (!edges || !edges.length) return empty;
-    var bands = { implements: [], invokes: [], shared: [], total: 0 };
+    var bands = { implements: [], invokes: [], mirrors: [], shared: [], total: 0 };
     for (var i = 0; i < edges.length; i++) {
       var edge = edges[i];
+      /* `mirrors` keeps its own band. Folded into `shared` it was relabelled
+         as a definition the two sides hold, which is the opposite of what it
+         means: a HAL routine written once in Lean and once in Rust is two
+         implementations of one contract, not one definition. */
       if (edge.relation === "implements") bands.implements.push(edge);
       else if (edge.relation === "invokes") bands.invokes.push(edge);
+      else if (edge.relation === "mirrors") bands.mirrors.push(edge);
       else bands.shared.push(edge);
       bands.total += 1;
     }
@@ -4510,6 +4571,7 @@
     updateMetric("proofPairs", totals.pairs);
     updateMetric("linkedPairs", totals.linked);
     updateMetric("generatedAt", formatGeneratedAt(state.generatedAt));
+    renderInventoryProvenance();
 
     /* Pre-warm assurance cache for all visible modules so the first render
        doesn't stall on assurance computation for each node.  This moves the
@@ -5501,14 +5563,18 @@
     buildPairs();
     if (!nodeExists(state.selectedModule)) state.selectedModule = defaultNodeName();
     if (state.flowContext === "declaration" && state.selectedDeclaration) {
+      /* A declaration resolves to a Lean module, so it can only be restored in
+         a scope that carries Lean — `nodeExists`, not `moduleMap`. A URL
+         pairing `scope=rust` with a Lean `decl=` otherwise pulled the Lean
+         module into the selection while the toggle and badge still read Rust. */
       var resolvedModule = declarationModuleOf(state.selectedDeclaration);
-      if (resolvedModule && state.moduleMap[resolvedModule]) {
+      if (resolvedModule && nodeExists(resolvedModule)) {
         state.selectedDeclarationModule = resolvedModule;
         if (state.selectedModule !== resolvedModule) {
           state.selectedModule = resolvedModule;
           state.interiorMenuModule = resolvedModule;
         }
-      } else if (!state.selectedDeclarationModule || !state.moduleMap[state.selectedDeclarationModule]) {
+      } else if (!state.selectedDeclarationModule || !nodeExists(state.selectedDeclarationModule)) {
         state.flowContext = "module";
         state.selectedDeclaration = "";
         state.selectedDeclarationModule = "";
@@ -6615,7 +6681,10 @@
       state.selectedDeclaration = "";
       state.selectedDeclarationModule = "";
       state.interiorMenuModule = "";
-      state.flowScrollTarget = "";
+      /* Centre the replacement rather than clearing the target: an empty one
+         means "keep the scroll you had" on desktop, which left the fallback
+         node off-screen after scrolling down a band and narrowing the scope. */
+      state.flowScrollTarget = state.selectedModule;
     }
     state.laneGroupsExpanded = { imports: Object.create(null), importers: Object.create(null) };
     closeModuleSearchOptions();
@@ -6918,6 +6987,17 @@
       bridgeIndex: function () { return state.bridge; },
       bridgeBandsFor: bridgeBandsFor,
       bridgeBandRows: bridgeBandRows,
+      bridgeUndirected: function () { return JSON.parse(JSON.stringify(BRIDGE_UNDIRECTED)); },
+      urlSafeNodeSegment: urlSafeNodeSegment,
+      flowScrollTarget: function () { return state.flowScrollTarget; },
+      selectionState: function () {
+        return {
+          module: state.selectedModule,
+          context: state.flowContext,
+          declaration: state.selectedDeclaration,
+          declarationModule: state.selectedDeclarationModule
+        };
+      },
       bridgeEdgeSubtitle: bridgeEdgeSubtitle,
       interiorForNode: interiorForNode,
       interiorGroupsForNode: interiorGroupsForNode,

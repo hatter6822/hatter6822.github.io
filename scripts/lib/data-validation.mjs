@@ -1,4 +1,4 @@
-import { SITE_SUBSYSTEMS } from './canonical-map.mjs';
+import { SITE_SUBSYSTEMS, subsystemNamespaces } from './canonical-map.mjs';
 
 function isObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
@@ -582,13 +582,15 @@ function subsystemCrossFileErrors(subsystems, mapData) {
   const errors = [];
   if (!isObject(subsystems) || !Array.isArray(mapData.modules) || !isObject(mapData.moduleMeta)) return errors;
 
-  for (const { key, namespace } of SITE_SUBSYSTEMS) {
+  for (const subsystem of SITE_SUBSYSTEMS) {
+    const { key } = subsystem;
+    const namespaces = subsystemNamespaces(subsystem);
+    const namespace = namespaces.join(' + ');
     const entry = subsystems[key];
     if (!isObject(entry)) continue;
 
-    const members = mapData.modules.filter(
-      (name) => typeof name === 'string' && (name === namespace || name.startsWith(`${namespace}.`))
-    );
+    const members = mapData.modules.filter((name) => typeof name === 'string'
+      && namespaces.some((ns) => name === ns || name.startsWith(`${ns}.`)));
     const theorems = members.reduce((total, name) => {
       const meta = mapData.moduleMeta[name];
       return total + (isObject(meta) && Number.isInteger(meta.theorems) ? meta.theorems : 0);

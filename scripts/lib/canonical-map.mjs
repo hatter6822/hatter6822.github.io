@@ -686,6 +686,11 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
  *
  * Adding a layer to the diagram means adding it here; `validate-data.mjs`
  * rejects a `data-live="subsystem.…"` key the snapshot does not carry.
+ *
+ * `namespaces` (plural) covers a figure the page states as a sum of layers —
+ * "462 theorems across Object (218) and State (244)". Leaving that total as a
+ * literal beside two live components was internally inconsistent the moment
+ * either component moved, so the sum is projected too.
  */
 export const SITE_SUBSYSTEMS = Object.freeze([
   { key: 'scheduler', namespace: 'SeLe4n.Kernel.Scheduler' },
@@ -710,7 +715,8 @@ export const SITE_SUBSYSTEMS = Object.freeze([
   { key: 'ipc-endpoint-preservation', namespace: 'SeLe4n.Kernel.IPC.Invariant.EndpointPreservation' },
   { key: 'ipc-cap-transfer', namespace: 'SeLe4n.Kernel.IPC.Operations.CapTransfer' },
   { key: 'model-object', namespace: 'SeLe4n.Model.Object' },
-  { key: 'model-state', namespace: 'SeLe4n.Model.State' }
+  { key: 'model-state', namespace: 'SeLe4n.Model.State' },
+  { key: 'model-object-state', namespaces: ['SeLe4n.Model.Object', 'SeLe4n.Model.State'] }
 ]);
 
 /** True when `moduleName` is `namespace` itself or a module under it. */
@@ -732,15 +738,25 @@ export function subsystemMetricsFromCodebaseMap(codebaseMap) {
   const modules = productionModules(codebaseMap);
   const metrics = {};
 
-  for (const { key, namespace } of SITE_SUBSYSTEMS) {
-    const members = modules.filter((moduleInfo) => inNamespace(moduleInfo?.module, namespace));
-    metrics[key] = {
+  for (const subsystem of SITE_SUBSYSTEMS) {
+    const namespaces = subsystemNamespaces(subsystem);
+    // A module is counted once even when two of the namespaces reach it, so a
+    // sum entry stays a sum of distinct modules rather than of overlaps.
+    const members = modules.filter((moduleInfo) =>
+      namespaces.some((namespace) => inNamespace(moduleInfo?.module, namespace)));
+    metrics[subsystem.key] = {
       modules: members.length,
       theorems: members.reduce((total, moduleInfo) => total + theoremDeclarationCount(moduleInfo.declarations), 0)
     };
   }
 
   return metrics;
+}
+
+/** The namespaces one subsystem entry covers — one, or the several a sum spans. */
+export function subsystemNamespaces(subsystem) {
+  if (Array.isArray(subsystem?.namespaces)) return subsystem.namespaces;
+  return subsystem?.namespace ? [subsystem.namespace] : [];
 }
 
 /**

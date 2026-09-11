@@ -1569,6 +1569,15 @@ as what they are and never as a call — `mirrors` in particular is a *name*
 shared one hop either side of the FFI seam (`sele4n-hal::cpu::idle_wait` and
 `Runtime.idleWait`), not evidence that one calls the other.
 
+The chart honours that distinction in two places it did not at first. Each
+relation gets its own band, colour and legend row: `mirrors` was folded into
+`shared` and so came out labelled "definitions shared across the boundary",
+which says the two sides hold one definition when in fact they hold two
+implementations of one contract. And an arrowhead is a claim about direction,
+so `BRIDGE_UNDIRECTED` names the two relations that make none and
+`drawFlowEdge()` omits `marker-end` for them — a shared `ThreadId` drawn with
+an arrow reads as a call that does not happen.
+
 Distinguishing `invokes` from `mirrors` needs one fact the scan cannot supply:
 which side of the kernel a crate sits on. `RUST_CRATE_STRATUM` states it for
 the four crates, restating what their own manifests say of themselves ("Safe

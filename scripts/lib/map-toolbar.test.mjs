@@ -315,4 +315,14 @@ for (const [label, text] of [["map.js", mapJs], ["map.css", css], ["map.html", h
   assert.deepEqual(control, [], `${label} carries ${control.length} control character(s) at ${control.slice(0, 3).map(([i]) => i).join(", ")}; write a separator as the escape "\\u0000", never as a literal`);
 }
 
+
+/* A live canonical refresh advances the Lean graph and carries no Rust
+   inventory, so the Rust Modules and Boundary Links figures can be a commit
+   behind the "Generated" stamp beside them. Through 0.30.0 the crate cards
+   disclosed that; removing those sections took the only disclosure with them. */
+assert(/id="map-inventory-note"[^>]*hidden/.test(html),
+  "the retained-inventory note should ship hidden and appear only when the two halves disagree");
+assert(html.indexOf('id="map-inventory-note"') > html.indexOf('data-map="generatedAt"'),
+  "the retained-inventory note should sit with the snapshot provenance, not among the stat cards");
+
 console.log("map-toolbar.test: ok");

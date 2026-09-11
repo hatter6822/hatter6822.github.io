@@ -515,14 +515,17 @@ test('the boundary legend appears only in the scope that draws the boundary', as
   hooks.setScope('both');
   const bridge = Array.from(hooks.bridgeLegendItems());
   assert.ok(bridge[0].separator, 'the boundary entries are separated from the lane roles');
-  assert.deepEqual(bridge.slice(1).map((item) => item.group), ['bridge', 'bridge', 'bridge']);
+  assert.deepEqual(bridge.slice(1).map((item) => item.group), ['bridge', 'bridge', 'bridge', 'bridge']);
+  /* Four relations, four entries: `mirrors` used to be drawn and labelled as a
+     shared definition, which is not what it means. */
   assert.deepEqual(bridge.slice(1).map((item) => item.label), [
     'Lean declares \u2192 Rust implements',
     'Rust wrapper \u2192 Lean operation',
+    'Mirrored either side (no call)',
     'Shared definition'
   ]);
-  assert.equal(hooks.flowLegendItems().length, 15, 'the Lean legend gains the boundary entries');
-  assert.equal(hooks.rustFlowLegendItems().length, 9, 'and so does the Rust one');
+  assert.equal(hooks.flowLegendItems().length, 16, 'the Lean legend gains the boundary entries');
+  assert.equal(hooks.rustFlowLegendItems().length, 10, 'and so does the Rust one');
 });
 
 test('normalizeMapData preserves declaration call graph from modules[].declarations', async () => {
@@ -2791,4 +2794,101 @@ test('the English plural fallback pluralises and groups digits', async () => {
   assert.equal(hooks.pluralEn(1, 'file', 'files'), '1 file');
   assert.equal(hooks.pluralEn(0, 'file', 'files'), '0 files');
   assert.equal(hooks.pluralEn(1303, 'module', 'modules'), '1,303 modules');
+});
+
+test('a mirrored routine keeps its own band rather than passing as a shared definition', async () => {
+  // `mirrors` means the same routine written either side of the seam — two
+  // implementations of one contract. Folded into `shared` it was relabelled
+  // "Definitions shared across the boundary", the opposite of what it means,
+  // and the tooltip said one thing while the band said another.
+  const { hooks } = await loadBundledState();
+  hooks.applyTestState({ scope: 'both' });
+
+  const index = hooks.bridgeIndex();
+  let mirrored = null;
+  for (const node of Object.keys(index.byRust)) {
+    const edge = Array.from(index.byRust[node] || []).find((e) => e.relation === 'mirrors');
+    if (edge) { mirrored = { node, edge }; break; }
+  }
+  assert.ok(mirrored, 'the bundled snapshot carries at least one mirrored routine');
+
+  const bands = hooks.bridgeBandsFor(mirrored.node);
+  assert.ok(Array.from(bands.mirrors).length > 0, 'it lands in the mirrors band');
+  assert.ok(!Array.from(bands.shared).some((e) => e.relation === 'mirrors'),
+    'and never in the shared band');
+
+  const rows = Array.from(hooks.bridgeBandRows(mirrored.node));
+  const mirrorRow = rows.find((row) => row.relation === 'mirrors');
+  assert.ok(mirrorRow, 'the chart draws it as its own row');
+  assert.notEqual(mirrorRow.label, rows.find((row) => row.relation === 'shares')?.label);
+});
+
+test('only the relations that are calls carry an arrowhead', async () => {
+  const { hooks } = await loadBundledState();
+  const undirected = hooks.bridgeUndirected();
+
+  assert.equal(undirected.mirrors, true, 'a mirrored routine is not a call');
+  assert.equal(undirected.shares, true, 'a shared definition is not a call');
+  assert.ok(!undirected.implements, 'the kernel calling down is a call');
+  assert.ok(!undirected.invokes, 'a wrapper calling up is a call');
+});
+
+test('the boundary legend names every relation the bands can draw', async () => {
+  const { hooks } = await loadBundledState();
+  hooks.applyTestState({ scope: 'both' });
+
+  const legend = Array.from(hooks.bridgeLegendItems()).filter((item) => item.group === 'bridge');
+  assert.equal(legend.length, 4, 'implements, invokes, mirrors, shares');
+  const colors = legend.map((item) => item.color);
+  assert.equal(new Set(colors).size, colors.length,
+    'each relation is a distinct colour, so the legend can tell them apart');
+});
+
+test('a colliding Rust node name still round-trips through the URL', async () => {
+  // The collision suffix used to be `@` plus a slash-bearing path, which
+  // sanitizeModuleName() rejects: the node could be selected in-session and
+  // written into `module=`, but a reload or a shared link dropped it.
+  const { hooks } = await loadBundledState();
+
+  assert.equal(hooks.urlSafeNodeSegment('src/args/cspace.rs'), 'src-args-cspace.rs');
+  assert.equal(hooks.urlSafeNodeSegment('a//b'), 'a-b');
+  assert.equal(hooks.urlSafeNodeSegment('/leading/'), 'leading');
+
+  const collided = `sele4n-abi::args::${hooks.urlSafeNodeSegment('src/bin/args.rs')}`;
+  assert.equal(hooks.sanitizeModuleName(collided), collided,
+    'the whole node name survives the URL whitelist');
+});
+
+test('narrowing the scope centres the fallback node instead of keeping the old scroll', async () => {
+  // An empty flowScrollTarget means "preserve the scroll" on desktop, so after
+  // scrolling down a Rust band and switching to Lean the fallback node could
+  // render outside the visible frame.
+  const { hooks } = await loadBundledState();
+
+  hooks.setScope('rust');
+  const rustNode = hooks.scopeNodes().find((name) => hooks.isRustNode(name));
+  hooks.applyTestState({ selectedModule: rustNode, flowScrollTarget: '' });
+
+  hooks.setScope('lean');
+  assert.equal(hooks.selectionState().module, hooks.defaultNodeName(),
+    'the Rust node does not survive the switch');
+  assert.equal(hooks.flowScrollTarget(), hooks.defaultNodeName(),
+    'and the replacement is the scroll target');
+});
+
+test('a declaration deep link is refused when the scope cannot show its module', async () => {
+  // `?scope=rust&decl=<a Lean declaration>` used to resolve the declaration to
+  // its Lean module and select it, leaving a Lean graph under a Rust badge.
+  const { hooks } = await loadBundledState();
+  hooks.applyTestState({ scope: 'both' });
+
+  const declaration = hooks.selectionState().declaration || 'apiInvariantBundle';
+  hooks.applyTestState({
+    scope: 'rust',
+    flowContext: 'declaration',
+    selectedDeclaration: declaration,
+    selectedDeclarationModule: 'SeLe4n.Kernel.API'
+  });
+
+  assert.ok(!hooks.nodeExists('SeLe4n.Kernel.API'), 'the Lean module is outside the Rust scope');
 });
