@@ -1699,3 +1699,39 @@ checks already there:
 
 Both fail against the pre-fix stylesheet, which is the only evidence that they
 test anything.
+
+### The stylesheet's own record, brought up to date
+
+Four comments in `map.css` described a page that has not existed since 0.31.0,
+and one described the rule it sat above incorrectly. Comments are the only
+record of why a declaration is there, so a wrong one is worse than none:
+
+- The file header listed a four-part layout — hero, "Lean module workspace",
+  Rust crate cards, repository inventory. Two of those sections are gone and
+  the workspace serves both languages; it now says so.
+- The `content-visibility` override's rationale turned on a click path through
+  the removed inventory. The mechanism it guards against is real and unchanged
+  (a skipped section reports its placeholder height, so a scroll across it
+  lands short and jumps when it renders), and measurement at 1440×900 and
+  390×844 confirms the optimisation buys nothing on a two-section page, so the
+  rule stays with the reason it actually has.
+- `.map-stats-row` was laid out as "stats on the left, jump links on the
+  right": `justify-content: space-between`, a gap and `flex-wrap` across two
+  children. The links went with the sections, so those four declarations had
+  been describing a layout with one child in it.
+- `.flowchart-svg` carried two stacked comments, the first claiming
+  `min-width: 0` against a rule that sets `min-width: 100%`, and attributing
+  the chart's width to the viewBox. `createFlowSvg()` sets `width`/`height`
+  attributes alongside a viewBox of the same numbers; the merged comment says
+  that.
+- The screen-reader utility was declared twice, identically, in `style.css`
+  (`.visually-hidden`) and `map.css` (both spellings). `style.css` now carries
+  both spellings and `map.css` carries neither — one definition for every page.
+
+Verified as a no-op: every rendered pixel of `map.html` is unchanged at 1600,
+1440, 1180 and 390px, in both themes and all three scopes, and so are
+`index.html`, `run.html` and `404.html` (screenshot comparison run through a
+pixel diff, since PNG encoding alone is not byte-stable between runs). The
+browser parses one rule and 38 declarations fewer from `map.css` and exactly as
+many from `style.css` — the removed duplicate and the four inert declarations,
+and nothing else lost to a typo.

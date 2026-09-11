@@ -197,8 +197,9 @@ em {
   font-style: italic;
 }
 
-/* --- Screen-reader-only utility --- */
-.visually-hidden {
+/* --- Screen-reader-only utility (both spellings; map.js writes `sr-only`) --- */
+.visually-hidden,
+.sr-only {
   position: absolute;
   width: 1px;
   height: 1px;

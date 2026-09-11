@@ -28,9 +28,16 @@ for (const controlId of removedControls) {
 
 assert(/id="flow-node-interior-menu"[^>]*aria-live="polite"/.test(html), "interior menu should support live region for declaration context updates");
 
-// CSS: .sr-only class must be defined for interior menu filter label accessibility
-assert(/\.sr-only\b/.test(css), "map.css should define .sr-only class for screen-reader-only elements");
-assert(/\.sr-only[^{]*\{[^}]*position:\s*absolute/s.test(css), ".sr-only should use absolute positioning");
+// CSS: .sr-only class must be defined for interior menu filter label accessibility.
+// map.js writes the class; what has to hold is that this page hides it, so read
+// the stylesheets the page loads rather than one file. The utility lives in
+// style.css, defined once under both spellings for every page.
+const pageCss = Array.from(html.matchAll(/<link\s+rel="stylesheet"\s+href="([^"]+)"/g))
+  .map((match) => readFileSync(new URL(`../../${match[1]}`, import.meta.url), "utf8"))
+  .join("\n");
+assert(pageCss.length > 0, "map.html should load at least one stylesheet");
+assert(/\.sr-only\b/.test(pageCss), "the map page's stylesheets should define .sr-only for screen-reader-only elements");
+assert(/\.sr-only[^{]*\{[^}]*position:\s*absolute/s.test(pageCss), ".sr-only should use absolute positioning");
 
 // CSS: interior menu should hide when empty (no module selected yet)
 assert(/\.flow-node-interior-menu:empty\s*\{[^}]*display:\s*none/.test(css), "interior menu should be hidden when empty via :empty pseudo-class");
