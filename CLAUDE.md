@@ -360,8 +360,23 @@ scope toggle. Production code is the subject in every scope.
   `args::cspace`), and a path-only index held one `args`. A target that is its own crate root — a binary, the
   build script — takes that target as a path segment
   (`sele4n-hal::bin::rw_lock_oracle`) and the node states which kind of target
-  it is, so the segment is never read as a module of the library.
-- **Neither test targets nor unreachable files are nodes.** Production code is
+  it is, so the segment is never read as a module of the library. Which target
+  that is, Cargo says: `targetName` carries a declared target's manifest name
+  (`[[bin]] name = "runner", path = "tool/entry.rs"` builds `runner`), because
+  a nonconventional path has its identity written down nowhere else and
+  `bin::tool_entry` addresses a target the manifest does not have — in the
+  chart and in the shareable `module=` URL alike.
+- **A file's address is the path it is declared under, not its pathname.**
+  `modulePath` and `target` come from walking `mod` declarations out from each
+  target root, breadth-first, first assignment winning (the shallower path, and
+  at equal depth the earlier root — the library before its binaries). The two
+  readings agree wherever Cargo's conventions are followed, and they agree
+  across the whole current workspace; they part exactly where `#[path = "…"]`
+  redirects a declaration. `#[path = "impl/foo.rs"] mod renamed;` compiles as
+  `renamed`, so an `impl::foo` node names a module the crate does not have —
+  and hangs it off a parent chain that does not exist either. A file nothing
+  declares keeps the pathname derivation; it is listed, never drawn.
+- **Neither test code nor unreachable files are nodes.** Production code is
   the map's subject, as the Lean scope leaves out `tests/` and
   `SeLe4n/Testing/`. A file no Cargo target reaches through `mod` declarations
   compiles into nothing; the scanner lists it (its text is real) and marks it
@@ -370,7 +385,15 @@ scope toggle. Production code is the subject in every scope.
   and export reachability are two sets** — everything exported is compiled,
   not everything compiled is exported (a file behind a private `mod`) — so
   `reachable` and `exported` are tracked apart and neither stands in for the
-  other. The crate root's
+  other. Test-ness is a third: `role` reads the pathname and so calls
+  `src/tests.rs` a module, while the common `#[cfg(test)] mod tests;` makes
+  that file and everything it declares in turn test-only. `testOnly` is the
+  flag that knows, and the graph excludes on it as well as on the role. The
+  three conditions live in one predicate, `isProductionGraphFile` in
+  `rust-analysis.mjs`; the runtime applies the same three and
+  `map-runtime.test.mjs` holds the two to each other over the bundled
+  snapshot, so `map-smoke.mjs` sizes its expectations from the predicate
+  rather than from a number typed into it. The crate root's
   summary still names the crate's test surface, so nothing is hidden.
 - Lanes: the module path that reaches the file (left), the modules it declares
   (right) and the crate's dependency context (below). A **leaf declares
@@ -464,7 +487,9 @@ scope toggle. Production code is the subject in every scope.
   keeps the previous tree and crates in that case and records the commit each
   was taken at, so the Rust half does not empty out on a networked visit. A
   tree refresh changes the Lean declarations, so `buildBridgeIndex()` must run
-  again with it.
+  again with it — and **before** `buildPairs()`, which stamps the header's
+  Boundary Links from `state.bridge`. Rebuilding afterwards published a total
+  one refresh behind the bands drawn from it.
 - A canonical refresh names its revision as `repository.head.commit_sha`;
   `normalizeCanonicalPayload` adopts it as `commitSha`. Rust nodes link at
   `state.rustCommit` and Lean modules at `state.commitSha`
@@ -517,6 +542,12 @@ statistic**; the landing page stays canonical-or-absent.
 - **Target-scoped dependency tables stay separate.** `[target.'cfg(loom)'
   .dependencies]` is bundled as `targetDependencies: [{ cfg, table, names }]`,
   never as an external dependency: the HAL's `loom` enters no ordinary build.
+- **A target is named by its manifest, not by its path.** `cargoTargets` is
+  the one place that says so: alongside the roots it returns `names`, each
+  binary and test root mapped to what Cargo builds it under — a conventional
+  path names itself (`src/bin/x.rs` and `src/bin/x/main.rs` both build `x`,
+  `src/main.rs` the package), and a declared target carries its manifest
+  `name`, applied last so it overrides the path it also claims.
 - **`deniesUnsafe` is read from the crate root only**: the library root
   (`[lib] path`, else `src/lib.rs`) or, for a package without one, its first
   binary root — `src/main.rs`, a `[[bin]] path`, or a conventional
@@ -568,7 +599,10 @@ statistic**; the landing page stays canonical-or-absent.
 - **An out-of-line test module is test code throughout.** `#[cfg(test)] mod
   tests;` resolves to `src/tests.rs` or `src/tests/mod.rs`
   (`childModuleFiles`, rustc's rule), that file is rescanned as test code, and
-  so is every module it declares in turn.
+  so is every module it declares in turn. The file records it as `testOnly`,
+  which is the only place that fact survives: `role` is read off the pathname
+  and calls `src/tests.rs` a module, so a consumer filtering on the role alone
+  puts test code on a production map.
 - **`const _: () = assert!(…)` is anonymous**: neither listed nor counted. The
   first snapshot carried 37 items named `_`. A raw identifier (`fn r#match`)
   keeps its prefix as its name and resolves to the bare file name as a module.

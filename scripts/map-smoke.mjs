@@ -33,6 +33,7 @@
 import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isProductionGraphFile } from './lib/rust-analysis.mjs';
 
 const require = createRequire(import.meta.url);
 let chromium;
@@ -51,8 +52,12 @@ const ROOT = new URL('../', import.meta.url);
 const MAP_DATA = JSON.parse(readFileSync(new URL('data/map-data.json', ROOT), 'utf8'));
 const SITE_DATA = JSON.parse(readFileSync(new URL('data/site-data.json', ROOT), 'utf8'));
 const LEAN_MODULES = MAP_DATA.modules.length;
+/* The same predicate the runtime draws with — a test target, a test-only
+   module and an unreachable orphan are all inventory entries the graph leaves
+   out, and counting only the first would fail this probe the day an upstream
+   refresh legitimately carries one of the others. */
 const RUST_MODULES = MAP_DATA.rust.crates.reduce(
-  (total, crate) => total + crate.files.filter((file) => file.role !== 'test').length, 0);
+  (total, crate) => total + crate.files.filter(isProductionGraphFile).length, 0);
 const BOTH_NODES = LEAN_MODULES + RUST_MODULES;
 const BRIDGE_SEAM = { lean: 'SeLe4n.Platform.FFI', rust: 'sele4n-hal::ffi' };
 

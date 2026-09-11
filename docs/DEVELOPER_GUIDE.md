@@ -394,21 +394,27 @@ a feature or a target), `parseToml` and `parseCargoManifest` (the TOML subset
 Cargo uses, then package fields, workspace inheritance, dependency tables with
 target-scoped tables kept apart, features, `[lib]`, `[[bin]]`), `cargoTargets`
 (the roots Cargo would build: the library root and the binaries, declared or
-conventional, which roles and module paths follow), `rustFileRole` /
+conventional, which roles and module paths follow, plus `names` — what Cargo
+builds each binary and test root under, a conventional path naming itself and a
+declared target carrying its manifest `name`), `isProductionGraphFile` (the
+three conditions the code map draws on: not a test target, not test-only, not
+unreachable), `rustFileRole` /
 `rustModulePath`, `childModuleFiles` (rustc's rule for where `mod x;` lives:
 crate roots and `mod.rs` files resolve beside themselves, other files under a
 directory of their own name, inline-module path and `#[path]` included), and
 `buildRustInventory`, which assembles the
 crates in workspace order from a file list and a reader, rescanning
 out-of-line modules with the test and export status they inherit from their
-`mod` declarations. Anonymous `const _` assertions are not items; raw
+`mod` declarations and addressing each reached file by the module path it is
+declared under rather than the one its pathname suggests (they part only where
+`#[path = "…"]` redirects a declaration). Anonymous `const _` assertions are not items; raw
 identifiers keep their `r#`; `#[macro_export]` macros are public; a
 `#[cfg(test)]` on an associated method sends its `unsafe` sites to the test
 counters. Not a Rust parser; it lists a crate's
 surface the way a rustdoc sidebar does, one item header per line.
 
 ### `scripts/lib/data-validation.mjs`
-Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal to per-file sums for items, test items, lines and both `unsafe` counters, target-scoped dependency tables).
+Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal to per-file sums for items, test items, lines and both `unsafe` counters, target-scoped dependency tables, and the file-level facts the code map draws on — `reachable`, `testOnly` never narrower than the role, and a `targetName` only on a file that is a Cargo target).
 
 ### `scripts/lib/trace-analysis.mjs`
 Trace schema validation and the deterministic fold engine (`reconstructState`/`scenarioStates`) shared by `validate-traces.mjs`, `sync-upstream.mjs`, and the Simulator tests.
@@ -420,7 +426,7 @@ The `data/site-data.json` → `index.html` + `locales/*.json` static-fallback ma
 Node tests for parser and validation correctness:
 
 - `lean-analysis.test.mjs`: parser behavior, edge cases, `isLikelyModuleToken` validation, theorem deduplication, null/empty input guards, noncomputable theorem counting, comment-only continuation line handling, non-numeric metric cell robustness.
-- `rust-analysis.test.mjs`: comment/string stripping with line structure preserved, item scanning (kinds, visibility, `unsafe`, nested-body exclusion, inline modules, multi-line signatures, `static mut`), `unsafe` sites at any depth split by test code, `cfg` predicate reading, public-item reachability, manifest parsing (workspace inheritance, dependency and target-scoped tables, `[[bin]]`), file roles and module paths, and `buildRustInventory` assembly with the crate-root lint rule.
+- `rust-analysis.test.mjs`: comment/string stripping with line structure preserved, item scanning (kinds, visibility, `unsafe`, nested-body exclusion, inline modules, multi-line signatures, `static mut`), `unsafe` sites at any depth split by test code, `cfg` predicate reading, public-item reachability, manifest parsing (workspace inheritance, dependency and target-scoped tables, `[[bin]]`), file roles and module paths, declared module addressing under `#[path]`, declared target names, file-level test classification, and `buildRustInventory` assembly with the crate-root lint rule.
 - `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection, non-string module array entries.
 - `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none), the default module rule, `moduleSubsystem`, subsystem-grouped lane entries, inventory retention across canonical and tree refreshes, `rust` block pass-through, the production/test `unsafe` summary and detail line, plural fallbacks, tab selection, locale digit grouping — and the 0.31.0 model: the Rust graph (one node per production file, test targets excluded, node addressing per role, parent/child and sibling edges), the boundary index (key normalisation, the four relations, the FFI seam in the bundled snapshot, band symmetry and direction), and the scope (node membership, defaults, URL whitelisting, selection fallback on a narrowing switch).
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.

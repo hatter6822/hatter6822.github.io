@@ -200,12 +200,32 @@ reaches it:
 A target that is its own crate root — a binary, the build script — carries that
 target as a path segment so the address is unambiguous, and the node's own
 subtitle and tooltip say which kind of target it is, so the segment is never
-mistaken for a module of the library. If a crate ever declared a module named
+mistaken for a module of the library. The segment is the name **Cargo** builds
+the target under: the inventory records a declared target's manifest `name`
+(`[[bin]] name = "runner", path = "tool/entry.rs"` builds `runner`), so a
+nonconventional path is never addressed as `bin::tool_entry`, a target the
+manifest does not have. If a crate ever declared a module named
 after one of its targets, the collision is broken by falling back to the file
-path rather than dropping a file. **Test targets are not nodes**: production
+path rather than dropping a file.
+
+A module's address is likewise the path it is *declared* under, walked out from
+each target root through `mod` declarations, not the one read off its pathname.
+The two agree across the whole current workspace and part only where
+`#[path = "…"]` redirects a declaration: `#[path = "impl/foo.rs"] mod renamed;`
+compiles as `renamed`, and an `impl::foo` node would name a module the crate
+does not have.
+
+**Neither test code nor uncompiled files are nodes**: production
 code is the map's subject, exactly as the Lean scope leaves out `tests/` and
-`SeLe4n/Testing/`. The crate root's summary still names the crate's test
-surface, so nothing is hidden.
+`SeLe4n/Testing/`. Three conditions decide it, and the file's `role` — read off
+its pathname — answers only the first: not a test target, not `testOnly` (the
+common `#[cfg(test)] mod tests;` makes `src/tests.rs` and everything it
+declares test code while its pathname still says `module`), and not
+`reachable: false` (a file no Cargo target reaches compiles into nothing).
+`isProductionGraphFile` in `rust-analysis.mjs` is the one place they live;
+`map-runtime.test.mjs` holds the runtime to it over the bundled snapshot and
+`map-smoke.mjs` sizes its expectations from it. The crate root's summary still
+names the crate's test surface, so nothing is hidden.
 
 A module hangs off the module that declares it, up to its target root, and the
 child edges are the inverse of those parent edges. The chart's lanes are:

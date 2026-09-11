@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isProductionGraphFile } from './rust-analysis.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2459,17 +2460,21 @@ test('every production Rust source file is one graph node, and test targets are 
   const { hooks, raw } = await loadBundledState();
   const graph = hooks.buildRustGraph(raw.rust);
 
+  /* Partitioned by the scanner's own predicate, so the runtime and the Node
+     side cannot drift: whatever the inventory calls a production graph file is
+     exactly what the browser draws. The headless probe sizes its expectations
+     from the same export. */
   const expected = [];
-  const testTargets = [];
+  const omitted = [];
   for (const crate of raw.rust.crates) {
-    for (const file of crate.files) (file.role === 'test' ? testTargets : expected).push(file.path);
+    for (const file of crate.files) (isProductionGraphFile(file) ? expected : omitted).push(file.path);
   }
-  assert.ok(expected.length > 50 && testTargets.length > 0, 'the snapshot carries both');
+  assert.ok(expected.length > 50 && omitted.length > 0, 'the snapshot carries both');
 
   const nodePaths = Array.from(graph.nodes, (name) => graph.byName[name].path).sort();
   assert.deepEqual(nodePaths, expected.slice().sort(), 'one node per production file, no duplicates and none dropped');
-  for (const testPath of testTargets) {
-    assert.ok(!nodePaths.includes(testPath), `${testPath} is a test target and stays out of the graph`);
+  for (const omittedPath of omitted) {
+    assert.ok(!nodePaths.includes(omittedPath), `${omittedPath} is outside the production surface and stays out of the graph`);
   }
 
   /* Each crate contributes exactly one root, and it is the crate's own name. */
@@ -3076,6 +3081,50 @@ test('an unreachable Rust file is not drawn as part of the module tree', async (
   const legacy = { ...crate, files: crate.files.map(({ reachable, ...rest }) => rest) };
   const before = hooks.buildRustGraph({ members: ['solo'], crates: [legacy] });
   assert.ok(before.nodes.some((name) => /orphan$/.test(name)));
+});
+
+test('a declared binary is addressed by its Cargo target name, and test-only modules are no nodes', async () => {
+  // `[[bin]] name = "runner", path = "tool/entry.rs"` builds `runner`; a node
+  // named `bin::tool_entry` addresses a target the manifest does not have, in
+  // the chart and in the shareable `module=` URL alike. And `#[cfg(test)] mod
+  // tests;` leaves `src/tests.rs` with the path-derived role `module`, so only
+  // the file-level flag keeps test code out of a production-only map.
+  const { hooks } = await loadBundledState();
+  const file = (relativePath, role, modulePath, extra) => ({
+    path: `rust/named/${relativePath}`, relativePath, modulePath, role, reachable: true,
+    lines: 1, productionItems: 0, publicItems: 0, testItems: 0, items: [],
+    unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 },
+    ...(extra || {})
+  });
+  const crate = {
+    name: 'named', path: 'rust/named', manifest: 'rust/named/Cargo.toml',
+    sourceFiles: 5, lines: 5, items: 0, publicItems: 0, testItems: 0,
+    deniesUnsafe: false, unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 },
+    dependencies: [], internalDependencies: [], externalDependencies: [],
+    devDependencies: [], buildDependencies: [], features: [],
+    targetDependencies: [], optionalDependencies: [],
+    files: [
+      file('src/lib.rs', 'lib', '', { testOnly: false }),
+      file('tool/entry.rs', 'bin', '', { targetName: 'runner', testOnly: false }),
+      file('tool/entry/helper.rs', 'module', 'helper', { target: 'tool/entry.rs', testOnly: false }),
+      file('src/tests.rs', 'module', 'tests', { target: 'src/lib.rs', testOnly: true }),
+      file('src/tests/deeper.rs', 'module', 'tests::deeper', { target: 'src/lib.rs', testOnly: true })
+    ]
+  };
+
+  const graph = hooks.buildRustGraph({ members: ['named'], crates: [crate] });
+  assert.ok(graph.nodes.includes('named::bin::runner'), 'the Cargo target name, not the pathname');
+  assert.ok(!graph.nodes.some((name) => /tool_entry/.test(name)));
+  assert.equal(graph.byName['named::helper'].parent, 'named::bin::runner',
+    'and its module hangs off that binary, addressed the same way');
+  assert.ok(!graph.nodes.some((name) => /tests/.test(name)),
+    'an out-of-line test module and its descendants are test code, whatever the pathname says');
+
+  // A snapshot predating either field falls back to the path-derived reading.
+  const legacy = { ...crate, files: crate.files.map(({ targetName, testOnly, ...rest }) => rest) };
+  const before = hooks.buildRustGraph({ members: ['named'], crates: [legacy] });
+  assert.ok(before.nodes.includes('named::bin::tool_entry'));
+  assert.ok(before.nodes.some((name) => /tests$/.test(name)));
 });
 
 test('two targets with the same nested module path keep their own parents', async () => {

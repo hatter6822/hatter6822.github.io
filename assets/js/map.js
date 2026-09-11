@@ -3900,6 +3900,14 @@
      `src/bin/x/main.rs` are both the binary `x`, `src/main.rs` the package's
      default binary, `tests/x.rs` the integration test `x`. */
   function rustTargetName(crate, file) {
+    /* A manifest-declared target's name is the only place a nonconventional
+       path's identity is written down — `[[bin]] name = "runner", path =
+       "tool/entry.rs"` builds `runner` — so the snapshot records it and it
+       wins. Deriving `tool_entry` from the path addresses a target Cargo does
+       not have, in the chart and in the shareable URL alike. A snapshot
+       predating the field falls back to the conventional reading below. */
+    var declared = urlSafeNodeSegment(file && file.targetName);
+    if (declared) return declared;
     var rel = String(file && file.relativePath || "");
     var nested = rel.match(/^(?:src\/bin|tests|benches|examples)\/([^/]+)\/main\.rs$/);
     if (nested) return nested[1];
@@ -3982,8 +3990,12 @@
       for (var f = 0; f < files.length; f++) {
         var file = files[f];
         if (!file || typeof file.path !== "string") continue;
-        /* Test targets are outside the production surface the map draws. */
-        if (file.role === "test") continue;
+        /* Test code is outside the production surface the map draws. `role`
+           reads the pathname, so it calls `src/tests.rs` a module; the
+           file-level flag is the one that knows `#[cfg(test)] mod tests;`
+           makes that file — and every module it declares in turn — test-only.
+           A snapshot predating the flag is judged on role alone, as before. */
+        if (file.role === "test" || file.testOnly === true) continue;
         /* So is a file no Cargo target reaches: the scanner lists it (its
            items are real text) but it compiles into nothing, and drawing it
            would present stale or generated source as part of the module
@@ -5856,10 +5868,13 @@
           buildSearchIndex();
           state.commitSha = latestCommitSha || "";
           state.generatedAt = new Date().toISOString();
-          buildPairs();
-          /* The Rust inventory is unchanged by a tree rebuild, but the Lean
-             declarations it is matched against are not. */
+          /* Before buildPairs(), which stamps the header's Boundary Links
+             from state.bridge: the Rust inventory is unchanged by a tree
+             rebuild, but the Lean declarations it is matched against are
+             not, so rebuilding afterwards left the published total one
+             refresh behind the bands drawn from it. */
           buildBridgeIndex();
+          buildPairs();
           if (!nodeExists(state.selectedModule)) state.selectedModule = defaultNodeName();
           /* The tree fetched above is a complete file inventory at this commit;
              the Rust crate inventory, if any, is still the bundled one. */

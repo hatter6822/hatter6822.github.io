@@ -1042,15 +1042,18 @@ test('buildRustInventory honours manifest-declared crate roots', () => {
 });
 
 test('cargoTargets finds the roots Cargo would build', () => {
+  // `names` is a null-prototype map, so a path key can never resolve through
+  // Object.prototype; the expectations have to be built the same way.
+  const names = (entries) => Object.assign(Object.create(null), entries);
   const manifest = parseCargoManifest('[package]\nname = "x"\n[[bin]]\nname = "runner"\npath = "tool/runner.rs"\n');
   const sources = ['src/lib.rs', 'src/main.rs', 'src/bin/one.rs', 'src/bin/two/main.rs', 'src/bin/two/helper.rs', 'tool/runner.rs', 'src/util.rs'];
-  assert.deepEqual(cargoTargets(manifest, sources), { lib: 'src/lib.rs', bins: ['src/main.rs', 'tool/runner.rs', 'src/bin/one.rs', 'src/bin/two/main.rs'], tests: [] }, 'src/main.rs, declared roots, then the conventional targets; a file nested under a directory-style binary is not a root');
+  assert.deepEqual(cargoTargets(manifest, sources), { lib: 'src/lib.rs', bins: ['src/main.rs', 'tool/runner.rs', 'src/bin/one.rs', 'src/bin/two/main.rs'], tests: [], names: names({ 'src/main.rs': 'x', 'src/bin/one.rs': 'one', 'src/bin/two/main.rs': 'two', 'tool/runner.rs': 'runner' }) }, 'src/main.rs, declared roots, then the conventional targets; a file nested under a directory-style binary is not a root. A conventional path names itself, a declared one carries its manifest name');
   const noAuto = parseCargoManifest('[package]\nname = "x"\nautobins = false\n[[bin]]\nname = "runner"\npath = "tool/runner.rs"\n');
-  assert.deepEqual(cargoTargets(noAuto, sources), { lib: 'src/lib.rs', bins: ['tool/runner.rs'], tests: [] }, 'autobins = false turns discovery off for src/main.rs and src/bin/ alike');
-  assert.deepEqual(cargoTargets(parseCargoManifest('[package]\nname = "x"\n[lib]\npath = "lib/root.rs"\n'), ['lib/root.rs', 'src/lib.rs']), { lib: 'lib/root.rs', bins: [], tests: [] });
-  assert.deepEqual(cargoTargets(parseCargoManifest('[package]\nname = "x"\nautolib = false\n'), ['src/lib.rs']), { lib: '', bins: [], tests: [] }, 'autolib = false turns the library off');
+  assert.deepEqual(cargoTargets(noAuto, sources), { lib: 'src/lib.rs', bins: ['tool/runner.rs'], tests: [], names: names({ 'tool/runner.rs': 'runner' }) }, 'autobins = false turns discovery off for src/main.rs and src/bin/ alike');
+  assert.deepEqual(cargoTargets(parseCargoManifest('[package]\nname = "x"\n[lib]\npath = "lib/root.rs"\n'), ['lib/root.rs', 'src/lib.rs']), { lib: 'lib/root.rs', bins: [], tests: [], names: names({}) });
+  assert.deepEqual(cargoTargets(parseCargoManifest('[package]\nname = "x"\nautolib = false\n'), ['src/lib.rs']), { lib: '', bins: [], tests: [], names: names({}) }, 'autolib = false turns the library off');
   const declaredTests = parseCargoManifest('[package]\nname = "x"\n[[test]]\nname = "conf"\npath = "checks/conformance.rs"\n[[bench]]\nname = "b"\npath = "perf/b.rs"\n[[example]]\nname = "e"\npath = "demo/e.rs"\n');
-  assert.deepEqual(cargoTargets(declaredTests, ['src/lib.rs', 'checks/conformance.rs', 'perf/b.rs', 'demo/e.rs']), { lib: 'src/lib.rs', bins: [], tests: ['checks/conformance.rs', 'perf/b.rs', 'demo/e.rs'] }, 'declared test, bench and example targets are test roots');
+  assert.deepEqual(cargoTargets(declaredTests, ['src/lib.rs', 'checks/conformance.rs', 'perf/b.rs', 'demo/e.rs']), { lib: 'src/lib.rs', bins: [], tests: ['checks/conformance.rs', 'perf/b.rs', 'demo/e.rs'], names: names({ 'checks/conformance.rs': 'conf', 'perf/b.rs': 'b', 'demo/e.rs': 'e' }) }, 'declared test, bench and example targets are test roots');
   assert.equal(rustFileRole('src/main.rs', { lib: '', bins: ['tool/runner.rs'], tests: [] }), 'module', 'a src/main.rs the manifest turned off is a module');
   assert.equal(rustFileRole('checks/conformance.rs', { lib: 'src/lib.rs', bins: [], tests: ['checks/conformance.rs'] }), 'test');
   assert.equal(isTargetRoot('tests/common/mod.rs'), false, 'shared test helpers are modules of the test crates');
@@ -1311,4 +1314,80 @@ test('a module file records the target its path is measured from', () => {
   assert.equal(byPath['src/bin/tool/helper.rs'].target, 'src/bin/tool/main.rs',
     'the binary owns its nested module, not the library');
   assert.equal(byPath['src/lib.rs'].target, undefined, 'a root is measured from nothing');
+});
+
+test('a #[path] declaration decides the module address, not the pathname', () => {
+  const files = new Map([
+    ['rust/redirect/Cargo.toml', '[package]\nname = "redirect"\nversion = "0.1.0"\n'],
+    ['rust/redirect/src/lib.rs', '#[path = "impl/foo.rs"]\npub mod renamed;\npub mod plain;\n'],
+    ['rust/redirect/src/impl/foo.rs', 'pub mod deeper;\npub fn f() {}\n'],
+    ['rust/redirect/src/impl/foo/deeper.rs', 'pub fn g() {}\n'],
+    ['rust/redirect/src/plain.rs', 'pub fn h() {}\n']
+  ]);
+
+  const byPath = Object.fromEntries(
+    buildRustInventory([...files.keys()], (path) => files.get(path)).crates[0].files.map((file) => [file.relativePath, file]));
+
+  assert.equal(byPath['src/impl/foo.rs'].modulePath, 'renamed',
+    'the module compiles as `renamed`; `impl::foo` names nothing and `impl` is not even an identifier');
+  assert.equal(byPath['src/impl/foo/deeper.rs'].modulePath, 'renamed::deeper',
+    'a module of a redirected module hangs off the name it was declared under');
+  assert.equal(byPath['src/plain.rs'].modulePath, 'plain', 'an ordinary declaration is unchanged');
+  assert.equal(byPath['src/lib.rs'].modulePath, '', 'the crate root owns the empty path');
+});
+
+test('a file nothing declares keeps its pathname-derived address', () => {
+  const files = new Map([
+    ['rust/orphan/Cargo.toml', '[package]\nname = "orphan"\nversion = "0.1.0"\n'],
+    ['rust/orphan/src/lib.rs', 'pub mod live;\n'],
+    ['rust/orphan/src/live.rs', 'pub fn f() {}\n'],
+    ['rust/orphan/src/stale/generated.rs', 'pub fn g() {}\n']
+  ]);
+
+  const byPath = Object.fromEntries(
+    buildRustInventory([...files.keys()], (path) => files.get(path)).crates[0].files.map((file) => [file.relativePath, file]));
+
+  assert.equal(byPath['src/stale/generated.rs'].reachable, false);
+  assert.equal(byPath['src/stale/generated.rs'].modulePath, 'stale::generated',
+    'the walk cannot reach it, so the inventory still describes where it sits');
+});
+
+test('an out-of-line test module is marked test code at file level', () => {
+  const files = new Map([
+    ['rust/marked/Cargo.toml', '[package]\nname = "marked"\nversion = "0.1.0"\n'],
+    ['rust/marked/src/lib.rs', '#[cfg(test)]\nmod tests;\npub mod real;\n'],
+    ['rust/marked/src/tests.rs', 'mod deeper;\n#[test]\nfn t() {}\n'],
+    ['rust/marked/src/tests/deeper.rs', '#[test]\nfn u() {}\n'],
+    ['rust/marked/src/real.rs', 'pub fn f() {}\n'],
+    ['rust/marked/tests/smoke.rs', '#[test]\nfn s() {}\n']
+  ]);
+
+  const byPath = Object.fromEntries(
+    buildRustInventory([...files.keys()], (path) => files.get(path)).crates[0].files.map((file) => [file.relativePath, file]));
+
+  assert.equal(byPath['src/tests.rs'].role, 'module', 'the pathname says module, which is why role cannot answer this');
+  assert.equal(byPath['src/tests.rs'].testOnly, true);
+  assert.equal(byPath['src/tests/deeper.rs'].testOnly, true, 'and so is everything it declares in turn');
+  assert.equal(byPath['tests/smoke.rs'].testOnly, true, 'an integration-test target too');
+  assert.equal(byPath['src/real.rs'].testOnly, false);
+  assert.equal(byPath['src/lib.rs'].testOnly, false);
+});
+
+test('a declared binary target keeps its manifest name', () => {
+  const files = new Map([
+    ['rust/named/Cargo.toml',
+      '[package]\nname = "named"\nversion = "0.1.0"\n[[bin]]\nname = "runner"\npath = "tool/entry.rs"\n'],
+    ['rust/named/src/lib.rs', 'pub fn f() {}\n'],
+    ['rust/named/tool/entry.rs', 'mod helper;\nfn main() {}\n'],
+    ['rust/named/tool/entry/helper.rs', 'pub fn h() {}\n']
+  ]);
+
+  const byPath = Object.fromEntries(
+    buildRustInventory([...files.keys()], (path) => files.get(path)).crates[0].files.map((file) => [file.relativePath, file]));
+
+  assert.equal(byPath['tool/entry.rs'].role, 'bin');
+  assert.equal(byPath['tool/entry.rs'].targetName, 'runner',
+    'Cargo builds `runner`; a node addressed `bin::tool_entry` names a target the manifest does not have');
+  assert.equal(byPath['tool/entry/helper.rs'].target, 'tool/entry.rs', 'and its module hangs off that binary');
+  assert.equal(byPath['src/lib.rs'].targetName, undefined, 'a library root is addressed by the package name');
 });

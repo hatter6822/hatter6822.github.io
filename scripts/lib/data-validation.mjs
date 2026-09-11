@@ -175,7 +175,26 @@ function validateRustInventory(rust, files) {
       if (file.target !== undefined && (typeof file.target !== 'string' || !file.target.trim())) {
         errors.push(`${fileLabel}.target must be a non-empty string when present`);
       }
+      if (file.testOnly !== undefined && typeof file.testOnly !== 'boolean') {
+        errors.push(`${fileLabel}.testOnly must be a boolean when present`);
+      }
+      if (file.targetName !== undefined && (typeof file.targetName !== 'string' || !file.targetName.trim())) {
+        errors.push(`${fileLabel}.targetName must be a non-empty string when present`);
+      }
       if (!RUST_FILE_ROLES.has(file.role)) errors.push(`${fileLabel}.role ${JSON.stringify(file.role)} is not a known role`);
+      /* `testOnly` is wider than the role, never narrower: it is reached
+         through a test-only declaration, and every test target is. A test
+         target the snapshot calls production would put test code on a map
+         whose subject is production code. */
+      if (file.role === 'test' && file.testOnly === false) {
+        errors.push(`${fileLabel} is a test target but testOnly is false`);
+      }
+      /* Only a root has a target name; a module is addressed by its module
+         path, and naming one would put a Cargo target in the address of
+         something Cargo does not build. */
+      if (file.targetName !== undefined && file.role === 'module') {
+        errors.push(`${fileLabel}.targetName is set on a module, which is no Cargo target`);
+      }
       for (const key of ['lines', 'productionItems', 'publicItems', 'testItems']) {
         if (!isNonNegativeInteger(file[key])) errors.push(`${fileLabel}.${key} must be a non-negative integer`);
       }
