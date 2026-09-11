@@ -3942,16 +3942,22 @@
   function rustParentName(crate, file, byModulePath, rootsByRole, byRelativePath) {
     var modulePath = String(file && file.modulePath || "");
     if (!modulePath) return "";
+    /* Keyed by target *and* module path. Two targets in one package can carry
+       the same nested path — `src/args/cspace.rs` in the library and
+       `src/bin/tool/args/cspace.rs` in a binary both reach `args::cspace` —
+       and a path-only index holds one `args`, so one `cspace` hung off the
+       other target's parent. */
+    var target = String(file && file.target || "");
     var parts = modulePath.split("::");
     parts.pop();
     if (parts.length) {
       var parentPath = parts.join("::");
-      if (byModulePath[parentPath]) return byModulePath[parentPath];
+      var scoped = byModulePath[target + "\u0000" + parentPath];
+      if (scoped) return scoped;
     }
     /* The file's own target root, when the snapshot names it: a module of
        `src/bin/tool/main.rs` hangs off that binary, not off the library that
        happens to exist alongside it. */
-    var target = String(file && file.target || "");
     if (target && byRelativePath[target]) return byRelativePath[target];
     return rootsByRole.lib || rootsByRole.bin || rootsByRole.build || "";
   }
@@ -3978,6 +3984,13 @@
         if (!file || typeof file.path !== "string") continue;
         /* Test targets are outside the production surface the map draws. */
         if (file.role === "test") continue;
+        /* So is a file no Cargo target reaches: the scanner lists it (its
+           items are real text) but it compiles into nothing, and drawing it
+           would present stale or generated source as part of the module
+           tree. `reachable` is compilation reachability, wider than the
+           `exported` flag the boundary uses. A snapshot predating it says
+           nothing, and everything it lists is drawn as before. */
+        if (file.reachable === false) continue;
         var name = rustNodeName(crate, file);
         if (!name) continue;
         /* Two files can only collide when a crate declares a module named
@@ -4005,7 +4018,7 @@
         nodes.push(name);
         crateNodes.push(record);
         byRelativePath[record.relativePath] = name;
-        if (record.modulePath) byModulePath[record.modulePath] = name;
+        if (record.modulePath) byModulePath[String(file.target || "") + "\u0000" + record.modulePath] = name;
         else if (!rootsByRole[record.role]) rootsByRole[record.role] = name;
       }
 
@@ -6388,8 +6401,13 @@
         var value = (query || "").trim();
         if (!value) return "";
 
+        /* `nodeExists`, not `moduleMap`: the third site of the same mistake.
+           In `scope=rust` an exactly-typed Lean module was accepted here, the
+           caller closed the suggestions and left the field showing it, and
+           only `selectModule` refused — so the control disagreed with the
+           chart. The scope-aware predicate belongs at every acceptance point. */
         var direct = sanitizeModuleName(value);
-        if (direct && state.moduleMap[direct]) return direct;
+        if (direct && nodeExists(direct)) return direct;
 
         var matches = moduleSearchMatches(value, list);
         return matches.length ? matches[0] : "";

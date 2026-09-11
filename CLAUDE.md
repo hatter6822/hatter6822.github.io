@@ -218,7 +218,11 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   resolve it. See `scripts/lib/source-anchors.mjs`. A lookup matches only when
   the identifier **ends** the declared name: a trailing `\b` is satisfied by
   the dot in `def Foo.bar`, so asking for `Foo` silently took that member's
-  line instead of reporting the link.
+  line instead of reporting the link. Comments are stripped first, line for
+  line (`stripLeanComments` / `stripRustCommentsAndStrings`, both of which
+  preserve line numbers): a declaration that moves away often leaves its name
+  in a doc-comment example shaped exactly like a header, and stamping that
+  line publishes a wrong anchor that looks resolved.
 - **An anchored link names the commit its line belongs to**, recorded as
   `sourceAnchorRef` and written into the href in place of `main`. A line number
   against a branch is a line number on a moving target: the unpinned sync falls
@@ -293,7 +297,10 @@ scope toggle. Production code is the subject in every scope.
 - **A scope with no Lean offers no declarations to find.**
   `declarationSearchAvailable()` gates both `declarationSearchMatch()` and
   `declarationSearchMatches()`, so nothing unreachable is suggested or
-  matched. Refusing only the *selection* was not enough: every caller still
+  matched. The same applies to an exactly-typed **module**: `matchModule()`
+  asks `nodeExists()`, not `state.moduleMap`. Three separate acceptance points
+  had the scope-blind test, and each let the search control disagree with the
+  chart. Refusing only the *selection* was not enough: every caller still
   overwrote the input, closed the suggestions and announced "Declaration: …",
   so the control claimed to show Lean content while the Rust chart stayed put.
   `selectDeclaration()` also reports whether it took the selection.
@@ -347,12 +354,23 @@ scope toggle. Production code is the subject in every scope.
   the bare crate name. A file records the `target` its module path is measured
   from, so a nested binary module (`src/bin/tool/helper.rs`, module path
   `helper`) hangs off that binary rather than off whichever library happens to
-  exist alongside it. A target that is its own crate root — a binary, the
+  exist alongside it. The parent index is keyed by **target and module path
+  together**: two targets in one package can carry the same nested path
+  (`src/args/cspace.rs` and `src/bin/tool/args/cspace.rs` both reach
+  `args::cspace`), and a path-only index held one `args`. A target that is its own crate root — a binary, the
   build script — takes that target as a path segment
   (`sele4n-hal::bin::rw_lock_oracle`) and the node states which kind of target
   it is, so the segment is never read as a module of the library.
-- **Test targets are not nodes.** Production code is the map's subject, as the
-  Lean scope leaves out `tests/` and `SeLe4n/Testing/`. The crate root's
+- **Neither test targets nor unreachable files are nodes.** Production code is
+  the map's subject, as the Lean scope leaves out `tests/` and
+  `SeLe4n/Testing/`. A file no Cargo target reaches through `mod` declarations
+  compiles into nothing; the scanner lists it (its text is real) and marks it
+  `reachable: false`, and the graph leaves it out rather than presenting stale
+  or generated source as part of the module tree. **Compilation reachability
+  and export reachability are two sets** — everything exported is compiled,
+  not everything compiled is exported (a file behind a private `mod`) — so
+  `reachable` and `exported` are tracked apart and neither stands in for the
+  other. The crate root's
   summary still names the crate's test surface, so nothing is hidden.
 - Lanes: the module path that reaches the file (left), the modules it declares
   (right) and the crate's dependency context (below). A **leaf declares

@@ -154,3 +154,26 @@ test('a qualified declaration still resolves by its short name', () => {
 test('a name that merely prefixes another declaration does not match it', () => {
   assert.equal(declarationLine('theorem schedule_preserves_wf : True := trivial', 'schedule'), undefined);
 });
+
+test('a declaration header inside a block comment is not a declaration', () => {
+  // A declaration that has moved away often leaves its name behind in a
+  // doc-comment example shaped exactly like a header. Stamping that line would
+  // publish a wrong anchor while looking resolved — the one outcome this
+  // resolver exists to avoid.
+  const lean = ['/-- Example:', 'theorem Gone : True := trivial', '-/', 'theorem Other : True := trivial'].join('\n');
+  assert.equal(declarationLine(lean, 'Gone', 'A.lean'), undefined);
+  assert.equal(declarationLine(lean, 'Other', 'A.lean'), 4, 'and the real one keeps its line number');
+
+  const rust = ['/* was:', 'pub fn gone() {}', '*/', 'pub fn other() {}'].join('\n');
+  assert.equal(declarationLine(rust, 'gone', 'a.rs'), undefined);
+  assert.equal(declarationLine(rust, 'other', 'a.rs'), 4);
+});
+
+test('a line comment hides a header too, without shifting lines', () => {
+  const lean = ['-- theorem Gone : True := trivial', '', 'theorem Gone : True := trivial'].join('\n');
+  assert.equal(declarationLine(lean, 'Gone', 'A.lean'), 3, 'the real declaration, not the commented mention');
+});
+
+test('the resolver still works without a path to choose a stripper by', () => {
+  assert.equal(declarationLine('theorem Foo : True := trivial', 'Foo'), 1);
+});

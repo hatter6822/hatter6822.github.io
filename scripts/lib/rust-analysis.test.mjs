@@ -1255,3 +1255,60 @@ test('buildRustInventory leaves out a package the workspace excludes', () => {
   assert.ok(inventory.workspaceFiles.includes('rust/crates/old/src/lib.rs'), 'its files stay listed as workspace files');
   assert.deepEqual(parseCargoManifest('[workspace]\nmembers = ["a"]\nexclude = ["b", "c/*"]\n').exclude, ['b', 'c/*']);
 });
+
+test('a file no target reaches is listed but marked unreachable', () => {
+  // The scanner deliberately keeps an orphan — stale, generated input,
+  // `include!`d — because its text is real. But it compiles into nothing, so
+  // the code map must be able to leave it out of the module tree.
+  const files = new Map([
+    ['rust/solo/Cargo.toml', '[package]\nname = "solo"\nversion = "0.1.0"\n'],
+    ['rust/solo/src/lib.rs', 'pub mod live;\n'],
+    ['rust/solo/src/live.rs', 'pub fn live_fn() {}\n'],
+    ['rust/solo/src/orphan.rs', 'pub fn orphan_fn() {}\n']
+  ]);
+
+  const inventory = buildRustInventory([...files.keys()], (path) => files.get(path));
+
+  const crate = inventory.crates[0];
+  const byPath = Object.fromEntries(crate.files.map((file) => [file.relativePath, file]));
+
+  assert.equal(byPath['src/lib.rs'].reachable, true, 'the library root is reached');
+  assert.equal(byPath['src/live.rs'].reachable, true, 'and so is what it declares');
+  assert.equal(byPath['src/orphan.rs'].reachable, false, 'nothing declares the orphan');
+  assert.ok(byPath['src/orphan.rs'].items.length, 'it is still listed, with its items');
+});
+
+test('a file behind a private mod is compiled but not exported', () => {
+  // The two reachabilities are different sets: everything exported is
+  // compiled, not everything compiled is exported.
+  const files = new Map([
+    ['rust/priv/Cargo.toml', '[package]\nname = "priv-crate"\nversion = "0.1.0"\n'],
+    ['rust/priv/src/lib.rs', 'mod hidden;\n'],
+    ['rust/priv/src/hidden.rs', 'pub fn hidden_fn() {}\n']
+  ]);
+
+  const inventory = buildRustInventory([...files.keys()], (path) => files.get(path));
+
+  const hidden = inventory.crates[0].files.find((file) => file.relativePath === 'src/hidden.rs');
+  assert.equal(hidden.reachable, true, 'a private `mod` still compiles it');
+  assert.equal(hidden.items.find((item) => item.name === 'hidden_fn').exported, false,
+    'but it is not public API');
+});
+
+test('a module file records the target its path is measured from', () => {
+  const files = new Map([
+    ['rust/dual/Cargo.toml', '[package]\nname = "dual"\nversion = "0.1.0"\n'],
+    ['rust/dual/src/lib.rs', 'pub mod shared;\n'],
+    ['rust/dual/src/shared.rs', 'pub fn shared_fn() {}\n'],
+    ['rust/dual/src/bin/tool/main.rs', 'mod helper;\nfn main() {}\n'],
+    ['rust/dual/src/bin/tool/helper.rs', 'pub fn helper_fn() {}\n']
+  ]);
+
+  const inventory = buildRustInventory([...files.keys()], (path) => files.get(path));
+
+  const byPath = Object.fromEntries(inventory.crates[0].files.map((file) => [file.relativePath, file]));
+  assert.equal(byPath['src/shared.rs'].target, 'src/lib.rs');
+  assert.equal(byPath['src/bin/tool/helper.rs'].target, 'src/bin/tool/main.rs',
+    'the binary owns its nested module, not the library');
+  assert.equal(byPath['src/lib.rs'].target, undefined, 'a root is measured from nothing');
+});

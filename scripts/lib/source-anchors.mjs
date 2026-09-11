@@ -23,6 +23,9 @@
  * a claim nobody made.
  */
 
+import { stripLeanComments } from './lean-analysis.mjs';
+import { stripRustCommentsAndStrings } from './rust-analysis.mjs';
+
 const BLOB_BASE = 'https://github.com/hatter6822/seLe4n/blob/';
 
 /**
@@ -124,7 +127,7 @@ export function collectSourceAnchors(text) {
  * resolves for the label `ofLattice`). The first such line wins: a name is
  * declared once, and a later `theorem foo_bar` is a different name.
  */
-export function declarationLine(sourceText, name) {
+export function declarationLine(sourceText, name, path) {
   if (typeof sourceText !== 'string' || !name) return undefined;
 
   const header = new RegExp(
@@ -138,12 +141,28 @@ export function declarationLine(sourceText, name) {
       `(?:[A-Za-z0-9_.']+\\.)?${escapeRegExp(name)}(?![A-Za-z0-9_.'!?])`
   );
 
-  const lines = sourceText.split('\n');
+  // Comments are stripped first, line for line. A declaration that has moved
+  // away often leaves its name behind in a doc-comment example shaped exactly
+  // like a header (`theorem Foo`, `pub fn foo`), and stamping that line would
+  // publish a wrong anchor while looking resolved — the one outcome this
+  // resolver exists to avoid. Both strippers replace comment bodies with
+  // newlines, so line numbers survive.
+  const lines = withoutComments(sourceText, path).split('\n');
   for (let index = 0; index < lines.length; index += 1) {
     if (header.test(lines[index])) return index + 1;
   }
 
   return undefined;
+}
+
+/** Blank out comments without moving any line. Falls back to the raw text. */
+function withoutComments(sourceText, path) {
+  try {
+    if (/\.rs$/.test(String(path ?? ''))) return stripRustCommentsAndStrings(sourceText);
+    return stripLeanComments(sourceText);
+  } catch {
+    return sourceText;
+  }
 }
 
 /**
@@ -175,7 +194,7 @@ export function resolveSourceAnchors(anchors, readSource) {
       continue;
     }
 
-    const found = declarationLine(text, identifier);
+    const found = declarationLine(text, identifier, path);
     if (found === undefined) {
       unresolved.push({ path, label, line, reason: `no declaration of ${identifier} in this file` });
       continue;

@@ -1371,14 +1371,23 @@ export function buildRustInventory(files, readText, options = {}) {
     // — is unreachable, so its `pub` items are not public API. (A crate root
     // resolves `mod x;` beside itself; any other file under a directory of
     // its own name.)
+    //
+    // Compilation reachability is a second, wider set: a file any `mod`
+    // declaration reaches, whatever its visibility. Every exported file is
+    // compiled, but not the reverse — a file behind a private `mod` is
+    // compiled and is not public API. The two must be tracked apart: the code
+    // map draws the *compiled* module tree, so an orphan must not appear
+    // there, while the boundary index needs the narrower export set.
     const rootFile = (relative) => isTargetRoot(relative, roots) || relative === 'build.rs';
     const exportedFiles = new Set([...scans.keys()].filter(rootFile));
+    const reachedFiles = new Set([...scans.keys()].filter(rootFile));
     let grew = true;
     while (grew) {
       grew = false;
       for (const entry of scans.values()) {
         const parentTest = testFiles.has(entry.relative);
         const parentExported = exportedFiles.has(entry.relative);
+        const parentReached = reachedFiles.has(entry.relative);
         for (const item of entry.scan.items) {
           // Out-of-line declarations only: an inline `mod tests { … }` names
           // no file, so a same-named file elsewhere must not inherit from it.
@@ -1389,6 +1398,7 @@ export function buildRustInventory(files, readText, options = {}) {
             if (!scans.has(candidate)) continue;
             if (childTest && !testFiles.has(candidate)) { testFiles.add(candidate); grew = true; }
             if (childExported && !exportedFiles.has(candidate)) { exportedFiles.add(candidate); grew = true; }
+            if (parentReached && !reachedFiles.has(candidate)) { reachedFiles.add(candidate); grew = true; }
           }
         }
       }
@@ -1426,6 +1436,11 @@ export function buildRustInventory(files, readText, options = {}) {
         /* Which target root that module path is measured from. Absent for a
            root itself. */
         ...(rustModuleTarget(relative, roots) ? { target: rustModuleTarget(relative, roots) } : {}),
+        /* Whether any Cargo target reaches this file through `mod`
+           declarations. A file nothing declares — stale, generated input,
+           `include!`d — is listed in the inventory but compiles into nothing,
+           so the code map must not draw it as part of the module tree. */
+        reachable: reachedFiles.has(relative),
         role,
         lines: scan.lines,
         items,

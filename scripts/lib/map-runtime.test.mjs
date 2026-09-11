@@ -3041,3 +3041,96 @@ test('a declaration search finds nothing in a scope with no Lean', async () => {
 
   hooks.setScope('both');
 });
+
+test('an unreachable Rust file is not drawn as part of the module tree', async () => {
+  // The scanner keeps an orphan because its text is real; the graph must
+  // leave it out, because it compiles into nothing and drawing it presents
+  // stale or generated source as production code.
+  const { hooks } = await loadBundledState();
+  const file = (relativePath, role, modulePath, extra = {}) => ({
+    path: `rust/solo/${relativePath}`, relativePath, modulePath, role,
+    lines: 1, productionItems: 0, publicItems: 0, testItems: 0, items: [],
+    unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 },
+    ...extra
+  });
+
+  const crate = {
+    name: 'solo', path: 'rust/solo', manifest: 'rust/solo/Cargo.toml',
+    sourceFiles: 3, lines: 3, items: 0, publicItems: 0, testItems: 0,
+    deniesUnsafe: false, unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 },
+    dependencies: [], internalDependencies: [], externalDependencies: [],
+    devDependencies: [], buildDependencies: [], features: [],
+    targetDependencies: [], optionalDependencies: [],
+    files: [
+      file('src/lib.rs', 'lib', '', { reachable: true }),
+      file('src/live.rs', 'module', 'live', { target: 'src/lib.rs', reachable: true }),
+      file('src/orphan.rs', 'module', 'orphan', { target: 'src/lib.rs', reachable: false })
+    ]
+  };
+
+  const graph = hooks.buildRustGraph({ members: ['solo'], crates: [crate] });
+  assert.ok(graph.nodes.some((name) => /live$/.test(name)), 'the reached module is a node');
+  assert.ok(!graph.nodes.some((name) => /orphan$/.test(name)), 'the orphan is not');
+
+  // A snapshot predating the flag draws everything it lists, as before.
+  const legacy = { ...crate, files: crate.files.map(({ reachable, ...rest }) => rest) };
+  const before = hooks.buildRustGraph({ members: ['solo'], crates: [legacy] });
+  assert.ok(before.nodes.some((name) => /orphan$/.test(name)));
+});
+
+test('two targets with the same nested module path keep their own parents', async () => {
+  // `byModulePath` held one `args`, so one `cspace` hung off the other
+  // target's parent. The index is keyed by target as well as path now.
+  const { hooks } = await loadBundledState();
+  const file = (relativePath, role, modulePath, target) => ({
+    path: `rust/dual/${relativePath}`, relativePath, modulePath, role,
+    ...(target ? { target } : {}), reachable: true,
+    lines: 1, productionItems: 0, publicItems: 0, testItems: 0, items: [],
+    unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 }
+  });
+
+  const graph = hooks.buildRustGraph({
+    members: ['dual'],
+    crates: [{
+      name: 'dual', path: 'rust/dual', manifest: 'rust/dual/Cargo.toml',
+      sourceFiles: 5, lines: 5, items: 0, publicItems: 0, testItems: 0,
+      deniesUnsafe: false, unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 },
+      dependencies: [], internalDependencies: [], externalDependencies: [],
+      devDependencies: [], buildDependencies: [], features: [],
+      targetDependencies: [], optionalDependencies: [],
+      files: [
+        file('src/lib.rs', 'lib', ''),
+        file('src/args.rs', 'module', 'args', 'src/lib.rs'),
+        file('src/args/cspace.rs', 'module', 'args::cspace', 'src/lib.rs'),
+        file('src/bin/tool/main.rs', 'bin', ''),
+        file('src/bin/tool/args.rs', 'module', 'args', 'src/bin/tool/main.rs'),
+        file('src/bin/tool/args/cspace.rs', 'module', 'args::cspace', 'src/bin/tool/main.rs')
+      ]
+    }]
+  });
+
+  const parentOf = (relativePath) => {
+    const name = graph.nodes.find((n) => graph.byName[n].file.relativePath === relativePath);
+    return graph.byName[graph.byName[name].parent].file.relativePath;
+  };
+
+  assert.equal(parentOf('src/args/cspace.rs'), 'src/args.rs', "the library's cspace hangs off the library's args");
+  assert.equal(parentOf('src/bin/tool/args/cspace.rs'), 'src/bin/tool/args.rs',
+    "and the binary's off the binary's");
+});
+
+test('an exactly-typed module outside the scope is not accepted', async () => {
+  // Third site of the same mistake: the exact-match branch checked
+  // state.moduleMap, so in scope=rust the caller closed the suggestions on a
+  // Lean module that selectModule then refused.
+  const { hooks } = await loadBundledState();
+
+  hooks.setScope('both');
+  assert.ok(hooks.nodeExists('SeLe4n.Kernel.API'));
+
+  hooks.setScope('rust');
+  assert.ok(!hooks.nodeExists('SeLe4n.Kernel.API'),
+    'the exact-match branch now asks the same predicate the selection does');
+
+  hooks.setScope('both');
+});

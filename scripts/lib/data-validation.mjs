@@ -169,6 +169,12 @@ function validateRustInventory(rust, files) {
       }
       if (typeof file.relativePath !== 'string') errors.push(`${fileLabel}.relativePath must be a string`);
       if (typeof file.modulePath !== 'string') errors.push(`${fileLabel}.modulePath must be a string`);
+      if (file.reachable !== undefined && typeof file.reachable !== 'boolean') {
+        errors.push(`${fileLabel}.reachable must be a boolean when present`);
+      }
+      if (file.target !== undefined && (typeof file.target !== 'string' || !file.target.trim())) {
+        errors.push(`${fileLabel}.target must be a non-empty string when present`);
+      }
       if (!RUST_FILE_ROLES.has(file.role)) errors.push(`${fileLabel}.role ${JSON.stringify(file.role)} is not a known role`);
       for (const key of ['lines', 'productionItems', 'publicItems', 'testItems']) {
         if (!isNonNegativeInteger(file[key])) errors.push(`${fileLabel}.${key} must be a non-negative integer`);
