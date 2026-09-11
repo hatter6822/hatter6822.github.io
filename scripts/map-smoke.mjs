@@ -31,7 +31,7 @@
  *   MAP_SMOKE_SHOTS       directory for screenshots   (default: none)
  */
 import { createRequire } from 'node:module';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
@@ -42,6 +42,19 @@ try {
   console.error('playwright-core is not installed; see the header of this script.');
   process.exit(2);
 }
+
+/* Expectations come from the bundled snapshots, not from numbers typed into
+   this file: every upstream data refresh moves them, and a probe that has to
+   be hand-edited on each refresh stops being run. What is asserted is the
+   relationship between the page and its own data. */
+const ROOT = new URL('../', import.meta.url);
+const MAP_DATA = JSON.parse(readFileSync(new URL('data/map-data.json', ROOT), 'utf8'));
+const SITE_DATA = JSON.parse(readFileSync(new URL('data/site-data.json', ROOT), 'utf8'));
+const LEAN_MODULES = MAP_DATA.modules.length;
+const RUST_MODULES = MAP_DATA.rust.crates.reduce(
+  (total, crate) => total + crate.files.filter((file) => file.role !== 'test').length, 0);
+const BOTH_NODES = LEAN_MODULES + RUST_MODULES;
+const BRIDGE_SEAM = { lean: 'SeLe4n.Platform.FFI', rust: 'sele4n-hal::ffi' };
 
 const BASE = process.env.MAP_SMOKE_BASE || 'http://127.0.0.1:4173';
 const SHOTS = process.env.MAP_SMOKE_SHOTS || '';
@@ -168,10 +181,13 @@ async function shot(page, name) {
   check(chartAtScale(m), `flow chart drawn at 1:1 (${chartSummary(m)})`);
   check(m.wrap.top < 900, `chart starts inside the first viewport (top=${m.wrap.top})`);
   check(m.sections === 1, `the page is one section (${m.sections})`);
-  check(/\b366\b/.test(m.results), `the results note counts the whole active scope, not just the Lean half (${JSON.stringify(m.results)})`);
+  check(new RegExp(`\\b${BOTH_NODES}\\b`).test(m.results), `the results note counts the whole active scope (${BOTH_NODES}), not just the Lean half (${JSON.stringify(m.results)})`);
   check(m.scope === 'both' && m.scopeOptions.join(' ') === 'lean:Lean both:Lean + Rust rust:Rust', `scope toggle offers all three readings, opening on Lean + Rust (${m.scopeOptions.join(' ')})`);
   check(/Lean 4 \+ Rust/.test(m.badge), `the workspace badge names the active scope (${JSON.stringify(m.badge)})`);
-  check(m.stats.some((s) => s === 'rustCrates=4') && m.stats.some((s) => s === 'rustModules=63') && m.stats.some((s) => s === 'bridgeLinks=194'),
+  const bridgeLinks = Number((m.stats.find((s) => s.startsWith('bridgeLinks=')) || '').split('=')[1]);
+  check(m.stats.some((s) => s === `rustCrates=${MAP_DATA.rust.crates.length}`)
+    && m.stats.some((s) => s === `rustModules=${RUST_MODULES}`)
+    && bridgeLinks > 100,
     `hero stats carry the Rust and boundary figures (${m.stats.filter((s) => /^(rust|bridge)/.test(s)).join(', ')})`);
   check(errors.length === 0, `no console errors ${JSON.stringify(errors)}`);
   await shot(page, 'desktop-dark');
@@ -212,7 +228,7 @@ async function shot(page, name) {
      declares the opaque functions the HAL defines, so the combined scope has
      to draw a boundary band there and nowhere else on this page. */
   await page.click('#module-search', { clickCount: 3 });
-  await page.keyboard.type('SeLe4n.Platform.FFI');
+  await page.keyboard.type(BRIDGE_SEAM.lean);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(500);
   const seam = await metrics(page);
@@ -227,11 +243,18 @@ async function shot(page, name) {
   await page.click('.flow-node-bridge');
   await page.waitForTimeout(500);
   const crossed = await metrics(page);
-  check(crossed.search === 'sele4n-hal::ffi', `a boundary node crosses into the other language (${crossed.search})`);
+  check(crossed.search === BRIDGE_SEAM.rust, `a boundary node crosses into the other language (${crossed.search})`);
   check(/module=sele4n-hal%3A%3Affi|module=sele4n-hal::ffi/.test(crossed.url), `the Rust node is linkable (${crossed.url})`);
   check(crossed.rustNodes > 0 && crossed.bridgeNodes >= 1, `the Rust chart renders, boundary included (${crossed.rustNodes} Rust nodes, ${crossed.bridgeNodes} boundary)`);
-  check(crossed.tabs.length === 4 && crossed.tabLabels.join(',') === 'Types 0,Functions 80,Impls/Mods 0,Tests 74',
-    `the sidebar switches to the Rust groups (${crossed.tabLabels.join(', ')})`);
+  const ffiFile = MAP_DATA.rust.crates.flatMap((c) => c.files).find((f) => f.path.endsWith('sele4n-hal/src/ffi.rs'));
+  /* The Functions tab is fn + const + static, as RUST_KIND_GROUPS defines it;
+     counting only `fn` here would silently pass until a const appeared. */
+  const functionKinds = new Set(['fn', 'const', 'static']);
+  const ffiFns = ffiFile.items.filter((i) => !i.test && functionKinds.has(i.kind)).length;
+  check(crossed.tabs.length === 4
+    && crossed.tabLabels.map((label) => label.replace(/\s+[\d,]+$/, '')).join(',') === 'Types,Functions,Impls/Mods,Tests'
+    && crossed.tabLabels.some((label) => label === `Functions ${ffiFns.toLocaleString('en-US')}`),
+    `the sidebar switches to the Rust groups and counts them from the snapshot (${crossed.tabLabels.join(', ')})`);
   check(chartAtScale(crossed), `the Rust chart holds the same 1:1 guarantee (${chartSummary(crossed)})`);
   check(crossed.scrollWidth <= crossed.innerWidth, 'the Rust chart adds no sideways overflow');
 
@@ -243,7 +266,7 @@ async function shot(page, name) {
     `a leaf module browses its crate through its siblings (${JSON.stringify(rustOnly.laneLabels)})`);
   const openTab = rustOnly.tabLabels[rustOnly.tabs.indexOf('true')] || '';
   check(/ [1-9]/.test(openTab), `the Rust sidebar opens on a group that has something in it (open: ${openTab}; all: ${rustOnly.tabLabels.join(', ')})`);
-  check(rustOnly.search === 'sele4n-hal::ffi', 'a Rust node survives the narrowing to the Rust scope');
+  check(rustOnly.search === BRIDGE_SEAM.rust, 'a Rust node survives the narrowing to the Rust scope');
   check(rustOnly.bridgeNodes === 0 && !rustOnly.legend.some((item) => /Lean declares/.test(item)), 'the Rust-only reading draws no boundary');
   check(/production · Rust/.test(rustOnly.badge), `the badge follows the scope (${JSON.stringify(rustOnly.badge)})`);
   check(chartAtScale(rustOnly) && rustOnly.scrollWidth <= rustOnly.innerWidth, `Rust-only chart at 1:1 with no overflow (${chartSummary(rustOnly)})`);
@@ -253,7 +276,8 @@ async function shot(page, name) {
   check(leanOnly.search === 'SeLe4n.Kernel.API', `a Rust selection falls back to the Lean default (${leanOnly.search})`);
   check(leanOnly.rustNodes === 0 && leanOnly.bridgeNodes === 0, 'no Rust node survives into the Lean-only reading');
   check(leanOnly.tabs.length === 3, 'the sidebar returns to the Lean groups');
-  check(/\b303\b/.test(leanOnly.results) && !/\b366\b/.test(leanOnly.results), `and the results note follows the scope (${JSON.stringify(leanOnly.results)})`);
+  check(new RegExp(`\\b${LEAN_MODULES}\\b`).test(leanOnly.results) && !new RegExp(`\\b${BOTH_NODES}\\b`).test(leanOnly.results),
+    `and the results note follows the scope (${JSON.stringify(leanOnly.results)})`);
 
   const back = await setScope(page, 'both');
   check(back.scope === 'both' && !/scope=/.test(back.url), 'the default scope leaves the URL clean again');
@@ -353,7 +377,8 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   const m = await metrics(page);
   check(m.search === 'SeLe4n.Model.State.SystemState', 'deep link restores declaration context');
   check(m.h2s.some((h) => /Espacio de trabajo/.test(h)), 'section headings translated');
-  check(m.stats.some((s) => /^theorems=10\.929$/.test(s)), `theorem count grouped the Spanish way (${m.stats.find((s) => /^theorems=/.test(s))})`);
+  const theoremsEs = SITE_DATA.theorems.toLocaleString('es-ES');
+  check(m.stats.some((s) => s === `theorems=${theoremsEs}`), `theorem count grouped the Spanish way, ${theoremsEs} (${m.stats.find((s) => /^theorems=/.test(s))})`);
   check(m.scopeOptions.join(' ') === 'lean:Lean both:Lean + Rust rust:Rust', `the scope labels are language names, the same in every locale (${m.scopeOptions.join(' ')})`);
   check(errors.length === 0, 'no console errors (es)');
   await context.close();

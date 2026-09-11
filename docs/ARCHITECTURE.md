@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.31.0**.
+> Documentation baseline: website release **0.32.0**.
 
 ## Audit summary
 
@@ -830,6 +830,34 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
   and `static-values.test.mjs` fails if the committed tree drifts. Counts are
   comma-grouped identically on both sides so hydration does not visibly rewrite
   a figure.
+- **The version is the one figure taken from outside the artifact**, because
+  the artifact has none: `readme_sync.version` mirrors `lakefile.toml`, as do
+  the README badge and `rust/Cargo.toml`. Reading the mirror published a mirror
+  of a mirror, so `readProjectVersion()` reads the declaration from the same
+  pinned checkout and `canonicalCrossChecks` reports any disagreement.
+- **Four figures are counted off the digest-verified sources**, which the
+  artifact's inventory cannot answer on its own: `syscalls` (constructors of
+  `inductive SyscallId`), `externs` (`@[extern …]` declarations), and the two
+  enforcement-boundary sizes, read from the `.length = N` statements the kernel
+  proves by `rfl`. Reading the theorem rather than a sentence about it is what
+  upstream's own docstring asks for.
+- **`niSteps` is a coverage check, not a count.** The security card says every
+  kernel step has its own non-interference proof, so `nonInterferenceCoverage()`
+  pairs each constructor of `NonInterferenceStep` with a
+  `nonInterference_perCore_<step>` theorem and the sync refuses to publish a
+  figure when a step has none — the claim and the number cannot drift apart.
+- **The architecture diagram's own figures are projected too.** `subsystems`
+  holds `{key: {modules, theorems}}` per layer, over the same corpus as the
+  headline counts, addressed as `data-live="subsystem.<key>.modules"`. Ten of
+  the twelve hand-written labels had gone stale by 0.31.0. `validate-data.mjs`
+  reconciles each layer against the code map's graph, so the two pages cannot
+  describe different kernels.
+- **Deep-link line anchors are stamped, not maintained.** `sourceAnchors` maps
+  `path → label → line` for every `…/blob/main/<file>#L<n>` link the page
+  carries; sixteen of thirty-seven pointed at unrelated code by 0.31.0. The
+  sync discovers the links by reading the committed page, so adding one needs
+  no pipeline change, and a label it cannot resolve is reported rather than
+  repointed — a declaration that moved file is an editorial decision.
 - **`admitted` is derived, not asserted.** It counts `axiom` declarations plus
   declarations whose `called` list reaches `sorry`/`sorryAx`, and returns
   `undefined` rather than a published `0` when the artifact carries no

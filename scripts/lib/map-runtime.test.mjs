@@ -2425,6 +2425,14 @@ test('the first locale load repaints only what was painted from fallbacks', asyn
 
 /* ── The Rust half of the workspace, and the boundary between the two ───── */
 
+/** Production Rust source files in a snapshot: every file a graph node stands for. */
+function productionRustFiles(raw) {
+  return raw.rust.crates.reduce(
+    (total, crate) => total + crate.files.filter((file) => file.role !== 'test').length,
+    0
+  );
+}
+
 async function loadBundledState() {
   const hooks = await loadMapTestHooks();
   const raw = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
@@ -2491,7 +2499,7 @@ test('a Rust node is addressed by its module path, and a non-library target says
 });
 
 test('a module hangs off the module that declares it, up to its target root', async () => {
-  const { hooks } = await loadBundledState();
+  const { hooks, raw } = await loadBundledState();
   assert.equal(hooks.rustNode('sele4n-abi::args::cspace').parent, 'sele4n-abi::args');
   assert.equal(hooks.rustNode('sele4n-abi::args').parent, 'sele4n-abi');
   assert.equal(hooks.rustNode('sele4n-abi').parent, '');
@@ -2499,7 +2507,11 @@ test('a module hangs off the module that declares it, up to its target root', as
     'the chain reads downwards as the module path does');
   assert.ok(Array.from(hooks.rustNode('sele4n-abi::args').children).includes('sele4n-abi::args::cspace'),
     'the child edge is the inverse of the parent edge');
-  assert.equal(hooks.rustNode('sele4n-hal').children.length, 28, 'every top-level HAL module hangs off the crate root');
+  const hal = raw.rust.crates.find((crate) => crate.name === 'sele4n-hal');
+  const topLevelHalModules = hal.files.filter((file) => file.role === 'module' && !file.modulePath.includes('::')).length;
+  assert.equal(hooks.rustNode('sele4n-hal').children.length, topLevelHalModules,
+    'every top-level HAL module hangs off the crate root, and nothing else does');
+  assert.ok(topLevelHalModules > 20, `expected the HAL to carry a real module tree, got ${topLevelHalModules}`);
 });
 
 test('two declarations are the same declaration once case convention is normalised away', async () => {
@@ -2602,14 +2614,18 @@ test('a boundary edge names the declarations behind it rather than counting them
   const { hooks } = await loadBundledState();
   hooks.applyTestState({ scope: 'both' });
   const edge = Array.from(hooks.bridgeIndex().byRust['sele4n-sys::cspace'])[0];
-  assert.equal(hooks.bridgeEdgeSubtitle(edge, true), 'cspaceCopy, cspaceMint, cspaceMove +1 more');
-  assert.equal(hooks.bridgeEdgeSubtitle(edge, false), 'cspace_copy, cspace_mint, cspace_move +1 more');
+  const shown = Math.min(3, edge.links.length);
+  const extra = edge.links.length - shown;
+  const tail = extra > 0 ? ` +${extra} more` : '';
+  assert.equal(hooks.bridgeEdgeSubtitle(edge, true), edge.links.slice(0, shown).map((l) => l.leanName).join(', ') + tail);
+  assert.equal(hooks.bridgeEdgeSubtitle(edge, false), edge.links.slice(0, shown).map((l) => l.rustName).join(', ') + tail);
+  assert.match(hooks.bridgeEdgeSubtitle(edge, false), /cspace_/, 'the cspace wrapper names cspace functions');
   const short = { links: [{ leanName: 'a', rustName: 'a_fn' }] };
   assert.equal(hooks.bridgeEdgeSubtitle(short, false), 'a_fn', 'a single match needs no overflow tail');
 });
 
 test('the scope decides which nodes exist, and the selection survives a switch when it can', async () => {
-  const { hooks, data } = await loadBundledState();
+  const { hooks, data, raw } = await loadBundledState();
 
   hooks.setScope('lean');
   assert.equal(hooks.scopeNodes().length, data.modules.length);
@@ -2618,14 +2634,14 @@ test('the scope decides which nodes exist, and the selection survives a switch w
   assert.equal(hooks.defaultNodeName(), 'SeLe4n.Kernel.API');
 
   hooks.setScope('rust');
-  assert.equal(hooks.scopeNodes().length, 63);
+  assert.equal(hooks.scopeNodes().length, productionRustFiles(raw));
   assert.equal(hooks.nodeExists('SeLe4n.Kernel.API'), false);
   assert.equal(hooks.nodeExists('sele4n-hal::ffi'), true);
   assert.equal(hooks.defaultNodeName(), 'sele4n-types', 'the Rust scope opens on the first crate root');
   assert.equal(hooks.currentScope(), 'rust');
 
   hooks.setScope('both');
-  assert.equal(hooks.scopeNodes().length, data.modules.length + 63);
+  assert.equal(hooks.scopeNodes().length, data.modules.length + productionRustFiles(raw));
   assert.equal(hooks.defaultNodeName(), 'SeLe4n.Kernel.API', 'any scope carrying Lean still opens on the kernel API');
 });
 
@@ -2674,26 +2690,35 @@ test('Rust nodes sort after Lean modules, crate roots leading their crates', asy
 test('the declaration sidebar serves Rust with its own groups and a test bucket', async () => {
   const { hooks } = await loadBundledState();
 
+  const errorFile = hooks.rustNode('sele4n-types::error').file;
   const interior = hooks.rustInteriorForNode('sele4n-types::error');
-  /* The sidebar lists four non-test items — an enum, a type alias and two impl
-     blocks — while the snapshot counts two declarations, because an impl block
-     is listed but never counted. The two figures live in different places on
-     purpose; the node summary quotes the snapshot's. */
-  assert.equal(interior.listed, 4);
-  assert.equal(interior.byKind.impl.length, 2);
-  assert.equal(hooks.rustNode('sele4n-types::error').file.productionItems, 2);
-  assert.ok(hooks.rustNodeSummary('sele4n-types::error').startsWith('2 items'),
+  const items = errorFile.items;
+  const nonTest = items.filter((item) => !item.test);
+
+  /* The sidebar lists every non-test item, impl blocks included; the snapshot
+     counts declarations, which excludes them. The two figures live in
+     different places on purpose — the node summary quotes the snapshot's. */
+  assert.equal(interior.listed, nonTest.length);
+  assert.equal(interior.tests, items.length - nonTest.length);
+  assert.equal(interior.total, items.length);
+  assert.ok(interior.byKind.impl.length > 0, 'this file carries impl blocks, which is what makes the two counts differ');
+  assert.equal(interior.listed - interior.byKind.impl.length, errorFile.productionItems,
+    'listed items minus impl blocks is exactly what the snapshot counts');
+  assert.ok(hooks.rustNodeSummary('sele4n-types::error').startsWith(`${errorFile.productionItems} items`),
     'the summary quotes the snapshot\'s declaration count, never the sidebar\'s listing count');
-  assert.equal(interior.tests, 7);
-  assert.equal(interior.total, 11);
   assert.deepEqual(Array.from(interior.byKind['enum'], (item) => item.name), ['KernelError']);
-  assert.equal(interior.byKind['test:fn'].length, 6, 'test items bucket under a test: prefix, not their bare kind');
-  assert.equal(interior.byKind.fn.length, 0, 'and never leak into the production bucket');
+  assert.equal(interior.byKind.fn.length, 0, 'test fns never leak into the production bucket');
+  assert.equal(interior.byKind['test:fn'].length, items.filter((i) => i.test && i.kind === 'fn').length,
+    'test items bucket under a test: prefix, not their bare kind');
   assert.equal(interior.byKind['enum'][0].visibility, 'pub');
 
   const groups = Array.from(hooks.interiorGroupsForNode('sele4n-types::error', interior));
   assert.deepEqual(groups.map((group) => group.key), ['rustTypes', 'rustFunctions', 'rustStructure', 'rustTests']);
-  assert.deepEqual(groups.map((group) => group.totalCount), [2, 0, 2, 7], 'the impl blocks land in the structure group, not among the types');
+  /* Every item lands in exactly one group, and the impl blocks land in the
+     structure group rather than among the types. */
+  assert.equal(groups.reduce((total, group) => total + group.totalCount, 0), items.length);
+  assert.equal(groups.find((group) => group.key === 'rustStructure').totalCount, interior.byKind.impl.length);
+  assert.equal(groups.find((group) => group.key === 'rustTests').totalCount, interior.tests);
 
   /* A Lean module keeps the Lean groups through the same entry point. */
   const leanGroups = Array.from(hooks.interiorGroupsForNode('SeLe4n.Kernel.API', hooks.interiorForNode('SeLe4n.Kernel.API')));
@@ -2707,17 +2732,43 @@ test('the declaration sidebar serves Rust with its own groups and a test bucket'
 
 test('a Rust node summary keeps the production surface and the test surface apart', async () => {
   const { hooks } = await loadBundledState();
-  assert.equal(hooks.rustNodeSummary('sele4n-hal::ffi'), '80 items · 75 pub · 2,390 lines · 2 unsafe sites · 74 tests');
-  assert.equal(hooks.rustNodeSummary('sele4n-sys::ipc'), '13 items · 13 pub · 315 lines');
+  const group = (n) => n.toLocaleString('en-US');
+  const ffi = hooks.rustNode('sele4n-hal::ffi').file;
+  assert.equal(
+    hooks.rustNodeSummary('sele4n-hal::ffi'),
+    `${group(ffi.productionItems)} items · ${group(ffi.publicItems)} pub · ${group(ffi.lines)} lines · ` +
+    `${ffi.unsafe.fns + ffi.unsafe.impls + ffi.unsafe.blocks} unsafe sites · ${group(ffi.testItems)} tests`
+  );
+  /* A file with no unsafe and no tests says neither, rather than "0". */
+  const ipc = hooks.rustNode('sele4n-sys::ipc').file;
+  assert.equal(ipc.testItems, 0);
+  assert.equal(hooks.rustNodeSummary('sele4n-sys::ipc'),
+    `${group(ipc.productionItems)} items · ${group(ipc.publicItems)} pub · ${group(ipc.lines)} lines`);
 
   /* The crate root answers for its crate: the deny lint and the counted sites
      are two facts, and a test site is never folded into the production total. */
-  assert.equal(hooks.rustCrateSummary(hooks.rustNode('sele4n-types').crate), '5 files · 28 items · denies unsafe');
-  assert.equal(hooks.rustCrateSummary(hooks.rustNode('sele4n-hal').crate),
-    '33 files · 814 items · 99 unsafe sites (9 fn · 3 impls · 87 blocks · +24 in test code)');
-  assert.equal(hooks.rustCrateSummary(hooks.rustNode('sele4n-abi').crate),
-    '17 files · 70 items · 3 unsafe sites (2 fn · 1 block · under item-level allow)',
-    'a crate that denies unsafe and still carries sites says so');
+  const types = hooks.rustNode('sele4n-types').crate;
+  assert.equal(types.deniesUnsafe, true);
+  assert.equal(types.unsafe.fns + types.unsafe.impls + types.unsafe.blocks, 0);
+  assert.equal(hooks.rustCrateSummary(types),
+    `${group(types.sourceFiles)} files · ${group(types.items)} items · denies unsafe`);
+
+  const halCrate = hooks.rustNode('sele4n-hal').crate;
+  const halSites = halCrate.unsafe.fns + halCrate.unsafe.impls + halCrate.unsafe.blocks;
+  const halTestSites = halCrate.testUnsafe.fns + halCrate.testUnsafe.impls + halCrate.testUnsafe.blocks;
+  const halSummary = hooks.rustCrateSummary(halCrate);
+  assert.ok(halSummary.includes(`${group(halSites)} unsafe sites`), `production sites are the headline (${halSummary})`);
+  assert.ok(halSummary.includes(`+${group(halTestSites)} in test code`), `test sites are named apart (${halSummary})`);
+  assert.ok(!halSummary.includes(`${group(halSites + halTestSites)} unsafe`), 'and never summed into one figure');
+
+  const abiCrate = hooks.rustNode('sele4n-abi').crate;
+  const abiSites = abiCrate.unsafe.fns + abiCrate.unsafe.impls + abiCrate.unsafe.blocks;
+  assert.equal(abiCrate.deniesUnsafe, true);
+  assert.ok(abiSites > 0, 'sele4n-abi is the crate that denies unsafe and still carries sites');
+  const abiSummary = hooks.rustCrateSummary(abiCrate);
+  assert.ok(abiSummary.includes(`${group(abiSites)} unsafe sites`) && abiSummary.includes('under item-level allow'),
+    `a crate that denies unsafe and still carries sites says so (${abiSummary})`);
+  assert.ok(!abiSummary.includes('denies unsafe'), 'the lint never stands in for the counted sites');
 });
 
 test('crate dependencies keep their table, and a workspace member is navigable from any of them', async () => {

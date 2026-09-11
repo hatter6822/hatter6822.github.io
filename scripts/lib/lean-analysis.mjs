@@ -152,3 +152,111 @@ export function extractImportTokens(sourceText) {
   return tokens;
 }
 
+
+/**
+ * Strip Lean comments while preserving offsets-per-line semantics closely
+ * enough for declaration counting: nested `/- -/` blocks and `--` line
+ * comments both go, string literals are kept whole so a `--` inside one is not
+ * mistaken for a comment.
+ *
+ * The artifact's own `proved_theorem_lemma_decls` is a bare per-line regex with
+ * no comment handling, and it over-counts by 78 prose lines on the current
+ * tree (see the reconciliation at the top of canonical-map.mjs). Anything this
+ * module counts off raw sources does the comment-aware thing instead.
+ */
+export function stripLeanComments(sourceText) {
+  const text = String(sourceText || '');
+  let out = '';
+  let depth = 0;
+  let i = 0;
+
+  while (i < text.length) {
+    if (depth === 0 && text[i] === '"') {
+      const start = i;
+      i += 1;
+      while (i < text.length && text[i] !== '"') {
+        if (text[i] === '\\') i += 1;
+        i += 1;
+      }
+      i += 1;
+      out += text.slice(start, Math.min(i, text.length));
+      continue;
+    }
+    if (text.startsWith('/-', i)) { depth += 1; i += 2; continue; }
+    if (depth > 0 && text.startsWith('-/', i)) { depth -= 1; i += 2; continue; }
+    if (depth > 0) {
+      // Keep newlines so line-anchored patterns still see the right structure.
+      if (text[i] === '\n') out += '\n';
+      i += 1;
+      continue;
+    }
+    if (text.startsWith('--', i)) {
+      while (i < text.length && text[i] !== '\n') i += 1;
+      continue;
+    }
+    out += text[i];
+    i += 1;
+  }
+
+  return out;
+}
+
+/**
+ * Count the constructors of a named `inductive`.
+ *
+ * The syscall surface is an `inductive SyscallId` whose constructors are the
+ * syscalls, so this is how the site learns how many there are instead of a
+ * human retyping the number into three sentences and six locale files. Returns
+ * `undefined` when the declaration is not found, so a rename upstream fails
+ * the sync loudly rather than publishing a stale count.
+ */
+export function countInductiveConstructors(sourceText, name) {
+  return inductiveConstructors(sourceText, name)?.length;
+}
+
+/**
+ * The constructor names of a named `inductive`, in source order.
+ *
+ * `NonInterferenceStep` names one kernel step per constructor, and the site
+ * states that each has its own non-interference proof. Counting both sides
+ * would only show the totals agree; naming them is what lets the sync check
+ * that every step is actually covered. Returns `undefined` when the
+ * declaration is not found.
+ */
+export function inductiveConstructors(sourceText, name) {
+  const source = stripLeanComments(sourceText);
+  /* Horizontal whitespace only: `\s*` after a multiline `^` happily consumes
+     the preceding blank lines, which puts the anchor before the header and
+     makes the very first line read as a following declaration. */
+  const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const declaration = new RegExp(`^[^\\S\\n]*inductive[^\\S\\n]+${escaped}\\b.*$`, 'm');
+  const match = declaration.exec(source);
+  if (!match) return undefined;
+
+  const lines = source.slice(match.index + match[0].length).split(/\r?\n/).slice(1);
+  const names = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const constructor = /^\|\s*([A-Za-z_][A-Za-z0-9_'!?]*)/.exec(trimmed);
+    if (constructor) { names.push(constructor[1]); continue; }
+    if (/^\|\s*\S/.test(trimmed)) { names.push(''); continue; }
+    // `deriving`, `where`-block members and any following declaration end it;
+    // an indented continuation of the previous constructor does not.
+    if (/^(deriving|inductive|structure|def|theorem|lemma|abbrev|instance|namespace|end|@\[)/.test(trimmed)) break;
+    if (!/^\s/.test(line)) break;
+  }
+  return names;
+}
+
+/**
+ * Count `@[extern …]` declarations — the Lean side of the foreign-function
+ * bridge. Lean attaches the attribute to the declaration it precedes, so one
+ * attribute is one bridged function. Attribute lists may carry other
+ * attributes alongside it (`@[extern "f", inline]`).
+ */
+export function countExternDeclarations(sourceText) {
+  const source = stripLeanComments(sourceText);
+  const matches = source.match(/@\[[^\]]*\bextern\b[^\]]*\]/g);
+  return matches ? matches.length : 0;
+}

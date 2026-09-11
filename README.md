@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.31.0`
+- Website version: `0.32.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -56,6 +56,23 @@ artifact does not record, the import graph, and the artifact's
 snapshots cannot blend two revisions. The site and map snapshots record the same
 `commitSha` and `sourceDigest`; `validate-data.mjs` fails if they disagree.
 
+Four figures the artifact does not carry are counted off those digest-verified
+sources instead: the syscall surface (`inductive SyscallId`'s constructors), the
+FFI bridge (`@[extern …]` declarations), and the two enforcement-boundary
+tables, whose sizes the kernel proves by `rfl` — the site reads the theorem
+rather than a sentence about it. A fifth, `niSteps`, is published only while
+every constructor of `NonInterferenceStep` still has its own per-core
+non-interference proof, because that correspondence is what the page claims; a
+step without one fails the sync and is named.
+
+Two further things are projected rather than written by hand. `subsystems`
+carries the architecture diagram's per-layer module and theorem counts, over
+the same corpus as the headline figures, addressed in the markup as
+`data-live="subsystem.<key>.modules"`. `sourceAnchors` records the line each
+deep link's declaration sits on, so a `…/Policy.lean#L281` anchor tracks the
+kernel instead of rotting — the sync reads the page to learn which links exist,
+so adding one is enough. A label it cannot place is reported, never guessed.
+
 The same checkout's `rust/` workspace is scanned by `scripts/lib/rust-analysis.mjs`
 into `map-data.json#rust`: the four production crates with their manifest
 facts, per-file item lists, and `unsafe` sites counted at any depth and split
@@ -88,6 +105,7 @@ node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
+node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
 ```

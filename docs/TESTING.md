@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.31.0**.
+> Documentation baseline: website release **0.32.0**.
 
 ## Automated checks
 
@@ -19,12 +19,14 @@ node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
+node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
 ```
 
 Validates:
 - Static fallback sync (`static-values.test.mjs`): pins the `data/site-data.json` → `index.html` + `locales/*.json` static-value mapping used by `scripts/apply-static-values.mjs` (every mapped `data-live` span, JSON-LD version, `<time>` stamp), verifies idempotence, `$`-safe replacement, and that counts are comma-grouped exactly as `assets/js/site.js` groups them on hydration; and asserts that the committed `index.html` *and every locale bundle* are byte-identical to what the rewriter produces from the committed snapshot — a diff means someone changed `data/site-data.json` without re-running `node scripts/apply-static-values.mjs`
+- Deep-link anchors (`source-anchors.test.mjs`): collecting line-anchored blob links off both surfaces (index.html's bare attribute quotes and a locale bundle's escaped ones), ignoring links with no anchor or a prose label, resolving a declaration past attributes and modifiers and through a qualified Lean name, the one label alias (`Untyped` → `UntypedObject`), reporting an unplaceable label or a missing file instead of guessing a line, stamping onto both surfaces without breaking the locale JSON, refusing any "line" that is not a positive integer, and the whole round trip page → resolve → stamp. `static-values.test.mjs` adds the committed-tree guards: every `subsystem.*` span on the page is one `data/site-data.json` can fill, and every deep link on the page is one the sync resolved — a failure there means a hand-written line number crept back in
 - Locale completeness (`i18n-locales.test.mjs`): every `locales/*.json` has exact key parity with `en.json` (this silently broke before — four locales shipped without the entire simulator `run.*` surface), no empty or non-string leaf values, and every `data-i18n*` key referenced by the HTML pages resolves in `en.json`
 - CSP compliance (`csp-html.test.mjs`): static guard asserting `index.html`, `map.html`, `run.html`, and `404.html` carry no inline `style="…"` attributes. The pages ship `style-src 'self'` with no `'unsafe-inline'`, so an inline style is blocked at runtime and silently fails to apply — this catches that regression class at build time (it was found in the wild via a Playwright render: the status-legend swatches rendered colourless until their colours were moved to a CSS class)
 - Simulator runtime (`run-runtime.test.mjs`): boots the real `assets/js/run.js` inside a `vm` context backed by a minimal DOM shim and asserts the end-to-end pipeline — bundled data loads, the SVG stage renders thread chips and boxes, the invariant rail lists the full catalog, the event log lists every step, the inspector populates, transport stepping advances the counter, deep-link URL state (`scenario`/`step`) is restored, and a sandbox perturbation flips a client-side structural check to "violated". Per-scene coverage spans all seven scenes (System, Scheduler, Capability, Memory, VSpace, Information-flow, Services), scene-tab gating, SMP per-core CPU columns in the System and Scheduler scenes, and the VSpace TLB row (a map caches both pages; an unmap shoots down the stale entry with a `⚡ shootdown` marker)
@@ -209,8 +211,34 @@ python3 -m http.server 4173 --bind 127.0.0.1 &
 node scripts/map-smoke.mjs                    # PLAYWRIGHT_CHROMIUM=<path> or MAP_SMOKE_CHANNEL=chrome to pick the browser
 ```
 
+### Landing page smoke probe (`scripts/index-smoke.mjs`)
+
+The landing page states roughly a hundred figures and since 0.32.0 every one
+of them is a `data-live` span stamped from `data/site-data.json`. The unit
+tests prove the stamping is right in the file; this proves it is right on the
+screen. At 1920, 1440, 1024 and 390px it asserts that every live span renders
+exactly what the snapshot holds — a mismatch means hydration rewrites a number
+in front of the reader — that no figure label is clipped now that the
+architecture diagram's labels carry nested spans, that no width scrolls
+sideways, and that the console stays clean. It then holds the Spanish locale
+back until after the snapshot has painted, because `data-i18n-html` replaces an
+element's innerHTML wholesale and that is exactly how a translator's stale copy
+of a figure once survived a refresh; and it checks in light theme that every
+`#L` anchor on the page matches `sourceAnchors`, so a hand-written line number
+cannot creep back in.
+
+The kernel logo is served from `raw.githubusercontent.com` (the page's CSP
+allows that host for images and nothing else), so a run without outbound
+network reports those requests as failures; the probe ignores requests and
+console errors originating from that host rather than masking real ones.
+
+```bash
+python3 -m http.server 4174 --bind 127.0.0.1 &
+INDEX_SMOKE_BASE=http://127.0.0.1:4174 node scripts/index-smoke.mjs
+```
+
 `.github/workflows/ci.yml` runs the unit tests, the validators, the syntax
-checks and this probe (with the runner's Chrome) on every push and pull
+checks and both probes (with the runner's Chrome) on every push and pull
 request. A layout guarantee added to the docs gets a probe assertion.
 
 ### Cross-browser nav stability probe (optional, Playwright)

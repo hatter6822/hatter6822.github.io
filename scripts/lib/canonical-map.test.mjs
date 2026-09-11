@@ -12,22 +12,27 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
 import {
-  productionLocReproduction,
+  SITE_SUBSYSTEMS,
   admittedCountFromCodebaseMap,
   artifactProductionModules,
   canonicalCrossChecks,
-  excludedFrameworkModules,
-  isArtifactProductionModule,
   canonicalMetricsIssues,
   canonicalSourceDigest,
   canonicalSourcePaths,
   compareCanonicalPaths,
+  crossCoreNonInterferenceCount,
+  enforcementBoundarySize,
+  excludedFrameworkModules,
+  isArtifactProductionModule,
   isProductionModule,
+  nonInterferenceCoverage,
+  productionLocReproduction,
   productionModules,
   resolveDeclarationName,
   siteMetricsFromCodebaseMap,
+  subsystemMetricsFromCodebaseMap,
   symbolsFromDeclarations,
-  theoremDeclarationCount
+  theoremDeclarationCount,
 } from './canonical-map.mjs';
 
 /**
@@ -486,4 +491,109 @@ test('canonicalCrossChecks is silent when the artifact agrees with itself', () =
   const map = canonicalMap();
   map.readme_sync.proved_theorem_lemma_decls = 1;
   assert.deepEqual(canonicalCrossChecks(map), []);
+});
+
+test('subsystemMetricsFromCodebaseMap counts a namespace and its descendants', () => {
+  const map = {
+    modules: [
+      { module: 'SeLe4n.Kernel.Scheduler', path: 'SeLe4n/Kernel/Scheduler.lean',
+        declarations: [{ kind: 'theorem', name: 'a' }, { kind: 'def', name: 'b' }] },
+      { module: 'SeLe4n.Kernel.Scheduler.RunQueue', path: 'SeLe4n/Kernel/Scheduler/RunQueue.lean',
+        declarations: [{ kind: 'lemma', name: 'c' }] },
+      // A sibling whose name merely starts the same way, and test code the
+      // site scope leaves out — neither belongs to the layer.
+      { module: 'SeLe4n.Kernel.SchedulerX', path: 'SeLe4n/Kernel/SchedulerX.lean',
+        declarations: [{ kind: 'theorem', name: 'd' }] },
+      { module: 'SeLe4n.Kernel.Scheduler.Spec', path: 'tests/Scheduler/Spec.lean',
+        declarations: [{ kind: 'theorem', name: 'e' }] }
+    ]
+  };
+
+  const metrics = subsystemMetricsFromCodebaseMap(map);
+  assert.deepEqual(metrics.scheduler, { modules: 2, theorems: 2 });
+});
+
+test('subsystemMetricsFromCodebaseMap reports a vanished namespace as zero, not as missing', () => {
+  // A renamed subsystem must show up as a visible "0 files" on the page rather
+  // than leaving the last stamped literal in place with nothing to flag it.
+  const metrics = subsystemMetricsFromCodebaseMap({ modules: [] });
+  for (const { key } of SITE_SUBSYSTEMS) {
+    assert.deepEqual(metrics[key], { modules: 0, theorems: 0 }, key);
+  }
+});
+
+test('nonInterferenceCoverage pairs every step with its own proof', () => {
+  const map = {
+    modules: [
+      { module: 'M.Composition', path: 'M/Composition.lean',
+        declarations: [{ kind: 'inductive', name: 'NonInterferenceStep' }] },
+      { module: 'M.PerCore', path: 'M/PerCore.lean', declarations: [
+        { kind: 'theorem', name: 'nonInterference_perCore_schedule' },
+        // The `High` variant of a step is covered by the base-named theorem.
+        { kind: 'theorem', name: 'nonInterference_perCore_endpointSendDual' }
+      ] }
+    ]
+  };
+  const source = [
+    'inductive NonInterferenceStep where',
+    '  | schedule',
+    '  | endpointSendDualHigh'
+  ].join('\n');
+
+  assert.deepEqual(
+    nonInterferenceCoverage(map, () => source),
+    { steps: 2, covered: 2, missing: [] }
+  );
+});
+
+test('nonInterferenceCoverage names the steps that have no proof', () => {
+  const map = {
+    modules: [
+      { module: 'M.Composition', path: 'M/Composition.lean',
+        declarations: [{ kind: 'inductive', name: 'NonInterferenceStep' }] },
+      { module: 'M.PerCore', path: 'M/PerCore.lean',
+        declarations: [{ kind: 'theorem', name: 'nonInterference_perCore_schedule' }] }
+    ]
+  };
+  const source = 'inductive NonInterferenceStep where\n  | schedule\n  | timerTick';
+
+  const coverage = nonInterferenceCoverage(map, () => source);
+  assert.deepEqual(coverage, { steps: 2, covered: 1, missing: ['timerTick'] });
+});
+
+test('enforcementBoundarySize reads the length the kernel proves', () => {
+  // Upstream's own docstring says the entry count "is **not** restated here:
+  // it is pinned by `enforcementBoundaryExtended_count`". So the site reads
+  // the theorem rather than a sentence about it.
+  const map = {
+    modules: [{ module: 'M.Soundness', path: 'M/Soundness.lean',
+      declarations: [{ kind: 'theorem', name: 'enforcementBoundaryExtended_count' }] }]
+  };
+  const source = [
+    '/-- A doc comment mentioning 33 entries, which is what went stale. -/',
+    'theorem enforcementBoundaryExtended_count :',
+    '    enforcementBoundaryExtended.length = 44 := by rfl'
+  ].join('\n');
+
+  assert.equal(enforcementBoundarySize(map, () => source, 'enforcementBoundaryExtended_count'), 44);
+});
+
+test('enforcementBoundarySize returns undefined when no module proves it', () => {
+  assert.equal(enforcementBoundarySize({ modules: [] }, () => '', 'whatever_count'), undefined);
+});
+
+test('crossCoreNonInterferenceCount counts the SMP half by its naming convention', () => {
+  const map = {
+    modules: [{
+      module: 'SeLe4n.Kernel.InformationFlow.NonInterferenceCrossCore',
+      path: 'SeLe4n/Kernel/InformationFlow/NonInterferenceCrossCore.lean',
+      declarations: [
+        { kind: 'theorem', name: 'schedule_crossCoreNonInterference' },
+        { kind: 'theorem', name: 'wakeThread_crossCoreNonInterference_of_visible_thread' },
+        { kind: 'theorem', name: 'declassificationRelativeNonInterference' },
+        { kind: 'def', name: 'notATheorem_crossCoreNonInterference' }
+      ]
+    }]
+  };
+  assert.equal(crossCoreNonInterferenceCount(map), 2);
 });

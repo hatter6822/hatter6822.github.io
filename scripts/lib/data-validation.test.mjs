@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { validateMapDataObject, validateSiteDataObject, validateCrossFile } from './data-validation.mjs';
+import { SITE_SUBSYSTEMS } from './canonical-map.mjs';
 
 /**
  * A well-formed site-data.json, including the provenance fields that make
@@ -16,9 +17,20 @@ function siteData(overrides = {}) {
     modules: 23,
     lines: '25,648',
     theorems: 734,
+    syscalls: 31,
+    externs: 64,
+    niSteps: 29,
+    niCrossCore: 31,
+    enforcementOps: 40,
+    enforcementOpsPerCore: 55,
     scripts: 17,
     docs: 97,
     admitted: 0,
+    // Every subsystem the landing page paints a span for. A missing key is an
+    // error, not a blank: the markup would keep the literal last stamped there.
+    subsystems: Object.fromEntries(
+      SITE_SUBSYSTEMS.map(({ key }) => [key, { modules: 0, theorems: 0 }])
+    ),
     commitSha: 'abc1234',
     updatedAt: '',
     generatedAt: '2026-03-03T00:00:00Z',
@@ -515,4 +527,66 @@ test('validateMapDataObject rejects malformed rust items, roles, visibilities an
 test('validateMapDataObject rejects a rust block that is not an inventory', () => {
   assert.deepEqual(validateMapDataObject(mapData({ rust: 'yes' })), ['map-data.json: rust must be an object']);
   assert.deepEqual(validateMapDataObject(mapData({ rust: { crates: 'none' } })), ['map-data.json: rust.crates must be an array']);
+});
+
+test('validateSiteDataObject requires every subsystem the page paints', () => {
+  // A dropped key is not a blank on the page: `data-live` spans keep whatever
+  // literal was last stamped into them, so the diagram would go on quoting a
+  // figure from a previous release with nothing to say it had.
+  const { scheduler, ...rest } = siteData().subsystems;
+  const errors = validateSiteDataObject(siteData({ subsystems: rest }));
+  assert.ok(errors.some((e) => e.includes('subsystems.scheduler is missing')));
+});
+
+test('validateSiteDataObject rejects a subsystem the page does not name', () => {
+  const errors = validateSiteDataObject(
+    siteData({ subsystems: { ...siteData().subsystems, invented: { modules: 1, theorems: 1 } } })
+  );
+  assert.ok(errors.some((e) => e.includes('subsystems.invented is not a subsystem the page names')));
+});
+
+test('validateSiteDataObject rejects a line anchor that is not a line', () => {
+  const errors = validateSiteDataObject(
+    siteData({ sourceAnchors: { 'SeLe4n/Kernel/API.lean': { apiInvariantBundle: 0 } } })
+  );
+  assert.ok(errors.some((e) => e.includes('must be a 1-based line number')));
+});
+
+test('validateCrossFile reconciles each subsystem against the graphed modules', () => {
+  // The landing page and the code map describe one kernel; a layer the diagram
+  // calls three modules is three modules in the graph, or the snapshots were
+  // not built from one checkout.
+  const site = siteData({
+    subsystems: { ...siteData().subsystems, scheduler: { modules: 3, theorems: 40 } }
+  });
+  const map = mapData({
+    modules: ['SeLe4n.Kernel.Scheduler', 'SeLe4n.Kernel.Scheduler.RunQueue'],
+    moduleMeta: {
+      'SeLe4n.Kernel.Scheduler': { theorems: 10 },
+      'SeLe4n.Kernel.Scheduler.RunQueue': { theorems: 12 }
+    }
+  });
+
+  const errors = validateCrossFile(site, map);
+  assert.ok(errors.some((e) => e.includes('3 modules under SeLe4n.Kernel.Scheduler but map-data graphs 2')));
+  assert.ok(errors.some((e) => e.includes('40 theorems under SeLe4n.Kernel.Scheduler but map-data modules sum to 22')));
+});
+
+test('validateCrossFile does not read a sibling namespace as a member', () => {
+  // `SeLe4n.Kernel.SchedulerX` is not under `SeLe4n.Kernel.Scheduler`; a prefix
+  // test without the dot would count it and quietly inflate the layer.
+  const site = siteData({
+    subsystems: { ...siteData().subsystems, scheduler: { modules: 1, theorems: 10 } }
+  });
+  const map = mapData({
+    modules: ['SeLe4n.Kernel.Scheduler', 'SeLe4n.Kernel.SchedulerX'],
+    moduleMeta: {
+      'SeLe4n.Kernel.Scheduler': { theorems: 10 },
+      'SeLe4n.Kernel.SchedulerX': { theorems: 99 }
+    }
+  });
+
+  const errors = validateCrossFile(site, map);
+  assert.ok(!errors.some((e) => e.includes('SeLe4n.Kernel.Scheduler')),
+    `sibling namespace counted as a member: ${errors.join(' | ')}`);
 });

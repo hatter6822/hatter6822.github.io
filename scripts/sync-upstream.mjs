@@ -41,7 +41,7 @@
  * where upstream has committed Lean changes without regenerating the artifact.
  * No REST calls, so no anonymous rate limit and no token.
  */
-import { writeFile, readFile, mkdtemp, rm } from 'node:fs/promises';
+import { writeFile, readFile, readdir, mkdtemp, rm } from 'node:fs/promises';
 import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -53,11 +53,16 @@ import {
   productionLocReproduction,
   canonicalSourceDigest,
   canonicalSourcePaths,
+  externBridgeSize,
+  syscallSurfaceSize,
+  nonInterferenceCoverage,
   productionModules,
   siteMetricsFromCodebaseMap,
+  subsystemMetricsFromCodebaseMap,
   symbolsFromDeclarations,
   theoremDeclarationCount
 } from './lib/canonical-map.mjs';
+import { collectSourceAnchors, resolveSourceAnchors } from './lib/source-anchors.mjs';
 import { extractImportTokens } from './lib/lean-analysis.mjs';
 import { buildRustInventory } from './lib/rust-analysis.mjs';
 import { validateTraceDataObject, scenarioStates } from './lib/trace-analysis.mjs';
@@ -68,12 +73,14 @@ const REF = process.env.SELE4N_REF || SOURCE_REF;
 const PINNED_COMMIT = /^[0-9a-f]{40}$/i.test(REF) ? REF.toLowerCase() : '';
 const CLONE_URL = `https://github.com/${REPO}.git`;
 const METRICS_PATH = 'docs/codebase_map.json';
+const MANIFEST_PATH = 'lakefile.toml';
 const TRACES_PATH = 'docs/execution-traces.json';
 
 const ROOT = new URL('../', import.meta.url);
 const SITE_FILE = new URL('data/site-data.json', ROOT);
 const MAP_FILE = new URL('data/map-data.json', ROOT);
 const TRACE_FILE = new URL('data/execution-traces.json', ROOT);
+const LOCALES_DIR = new URL('locales/', ROOT);
 
 function git(cwd, args) {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -98,6 +105,66 @@ function physicalLineCount(buffer) {
   let count = 0;
   for (const byte of buffer) if (byte === 0x0a) count += 1;
   return buffer[buffer.length - 1] === 0x0a ? count : count + 1;
+}
+
+/**
+ * The project's declared version, read from the Lean build manifest.
+ *
+ * This is the one published figure that does not come from the canonical
+ * artifact, and it is deliberate: `lakefile.toml` is where the version is
+ * *declared*, and `readme_sync.version`, the README badge and the Rust
+ * workspace are all copies of it — rust/Cargo.toml says so in a comment. The
+ * artifact carries no version outside its README-mirroring block, so taking it
+ * from there made the site quote a mirror of a mirror. `canonicalCrossChecks`
+ * reports any disagreement between the two, so a stale artifact is visible
+ * rather than silent.
+ */
+function readProjectVersion(work) {
+  const manifestPath = join(work, MANIFEST_PATH);
+  if (!existsSync(manifestPath)) {
+    throw new Error(`${REPO}@${REF} has no ${MANIFEST_PATH}; the published version is declared there`);
+  }
+  const manifest = readFileSync(manifestPath, 'utf8');
+  // The package version, not a dependency's: take the first `version = "…"`
+  // that appears before any `[[require]]`/`[lean_lib …]` sub-table.
+  const head = manifest.split(/^\s*\[\[?(?:require|lean_lib|lean_exe)/m)[0];
+  const match = /^[^\S\n]*version[^\S\n]*=[^\S\n]*"([^"]+)"/m.exec(head);
+  if (!match) throw new Error(`${MANIFEST_PATH} declares no package version`);
+  return match[1].trim();
+}
+
+function sourceReader(work) {
+  return (path) => readFileSync(join(work, path), 'utf8');
+}
+
+/**
+ * Resolve the line anchors on the page's deep links against this checkout.
+ *
+ * Reads the committed surfaces to learn which links exist — adding one to the
+ * page is enough, nothing here needs editing — and reports anything it cannot
+ * place instead of guessing. An unresolvable label means the declaration
+ * changed name or left its file, which is an editorial call: see the note at
+ * the top of lib/source-anchors.mjs.
+ */
+async function buildSourceAnchors(work) {
+  const surfaces = [
+    new URL('index.html', ROOT),
+    ...(await readdir(LOCALES_DIR)).filter((name) => name.endsWith('.json')).sort()
+      .map((name) => new URL(name, LOCALES_DIR))
+  ];
+
+  const anchors = [];
+  for (const file of surfaces) anchors.push(...collectSourceAnchors(await readFile(file, 'utf8')));
+
+  const { resolved, unresolved } = resolveSourceAnchors(anchors, (path) => {
+    try { return readFileSync(join(work, path), 'utf8'); } catch { return undefined; }
+  });
+
+  for (const entry of unresolved) {
+    console.warn(`   anchor      ${entry.path}#L${entry.line} (${entry.label}): ${entry.reason} — left as written`);
+  }
+
+  return resolved;
 }
 
 function lineCounter(work) {
@@ -222,8 +289,13 @@ async function acquireInto(work) {
 
 // ── Snapshot builders ──────────────────────────────────────────────────────
 
-function buildSiteData(codebaseMap, head, sourceDigest, work) {
-  const metrics = siteMetricsFromCodebaseMap(codebaseMap, { lineCount: lineCounter(work) });
+function buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors) {
+  const projectVersion = readProjectVersion(work);
+  const metrics = siteMetricsFromCodebaseMap(codebaseMap, {
+    lineCount: lineCounter(work),
+    sourceText: sourceReader(work),
+    projectVersion
+  });
   if (metrics.lines === undefined) {
     // Either the framework files could not be counted, or the physical count
     // over the artifact's own production files no longer reproduces
@@ -239,15 +311,65 @@ function buildSiteData(codebaseMap, head, sourceDigest, work) {
     }
     throw new Error('lines could not be projected: the framework files to subtract from readme_sync.production_loc were not readable');
   }
+  // Both are counted off the verified sources and both are published as prose
+  // the page states in three places. A missing one means the declaration moved
+  // or the tree is unreadable; publishing the previous number instead is
+  // exactly the drift this pass is undoing.
+  if (metrics.syscalls === undefined) {
+    throw new Error(
+      'syscalls could not be counted: the artifact lists no production `inductive SyscallId`, or its source was ' +
+      'unreadable. The syscall surface is published on the landing page and must not fall back to a stale figure.'
+    );
+  }
+  if (metrics.externs === undefined) {
+    throw new Error('externs could not be counted: a production Lean source was unreadable');
+  }
+  // The security card states these four as facts about the kernel, so a figure
+  // that cannot be derived stops the sync rather than leaving the last one in
+  // place. `niSteps` is the sharpest: it is published only while every
+  // constructor of `NonInterferenceStep` actually has its own proof, because
+  // that correspondence — not the total — is what the page claims.
+  if (metrics.niSteps === undefined) {
+    const coverage = nonInterferenceCoverage(codebaseMap, sourceReader(work));
+    const missing = coverage?.missing ?? [];
+    throw new Error(
+      missing.length
+        ? `non-interference coverage is incomplete: ${missing.length} of ${coverage.steps} NonInterferenceStep ` +
+          `constructor(s) have no nonInterference_perCore_ theorem (${missing.slice(0, 5).join(', ')}` +
+          `${missing.length > 5 ? ', …' : ''}). The security card claims one proof per step.`
+        : 'non-interference coverage could not be derived: no production module declares `inductive NonInterferenceStep`'
+    );
+  }
+  if (metrics.niCrossCore === undefined) {
+    throw new Error('cross-core non-interference theorems could not be counted: NonInterferenceCrossCore is not in the production inventory');
+  }
+  for (const [key, theorem] of [['enforcementOps', 'enforcementBoundaryExtended_count'], ['enforcementOpsPerCore', 'enforcementBoundaryPerCore_count']]) {
+    if (metrics[key] === undefined) {
+      throw new Error(`${key} could not be read: no production module proves \`${theorem}\` with a \`.length = N\` statement`);
+    }
+  }
   return {
     version: metrics.version,
     leanVersion: metrics.leanVersion,
     modules: metrics.modules,
     lines: formatNumber(metrics.lines),
     theorems: metrics.theorems,
+    syscalls: metrics.syscalls,
+    externs: metrics.externs,
+    niSteps: metrics.niSteps,
+    niCrossCore: metrics.niCrossCore,
+    enforcementOps: metrics.enforcementOps,
+    enforcementOpsPerCore: metrics.enforcementOpsPerCore,
     scripts: head.files.filter((path) => /^scripts\/.*\.sh$/.test(path)).length,
     docs: head.files.filter((path) => /^docs\/.*\.(md|txt)$/.test(path)).length,
     admitted: metrics.admitted,
+    // The architecture diagram's per-layer figures, over the same corpus and
+    // the same declaration inventory as `modules` and `theorems` above. Typed
+    // into the markup until 0.32.0, where ten of twelve had gone stale.
+    subsystems: subsystemMetricsFromCodebaseMap(codebaseMap),
+    // Where each deep link's declaration is written in this revision, so the
+    // page's `#L` anchors are stamped rather than maintained by hand.
+    sourceAnchors,
     commitSha: head.commitSha.slice(0, 7),
     updatedAt: head.committedAt,
     sourceRepo: REPO,
@@ -366,9 +488,14 @@ async function writeTraces(work) {
 const { work, codebaseMap, head, sourceDigest, currentWithRef } = await acquire();
 
 try {
-  for (const note of canonicalCrossChecks(codebaseMap, { lineCount: lineCounter(work) })) console.warn(`⚠️  ${note}`);
+  for (const note of canonicalCrossChecks(codebaseMap, {
+    lineCount: lineCounter(work),
+    sourceText: sourceReader(work),
+    projectVersion: readProjectVersion(work)
+  })) console.warn(`⚠️  ${note}`);
 
-  const siteData = buildSiteData(codebaseMap, head, sourceDigest, work);
+  const sourceAnchors = await buildSourceAnchors(work);
+  const siteData = buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors);
   const mapData = buildMapData(codebaseMap, head, sourceDigest, work);
 
   await writeFile(SITE_FILE, JSON.stringify(siteData, null, 2) + '\n');
@@ -385,6 +512,8 @@ try {
   console.log(`   map-data    ${mapData.modules.length} modules · ${edges} import edges · ${mapData.files.length} files`);
   const rustFiles = mapData.rust.crates.reduce((total, crate) => total + crate.sourceFiles, 0);
   console.log(`   rust        ${mapData.rust.crates.length} crate(s) · ${rustFiles} source files · ${mapData.rust.crates.map((crate) => crate.name).join(', ')}`);
+  const anchorCount = Object.values(sourceAnchors).reduce((total, labels) => total + Object.keys(labels).length, 0);
+  console.log(`   anchors     ${anchorCount} deep link(s) resolved across ${Object.keys(sourceAnchors).length} source file(s)`);
 } finally {
   await rm(work, { recursive: true, force: true });
 }

@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.31.0`
+**Website version:** `0.32.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -29,6 +29,7 @@ node scripts/lib/map-toolbar.test.mjs
 node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/static-values.test.mjs
+node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
@@ -61,9 +62,9 @@ node scripts/apply-static-values.mjs   # stamp index.html + locales/*.json from 
 | 1 | Unit tests (`scripts/lib/*.test.mjs`) | Every commit |
 | 2 | Data validation (`scripts/validate-data.mjs`) | Every commit, after data changes |
 | 3 | Manual browser verification (desktop + mobile) | UI/layout changes |
-| 4 | Playwright probes: `scripts/map-smoke.mjs` (code map layout and behaviour in headless Chromium; CI runs it on every push) and `scripts/nav-stability-smoke.py` (navigation) | Map layout, navigation or scroll behaviour changes |
+| 4 | Playwright probes: `scripts/map-smoke.mjs` (code map layout and behaviour in headless Chromium), `scripts/index-smoke.mjs` (landing page: every stamped figure survives hydration, no label clipped, deep links match the resolved inventory) — CI runs both on every push — and `scripts/nav-stability-smoke.py` (navigation) | Map layout, landing-page figures, navigation or scroll behaviour changes |
 
-Run at least Tiers 0-2 before any commit. Tier 3 for front-end changes. Tier 4 when touching navigation or scroll behavior.
+Run at least Tiers 0-2 before any commit. Tier 3 for front-end changes. Tier 4 when touching navigation, scroll behaviour, the code map's layout, or any published figure.
 
 ## Large File Handling
 
@@ -163,6 +164,57 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   a bare per-line regex: on the current artifact it counts 78 prose lines inside
   doc comments and misses 15 `protected`/`noncomputable` declarations. See the
   reconciliation at the top of `scripts/lib/canonical-map.mjs`.
+- **The version is the one exception**, and deliberately: the artifact carries
+  no version outside its README-mirroring `readme_sync` block, so taking it
+  from there published a mirror of a mirror. `lakefile.toml` is where the
+  project *declares* its version — `readme_sync.version`, the README badge and
+  `rust/Cargo.toml` are all copies of it, and Cargo.toml says so in a comment.
+  `readProjectVersion()` reads the declaration from the same pinned checkout,
+  and `canonicalCrossChecks` reports any disagreement with the artifact rather
+  than letting a stale artifact pass silently.
+- Four figures are counted off the **digest-verified Lean sources**, because the
+  artifact records declarations but not what this needs from them. Each one was
+  hand-written until 0.32.0 and each one was wrong:
+
+  | Metric | Read from | Was | Is |
+  |--------|-----------|-----|-----|
+  | `syscalls` | constructors of `inductive SyscallId` | 30 | 35 |
+  | `externs` | `@[extern …]` declarations across production Lean | 17 | 73 |
+  | `enforcementOps` | the length `enforcementBoundaryExtended_count` proves | 38 | 44 |
+  | `enforcementOpsPerCore` | the length `enforcementBoundaryPerCore_count` proves | — | 59 |
+
+  The enforcement figures come off a machine-checked statement, which is as
+  close to the truth as a published number gets — and upstream's own docstring
+  asks for exactly that: "the entry count is **not** restated here … a number
+  repeated in prose goes stale the first time an entry lands".
+- `niSteps` is published **only while the claim it supports is still true**. The
+  page says every kernel step has its own non-interference proof, so
+  `nonInterferenceCoverage()` checks the correspondence rather than comparing
+  totals: each constructor of `NonInterferenceStep` must have a
+  `nonInterference_perCore_<step>` theorem (a `…High` constructor pairs with
+  the base-named theorem). A constructor with no proof fails the sync and names
+  it. `niCrossCore` counts the SMP half by the kernel's own naming convention.
+- `subsystems` carries the architecture diagram's per-layer figures — `{key:
+  {modules, theorems}}` over the same corpus and the same declaration inventory
+  as the headline counts. The layers live in one place, `SITE_SUBSYSTEMS` in
+  `scripts/lib/canonical-map.mjs`; the markup addresses them as
+  `data-live="subsystem.<key>.modules"`. Ten of the twelve original labels had
+  gone stale (IPC read 52 files against 66, information flow 801 theorems
+  against 1,680). `validate-data.mjs` rejects a snapshot key the page does not
+  name, reconciles every layer against `map-data`'s graph, and
+  `static-values.test.mjs` rejects a page span the snapshot cannot fill — so a
+  diagram label cannot go back to being hand-written. A figure that is a *sum*
+  of two layers (`462 theorems across Object (218) and State (244)`) keeps the
+  total as a literal beside the two live spans.
+- `sourceAnchors` records where each deep link's declaration is written
+  (`path → label → line`). Sixteen of the page's thirty-seven `#L` anchors
+  pointed at unrelated code by 0.31.0. The sync reads the committed surfaces to
+  learn which links exist — adding a link to the page is enough — resolves each
+  label in the checkout and records the line; `apply-static-values.mjs` stamps
+  it on both surfaces. A label it cannot place is **reported, never guessed**:
+  a declaration that left its file is an editorial call (the link may belong
+  somewhere else entirely), so fix the path by hand and let the next sync
+  resolve it. See `scripts/lib/source-anchors.mjs`.
 - Never write a metric into `index.html` or a locale by hand. Every literal copy
   is stamped by `scripts/apply-static-values.mjs`; `static-values.test.mjs`
   fails when the committed tree drifts.
@@ -559,12 +611,15 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Map graph behavior | `assets/js/map.js` |
 | Map scope toggle + Rust graph + boundary | `assets/js/map.js` |
 | Map browser smoke probe | `scripts/map-smoke.mjs` |
+| Landing page smoke probe | `scripts/index-smoke.mjs` |
 | Continuous integration | `.github/workflows/ci.yml` |
 | Map controls/layout/sections | `map.html`, `assets/css/map.css` |
 | Landing page metrics | `assets/js/site.js`, `index.html` |
 | Navigation behavior | `assets/js/header-nav.js` |
 | Theme switching | `assets/js/theme-init.js` |
 | Static fallback sync | `scripts/apply-static-values.mjs`, `scripts/lib/static-values.mjs` |
+| Deep-link line anchors | `scripts/lib/source-anchors.mjs` |
+| Per-subsystem figures | `SITE_SUBSYSTEMS` in `scripts/lib/canonical-map.mjs` |
 | Upstream data pipeline | `scripts/sync-upstream.mjs` |
 | Canonical artifact contract | `scripts/lib/canonical-map.mjs` |
 | Locale key parity | `scripts/lib/i18n-locales.test.mjs`, `locales/*.json` |

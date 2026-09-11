@@ -36,6 +36,7 @@ node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
+node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
 node scripts/validate-data.mjs
@@ -82,6 +83,21 @@ Published statistics are projected from the kernel's canonical
 artifact, the sync must fail rather than substitute an estimate — a README
 parse, a byte-count heuristic, or an arithmetic guess. See the scope and
 substitution rules in `scripts/lib/canonical-map.mjs`.
+
+Two exceptions are deliberate and both read the same pinned checkout rather
+than a second source: the version comes from `lakefile.toml`, where the project
+declares it (`readme_sync.version` is a copy), and a handful of figures the
+artifact's inventory cannot answer — the syscall surface, the FFI bridge, the
+enforcement-boundary sizes, the non-interference step coverage — are counted
+off the digest-verified Lean sources.
+
+**No figure and no line number is written by hand.** That includes the
+architecture diagram's per-layer counts (`subsystems`) and the `#L` anchors on
+every deep link into the kernel tree (`sourceAnchors`); both are stamped by
+`apply-static-values.mjs`, and `static-values.test.mjs` fails on a page span
+the snapshot cannot fill or a link the sync did not resolve. If you add a deep
+link to the page, re-run the sync and it will be resolved; if you add a layer
+to the diagram, add it to `SITE_SUBSYSTEMS` first.
 
 Keep it one pipeline. The landing page and the code map describe the same
 production corpus at the same revision, and `validate-data.mjs` enforces it: do

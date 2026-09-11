@@ -1,3 +1,5 @@
+import { SITE_SUBSYSTEMS } from './canonical-map.mjs';
+
 function isObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -260,7 +262,8 @@ export function validateSiteDataObject(data) {
     'version', 'leanVersion', 'lines', 'commitSha', 'generatedAt',
     'schemaVersion', 'sourceDigest'
   ];
-  const requiredNumber = ['modules', 'theorems', 'scripts', 'docs', 'admitted'];
+  const requiredNumber = ['modules', 'theorems', 'syscalls', 'externs', 'scripts', 'docs', 'admitted',
+    'niSteps', 'niCrossCore', 'enforcementOps', 'enforcementOpsPerCore'];
 
   for (const key of requiredString) {
     if (typeof data[key] !== 'string') errors.push(`site-data.json: expected string at ${key}`);
@@ -304,6 +307,69 @@ export function validateSiteDataObject(data) {
 
   if (data.updatedAt !== undefined && data.updatedAt !== '' && !isIsoDateString(data.updatedAt)) {
     errors.push('site-data.json: updatedAt must be empty or an ISO-8601 UTC timestamp');
+  }
+
+  errors.push(...subsystemErrors(data.subsystems));
+  errors.push(...sourceAnchorErrors(data.sourceAnchors));
+
+  return errors;
+}
+
+/**
+ * The architecture diagram's per-layer figures.
+ *
+ * Every layer named in `SITE_SUBSYSTEMS` must be present: the page paints one
+ * span per layer, and a key the snapshot drops leaves whatever literal was
+ * last stamped there, which is the silent staleness this replaced.
+ */
+function subsystemErrors(subsystems) {
+  const errors = [];
+  if (!isObject(subsystems)) return ['site-data.json: subsystems must be an object'];
+
+  for (const { key } of SITE_SUBSYSTEMS) {
+    const entry = subsystems[key];
+    if (!isObject(entry)) {
+      errors.push(`site-data.json: subsystems.${key} is missing — the architecture diagram paints a span for it`);
+      continue;
+    }
+    for (const field of ['modules', 'theorems']) {
+      if (!Number.isInteger(entry[field]) || entry[field] < 0) {
+        errors.push(`site-data.json: subsystems.${key}.${field} must be a non-negative integer`);
+      }
+    }
+  }
+
+  for (const key of Object.keys(subsystems)) {
+    if (!SITE_SUBSYSTEMS.some((subsystem) => subsystem.key === key)) {
+      errors.push(`site-data.json: subsystems.${key} is not a subsystem the page names — add it to SITE_SUBSYSTEMS or drop it`);
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Resolved line anchors: `path → label → line`.
+ *
+ * A line of 0 or a non-integer would be stamped into a link as `#L0`, so the
+ * shape is checked rather than trusted. Which links exist is the page's
+ * business, not this file's — the sync discovers them by reading the page.
+ */
+function sourceAnchorErrors(anchors) {
+  const errors = [];
+  if (anchors === undefined) return errors;
+  if (!isObject(anchors)) return ['site-data.json: sourceAnchors must be an object'];
+
+  for (const [path, labels] of Object.entries(anchors)) {
+    if (!isObject(labels)) {
+      errors.push(`site-data.json: sourceAnchors[${JSON.stringify(path)}] must map labels to line numbers`);
+      continue;
+    }
+    for (const [label, line] of Object.entries(labels)) {
+      if (!Number.isInteger(line) || line < 1) {
+        errors.push(`site-data.json: sourceAnchors[${JSON.stringify(path)}][${JSON.stringify(label)}] must be a 1-based line number`);
+      }
+    }
   }
 
   return errors;
@@ -495,6 +561,44 @@ export function validateCrossFile(siteData, mapData) {
       .reduce((total, meta) => total + (isObject(meta) && Number.isInteger(meta.theorems) ? meta.theorems : 0), 0);
     if (mapped !== siteData.theorems) {
       errors.push(`cross-file: site-data reports ${siteData.theorems} theorems but map-data modules sum to ${mapped}`);
+    }
+  }
+
+  errors.push(...subsystemCrossFileErrors(siteData.subsystems, mapData));
+
+  return errors;
+}
+
+/**
+ * Reconcile each architecture-diagram figure against the graphed modules.
+ *
+ * The same guarantee the headline counts get, one namespace at a time: the
+ * landing page and the code map describe one kernel, so a layer the diagram
+ * calls 24 modules is 24 modules in the graph. Both are projected from the
+ * artifact in the same run, which is what makes this checkable — and a
+ * mismatch means the snapshots were not built together.
+ */
+function subsystemCrossFileErrors(subsystems, mapData) {
+  const errors = [];
+  if (!isObject(subsystems) || !Array.isArray(mapData.modules) || !isObject(mapData.moduleMeta)) return errors;
+
+  for (const { key, namespace } of SITE_SUBSYSTEMS) {
+    const entry = subsystems[key];
+    if (!isObject(entry)) continue;
+
+    const members = mapData.modules.filter(
+      (name) => typeof name === 'string' && (name === namespace || name.startsWith(`${namespace}.`))
+    );
+    const theorems = members.reduce((total, name) => {
+      const meta = mapData.moduleMeta[name];
+      return total + (isObject(meta) && Number.isInteger(meta.theorems) ? meta.theorems : 0);
+    }, 0);
+
+    if (Number.isInteger(entry.modules) && entry.modules !== members.length) {
+      errors.push(`cross-file: site-data reports ${entry.modules} modules under ${namespace} but map-data graphs ${members.length}`);
+    }
+    if (Number.isInteger(entry.theorems) && entry.theorems !== theorems) {
+      errors.push(`cross-file: site-data reports ${entry.theorems} theorems under ${namespace} but map-data modules sum to ${theorems}`);
     }
   }
 

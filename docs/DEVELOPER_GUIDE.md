@@ -322,6 +322,9 @@ Run when any upstream data needs refreshing.
 ### `scripts/apply-static-values.mjs`
 Rewrites the static fallback values in `index.html` (mapped `data-live` spans, JSON-LD version, snapshot `<time>` stamp) **and in every `locales/*.json` bundle** from `data/site-data.json` via `scripts/lib/static-values.mjs`. Locales need stamping because `data-i18n-html` replaces an element's innerHTML wholesale, so each translation carries its own copy of the spans — they once said "546 build jobs" while `index.html` said 574. Idempotent; run after `sync-upstream.mjs`. The committed tree must stay in sync — `static-values.test.mjs` fails otherwise.
 
+### `scripts/lib/source-anchors.mjs`
+Keeps the page's deep links into the kernel tree pointing at the right line. `collectSourceAnchors` finds every `…/blob/main/<path>#L<n>` link with a `<code>` label, on either surface (index.html's bare quotes and a locale file's escaped ones); `resolveSourceAnchors` looks each label's declaration up in the pinned checkout; `applySourceAnchors` stamps the result back. The sync records the resolution in `data/site-data.json#sourceAnchors`, so the numbers are generated rather than maintained — sixteen of thirty-seven were pointing at unrelated code before this existed. A label that no longer resolves is reported and left as written: a declaration that changed file is an editorial call, not a substitution.
+
 ### `scripts/validate-data.mjs`
 Schema/consistency gate for the site and map snapshots. Fails non-zero if either payload violates required invariants.
 
@@ -344,6 +347,9 @@ labels must still come out in Spanish). `.github/workflows/ci.yml` runs it with 
 request; `PLAYWRIGHT_CHROMIUM=<path>` points it at another binary.
 
 ## 8) Script libraries and tests (`scripts/lib/`)
+
+### `scripts/index-smoke.mjs`
+Headless-Chromium probe for `index.html`. Asserts on the rendered page what `static-values.test.mjs` asserts in the file: every `data-live` span shows exactly what `data/site-data.json` holds (a mismatch means hydration visibly rewrites a figure), no figure label is clipped, no width scrolls sideways, the console is clean, a locale arriving after the snapshot does not carry a stale copy of a figure back onto the page, and every `#L` anchor matches the resolved `sourceAnchors` inventory. Runs at 1920/1440/1024/390px, in both themes, and against a deliberately delayed Spanish locale. `INDEX_SMOKE_BASE` picks the server, `PLAYWRIGHT_CHROMIUM` or `INDEX_SMOKE_CHANNEL` the browser. CI runs it on every push.
 
 ### `scripts/lib/canonical-map.mjs`
 The contract with seLe4n's canonical `docs/codebase_map.json`: the schema it
