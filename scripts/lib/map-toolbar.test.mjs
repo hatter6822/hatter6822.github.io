@@ -293,7 +293,10 @@ assert(/function buildRustGraph\(/.test(mapJs), "the Rust module graph should be
 assert(/function renderRustFlowchart\(/.test(mapJs), "the Rust scope should have its own chart");
 assert(/function buildBridgeIndex\(/.test(mapJs) && /function bridgeRelation\(/.test(mapJs), "the Lean/Rust boundary should be a derived index, not a hand-written table");
 assert(/BRIDGE_FOREIGN_LEAN_KINDS = \{ opaque: true, axiom: true \}/.test(mapJs), "the foreign-function direction comes from the Lean declaration having no Lean body");
-assert(/if \(file\.role === "test"\) continue;/.test(mapJs), "test targets stay outside the graph, as tests stay outside the Lean scope");
+// Three conditions keep the graph to production code that compiles, and the
+// file's `role` — read off its pathname — answers only the first.
+assert(/if \(file\.role === "test" \|\| file\.testOnly === true\) continue;/.test(mapJs), "test targets and out-of-line test modules stay outside the graph, as tests stay outside the Lean scope");
+assert(/if \(file\.reachable === false\) continue;/.test(mapJs), "a file no Cargo target reaches compiles into nothing and is drawn as nothing");
 assert(/setAttribute\("aria-label", "Rust module, crate dependency and Lean boundary chart"\)/.test(mapJs), "renderAll should label the Rust chart for screen readers");
 assert(/computeFlowLayout\(\)/.test(mapJs), "the Rust chart must reuse the shared layout so the 1:1 guarantee holds for it too");
 
