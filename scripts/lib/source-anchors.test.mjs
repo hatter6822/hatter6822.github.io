@@ -137,3 +137,20 @@ test('the whole round trip: page → resolve → stamp', () => {
   assert.deepEqual(unresolved, []);
   assert.match(applySourceAnchors(page, resolved), /A\.lean#L3"/);
 });
+
+test('a lookup does not settle for a qualified member of the name', () => {
+  // The trailing word boundary was satisfied by the dot in `def Foo.bar`, so
+  // asking for `Foo` took that member's line. A declaration that has left its
+  // file must come back unresolved, not stamped with an unrelated line.
+  const source = ['-- header', 'def Foo.bar : Nat := 0'].join('\n');
+  assert.equal(declarationLine(source, 'Foo'), undefined);
+  assert.equal(declarationLine(source, 'bar'), 2, 'the real short name still resolves');
+});
+
+test('a qualified declaration still resolves by its short name', () => {
+  assert.equal(declarationLine('def DomainFlowPolicy.ofLattice : Nat := 0', 'ofLattice'), 1);
+});
+
+test('a name that merely prefixes another declaration does not match it', () => {
+  assert.equal(declarationLine('theorem schedule_preserves_wf : True := trivial', 'schedule'), undefined);
+});

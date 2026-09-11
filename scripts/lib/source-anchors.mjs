@@ -131,7 +131,11 @@ export function declarationLine(sourceText, name) {
     `^[^\\S\\n]*(?:@\\[[^\\]]*\\][^\\S\\n]*|#\\[[^\\]]*\\][^\\S\\n]*)*` +
       `(?:(?:${MODIFIERS.join('|')})[^\\S\\n]+)*` +
       `(?:${DECLARATION_KEYWORDS.join('|')})[^\\S\\n]+` +
-      `(?:[A-Za-z0-9_.']+\\.)?${escapeRegExp(name)}\\b`
+      // The name must END here. A trailing `\b` is satisfied by the dot in
+      // `def Foo.bar`, so a lookup for `Foo` silently took that member's line
+      // — which is how a link to a declaration that had left its file would
+      // get stamped with an unrelated line instead of being reported.
+      `(?:[A-Za-z0-9_.']+\\.)?${escapeRegExp(name)}(?![A-Za-z0-9_.'!?])`
   );
 
   const lines = sourceText.split('\n');

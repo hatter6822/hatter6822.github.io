@@ -3373,8 +3373,14 @@
       );
     }
 
+    /* The enclosing path is a chain, so draw it as one: root → … → parent →
+       selected. Edging every ancestor straight to the centre said the crate
+       root declares `sele4n-abi::args::cspace`, when `args` does — the lane is
+       the module tree recorded in `parent`, not a set of loose relations. */
     for (var a = 0; a < ancestorNodes.length; a++) {
-      drawFlowEdge(edgeLayer, ancestorNodes[a], center, "#35c98f", false, { rank: a, total: ancestorNodes.length, spread: 20 });
+      var from = ancestorNodes[a];
+      var to = a + 1 < ancestorNodes.length ? ancestorNodes[a + 1] : center;
+      drawFlowEdge(edgeLayer, from, to, "#35c98f", false, { rank: a, total: ancestorNodes.length, spread: 20 });
     }
     /* Children hang off the centre; siblings hang off the parent that declares
        them, which is the last node in the ancestor column. */

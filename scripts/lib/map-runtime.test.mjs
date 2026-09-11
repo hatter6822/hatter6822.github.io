@@ -2918,3 +2918,26 @@ test('a declaration search is refused when the scope cannot show its module', as
   hooks.setScope('both');
   assert.ok(before, 'the combined scope is restored for later tests');
 });
+
+test('the enclosing module path is drawn as a chain, not a fan', async () => {
+  // `sele4n-abi::args::cspace` has two ancestors. Edging both straight to the
+  // centre said the crate root declares `cspace`, when `args` does.
+  const { hooks } = await loadBundledState();
+  hooks.applyTestState({ scope: 'rust' });
+
+  const nested = hooks.scopeNodes().find((name) => (name.match(/::/g) || []).length >= 2);
+  assert.ok(nested, 'the bundled snapshot carries a module nested at least two deep');
+
+  const chain = Array.from(hooks.rustAncestorChain(nested));
+  assert.ok(chain.length >= 2, `${nested} has more than one ancestor`);
+
+  // Root first, immediate parent last: each entry's parent is the one before
+  // it, and the last is the selected node's own parent. That is precisely the
+  // relation the lane must draw.
+  for (let i = 1; i < chain.length; i += 1) {
+    assert.equal(hooks.rustNode(chain[i]).parent, chain[i - 1],
+      `${chain[i]} is declared by ${chain[i - 1]}`);
+  }
+  assert.equal(hooks.rustNode(nested).parent, chain[chain.length - 1],
+    'and the selected node hangs off the last of them');
+});

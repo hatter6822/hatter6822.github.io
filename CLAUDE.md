@@ -215,7 +215,10 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   it on both surfaces. A label it cannot place is **reported, never guessed**:
   a declaration that left its file is an editorial call (the link may belong
   somewhere else entirely), so fix the path by hand and let the next sync
-  resolve it. See `scripts/lib/source-anchors.mjs`.
+  resolve it. See `scripts/lib/source-anchors.mjs`. A lookup matches only when
+  the identifier **ends** the declared name: a trailing `\b` is satisfied by
+  the dot in `def Foo.bar`, so asking for `Foo` silently took that member's
+  line instead of reporting the link.
 - **An anchored link names the commit its line belongs to**, recorded as
   `sourceAnchorRef` and written into the href in place of `main`. A line number
   against a branch is a line number on a moving target: the unpinned sync falls
@@ -278,13 +281,19 @@ scope toggle. Production code is the subject in every scope.
   suffix for two Rust files with one name used to be `@` plus a slash-bearing
   path, which the whitelist rejects, so the node could be selected but not
   reloaded or shared.
+- The enclosing-module lane on the Rust chart is a **chain**: root → … →
+  parent → selected. Edging every ancestor straight to the centre said the
+  crate root declares `sele4n-abi::args::cspace` when `args` does.
 - Switching scope replaces a selection the new scope cannot show, and sets the
   replacement as `flowScrollTarget`. An empty target means "keep the scroll you
   had" on desktop, which left the fallback node off-screen after scrolling down
   a band and narrowing the scope.
-- A `decl=` in the URL only restores when `nodeExists()` accepts the module it
-  resolves to. `scope=rust` paired with a Lean declaration otherwise pulled the
-  Lean module into the selection while the toggle and badge still read Rust.
+- A declaration only becomes the selection when `nodeExists()` accepts the
+  module it resolves to — in `selectDeclaration()`, which the search field
+  calls, as well as on the URL-restore path. `scope=rust` paired with a Lean
+  declaration otherwise pulled the Lean module into the selection while the
+  toggle and badge still read Rust. Both paths must use the scope-aware
+  predicate; `state.moduleMap` is the Lean inventory whatever the scope.
 
 #### The Lean chart
 
