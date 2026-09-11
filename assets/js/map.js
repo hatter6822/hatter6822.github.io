@@ -1332,10 +1332,10 @@
        which the Rust-only scope does not show. The search field accepts a
        typed or chosen declaration through here, so guarding only the URL path
        left the interactive one selecting a Lean module under a Rust badge. */
-    if (!mod || !nodeExists(mod)) return;
+    if (!mod || !nodeExists(mod)) return false;
     /* The search field re-resolves its value on blur; when that value is the
        declaration already shown, there is nothing to re-render or re-scroll. */
-    if (state.flowContext === "declaration" && state.selectedDeclaration === declName && state.selectedDeclarationModule === mod) return;
+    if (state.flowContext === "declaration" && state.selectedDeclaration === declName && state.selectedDeclarationModule === mod) return true;
     state.flowContext = "declaration";
     state.selectedDeclaration = declName;
     state.selectedDeclarationModule = mod;
@@ -3939,7 +3939,7 @@
   /* The module that declares this one: `args::cspace` hangs off `args`, a
      top-level module off the target root it belongs to. A module reached from
      a binary root keeps that binary as its root rather than the library. */
-  function rustParentName(crate, file, byModulePath, rootsByRole) {
+  function rustParentName(crate, file, byModulePath, rootsByRole, byRelativePath) {
     var modulePath = String(file && file.modulePath || "");
     if (!modulePath) return "";
     var parts = modulePath.split("::");
@@ -3948,6 +3948,11 @@
       var parentPath = parts.join("::");
       if (byModulePath[parentPath]) return byModulePath[parentPath];
     }
+    /* The file's own target root, when the snapshot names it: a module of
+       `src/bin/tool/main.rs` hangs off that binary, not off the library that
+       happens to exist alongside it. */
+    var target = String(file && file.target || "");
+    if (target && byRelativePath[target]) return byRelativePath[target];
     return rootsByRole.lib || rootsByRole.bin || rootsByRole.build || "";
   }
 
@@ -3964,6 +3969,7 @@
       var crate = inventory.crates[c];
       var files = Array.isArray(crate.files) ? crate.files : [];
       var byModulePath = Object.create(null);
+      var byRelativePath = Object.create(null);
       var rootsByRole = Object.create(null);
       var crateNodes = [];
 
@@ -3998,6 +4004,7 @@
         byName[name] = record;
         nodes.push(name);
         crateNodes.push(record);
+        byRelativePath[record.relativePath] = name;
         if (record.modulePath) byModulePath[record.modulePath] = name;
         else if (!rootsByRole[record.role]) rootsByRole[record.role] = name;
       }
@@ -4009,7 +4016,7 @@
       }
       for (var n = 0; n < crateNodes.length; n++) {
         var node = crateNodes[n];
-        node.parent = rustParentName(crate, node.file, byModulePath, rootsByRole);
+        node.parent = rustParentName(crate, node.file, byModulePath, rootsByRole, byRelativePath);
         if (node.parent === node.name) node.parent = "";
       }
     }
@@ -4119,6 +4126,18 @@
     var edges = Object.create(null);
     var links = 0;
 
+    /* Whether this snapshot knows about export reachability at all. The flag
+       is emitted for every item, so its total absence — and only that — means
+       an older bundle whose items can be judged on syntax alone. */
+    var carriesExportFlag = false;
+    for (var e = 0; e < state.rustGraph.nodes.length && !carriesExportFlag; e++) {
+      var probeNode = state.rustGraph.byName[state.rustGraph.nodes[e]];
+      var probeItems = (probeNode.file && Array.isArray(probeNode.file.items)) ? probeNode.file.items : [];
+      for (var p = 0; p < probeItems.length; p++) {
+        if (probeItems[p] && typeof probeItems[p].exported === "boolean") { carriesExportFlag = true; break; }
+      }
+    }
+
     for (var i = 0; i < state.rustGraph.nodes.length; i++) {
       var nodeName = state.rustGraph.nodes[i];
       var node = state.rustGraph.byName[nodeName];
@@ -4126,7 +4145,14 @@
       for (var j = 0; j < items.length; j++) {
         var item = items[j];
         if (!item || item.test) continue;
-        if (item.visibility !== "pub") continue;
+        /* `exported`, not `visibility`: a `pub` item inside a private module is
+           crate-private, and matching it published a boundary link for an
+           implementation detail — `sele4n-hal`'s `error_code::VM_FAULT` and
+           `USER_EXCEPTION` both name Lean definitions and both are unreachable
+           from outside the crate. A snapshot predating the flag carries it on
+           no item at all, and falls back to the syntactic test rather than
+           emptying the boundary (see carriesExportFlag). */
+        if (!(carriesExportFlag ? item.exported === true : item.visibility === "pub")) continue;
         if (!BRIDGE_RUST_KINDS[item.kind]) continue;
         var matches = leanIndex[toBridgeKey(item.name)];
         if (!matches) continue;
@@ -4506,8 +4532,14 @@
     var optional = Array.isArray(crate && crate.optionalDependencies) ? crate.optionalDependencies : [];
     for (var o = 0; o < optional.length; o++) {
       var entry = optional[o];
-      var featureList = entry && Array.isArray(entry.enablingFeatures) ? entry.enablingFeatures.join(", ") : "";
-      push([entry && entry.name || entry], (t("map.rust_dep_optional") || "optional") + (featureList ? " · " + featureList : ""));
+      /* The snapshot's shape is { package, internal, features } — reading
+         `name`/`enablingFeatures` pushed the entry object itself and rendered
+         a dependency called "[object Object]" with no feature label. No crate
+         in the tree carries an optional dependency today, which is why it went
+         unseen. */
+      var featureList = entry && Array.isArray(entry.features) ? entry.features.join(", ") : "";
+      push([entry && entry.package].filter(Boolean),
+        (t("map.rust_dep_optional") || "optional") + (featureList ? " · " + featureList : ""));
     }
     var targeted = Array.isArray(crate && crate.targetDependencies) ? crate.targetDependencies : [];
     for (var g = 0; g < targeted.length; g++) {
@@ -5971,7 +6003,18 @@
     }
   }
 
+  /* A declaration lives in a Lean module, so a scope that shows no Lean has
+     none to find. Filtering here rather than at the point of selection is what
+     keeps the search control honest: the earlier guard refused the selection
+     but every caller still overwrote the input, closed the suggestions and
+     announced "Declaration: …", so the control claimed to be showing Lean
+     content while the Rust chart stayed put. */
+  function declarationSearchAvailable() {
+    return scopeIncludesLean();
+  }
+
   function declarationSearchMatch(query) {
+    if (!declarationSearchAvailable()) return null;
     var value = (query || "").trim();
     if (!value || value.indexOf(".") === -1) return null;
 
@@ -6091,6 +6134,7 @@
   }
 
   function declarationSearchMatches(query, limit) {
+    if (!declarationSearchAvailable()) return [];
     var value = (query || "").trim();
     if (!value || value.indexOf(".") === -1) return [];
     var queryLower = value.toLowerCase();
@@ -6999,6 +7043,8 @@
       bridgeBandRows: bridgeBandRows,
       bridgeUndirected: function () { return JSON.parse(JSON.stringify(BRIDGE_UNDIRECTED)); },
       selectDeclaration: selectDeclaration,
+      declarationSearchMatch: declarationSearchMatch,
+      declarationSearchMatches: declarationSearchMatches,
       urlSafeNodeSegment: urlSafeNodeSegment,
       flowScrollTarget: function () { return state.flowScrollTarget; },
       selectionState: function () {

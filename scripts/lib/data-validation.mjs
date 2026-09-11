@@ -189,6 +189,16 @@ function validateRustInventory(rust, files) {
           errors.push(`${itemLabel}.visibility ${JSON.stringify(item.visibility)} is not a visibility`);
         }
         if (item.test !== undefined && item.test !== true) errors.push(`${itemLabel}.test must be true when present`);
+        // `exported` is reachability, not syntax: an item can only be exported
+        // if it is also syntactically `pub`, so a flag on a private item means
+        // the scanner and the snapshot disagree about what is public API — and
+        // the boundary index trusts this flag to decide what crosses the seam.
+        if (item.exported !== undefined && typeof item.exported !== 'boolean') {
+          errors.push(`${itemLabel}.exported must be a boolean when present`);
+        }
+        if (item.exported === true && !/^pub\b/.test(String(item.visibility ?? ''))) {
+          errors.push(`${itemLabel} is marked exported but its visibility is ${JSON.stringify(item.visibility)}`);
+        }
         if (item.test === true) flagged += 1;
         else if (item.kind !== 'impl') counted += 1;
       });

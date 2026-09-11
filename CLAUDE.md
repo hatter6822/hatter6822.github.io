@@ -233,7 +233,9 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   replaced said "27 of 30", which is the proof these surfaces lag each other.
   `assertSyscallWrapperCoverage()` folds case and separators (Lean
   `cspaceMint`, Rust `SyscallId::CSpaceMint`) and fails the sync naming any
-  syscall the wrapper crate does not reference. This is a **gate on publishing
+  syscall the wrapper crate does not reference. Comments and string literals
+  are stripped first: a syscall named only in a doc comment or an error
+  message is not a wrapper. This is a **gate on publishing
   a figure, not a figure**: the landing page still states nothing the Rust
   inventory derives.
 - **The `unsafe` claim is about an operation, not a block.** `sele4n-abi`
@@ -288,6 +290,13 @@ scope toggle. Production code is the subject in every scope.
   replacement as `flowScrollTarget`. An empty target means "keep the scroll you
   had" on desktop, which left the fallback node off-screen after scrolling down
   a band and narrowing the scope.
+- **A scope with no Lean offers no declarations to find.**
+  `declarationSearchAvailable()` gates both `declarationSearchMatch()` and
+  `declarationSearchMatches()`, so nothing unreachable is suggested or
+  matched. Refusing only the *selection* was not enough: every caller still
+  overwrote the input, closed the suggestions and announced "Declaration: …",
+  so the control claimed to show Lean content while the Rust chart stayed put.
+  `selectDeclaration()` also reports whether it took the selection.
 - A declaration only becomes the selection when `nodeExists()` accepts the
   module it resolves to — in `selectDeclaration()`, which the search field
   calls, as well as on the URL-restore path. `scope=rust` paired with a Lean
@@ -335,7 +344,10 @@ scope toggle. Production code is the subject in every scope.
 
 - **A node is one production Rust source file**, addressed by the Rust module
   path that reaches it (`sele4n-abi::args::cspace`); a crate's library root is
-  the bare crate name. A target that is its own crate root — a binary, the
+  the bare crate name. A file records the `target` its module path is measured
+  from, so a nested binary module (`src/bin/tool/helper.rs`, module path
+  `helper`) hangs off that binary rather than off whichever library happens to
+  exist alongside it. A target that is its own crate root — a binary, the
   build script — takes that target as a path segment
   (`sele4n-hal::bin::rw_lock_oracle`) and the node states which kind of target
   it is, so the segment is never read as a module of the library.
@@ -362,9 +374,15 @@ scope toggle. Production code is the subject in every scope.
 
 - Two declarations are the same declaration when `toBridgeKey()` folds them to
   one key (snake case, `r#` stripped, anonymous names excluded). The Rust side
-  contributes `pub` production items of a nameable kind only: `impl` and `mod`
-  are named after other things, and without the `pub` filter `fn main` in a
-  build script matches `Main.main`.
+  contributes production items of a nameable kind that are **exported**, not
+  merely `pub`: `impl` and `mod` are named after other things, and without the
+  visibility filter `fn main` in a build script matches `Main.main`. `pub` is
+  syntax; `exported` is reachability, and matching on syntax published
+  boundary links for `sele4n-hal`'s `error_code::VM_FAULT` and
+  `USER_EXCEPTION` — `pub` constants inside a private module, unreachable from
+  outside the crate. The scanner emits `exported` on **every** item so its
+  absence is a schema fact (a pre-flag snapshot, which falls back to
+  visibility) rather than a value.
 - **Direction comes from the Lean declaration's kind, not from the crate.** A
   Lean `opaque`/`axiom` has no Lean body, so a Rust `fn` of that name is its
   implementation and the kernel calls down (`implements`). Everything else is

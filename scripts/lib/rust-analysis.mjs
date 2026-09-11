@@ -1162,6 +1162,32 @@ export function rustModulePath(relativePath, roots) {
 }
 
 /**
+ * The target root a file's module path is measured from.
+ *
+ * `rustModulePath` picks the deepest owning directory and then throws away
+ * which root that was, so a nested binary module (`src/bin/tool/helper.rs`,
+ * module path `helper`) was indistinguishable from a library module and the
+ * code map hung it off the library root — showing the library as declaring a
+ * binary's module. Returns the root file, or '' when the path is itself a root
+ * or belongs to none.
+ */
+export function rustModuleTarget(relativePath, roots) {
+  const path = String(relativePath ?? '');
+  if (!/\.rs$/.test(path)) return '';
+  const rootFiles = roots ? [roots.lib, ...(Array.isArray(roots.bins) ? roots.bins : [])].filter(Boolean) : [];
+  if (rootFiles.includes(path)) return '';
+
+  // Deepest owning root wins, the same rule rustModulePath applies: a file
+  // under `src/bin/tool/` belongs to that binary, not to `src/lib.rs`.
+  const owned = rootFiles
+    .map((file) => ({ file, dir: file.replace(/\/[^/]*$/, '') }))
+    .filter(({ dir }) => dir && path.startsWith(`${dir}/`))
+    .sort((a, b) => b.dir.length - a.dir.length);
+
+  return owned.length ? owned[0].file : '';
+}
+
+/**
  * Where an out-of-line module declared in `relativePath` may live: `mod x;`
  * in a crate root (`src/lib.rs`, `src/main.rs`, a binary under `src/bin/`,
  * a root the manifest declares — `options.root`) or in a `mod.rs` resolves
@@ -1381,6 +1407,14 @@ export function buildRustInventory(files, readText, options = {}) {
         name: item.name,
         line: item.line,
         visibility: item.visibility,
+        /* `pub` is syntax; `exported` is reachability — every enclosing inline
+           module `pub` and the file itself reached through `pub mod` from a
+           target root. The scanner already computed it for `publicItems` and
+           then dropped it here, so consumers had only the syntactic flag: the
+           code map published boundary links for `pub` constants sitting in a
+           private module (`sele4n-hal`'s `error_code::VM_FAULT`), which are
+           crate-private implementation details, not shared API. */
+        exported: Boolean(item.exported),
         ...(item.unsafe ? { unsafe: true } : {}),
         ...(item.module ? { module: item.module } : {}),
         ...(item.test ? { test: true } : {})
@@ -1389,6 +1423,9 @@ export function buildRustInventory(files, readText, options = {}) {
         path,
         relativePath: relative,
         modulePath: rustModulePath(relative, roots),
+        /* Which target root that module path is measured from. Absent for a
+           root itself. */
+        ...(rustModuleTarget(relative, roots) ? { target: rustModuleTarget(relative, roots) } : {}),
         role,
         lines: scan.lines,
         items,

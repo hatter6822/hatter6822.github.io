@@ -2941,3 +2941,103 @@ test('the enclosing module path is drawn as a chain, not a fan', async () => {
   assert.equal(hooks.rustNode(nested).parent, chain[chain.length - 1],
     'and the selected node hangs off the last of them');
 });
+
+test('the boundary carries only items reachable from outside the crate', async () => {
+  // `pub` is syntax; a `pub` const inside a private module is crate-private.
+  // The index matched on visibility, so `sele4n-hal`'s error_code::VM_FAULT
+  // and USER_EXCEPTION — both naming Lean definitions — were published as
+  // shared boundary links for implementation details.
+  const { hooks } = await loadBundledState();
+  hooks.applyTestState({ scope: 'both' });
+  const index = hooks.bridgeIndex();
+
+  const named = new Set();
+  for (const node of Object.keys(index.byRust)) {
+    for (const edge of Array.from(index.byRust[node] || [])) {
+      for (const link of Array.from(edge.links || [])) named.add(link.rustName);
+    }
+  }
+
+  assert.ok(!named.has('VM_FAULT'), 'a pub const in a private module is not shared API');
+  assert.ok(!named.has('USER_EXCEPTION'));
+  assert.ok(named.size > 0, 'the boundary still carries the genuinely exported items');
+});
+
+test('a snapshot without the export flag falls back to visibility', async () => {
+  // The flag arrived after the first snapshots; an older bundle must still
+  // draw a boundary rather than emptying out.
+  const { hooks } = await loadBundledState();
+  const legacy = {
+    crates: [{
+      name: 'legacy', path: 'rust/legacy', manifest: 'rust/legacy/Cargo.toml',
+      sourceFiles: 1, lines: 1, items: 1, publicItems: 1, testItems: 0,
+      deniesUnsafe: false, unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 },
+      dependencies: [], internalDependencies: [], externalDependencies: [],
+      devDependencies: [], buildDependencies: [], features: [],
+      targetDependencies: [], optionalDependencies: [],
+      files: [{
+        path: 'rust/legacy/src/lib.rs', relativePath: 'src/lib.rs', modulePath: '', role: 'lib',
+        lines: 1, productionItems: 1, publicItems: 1, testItems: 0,
+        unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 },
+        items: [{ kind: 'fn', name: 'legacyOnly', line: 1, visibility: 'pub' }]
+      }]
+    }],
+    members: ['legacy']
+  };
+
+  const graph = hooks.buildRustGraph(legacy);
+  assert.ok(graph && graph.nodes.length === 1, 'the legacy crate still graphs');
+});
+
+test('a nested binary module hangs off its own binary, not the library', async () => {
+  // `rustModulePath` records src/bin/tool/helper.rs as `helper`, which the
+  // parent fallback could not tell from a library module — so the chart showed
+  // the library declaring a binary's module.
+  const { hooks } = await loadBundledState();
+  const file = (relativePath, role, modulePath, target) => ({
+    path: `rust/dual/${relativePath}`, relativePath, modulePath, role,
+    ...(target ? { target } : {}),
+    lines: 1, productionItems: 0, publicItems: 0, testItems: 0, items: [],
+    unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 }
+  });
+
+  const graph = hooks.buildRustGraph({
+    members: ['dual'],
+    crates: [{
+      name: 'dual', path: 'rust/dual', manifest: 'rust/dual/Cargo.toml',
+      sourceFiles: 3, lines: 3, items: 0, publicItems: 0, testItems: 0,
+      deniesUnsafe: false, unsafe: { fns: 0, impls: 0, blocks: 0 }, testUnsafe: { fns: 0, impls: 0, blocks: 0 },
+      dependencies: [], internalDependencies: [], externalDependencies: [],
+      devDependencies: [], buildDependencies: [], features: [],
+      targetDependencies: [], optionalDependencies: [],
+      files: [
+        file('src/lib.rs', 'lib', ''),
+        file('src/bin/tool/main.rs', 'bin', ''),
+        file('src/bin/tool/helper.rs', 'module', 'helper', 'src/bin/tool/main.rs')
+      ]
+    }]
+  });
+
+  const helper = graph.nodes.find((name) => /helper$/.test(name));
+  assert.ok(helper, 'the nested module is graphed');
+  const parent = graph.byName[helper].parent;
+  assert.equal(graph.byName[parent].file.relativePath, 'src/bin/tool/main.rs',
+    'the binary declares it, not src/lib.rs');
+});
+
+test('a declaration search finds nothing in a scope with no Lean', async () => {
+  // Refusing the selection was not enough: the callers still overwrote the
+  // input and announced "Declaration: …", so the control claimed to show Lean
+  // content while the Rust chart stayed put. Nothing is offered now.
+  const { hooks } = await loadBundledState();
+
+  hooks.setScope('both');
+  const found = hooks.declarationSearchMatch('SeLe4n.Kernel.API.apiInvariantBundle');
+  assert.ok(found, 'the combined scope resolves a qualified declaration');
+
+  hooks.setScope('rust');
+  assert.equal(hooks.declarationSearchMatch('SeLe4n.Kernel.API.apiInvariantBundle'), null);
+  assert.deepEqual(Array.from(hooks.declarationSearchMatches('SeLe4n.Kernel.API.api', 5)), []);
+
+  hooks.setScope('both');
+});

@@ -64,7 +64,7 @@ import {
 } from './lib/canonical-map.mjs';
 import { collectSourceAnchors, resolveSourceAnchors } from './lib/source-anchors.mjs';
 import { extractImportTokens, inductiveConstructors } from './lib/lean-analysis.mjs';
-import { buildRustInventory } from './lib/rust-analysis.mjs';
+import { buildRustInventory, stripRustCommentsAndStrings } from './lib/rust-analysis.mjs';
 import { validateTraceDataObject, scenarioStates } from './lib/trace-analysis.mjs';
 
 const REPO = 'hatter6822/seLe4n';
@@ -207,10 +207,14 @@ function assertSyscallWrapperCoverage(codebaseMap, work, rust, published) {
   // it: it reported 19 of 35 missing against a crate that names all 35.
   const fold = (name) => String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
 
+  // Comments and string literals are stripped first: a syscall named only in a
+  // doc comment or an error message is not a wrapper, and counting it would
+  // let the page keep claiming coverage the crate does not have.
   let text = '';
   for (const file of crate.files || []) {
     if (file.role === 'test') continue;
-    try { text += `\n${readFileSync(join(work, file.path), 'utf8')}`; } catch { /* listed but unreadable */ }
+    try { text += `\n${stripRustCommentsAndStrings(readFileSync(join(work, file.path), 'utf8'))}`; }
+    catch { /* listed but unreadable */ }
   }
 
   const wrapped = new Set(

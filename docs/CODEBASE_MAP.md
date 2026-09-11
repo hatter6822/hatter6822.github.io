@@ -267,6 +267,12 @@ own kind**:
 | `pub fn` | `def`, `abbrev` | `mirrors` | in the HAL: specification and machine code either side of the seam, not a call. |
 | type / constant | any | `shares` | the data that crosses the boundary. |
 
+The Rust side of a match must be **exported**, not merely `pub`: a `pub` item
+inside a private module is crate-private, and matching on syntax published
+boundary links for `sele4n-hal`'s `error_code::VM_FAULT` and `USER_EXCEPTION`.
+The scanner records reachability per item (`exported`), the same rule
+`publicItems` counts by.
+
 Each relation draws its own band, in its own colour, with its own legend row.
 `implements` and `invokes` are calls and carry an arrowhead; `mirrors` and
 `shares` are not and do not (`BRIDGE_UNDIRECTED`). Both were wrong in the first
