@@ -67,7 +67,13 @@
  * it comes from the same canonical artifact, and it is the only one the code
  * map can also produce — which is what lets both pages quote one number.
  */
-import { INTERIOR_KIND_GROUPS } from './lean-analysis.mjs';
+import {
+  INTERIOR_KIND_GROUPS,
+  countInductiveConstructors,
+  countExternDeclarations,
+  inductiveConstructors,
+  stripLeanComments
+} from './lean-analysis.mjs';
 
 const ALL_INTERIOR_KINDS = Object.freeze([
   ...INTERIOR_KIND_GROUPS.object,
@@ -437,6 +443,144 @@ export function productionLocReproduction(codebaseMap, lineCount) {
   return { checked: true, matches: counted === stated, counted, stated };
 }
 
+/**
+ * The syscall surface, counted rather than retyped.
+ *
+ * The artifact locates the declaration — it lists `SyscallId` as an
+ * `inductive` with its module and path — and the digest-verified source says
+ * how many constructors it has. Neither half guesses: a rename upstream makes
+ * this return `undefined` and the sync fails, instead of the page keeping a
+ * number that three sentences and six locale files had to agree on by hand.
+ * It said 30 for the eight releases after the surface reached 31.
+ */
+export function syscallSurfaceSize(codebaseMap, sourceText) {
+  if (typeof sourceText !== 'function') return undefined;
+  for (const moduleInfo of productionModules(codebaseMap)) {
+    const declarations = Array.isArray(moduleInfo.declarations) ? moduleInfo.declarations : [];
+    const declaresSyscallId = declarations.some(
+      (declaration) => declaration?.name === 'SyscallId' && declaration?.kind === 'inductive'
+    );
+    if (!declaresSyscallId) continue;
+    let source;
+    try { source = sourceText(moduleInfo.path); } catch { return undefined; }
+    const count = countInductiveConstructors(source, 'SyscallId');
+    if (count !== undefined && count > 0) return count;
+  }
+  return undefined;
+}
+
+/**
+ * The Lean side of the foreign-function bridge: `@[extern …]` declarations
+ * across the production sources. The artifact records declarations but not
+ * their attributes, so this is counted over the same verified sources `lines`
+ * is measured on. Returns `undefined` when a source cannot be read, so an
+ * unreadable tree fails the sync rather than publishing a short count.
+ */
+export function externBridgeSize(codebaseMap, sourceText) {
+  if (typeof sourceText !== 'function') return undefined;
+  const modules = productionModules(codebaseMap);
+  if (!modules.length) return undefined;
+  let total = 0;
+  for (const moduleInfo of modules) {
+    let source;
+    try { source = sourceText(moduleInfo.path); } catch { return undefined; }
+    if (typeof source !== 'string') return undefined;
+    total += countExternDeclarations(source);
+  }
+  return total;
+}
+
+/** Declarations of a kind, over one module's inventory. */
+function declarationNames(moduleInfo, kinds) {
+  const declarations = Array.isArray(moduleInfo?.declarations) ? moduleInfo.declarations : [];
+  return declarations
+    .filter((declaration) => kinds.has(String(declaration?.kind ?? '').toLowerCase()))
+    .map((declaration) => String(declaration?.name ?? ''));
+}
+
+const THEOREM_KINDS = new Set(['theorem', 'lemma']);
+
+/**
+ * Non-interference coverage: does every kernel step have its own proof?
+ *
+ * `NonInterferenceStep` names one step per constructor and the site states
+ * that each has a per-core non-interference theorem. That is a correspondence,
+ * not a total, so it is checked as one: every constructor must have a
+ * `nonInterference_perCore_<step>` theorem. Twelve constructors are the `High`
+ * variant of a step whose theorem carries the base name
+ * (`endpointReceiveDualHigh` ← `nonInterference_perCore_endpointReceiveDual`),
+ * which is the one spelling difference the correspondence allows.
+ *
+ * Returns `{ steps, covered, missing }`, or `undefined` when the inductive is
+ * not in the tree. `missing` non-empty means the page's claim has stopped
+ * being true — the sync says so rather than publishing the weaker total.
+ */
+export function nonInterferenceCoverage(codebaseMap, sourceText) {
+  if (typeof sourceText !== 'function') return undefined;
+
+  const modules = productionModules(codebaseMap);
+  const owner = modules.find((moduleInfo) =>
+    declarationNames(moduleInfo, new Set(['inductive'])).includes('NonInterferenceStep'));
+  if (!owner) return undefined;
+
+  let source;
+  try { source = sourceText(owner.path); } catch { return undefined; }
+  const steps = inductiveConstructors(source, 'NonInterferenceStep');
+  if (!Array.isArray(steps) || !steps.length) return undefined;
+
+  const proofs = new Set();
+  for (const moduleInfo of modules) {
+    for (const name of declarationNames(moduleInfo, THEOREM_KINDS)) {
+      if (name.startsWith('nonInterference_perCore_')) proofs.add(name.slice('nonInterference_perCore_'.length));
+    }
+  }
+
+  const missing = steps.filter((step) => !proofs.has(step) && !(step.endsWith('High') && proofs.has(step.slice(0, -4))));
+  return { steps: steps.length, covered: steps.length - missing.length, missing };
+}
+
+/**
+ * Cross-core non-interference theorems: the SMP half of the same surface.
+ *
+ * Counted by the naming convention the kernel uses for them
+ * (`<operation>_crossCoreNonInterference`) over the module that holds them, so
+ * the figure moves with the proofs rather than with a sentence.
+ */
+export function crossCoreNonInterferenceCount(codebaseMap) {
+  const owner = productionModules(codebaseMap)
+    .find((moduleInfo) => moduleInfo?.module === 'SeLe4n.Kernel.InformationFlow.NonInterferenceCrossCore');
+  if (!owner) return undefined;
+  return declarationNames(owner, THEOREM_KINDS).filter((name) => name.includes('crossCoreNonInterference')).length;
+}
+
+/**
+ * The size of an enforcement-boundary table, read from the theorem that pins it.
+ *
+ * The kernel classifies each operation by enforcement level in a list, and
+ * proves its length: `theorem enforcementBoundaryExtended_count :
+ * enforcementBoundaryExtended.length = 44 := by rfl`. Upstream's own docstring
+ * says the count "is **not** restated here … a number repeated in prose goes
+ * stale the first time an entry lands" — and the site was doing exactly that,
+ * quoting 38 through six expansions. So the figure comes off the machine-
+ * checked statement, which is as close to the truth as a published number gets.
+ */
+export function enforcementBoundarySize(codebaseMap, sourceText, theoremName) {
+  if (typeof sourceText !== 'function') return undefined;
+
+  for (const moduleInfo of productionModules(codebaseMap)) {
+    if (!declarationNames(moduleInfo, THEOREM_KINDS).includes(theoremName)) continue;
+    let source;
+    try { source = sourceText(moduleInfo.path); } catch { return undefined; }
+    if (typeof source !== 'string') return undefined;
+    const statement = new RegExp(
+      `\\b${theoremName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b[^]{0,400}?\\.length\\s*=\\s*(\\d+)`
+    ).exec(stripLeanComments(source));
+    if (statement) return Number(statement[1]);
+  }
+
+  return undefined;
+}
+
 export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
   const map = codebaseMap && typeof codebaseMap === 'object' ? codebaseMap : null;
   if (!map) return {};
@@ -445,7 +589,16 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
   const lineCount = typeof options?.lineCount === 'function' ? options.lineCount : null;
   const metrics = {};
 
-  if (typeof sync.version === 'string' && sync.version.trim()) metrics.version = sync.version.trim();
+  // The project declares its version in lakefile.toml; `readme_sync.version`
+  // and the README badge are both copies of it, and the Rust workspace says so
+  // in a comment ("Version tracks the Lean lakefile.toml version"). The caller
+  // reads the declaration from the same pinned checkout and passes it here, so
+  // the site publishes the source of truth rather than a README mirror.
+  // Without it the artifact's copy still serves, which keeps this function
+  // usable on an artifact alone.
+  const projectVersion = typeof options?.projectVersion === 'string' ? options.projectVersion.trim() : '';
+  if (projectVersion) metrics.version = projectVersion;
+  else if (typeof sync.version === 'string' && sync.version.trim()) metrics.version = sync.version.trim();
 
   // `lean_toolchain` carries the toolchain tag ("v4.28.0"); the page renders a
   // bare version after the word "Lean".
@@ -486,7 +639,124 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
   const admitted = admittedCountFromCodebaseMap(map);
   if (admitted !== undefined) metrics.admitted = admitted;
 
+  // Counted off the digest-verified sources, like `lines`.
+  const sourceText = typeof options?.sourceText === 'function' ? options.sourceText : null;
+  if (sourceText) {
+    const syscalls = syscallSurfaceSize(map, sourceText);
+    if (syscalls !== undefined) metrics.syscalls = syscalls;
+    const externs = externBridgeSize(map, sourceText);
+    if (externs !== undefined) metrics.externs = externs;
+
+    // The security card's two specific claims. Both were typed into the page
+    // and both had gone stale: 80 non-interference theorems against a
+    // 35-constructor inductive, and 38 classified operations against a table
+    // the kernel proves has 44 entries.
+    const coverage = nonInterferenceCoverage(map, sourceText);
+    if (coverage && !coverage.missing.length) metrics.niSteps = coverage.steps;
+
+    const crossCore = crossCoreNonInterferenceCount(map);
+    if (crossCore !== undefined) metrics.niCrossCore = crossCore;
+
+    const enforcementOps = enforcementBoundarySize(map, sourceText, 'enforcementBoundaryExtended_count');
+    if (enforcementOps !== undefined) metrics.enforcementOps = enforcementOps;
+
+    const enforcementOpsPerCore = enforcementBoundarySize(map, sourceText, 'enforcementBoundaryPerCore_count');
+    if (enforcementOpsPerCore !== undefined) metrics.enforcementOpsPerCore = enforcementOpsPerCore;
+  }
+
   return metrics;
+}
+
+/**
+ * The subsystems the landing page states a size for.
+ *
+ * The architecture diagram labels each layer with "N files &middot; N thms".
+ * Those were hand-written, and by 0.31.0 ten of the twelve were wrong: the
+ * scheduler had grown from 46 modules to 49, IPC from 52 to 66, information
+ * flow from 14 to 24 and from 801 theorems to 1,680. A figure a person types
+ * into markup is a figure that stops being true at the next kernel release,
+ * which is exactly why no other published metric is written that way.
+ *
+ * So the diagram's figures are projected from the canonical artifact like
+ * every other one. `key` is the `data-live` suffix the markup carries; the
+ * inventory is the production modules whose name is `namespace` or sits under
+ * it. A leaf namespace is a single module, which is how a layer can quote one
+ * module's theorem count beside its subsystem's module count (FrozenOps
+ * labels itself with the 19 commutativity proofs, not its 47 theorems).
+ *
+ * Adding a layer to the diagram means adding it here; `validate-data.mjs`
+ * rejects a `data-live="subsystem.…"` key the snapshot does not carry.
+ *
+ * `namespaces` (plural) covers a figure the page states as a sum of layers —
+ * "462 theorems across Object (218) and State (244)". Leaving that total as a
+ * literal beside two live components was internally inconsistent the moment
+ * either component moved, so the sum is projected too.
+ */
+export const SITE_SUBSYSTEMS = Object.freeze([
+  { key: 'scheduler', namespace: 'SeLe4n.Kernel.Scheduler' },
+  { key: 'capability', namespace: 'SeLe4n.Kernel.Capability' },
+  { key: 'ipc', namespace: 'SeLe4n.Kernel.IPC' },
+  { key: 'lifecycle', namespace: 'SeLe4n.Kernel.Lifecycle' },
+  { key: 'service', namespace: 'SeLe4n.Kernel.Service' },
+  { key: 'frozen-ops', namespace: 'SeLe4n.Kernel.FrozenOps' },
+  { key: 'frozen-ops-commutativity', namespace: 'SeLe4n.Kernel.FrozenOps.Commutativity' },
+  { key: 'radix-tree', namespace: 'SeLe4n.Kernel.RadixTree' },
+  { key: 'sched-context', namespace: 'SeLe4n.Kernel.SchedContext' },
+  { key: 'concurrency', namespace: 'SeLe4n.Kernel.Concurrency' },
+  { key: 'information-flow', namespace: 'SeLe4n.Kernel.InformationFlow' },
+  { key: 'architecture', namespace: 'SeLe4n.Kernel.Architecture' },
+  { key: 'register-decode', namespace: 'SeLe4n.Kernel.Architecture.RegisterDecode' },
+  { key: 'syscall-arg-decode', namespace: 'SeLe4n.Kernel.Architecture.SyscallArgDecode' },
+  { key: 'robin-hood', namespace: 'SeLe4n.Kernel.RobinHood' },
+  { key: 'robin-hood-bridge', namespace: 'SeLe4n.Kernel.RobinHood.Bridge' },
+  { key: 'robin-hood-lookup', namespace: 'SeLe4n.Kernel.RobinHood.Invariant.Lookup' },
+  { key: 'robin-hood-preservation', namespace: 'SeLe4n.Kernel.RobinHood.Invariant.Preservation' },
+  { key: 'ipc-structural', namespace: 'SeLe4n.Kernel.IPC.Invariant.Structural' },
+  { key: 'ipc-endpoint-preservation', namespace: 'SeLe4n.Kernel.IPC.Invariant.EndpointPreservation' },
+  { key: 'ipc-cap-transfer', namespace: 'SeLe4n.Kernel.IPC.Operations.CapTransfer' },
+  { key: 'model-object', namespace: 'SeLe4n.Model.Object' },
+  { key: 'model-state', namespace: 'SeLe4n.Model.State' },
+  { key: 'model-object-state', namespaces: ['SeLe4n.Model.Object', 'SeLe4n.Model.State'] }
+]);
+
+/** True when `moduleName` is `namespace` itself or a module under it. */
+function inNamespace(moduleName, namespace) {
+  const name = String(moduleName ?? '');
+  return name === namespace || name.startsWith(`${namespace}.`);
+}
+
+/**
+ * Per-subsystem module and theorem counts, over the same production corpus and
+ * the same declaration inventory as the headline `modules` and `theorems`.
+ *
+ * Every layer in SITE_SUBSYSTEMS gets an entry. A namespace that matches
+ * nothing reports zeros rather than going missing, so a renamed subsystem
+ * shows up as a visible "0 files" on the page instead of silently keeping the
+ * last number that was stamped there.
+ */
+export function subsystemMetricsFromCodebaseMap(codebaseMap) {
+  const modules = productionModules(codebaseMap);
+  const metrics = {};
+
+  for (const subsystem of SITE_SUBSYSTEMS) {
+    const namespaces = subsystemNamespaces(subsystem);
+    // A module is counted once even when two of the namespaces reach it, so a
+    // sum entry stays a sum of distinct modules rather than of overlaps.
+    const members = modules.filter((moduleInfo) =>
+      namespaces.some((namespace) => inNamespace(moduleInfo?.module, namespace)));
+    metrics[subsystem.key] = {
+      modules: members.length,
+      theorems: members.reduce((total, moduleInfo) => total + theoremDeclarationCount(moduleInfo.declarations), 0)
+    };
+  }
+
+  return metrics;
+}
+
+/** The namespaces one subsystem entry covers — one, or the several a sum spans. */
+export function subsystemNamespaces(subsystem) {
+  if (Array.isArray(subsystem?.namespaces)) return subsystem.namespaces;
+  return subsystem?.namespace ? [subsystem.namespace] : [];
 }
 
 /**
@@ -529,6 +799,18 @@ export function canonicalCrossChecks(codebaseMap, options = {}) {
       `readme_sync.proved_theorem_lemma_decls says ${statedTheorems}; the comment-aware ` +
       `declaration inventory has ${artifactTheorems} (difference ${statedTheorems - artifactTheorems}) — ` +
       `publishing the inventory${derived.theorems !== artifactTheorems ? ` (${derived.theorems} over the site scope)` : ''}`
+    );
+  }
+
+  // The published version comes from lakefile.toml; the artifact carries its
+  // own copy. They disagree only when the artifact was generated at a revision
+  // whose version differed — worth saying out loud, since `source_digest`
+  // covers the Lean sources and not the build manifest.
+  const projectVersion = typeof options?.projectVersion === 'string' ? options.projectVersion.trim() : '';
+  if (projectVersion && typeof sync.version === 'string' && sync.version.trim() && sync.version.trim() !== projectVersion) {
+    notes.push(
+      `lakefile.toml declares version ${projectVersion}; readme_sync.version says ${sync.version.trim()} — ` +
+      `publishing the lakefile's, which is the declaration the artifact's copy mirrors`
     );
   }
 

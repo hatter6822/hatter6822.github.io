@@ -30,6 +30,7 @@ jobs:
           node scripts/lib/trace-analysis.test.mjs
           node scripts/lib/run-runtime.test.mjs
           node scripts/lib/static-values.test.mjs
+          node scripts/lib/source-anchors.test.mjs
           node scripts/lib/i18n-locales.test.mjs
           node scripts/lib/i18n-runtime.test.mjs
           node scripts/lib/csp-html.test.mjs
@@ -37,9 +38,11 @@ jobs:
           node scripts/validate-traces.mjs
           for f in map run header-nav site i18n theme-init; do node --check "assets/js/$f.js"; done
 
-      # The map probe renders map.html in the runner's Chrome and asserts what
-      # the unit tests cannot: the chart is drawn at 1:1 at every desktop
-      # width, the sidebar placement, no sideways overflow, a clean console.
+      # The two probes render the pages in the runner's Chrome and assert what
+      # the unit tests cannot: for map.html, that the chart is drawn at 1:1 at
+      # every desktop width, the sidebar placement, no sideways overflow and a
+      # clean console; for index.html, that every stamped figure survives
+      # hydration unchanged and no label is clipped.
       # playwright-core is a test-time download, not a repository dependency.
       - name: Install playwright-core
         run: npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.56.1
@@ -50,3 +53,10 @@ jobs:
           python3 -m http.server 4173 --bind 127.0.0.1 >/dev/null 2>&1 &
           for i in $(seq 1 50); do curl -sf http://127.0.0.1:4173/map.html >/dev/null && break; sleep 0.2; done
           MAP_SMOKE_CHANNEL=chrome node scripts/map-smoke.mjs
+
+      - name: Landing page smoke probe (headless Chrome)
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4174 --bind 127.0.0.1 >/dev/null 2>&1 &
+          for i in $(seq 1 50); do curl -sf http://127.0.0.1:4174/index.html >/dev/null && break; sleep 0.2; done
+          INDEX_SMOKE_BASE=http://127.0.0.1:4174 INDEX_SMOKE_CHANNEL=chrome node scripts/index-smoke.mjs

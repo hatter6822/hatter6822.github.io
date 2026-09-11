@@ -80,10 +80,100 @@
   };
   var RUST_ITEM_KIND_ORDER = ["mod", "trait", "struct", "enum", "union", "type", "fn", "const", "static", "impl", "macro"];
 
-  /* Repository inventory groups, in display order. The two production groups
-     are the map's subject; the rest is viewable but visually secondary. */
-  var REPOSITORY_GROUP_ORDER = ["lean", "rust", "tests", "scripts", "docs", "project"];
-  var PRODUCTION_GROUPS = { lean: true, rust: true };
+  /* The three scopes the workspace can be read in. `lean` is the Lean kernel
+     alone, `rust` the Rust workspace alone, and `both` the two together with
+     the boundary between them drawn (see BRIDGE_RELATIONS). The scope rides
+     the URL as `scope=`, so a reading is linkable. */
+  var SCOPES = ["lean", "both", "rust"];
+  var DEFAULT_SCOPE = "both";
+
+  /* Where a crate sits relative to the Lean kernel. This is the one editorial
+     fact the boundary model needs, and it only ever decides how a matched
+     *function* pair is labelled — never whether a pair exists. The four
+     entries restate what the crates' own manifests say of themselves ("Safe
+     high-level syscall wrappers", "ARM64 register ABI layer", "ARM64 Hardware
+     Abstraction Layer", "Core types"). A crate the table does not name is
+     "shared": it gets no direction rather than a guessed one. */
+  var RUST_CRATE_STRATUM = {
+    "sele4n-types": "shared",
+    "sele4n-abi": "boundary",
+    "sele4n-sys": "userspace",
+    "sele4n-hal": "hardware"
+  };
+
+  /* Lean declaration kinds that name a thing (as opposed to opening a scope).
+     Only these take part in the boundary match: a `namespace ThreadId` is not
+     a second declaration of ThreadId. */
+  var BRIDGE_LEAN_KINDS = {
+    inductive: true, structure: true, "class": true, def: true, theorem: true,
+    lemma: true, example: true, instance: true, opaque: true, abbrev: true,
+    axiom: true, constant: true
+  };
+
+  /* Lean kinds with no Lean body: the declaration exists, the implementation
+     is somewhere else. Paired with a Rust `fn` of the same name this is the
+     foreign-function seam, and its direction is not a guess. */
+  var BRIDGE_FOREIGN_LEAN_KINDS = { opaque: true, axiom: true };
+
+  /* Rust item kinds that can carry a boundary match. `impl` blocks and `mod`
+     declarations are named after other things, so they are listed in the
+     sidebar but never matched. */
+  var BRIDGE_RUST_KINDS = {
+    fn: true, struct: true, "enum": true, union: true, trait: true,
+    type: true, "const": true, "static": true
+  };
+
+  /* The four relations a matched declaration pair can stand in, with the
+     direction each implies and the colour that carries it through the chart.
+       implements — Lean declares it `opaque`, Rust defines it: the kernel
+                    calls down into the HAL.            Lean → Rust
+       invokes    — Lean implements it, a user-space crate names the same
+                    operation: the wrapper calls up.    Rust → Lean
+       mirrors    — Lean implements it and the HAL carries a routine of the
+                    same name across the seam: specification and machine
+                    code side by side, not a call.      undirected
+       shares     — the same type or constant named on both sides: the data
+                    that crosses the boundary.          undirected */
+  var BRIDGE_RELATIONS = ["implements", "invokes", "mirrors", "shares"];
+  var BRIDGE_COLORS = {
+    implements: "#ff9068",
+    invokes: "#5ed3c0",
+    mirrors: "#7f9cf5",
+    shares: "#a08bd4"
+  };
+
+  /* `implements` and `invokes` are calls and are drawn with an arrowhead.
+     `mirrors` and `shares` are not: one is the same routine written either
+     side of the seam, the other a definition both sides hold. Drawing either
+     with an arrow asserts a call that does not exist, so this is the one place
+     that says which relations carry direction. */
+  var BRIDGE_UNDIRECTED = { mirrors: true, shares: true };
+
+  /* Rust declaration groups for the sidebar, mirroring the Lean grouping.
+     Test items are bucketed under a "test:" kind prefix so one group holds
+     them all without a second control. */
+  var RUST_KIND_GROUPS = {
+    rustTypes: ["struct", "enum", "union", "trait", "type"],
+    rustFunctions: ["fn", "const", "static"],
+    rustStructure: ["impl", "mod", "macro"]
+  };
+  var RUST_KIND_GROUP_ORDER = ["rustTypes", "rustFunctions", "rustStructure", "rustTests"];
+  var RUST_TEST_KIND_PREFIX = "test:";
+  RUST_KIND_GROUPS.rustTests = RUST_ITEM_KIND_ORDER.map(function (kind) { return RUST_TEST_KIND_PREFIX + kind; });
+  var RUST_KIND_GROUP_LABELS_EN = {
+    rustTypes: "Types",
+    rustFunctions: "Functions",
+    rustStructure: "Impls/Mods",
+    rustTests: "Tests"
+  };
+  var ALL_RUST_KINDS = (function () {
+    var out = [];
+    for (var i = 0; i < RUST_KIND_GROUP_ORDER.length; i++) {
+      var kinds = RUST_KIND_GROUPS[RUST_KIND_GROUP_ORDER[i]] || [];
+      for (var j = 0; j < kinds.length; j++) out.push(kinds[j]);
+    }
+    return out;
+  })();
 
   /* Cached DOM element references — populated once on boot to avoid repeated getElementById calls */
   var DOM = {
@@ -96,8 +186,8 @@
     mapStatus: null,
     mainContent: null,
     moduleResults: null,
-    rustCrateGrid: null,
-    inventoryGroups: null,
+    scopeToggle: null,
+    workspaceBadge: null,
     inventoryNote: null
   };
 
@@ -111,9 +201,9 @@
     DOM.mapStatus = document.getElementById("map-status");
     DOM.mainContent = document.getElementById("main-content");
     DOM.moduleResults = document.getElementById("module-results");
-    DOM.rustCrateGrid = document.getElementById("rust-crate-grid");
-    DOM.inventoryGroups = document.getElementById("repository-inventory-groups");
-    DOM.inventoryNote = document.getElementById("inventory-provenance");
+    DOM.scopeToggle = document.getElementById("map-scope-toggle");
+    DOM.workspaceBadge = document.getElementById("workspace-scope-badge");
+    DOM.inventoryNote = document.getElementById("map-inventory-note");
   }
 
   var DETAIL_PRESETS = {
@@ -205,7 +295,7 @@
     contextListValid: false,
     interiorMenuModule: "",
     interiorMenuQuery: "",
-    interiorMenuSelections: { object: "", extension: "", contextInit: "" },
+    interiorMenuSelections: Object.create(null),
     commitSha: "",
     generatedAt: "",
     flowScrollTarget: "",
@@ -216,15 +306,24 @@
     declarationReverseGraph: Object.create(null),
     declarationIndex: Object.create(null),
     declarationLanesExpanded: false,
-    /* Repository inventory: the whole tree plus the Rust crate inventory. Both
-       can outlive a live refresh that carries neither (see retainInventory). */
+    /* The repository tree plus the Rust crate inventory. Both can outlive a
+       live refresh that carries neither (see retainInventory). */
     rust: null,
     inventoryCommit: "",
     rustCommit: "",
+    /* Which languages the workspace is read in, and the two models projected
+       from the Rust inventory: the module graph the chart draws, and the
+       declaration-level boundary between the two languages. */
+    scope: DEFAULT_SCOPE,
+    rustGraph: null,
+    bridge: null,
     interiorMenuGroup: "object",
-    laneGroupsExpanded: { imports: Object.create(null), importers: Object.create(null) },
-    /* Per-crate: whether the cards list test items (transient, off by default). */
-    rustShowTests: Object.create(null)
+    /* Empty rather than "rustTypes": a crate root declares only modules, so a
+       fixed first tab would open on an empty list. Unset means "the first
+       group that has anything", and the reader's own choice sticks after that
+       exactly as it does on the Lean side. */
+    rustInteriorMenuGroup: "",
+    laneGroupsExpanded: { imports: Object.create(null), importers: Object.create(null) }
   };
 
   var renderScheduled = false;
@@ -323,7 +422,9 @@
   function updateModuleResults(count) {
     var node = DOM.moduleResults || document.getElementById("module-results");
     if (!node) return;
-    var total = state.modules.length;
+    /* The total is the active scope's, not the Lean module count: in the
+       combined scope a reader is choosing among both languages. */
+    var total = scopeNodes().length;
     var msg = t("map.modules_shown", { count: count, total: total });
     node.textContent = msg || (String(count) + " modules shown" + (total ? " (" + total + " total)" : ""));
   }
@@ -412,25 +513,49 @@
     }
   }
 
+  /* Node names come off the URL, so the whitelist is tight: Lean modules are
+     dotted identifiers and Rust nodes add `::` and the hyphen a crate name may
+     carry. Nothing else — no slash, no space, no angle bracket. */
   function sanitizeModuleName(value) {
-    return /^[A-Za-z0-9_.]+$/.test(value) ? value : "";
+    return /^[A-Za-z0-9_.:-]+$/.test(value) ? value : "";
+  }
+
+  /* Fold arbitrary text into the node-name whitelist, so anything built into a
+     node name can round-trip through `module=` in the URL. Runs of rejected
+     characters collapse to one `-`; a path separator is one of them. */
+  function urlSafeNodeSegment(value) {
+    return String(value || "").replace(/[^A-Za-z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "");
+  }
+
+  function sanitizeScope(value) {
+    return SCOPES.indexOf(String(value || "")) === -1 ? "" : String(value);
   }
 
   function normalizeSearchValue(value) {
     return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   }
 
+  /* Both languages' nodes are indexed regardless of the active scope: the
+     scope decides which list the chooser searches, not what the index knows,
+     so switching scope needs no rebuild. */
   function buildSearchIndex() {
     var index = Object.create(null);
-    for (var i = 0; i < state.modules.length; i++) {
-      var name = state.modules[i];
-      var path = state.moduleMap[name] || "";
+    function add(name, path) {
       index[name] = {
         nameLower: name.toLowerCase(),
         pathLower: path.toLowerCase(),
         nameTokens: normalizeSearchValue(name).split(/\s+/).filter(Boolean),
         pathTokens: normalizeSearchValue(path).split(/\s+/).filter(Boolean)
       };
+    }
+    for (var i = 0; i < state.modules.length; i++) {
+      add(state.modules[i], state.moduleMap[state.modules[i]] || "");
+    }
+    if (state.rustGraph) {
+      for (var j = 0; j < state.rustGraph.nodes.length; j++) {
+        var rustName = state.rustGraph.nodes[j];
+        add(rustName, state.rustGraph.byName[rustName].path);
+      }
     }
     state.searchIndex = index;
     buildDeclarationSearchIndex();
@@ -675,9 +800,16 @@
     return "#" + ((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1);
   }
 
+  /* Lean kinds first, then the Rust palette: the two share no kind name except
+     `macro`, which means the same thing on both sides. A `test:` prefix takes
+     the colour of the kind it wraps. */
   function interiorKindColor(kind) {
     var k = String(kind || "");
-    return INTERIOR_KIND_COLOR_MAP[k] || INTERIOR_KIND_COLOR_MAP[normalizeDeclarationKind(k)] || "#8fa3bf";
+    if (k.indexOf(RUST_TEST_KIND_PREFIX) === 0) k = k.slice(RUST_TEST_KIND_PREFIX.length);
+    return INTERIOR_KIND_COLOR_MAP[k]
+      || INTERIOR_KIND_COLOR_MAP[normalizeDeclarationKind(k)]
+      || RUST_ITEM_COLOR_MAP[k]
+      || "#8fa3bf";
   }
 
   function applyInteriorKindColor(node, kind, includeBackground) {
@@ -1183,9 +1315,9 @@
   }
 
   function moduleSourceLink(name) {
-    if (!name || !state.moduleMap[name]) return null;
-    var ref = state.commitSha || REF;
-    var path = state.moduleMap[name];
+    var path = nodePath(name);
+    if (!name || !path) return null;
+    var ref = nodeSourceRef(name);
     var encodedPath = path.split("/").map(encodeURIComponent).join("/");
     return {
       href: "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath,
@@ -1196,10 +1328,14 @@
 
   function selectDeclaration(declName, moduleName) {
     var mod = moduleName || declarationModuleOf(declName);
-    if (!mod || !state.moduleMap[mod]) return;
+    /* `nodeExists`, not `moduleMap`: a declaration resolves to a Lean module,
+       which the Rust-only scope does not show. The search field accepts a
+       typed or chosen declaration through here, so guarding only the URL path
+       left the interactive one selecting a Lean module under a Rust badge. */
+    if (!mod || !nodeExists(mod)) return false;
     /* The search field re-resolves its value on blur; when that value is the
        declaration already shown, there is nothing to re-render or re-scroll. */
-    if (state.flowContext === "declaration" && state.selectedDeclaration === declName && state.selectedDeclarationModule === mod) return;
+    if (state.flowContext === "declaration" && state.selectedDeclaration === declName && state.selectedDeclarationModule === mod) return true;
     state.flowContext = "declaration";
     state.selectedDeclaration = declName;
     state.selectedDeclarationModule = mod;
@@ -1305,20 +1441,28 @@
     return out;
   }
 
+  /* The layer filter and the linked-pairs filter are properties of Lean
+     modules, so in a scope that carries Rust the Rust nodes ride alongside
+     rather than being filtered by criteria that do not apply to them. */
   function filteredModules() {
-    var key = [state.activeLayerFilter, state.proofLinkedOnly ? "1" : "0", state.modules.length].join("|");
+    var rustCount = state.rustGraph ? state.rustGraph.nodes.length : 0;
+    var key = [state.scope, state.activeLayerFilter, state.proofLinkedOnly ? "1" : "0", state.modules.length, rustCount].join("|");
     if (key === state.filteredModulesKey && state.filteredModulesValid) return state.filteredModulesList.slice();
 
     var layer = state.activeLayerFilter;
-    var list = state.modules.filter(function (name) {
-      var meta = state.moduleMeta[name] || {};
-      if (layer !== "all" && meta.layer !== layer) return false;
-      if (state.proofLinkedOnly) {
-        var pair = findProofPair(name);
-        if (!pair || !pair.invariantImportsOperations) return false;
-      }
-      return true;
-    });
+    var list = [];
+    if (scopeIncludesLean()) {
+      list = state.modules.filter(function (name) {
+        var meta = state.moduleMeta[name] || {};
+        if (layer !== "all" && meta.layer !== layer) return false;
+        if (state.proofLinkedOnly) {
+          var pair = findProofPair(name);
+          if (!pair || !pair.invariantImportsOperations) return false;
+        }
+        return true;
+      });
+    }
+    if (scopeIncludesRust() && state.rustGraph) list = list.concat(state.rustGraph.nodes);
 
     state.filteredModulesKey = key;
     state.filteredModulesList = list.slice();
@@ -1326,9 +1470,23 @@
     return list;
   }
 
+  /* Lean modules rank by graph score; Rust nodes have no import degree, so
+     they rank by their production surface and sort after the Lean list in a
+     combined reading — the kernel stays the subject. */
+  function nodeSortScore(name) {
+    if (!isRustNode(name)) return moduleDegree(name).score;
+    var node = rustNode(name);
+    /* A crate root leads its crate; below it, the larger production surface
+       comes first. Every Rust score is negative, so the Lean modules — whose
+       scores are never below zero — stay ahead of them in a combined list. */
+    if (node.isRoot) return -0.5;
+    var items = Number((node.file || {}).productionItems) || 0;
+    return -1 - 1 / (1 + items);
+  }
+
   function sortModules(list) {
     list.sort(function (a, b) {
-      var scoreDiff = moduleDegree(b).score - moduleDegree(a).score;
+      var scoreDiff = nodeSortScore(b) - nodeSortScore(a);
       return scoreDiff || a.localeCompare(b);
     });
   }
@@ -1365,7 +1523,7 @@
   }
 
   function selectModule(name, preserveScroll) {
-    if (!name || !state.moduleMap[name]) return;
+    if (!nodeExists(name)) return;
     if (state.selectedModule === name && state.flowContext === "module") {
       /* Re-selecting the current module only repaints the sidebar when it shows
          another module. An unconditional repaint here rebuilt the declaration
@@ -1391,7 +1549,8 @@
   }
 
   function contextList() {
-    var key = [state.activeLayerFilter, state.proofLinkedOnly ? "1" : "0", state.modules.length].join("|");
+    var rustCount = state.rustGraph ? state.rustGraph.nodes.length : 0;
+    var key = [state.scope, state.activeLayerFilter, state.proofLinkedOnly ? "1" : "0", state.modules.length, rustCount].join("|");
     if (key === state.contextListKey && state.contextListValid) return state.contextList.slice();
     var list = getFilteredAndSortedModules();
     state.contextListKey = key;
@@ -1408,7 +1567,7 @@
     updateModuleResults(list.length);
 
     if (list.length && list.indexOf(state.selectedModule) === -1) {
-      var fallback = defaultModuleName();
+      var fallback = defaultNodeName();
       state.selectedModule = fallback && list.indexOf(fallback) !== -1 ? fallback : list[0];
       syncUrlState();
     }
@@ -1467,7 +1626,57 @@
       { label: ASSURANCE_ICONS.partial + " " + (t("map.assurance_partial") || "Partial (pair incomplete/disconnected)"), color: ASSURANCE_COLORS.partial, group: "assurance", indicator: "bar" },
       { label: ASSURANCE_ICONS.local + " " + (t("map.assurance_local") || "Local (standalone theorems)"), color: ASSURANCE_COLORS.local, group: "assurance", indicator: "bar" },
       { label: ASSURANCE_ICONS.none + " " + (t("map.assurance_none") || "None (no proof coverage)"), color: ASSURANCE_COLORS.none, group: "assurance", indicator: "bar" }
+    ].concat(bridgeLegendItems());
+  }
+
+  /* The boundary entries only appear in the scope that draws the boundary, so
+     the Lean-only and Rust-only readings keep their original legends. */
+  /* Say so when the Rust half is a commit behind the Lean graph.
+   *
+   * A live canonical refresh advances the Lean modules and carries no Rust
+   * inventory at all, so `retainInventory()` keeps the bundled crates and the
+   * commit they were taken at. That is the designed behaviour — the Rust half
+   * must not empty out on a networked visit — but the header publishes Rust
+   * Modules and Boundary Links beside one "Generated" stamp, which reads as a
+   * single coherent snapshot. Through 0.30.0 the crate cards carried this
+   * note; removing those sections took the only disclosure with them.
+   *
+   * Painted from the same data as the stats and hidden when the two halves
+   * agree, so the ordinary case stays quiet. */
+  function renderInventoryProvenance() {
+    var note = DOM.inventoryNote || document.getElementById("map-inventory-note");
+    if (!note) return;
+
+    var graphCommit = String(state.commitSha || "").slice(0, 7);
+    var rustCommit = String(state.rustCommit || "").slice(0, 7);
+    var behind = Boolean(state.rust) && rustCommit && graphCommit && rustCommit !== graphCommit;
+
+    note.hidden = !behind;
+    note.textContent = behind
+      ? (t("map.inventory_retained", { rust: rustCommit, graph: graphCommit })
+        || ("Rust inventory from commit " + rustCommit + "; the Lean graph is synced to " + graphCommit + "."))
+      : "";
+  }
+
+  function bridgeLegendItems() {
+    if (state.scope !== "both") return [];
+    return [
+      { separator: true },
+      { label: t("map.legend_bridge_implements") || "Lean declares → Rust implements", color: BRIDGE_COLORS.implements, group: "bridge" },
+      { label: t("map.legend_bridge_invokes") || "Rust wrapper → Lean operation", color: BRIDGE_COLORS.invokes, group: "bridge" },
+      { label: t("map.legend_bridge_mirrors") || "Mirrored either side (no call)", color: BRIDGE_COLORS.mirrors, group: "bridge" },
+      { label: t("map.legend_bridge_shares") || "Shared definition", color: BRIDGE_COLORS.shares, group: "bridge" }
     ];
+  }
+
+  function rustFlowLegendItems() {
+    return [
+      { label: t("map.rust_legend_selected") || "Selected Rust module", color: "#7c9cff", group: "edge" },
+      { label: t("map.rust_legend_enclosing") || "Enclosing module path", color: "#35c98f", group: "edge" },
+      { label: t("map.rust_legend_declares") || "Modules declared here", color: "#ffad42", group: "edge" },
+      { label: t("map.rust_legend_siblings") || "Modules declared alongside", color: "#ffad42", group: "edge" },
+      { label: t("map.rust_legend_dependencies") || "Crate dependencies", color: "#b9c0d0", group: "edge" }
+    ].concat(bridgeLegendItems());
   }
 
   /* Import tokens the graph does not contain are external to the production
@@ -1518,6 +1727,70 @@
     };
   }
 
+  /* ------------------------------------------------------------------
+     The declaration sidebar serves both languages
+
+     `interiorForNode` hands the renderer the same shape either way — kinds
+     bucketed by name, each item carrying a name and a line — so the tabs, the
+     kind filter, the query field and the list are written once.
+     ------------------------------------------------------------------ */
+
+  function interiorForNode(name) {
+    return isRustNode(name) ? rustInteriorForNode(name) : interiorCodeForModule(name);
+  }
+
+  function interiorGroupOrderForNode(name) {
+    return isRustNode(name) ? RUST_KIND_GROUP_ORDER.slice() : INTERIOR_KIND_GROUP_ORDER.slice();
+  }
+
+  function interiorGroupKinds(name, groupKey) {
+    var source = isRustNode(name) ? RUST_KIND_GROUPS : INTERIOR_KIND_GROUPS;
+    return source[groupKey] || [];
+  }
+
+  function interiorGroupLabelForNode(name, groupKey) {
+    return isRustNode(name) ? rustKindGroupLabel(groupKey) : interiorKindGroupLabel(groupKey);
+  }
+
+  function interiorKindLabelForNode(name, kind) {
+    return isRustNode(name) ? rustKindLabel(kind) : symbolKindLabel(kind);
+  }
+
+  /* The open tab is remembered per language: a reader scanning theorems across
+     Lean modules stays on Objects, and stays on Types across Rust modules. */
+  function rememberedInteriorGroup(name) {
+    return isRustNode(name) ? state.rustInteriorMenuGroup : state.interiorMenuGroup;
+  }
+
+  function rememberInteriorGroup(name, groupKey) {
+    if (isRustNode(name)) state.rustInteriorMenuGroup = groupKey;
+    else state.interiorMenuGroup = groupKey;
+  }
+
+  function interiorGroupsForNode(name, interior) {
+    var order = interiorGroupOrderForNode(name);
+    var groups = [];
+    for (var i = 0; i < order.length; i++) {
+      var key = order[i];
+      var kinds = interiorGroupKinds(name, key);
+      groups.push({
+        key: key,
+        label: interiorGroupLabelForNode(name, key),
+        kinds: kinds,
+        selectedKind: pickInteriorDefaultKind(interior, kinds, state.interiorMenuSelections[key] || ""),
+        totalCount: interiorGroupItemCount(interior, kinds)
+      });
+    }
+    return groups;
+  }
+
+  function interiorSummaryForNode(name, interior) {
+    if (!isRustNode(name)) return interiorMenuSummary(name, interior);
+    var node = rustNode(name);
+    var parts = [rustNodeRoleLabel(node.role), node.crateName, rustNodeSummary(name)];
+    return parts.filter(Boolean).join(" · ");
+  }
+
   function pickInteriorMenuGroup(groups, remembered) {
     for (var i = 0; i < groups.length; i++) if (groups[i].key === remembered) return remembered;
     for (var j = 0; j < groups.length; j++) if (groups[j].totalCount > 0) return groups[j].key;
@@ -1555,25 +1828,15 @@
     if (state.interiorMenuModule !== selected) {
       state.interiorMenuModule = selected;
       state.interiorMenuQuery = "";
-      state.interiorMenuSelections = { object: "", extension: "", contextInit: "" };
+      state.interiorMenuSelections = Object.create(null);
     }
 
-    var interior = interiorCodeForModule(selected);
+    var interior = interiorForNode(selected);
     var query = (state.interiorMenuQuery || "").trim().toLowerCase();
-    var groups = INTERIOR_KIND_GROUP_ORDER.map(function (groupKey) {
-      var kinds = INTERIOR_KIND_GROUPS[groupKey] || [];
-      return {
-        key: groupKey,
-        label: interiorKindGroupLabel(groupKey),
-        kinds: kinds,
-        selectedKind: pickInteriorDefaultKind(interior, kinds, state.interiorMenuSelections[groupKey] || ""),
-        totalCount: interiorGroupItemCount(interior, kinds)
-      };
-    });
-    /* One group is open at a time. The choice survives module changes so a
-       reader scanning theorems across modules stays on Objects. */
-    var activeKey = pickInteriorMenuGroup(groups, state.interiorMenuGroup);
-    state.interiorMenuGroup = activeKey;
+    var groups = interiorGroupsForNode(selected, interior);
+    /* One group is open at a time, remembered per language. */
+    var activeKey = pickInteriorMenuGroup(groups, rememberedInteriorGroup(selected));
+    rememberInteriorGroup(selected, activeKey);
     var group = groups[0];
     for (var gi = 0; gi < groups.length; gi++) if (groups[gi].key === activeKey) group = groups[gi];
 
@@ -1604,7 +1867,7 @@
     head.appendChild(moduleLine);
     var summaryLine = document.createElement("p");
     summaryLine.className = "interior-menu-summary";
-    summaryLine.textContent = interiorMenuSummary(selected, interior);
+    summaryLine.textContent = interiorSummaryForNode(selected, interior);
     head.appendChild(summaryLine);
     menu.appendChild(head);
 
@@ -1653,8 +1916,8 @@
         count.textContent = formatCount(entry.totalCount);
         tab.appendChild(count);
         tab.addEventListener("click", function () {
-          if (state.interiorMenuGroup === entry.key) return;
-          state.interiorMenuGroup = entry.key;
+          if (rememberedInteriorGroup(selected) === entry.key) return;
+          rememberInteriorGroup(selected, entry.key);
           renderFlowNodeInteriorMenu(selected);
           var next = document.getElementById("interior-menu-tab-" + entry.key);
           if (next) next.focus();
@@ -1679,9 +1942,9 @@
     menu.appendChild(tabs);
 
     function symbolSourceHref(moduleName, entry) {
-      if (!moduleName || !state.moduleMap[moduleName]) return "";
-      var ref = state.commitSha || REF;
-      var path = state.moduleMap[moduleName];
+      var path = nodePath(moduleName);
+      if (!moduleName || !path) return "";
+      var ref = nodeSourceRef(moduleName);
       var encodedPath = path.split("/").map(encodeURIComponent).join("/");
       var lineAnchor = entry && entry.line > 0 ? "#L" + entry.line : "";
       return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath + lineAnchor;
@@ -1706,9 +1969,14 @@
     select.appendChild(allOption);
     for (var i = 0; i < group.kinds.length; i++) {
       var kind = group.kinds[i];
+      var kindCount = (interior.byKind[kind] || []).length;
+      /* Rust files carry far more kinds than any one file uses; listing the
+         empty ones would bury the two that matter. Lean keeps every kind so
+         the absence of a kind stays visible. */
+      if (!kindCount && isRustNode(selected)) continue;
       var option = document.createElement("option");
       option.value = kind;
-      option.textContent = symbolKindLabel(kind) + " (" + (interior.byKind[kind] || []).length + ")";
+      option.textContent = interiorKindLabelForNode(selected, kind) + " (" + kindCount + ")";
       applyInteriorKindColor(option, kind, true);
       if (kind === group.selectedKind) option.selected = true;
       select.appendChild(option);
@@ -1767,9 +2035,13 @@
         li.className = "interior-menu-item";
         var isSelectedDecl = state.flowContext === "declaration" && items[j].name === state.selectedDeclaration;
         if (isSelectedDecl) li.classList.add("interior-menu-item-active");
-        li.dataset.kindLabel = symbolKindLabel(items[j].__kind || activeKind);
+        li.dataset.kindLabel = interiorKindLabelForNode(selected, items[j].__kind || activeKind);
+        if (items[j].visibility) li.dataset.visibility = items[j].visibility;
         applyInteriorKindColor(li, items[j].__kind || activeKind, false);
-        var hasCallData = Boolean(state.declarationGraph[items[j].name]) || Boolean(state.declarationReverseGraph[items[j].name]);
+        /* Rust items have no call graph in the snapshot, so they resolve to
+           their source line rather than to a declaration view. */
+        var hasCallData = !isRustNode(selected)
+          && (Boolean(state.declarationGraph[items[j].name]) || Boolean(state.declarationReverseGraph[items[j].name]));
         var isNavigable = hasCallData || Boolean(state.moduleMap[selected]);
         if (isNavigable) {
           li.classList.add("interior-menu-item-navigable");
@@ -2003,7 +2275,11 @@
     path.setAttribute("class", "flow-line" + (dashed ? " proof-link" : ""));
     path.setAttribute("stroke", color);
     path.style.color = color;
-    path.setAttribute("marker-end", "url(#flow-arrow)");
+    /* An arrowhead is a claim about direction. Every lane edge makes one, but
+       a boundary relation that the model calls undirected — a shared type, a
+       routine mirrored either side of the seam — must not: an arrow there
+       reads as a call that does not happen. */
+    if (!opts.undirected) path.setAttribute("marker-end", "url(#flow-arrow)");
     layer.appendChild(path);
   }
 
@@ -2095,6 +2371,14 @@
       legend.appendChild(chip);
     }
     return legend;
+  }
+
+  /* "+38 more imports" — a budget cut, pluralised by the locale. The suffix
+     argument is only the English fallback's noun; the locale string carries
+     its own wording. */
+  function laneMoreLabel(key, count, englishNoun) {
+    var fallback = "+" + formatCount(count) + " more" + (englishNoun ? " " + englishNoun : "");
+    return t(key, { count: count }) || fallback;
   }
 
   function flowLaneLabel(labelLayer, text, x, y, color) {
@@ -2579,12 +2863,24 @@
     var hasPathSection = linkedPath.length > 1;
     var hasProofSection = proofRelated.length > 0;
     /* Compute effective bottom by finding the lowest section that has content */
-    var effectiveBottom = hasExternalSection ? externalBottom
+    var lastSectionBottom = hasExternalSection ? externalBottom
       : hasPathSection ? pathBlockBottom
       : hasProofSection ? proofBottom
       : Math.max(laneBottom, centerBottom);
+
+    /* The Rust boundary sits under everything Lean: a reader scrolls through
+       the module's own context first and meets the other language last. */
+    var bandRows = bridgeBandRows(selected);
+    var bandLayout = layoutBridgeBands(bandRows, {
+      startY: lastSectionBottom + (prefersCompactViewport() ? 40 : 58),
+      leftX: leftX,
+      width: externalWidth,
+      perRow: externalPerRow
+    });
+
+    var effectiveBottom = bandRows.length ? bandLayout.bottom : lastSectionBottom;
     var minFlowHeight = prefersCompactViewport() ? 420 : 620;
-    var flowHeight = Math.max(minFlowHeight, effectiveBottom + (hasExternalSection ? 48 : 32));
+    var flowHeight = Math.max(minFlowHeight, effectiveBottom + (hasExternalSection || bandRows.length ? 48 : 32));
 
     wrap.appendChild(createFlowLegend(flowLegendItems(), "Flow chart legend"));
 
@@ -2610,9 +2906,9 @@
       return buildFlowNodeGroup(nodeLayer, className, interactive, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, activator, metaLink || null);
     }
 
-    if (laneLabels.imports) laneLabel("Imports used by selected", leftX, 30, "#35c98f");
-    if (laneLabels.selected) laneLabel("Selected module context", centerX, centerY - 12, "#7c9cff");
-    if (laneLabels.impacted) laneLabel("Modules impacted by selected", rightX, 30, "#ffad42");
+    if (laneLabels.imports) laneLabel(t("map.lane_imports") || "Imports used by selected", leftX, 30, "#35c98f");
+    if (laneLabels.selected) laneLabel(t("map.lane_selected") || "Selected module context", centerX, centerY - 12, "#7c9cff");
+    if (laneLabels.impacted) laneLabel(t("map.lane_impacted") || "Modules impacted by selected", rightX, 30, "#ffad42");
 
     var center = createNode(selected, centerX, centerY, centerWidth, centerHeight, "#7c9cff", moduleSummary(selected), nodeTooltip(selected, "Selected module context"), true, false, contextFor(selected).assurance.level, null, centerSourceLink);
 
@@ -2665,15 +2961,15 @@
     var canMinimizeImporters = state.flowShowAll && allImporters.length > state.neighborLimit;
 
     if (hasHiddenImports) {
-      createNode("+" + (allImports.length - imports.length) + " more imports", leftX, importLayout.bottom + laneGapY, sideWidth, 36, "#35c98f", "switch to Expanded mode", "Activate expanded mode", false, true, "", setExpandedFlowMode);
+      createNode(laneMoreLabel("map.lane_more_imports", allImports.length - imports.length, "imports"), leftX, importLayout.bottom + laneGapY, sideWidth, 36, "#35c98f", t("map.switch_expanded") || "switch to Expanded mode", "Activate expanded mode", false, true, "", setExpandedFlowMode);
     } else if (canMinimizeImports) {
-      createNode("Return to Compact mode", leftX, importLayout.bottom + laneGapY, sideWidth, 36, "#35c98f", "hide extra imports", "Activate compact mode", false, true, "", setCompactFlowMode);
+      createNode(t("map.return_compact") || "Return to Compact mode", leftX, importLayout.bottom + laneGapY, sideWidth, 36, "#35c98f", t("map.hide_extra_imports") || "hide extra imports", "Activate compact mode", false, true, "", setCompactFlowMode);
     }
 
     if (hasHiddenImporters) {
-      createNode("+" + (allImporters.length - importers.length) + " more impacted modules", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", "switch to Expanded mode", "Activate expanded mode", false, true, "", setExpandedFlowMode);
+      createNode(laneMoreLabel("map.lane_more_impacted", allImporters.length - importers.length, "impacted modules"), rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", t("map.switch_expanded") || "switch to Expanded mode", "Activate expanded mode", false, true, "", setExpandedFlowMode);
     } else if (canMinimizeImporters) {
-      createNode("Return to Compact mode", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", "hide extra impacted modules", "Activate compact mode", false, true, "", setCompactFlowMode);
+      createNode(t("map.return_compact") || "Return to Compact mode", rightX, importerLayout.bottom + laneGapY, sideWidth, 36, "#ffad42", t("map.hide_extra_impacted") || "hide extra impacted modules", "Activate compact mode", false, true, "", setCompactFlowMode);
     }
 
     var importSpread = Math.min(64, Math.max(14, Math.round(14 + Math.sqrt(Math.max(1, importNodes.length)) * 6)));
@@ -2686,7 +2982,7 @@
     }
 
     if (proofRelated.length) {
-      if (laneLabels.proof) laneLabel("Proof pair context", centerX, proofStartY - 16, "#d37cff");
+      if (laneLabels.proof) laneLabel(t("map.lane_proof") || "Proof pair context", centerX, proofStartY - 16, "#d37cff");
       var proofY = proofStartY;
       for (var n = 0; n < proofRelated.length; n++) {
         var proofModName = proofRelated[n];
@@ -2701,7 +2997,7 @@
     }
 
     if (linkedPath.length > 1) {
-      if (laneLabels.linkedPath) laneLabel("Nearest linked-proof path (radius " + state.impactRadius + ")", Math.max(framePad, centerX - 180), pathStartY - 14, "#6de2ff");
+      if (laneLabels.linkedPath) laneLabel(t("map.lane_linked_path", { radius: state.impactRadius }) || ("Nearest linked-proof path (radius " + state.impactRadius + ")"), Math.max(framePad, centerX - 180), pathStartY - 14, "#6de2ff");
       var previousNode = center;
       for (var q = 0; q < pathItems.length; q++) {
         var pathItem = pathItems[q];
@@ -2713,7 +3009,7 @@
     }
 
     if (laneLabels.external) {
-      laneLabel("External imports", leftX, externalStartY - 10, "#b9c0d0");
+      laneLabel(t("map.lane_external") || "External imports", leftX, externalStartY - 10, "#b9c0d0");
       var externalEdgeNodes = [];
       for (var z = 0; z < externalItems.length; z++) {
         var externalItem = externalItems[z];
@@ -2726,6 +3022,398 @@
       for (var ze = 0; ze < externalEdgeNodes.length; ze++) {
         drawFlowEdge(edgeLayer, center, externalEdgeNodes[ze], "#b9c0d0", true, { rank: ze, total: externalEdgeNodes.length, spread: Math.min(40, externalEdgeNodes.length * 4), vertical: true });
       }
+    }
+
+    if (bandRows.length) {
+      drawBridgeBands(bandLayout, {
+        leftX: leftX,
+        edgeLayer: edgeLayer,
+        center: center,
+        laneLabel: laneLabel,
+        createNode: function (name, x, y, w, h, color, subtitle, tooltip) {
+          return createNode(name, x, y, w, h, color, subtitle, tooltip, false, false, "", (function (target) {
+            return function () { selectModule(target, false); };
+          })(name), moduleSourceLink(name), "flow-node-rust flow-node-bridge");
+        }
+      });
+    }
+
+    flowSvg.flush();
+    wrap.appendChild(svg);
+
+    renderFlowNodeInteriorMenu(selected);
+
+    if (!applyFlowScrollTarget(wrap, selected, center.x, center.y, center.w, center.h)) {
+      wrap.style.scrollBehavior = "auto";
+      wrap.scrollLeft = previousScrollLeft;
+      wrap.scrollTop = previousScrollTop;
+      wrap.style.removeProperty("scroll-behavior");
+    }
+  }
+
+  /* ------------------------------------------------------------------
+     The boundary band
+
+     Drawn under both charts in the combined scope. Three rows, each with its
+     own direction: what the other language implements for this node, what it
+     calls into this node, and the definitions the two sides share. The arrow
+     carries the direction, so `outbound` is the only thing the caller states.
+     ------------------------------------------------------------------ */
+
+  function bridgeBandRows(name) {
+    var bands = bridgeBandsFor(name);
+    if (!bands.total) return [];
+    var fromRust = isRustNode(name);
+    var rows = [];
+    function push(edges, relation, key, fallback, outbound) {
+      if (!edges.length) return;
+      rows.push({
+        relation: relation,
+        edges: edges,
+        color: BRIDGE_COLORS[relation],
+        label: t(key) || fallback,
+        outbound: outbound,
+        fromRust: fromRust
+      });
+    }
+    if (fromRust) {
+      push(bands.implements, "implements", "map.bridge_declared_in_lean", "Declared in Lean · implemented here", false);
+      push(bands.invokes, "invokes", "map.bridge_kernel_operations", "Kernel operations this wrapper calls", true);
+      push(bands.mirrors, "mirrors", "map.bridge_mirrored", "Written on both sides of the seam", false);
+      push(bands.shared, "shares", "map.bridge_shared", "Definitions shared across the boundary", false);
+    } else {
+      push(bands.invokes, "invokes", "map.bridge_called_from_rust", "Called from Rust user space", false);
+      push(bands.implements, "implements", "map.bridge_implemented_in_rust", "Declared here · implemented in Rust", true);
+      push(bands.mirrors, "mirrors", "map.bridge_mirrored", "Written on both sides of the seam", false);
+      push(bands.shared, "shares", "map.bridge_shared", "Definitions shared across the boundary", false);
+    }
+    return rows;
+  }
+
+  function layoutBridgeBands(rows, options) {
+    var opts = options || {};
+    var perRow = Math.max(1, Number(opts.perRow) || 3);
+    var width = Math.max(180, Number(opts.width) || 220);
+    var gapX = Number(opts.gapX) || 12;
+    var gapY = Number(opts.gapY) || 12;
+    var cursor = Number(opts.startY) || 0;
+    var out = [];
+
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+      var labelY = cursor;
+      cursor += 18;
+      var items = [];
+      var rowHeights = [];
+      for (var i = 0; i < row.edges.length; i++) {
+        var edge = row.edges[i];
+        var label = bridgeCounterpartName(edge, row.fromRust);
+        var subtitle = bridgeEdgeSubtitle(edge, row.fromRust);
+        var height = nodeContentHeight(label, subtitle, width, true, "", false);
+        var gridRow = Math.floor(i / perRow);
+        rowHeights[gridRow] = Math.max(rowHeights[gridRow] || 0, height);
+        items.push({ edge: edge, name: label, subtitle: subtitle, h: height, col: i % perRow, row: gridRow });
+      }
+      var rowY = [];
+      for (var g = 0; g < rowHeights.length; g++) {
+        rowY[g] = cursor;
+        cursor += rowHeights[g] + gapY;
+      }
+      for (var k = 0; k < items.length; k++) {
+        items[k].x = (Number(opts.leftX) || 0) + items[k].col * (width + gapX);
+        items[k].y = rowY[items[k].row];
+      }
+      out.push({ row: row, labelY: labelY, items: items, width: width });
+      cursor += 10;
+    }
+
+    return { bands: out, bottom: Math.max(Number(opts.startY) || 0, cursor - gapY - 10) };
+  }
+
+  function drawBridgeBands(layout, context) {
+    for (var b = 0; b < layout.bands.length; b++) {
+      var band = layout.bands[b];
+      context.laneLabel(band.row.label, context.leftX, band.labelY, band.row.color);
+      var drawn = [];
+      for (var i = 0; i < band.items.length; i++) {
+        var item = band.items[i];
+        var node = context.createNode(
+          item.name,
+          item.x,
+          item.y,
+          band.width,
+          item.h,
+          band.row.color,
+          item.subtitle,
+          bridgeEdgeTooltip(item.edge, band.row.fromRust),
+          item.edge
+        );
+        drawn.push(node);
+      }
+      var undirected = Boolean(BRIDGE_UNDIRECTED[band.row.relation]);
+      for (var d = 0; d < drawn.length; d++) {
+        var variant = {
+          rank: d, total: drawn.length, spread: Math.min(40, drawn.length * 5),
+          vertical: true, undirected: undirected
+        };
+        if (band.row.outbound) {
+          drawFlowEdge(context.edgeLayer, context.center, drawn[d], band.row.color, undirected, variant);
+        } else {
+          drawFlowEdge(context.edgeLayer, drawn[d], context.center, band.row.color, undirected, variant);
+        }
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------
+     The Rust chart
+
+     Same three-lane frame as the Lean chart, read in Rust's own terms: the
+     module path that reaches this file on the left, the modules it declares
+     on the right, its crate's dependency context below, and — in the combined
+     scope — the boundary band under that.
+     ------------------------------------------------------------------ */
+
+  function rustAncestorChain(name) {
+    var chain = [];
+    var seen = Object.create(null);
+    var cursor = rustNode(name);
+    while (cursor && cursor.parent && !seen[cursor.parent]) {
+      seen[cursor.parent] = true;
+      chain.push(cursor.parent);
+      cursor = rustNode(cursor.parent);
+    }
+    /* Root first, immediate parent last, so the column reads downwards as the
+       module path does: sele4n-abi → args → (selected) args::cspace. */
+    return chain.reverse();
+  }
+
+  /* A leaf module declares nothing, which would leave the right lane empty and
+     the crate unbrowsable from it. Its siblings — the modules its own parent
+     declares alongside it — go there instead, and the edges come from that
+     parent rather than from the centre, because that is who declares them. */
+  function rustSiblings(name) {
+    var node = rustNode(name);
+    if (!node || !node.parent) return [];
+    var parent = rustNode(node.parent);
+    if (!parent) return [];
+    var out = [];
+    for (var i = 0; i < parent.children.length; i++) {
+      if (parent.children[i] !== name) out.push(parent.children[i]);
+    }
+    return out;
+  }
+
+  function renderRustFlowchart() {
+    var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
+    if (!wrap) return;
+    var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
+    var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
+    var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
+    wrap.innerHTML = "";
+    flowClipIdCounter = 0;
+
+    var selected = state.selectedModule;
+    var node = rustNode(selected);
+    if (!node) {
+      wrap.textContent = t("map.select_module_flow") || "Select a module to render interaction and proof flow.";
+      renderFlowNodeInteriorMenu("");
+      return;
+    }
+
+    var ancestors = rustAncestorChain(selected);
+    /* The right lane holds what this module declares; a leaf has nothing to
+       declare, so it holds what its parent declares alongside it instead. */
+    var declaresChildren = node.children.length > 0;
+    var allKin = declaresChildren ? node.children.slice() : rustSiblings(selected);
+    var kinBudget = state.flowShowAll ? allKin.length : Math.max(state.neighborLimit, 8);
+    var kin = allKin.slice(0, kinBudget);
+    var dependencies = rustCrateDependencies(node.crate);
+
+    var layout = computeFlowLayout();
+    var flowWidth = layout.flowWidth;
+    var framePad = layout.framePad;
+    var centerWidth = layout.centerWidth;
+    var sideWidth = layout.sideWidth;
+    var leftX = layout.leftX;
+    var centerX = layout.centerX;
+    var rightX = layout.rightX;
+    var laneYStart = layout.laneYStart;
+    var laneGapY = layout.laneGapY;
+
+    function stack(names, width) {
+      var out = [];
+      var cursor = laneYStart;
+      for (var i = 0; i < names.length; i++) {
+        var subtitle = rustNodeSummary(names[i]);
+        var link = moduleSourceLink(names[i]);
+        var height = nodeContentHeight(names[i], subtitle, width, false, link ? link.label : "", false);
+        out.push({ name: names[i], y: cursor, h: height, subtitle: subtitle, sourceLink: link });
+        cursor += height + laneGapY;
+      }
+      return { nodes: out, bottom: names.length ? cursor - laneGapY : laneYStart + 44 };
+    }
+
+    var ancestorLayout = stack(ancestors, sideWidth);
+    var kinLayout = stack(kin, sideWidth);
+    var laneBottom = Math.max(ancestorLayout.bottom, kinLayout.bottom);
+
+    var centerSubtitle = node.isRoot
+      ? rustCrateSummary(node.crate)
+      : rustNodeSummary(selected);
+    var centerSourceLink = moduleSourceLink(selected);
+    var centerHeight = nodeContentHeight(selected, centerSubtitle, centerWidth, false, centerSourceLink ? centerSourceLink.label : "", false) + 14;
+    var laneContentHeight = laneBottom - laneYStart;
+    var centerY = Math.max(laneYStart, laneYStart + Math.floor(Math.max(0, laneContentHeight - centerHeight) / 2));
+    centerY = Math.min(centerY, laneYStart + Math.max(0, Math.floor(laneContentHeight * 0.5)));
+    var centerBottom = centerY + centerHeight;
+
+    var sectionGap = prefersCompactViewport() ? 36 : 54;
+    var depStartY = Math.max(laneBottom, centerBottom) + sectionGap;
+    var depPerRow = Math.max(2, Math.min(6, Math.floor((flowWidth - framePad * 2) / 220)));
+    var depWidth = Math.max(180, Math.floor((flowWidth - framePad * 2 - (depPerRow - 1) * 12) / depPerRow));
+    var depItems = [];
+    var depBottom = depStartY;
+    if (dependencies.length) {
+      var depRowHeights = [];
+      for (var di = 0; di < dependencies.length; di++) {
+        var depRow = Math.floor(di / depPerRow);
+        var depHeight = nodeContentHeight(dependencies[di].name, dependencies[di].label, depWidth, true, "", false);
+        depRowHeights[depRow] = Math.max(depRowHeights[depRow] || 0, depHeight);
+        depItems.push({ dep: dependencies[di], h: depHeight, col: di % depPerRow, row: depRow });
+      }
+      var depRowY = [];
+      var depCursor = depStartY;
+      for (var dr = 0; dr < depRowHeights.length; dr++) {
+        depRowY[dr] = depCursor;
+        depCursor += depRowHeights[dr] + 12;
+      }
+      for (var dz = 0; dz < depItems.length; dz++) {
+        depItems[dz].x = leftX + depItems[dz].col * (depWidth + 12);
+        depItems[dz].y = depRowY[depItems[dz].row];
+      }
+      depBottom = Math.max(depStartY, depCursor - 12);
+    }
+
+    var bandRows = bridgeBandRows(selected);
+    var bandStartY = (dependencies.length ? depBottom : Math.max(laneBottom, centerBottom)) + sectionGap;
+    var bandLayout = layoutBridgeBands(bandRows, {
+      startY: bandStartY,
+      leftX: leftX,
+      width: depWidth,
+      perRow: depPerRow
+    });
+
+    var effectiveBottom = bandRows.length ? bandLayout.bottom
+      : dependencies.length ? depBottom
+      : Math.max(laneBottom, centerBottom);
+    var minFlowHeight = prefersCompactViewport() ? 420 : 620;
+    var flowHeight = Math.max(minFlowHeight, effectiveBottom + 48);
+
+    wrap.appendChild(createFlowLegend(rustFlowLegendItems(), "Rust flow chart legend"));
+
+    var svgAriaLabel = "Rust module chart for " + selected + ": "
+      + ancestors.length + " enclosing module" + (ancestors.length === 1 ? "" : "s") + ", "
+      + allKin.length + (declaresChildren ? " declared module" : " sibling module") + (allKin.length === 1 ? "" : "s") + ", "
+      + dependencies.length + " crate dependenc" + (dependencies.length === 1 ? "y" : "ies")
+      + (bandRows.length ? ", " + bridgeBandsFor(selected).total + " Lean boundary edges" : "");
+    var flowSvg = createFlowSvg(flowWidth, flowHeight, svgAriaLabel);
+    var svg = flowSvg.svg;
+    var edgeLayer = flowSvg.edgeLayer;
+    var nodeLayer = flowSvg.nodeLayer;
+    var labelLayer = flowSvg.labelLayer;
+
+    function laneLabel(text, x, y, color) {
+      flowLaneLabel(labelLayer, text, x, y, color);
+    }
+
+    function createNode(name, x, y, w, h, color, subtitle, tooltip, onActivate, metaLink, extraClass, active) {
+      var className = "flow-node flow-node-rust" + (active ? " active" : "") + (onActivate ? " action" : "");
+      if (!onActivate && !active) className += " static";
+      if (extraClass) className += " " + extraClass;
+      var interactive = Boolean(onActivate);
+      return buildFlowNodeGroup(nodeLayer, className, interactive, name, name, x, y, w, h, color, subtitle, tooltip, onActivate || null, metaLink || null);
+    }
+
+    if (ancestors.length) laneLabel(t("map.rust_lane_enclosing") || "Module path", leftX, 30, "#35c98f");
+    if (kin.length) {
+      laneLabel(declaresChildren
+        ? (t("map.rust_lane_declares") || "Modules declared here")
+        : (t("map.rust_lane_siblings", { module: node.parent }) || ("Declared alongside, in " + node.parent)),
+        rightX, 30, "#ffad42");
+    }
+    laneLabel(rustNodeRoleLabel(node.role) + " · " + node.crateName, centerX, centerY - 12, "#7c9cff");
+
+    var center = createNode(selected, centerX, centerY, centerWidth, centerHeight, "#7c9cff", centerSubtitle, rustNodeTooltip(selected, t("map.rust_role_selected") || "Selected Rust module"), null, centerSourceLink, "", true);
+
+    function laneNodes(entries, laneX, color, roleLabel) {
+      var drawn = [];
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        drawn.push(createNode(
+          entry.name, laneX, entry.y, sideWidth, entry.h, color, entry.subtitle,
+          rustNodeTooltip(entry.name, roleLabel),
+          (function (target) { return function () { selectModule(target, false); }; })(entry.name),
+          entry.sourceLink
+        ));
+      }
+      return drawn;
+    }
+
+    var ancestorNodes = laneNodes(ancestorLayout.nodes, leftX, "#35c98f", t("map.rust_role_enclosing") || "Enclosing module");
+    var kinNodes = laneNodes(kinLayout.nodes, rightX, "#ffad42",
+      declaresChildren ? (t("map.rust_role_child") || "Declared module") : (t("map.rust_role_sibling") || "Sibling module"));
+
+    if (!state.flowShowAll && allKin.length > kin.length) {
+      createNode(
+        laneMoreLabel("map.lane_more", allKin.length - kin.length, ""),
+        rightX, kinLayout.bottom + laneGapY, sideWidth, 36, "#ffad42",
+        t("map.switch_expanded") || "switch to Expanded mode",
+        "Activate expanded mode", setExpandedFlowMode
+      );
+    }
+
+    /* The enclosing path is a chain, so draw it as one: root → … → parent →
+       selected. Edging every ancestor straight to the centre said the crate
+       root declares `sele4n-abi::args::cspace`, when `args` does — the lane is
+       the module tree recorded in `parent`, not a set of loose relations. */
+    for (var a = 0; a < ancestorNodes.length; a++) {
+      var from = ancestorNodes[a];
+      var to = a + 1 < ancestorNodes.length ? ancestorNodes[a + 1] : center;
+      drawFlowEdge(edgeLayer, from, to, "#35c98f", false, { rank: a, total: ancestorNodes.length, spread: 20 });
+    }
+    /* Children hang off the centre; siblings hang off the parent that declares
+       them, which is the last node in the ancestor column. */
+    var kinSource = declaresChildren ? center : (ancestorNodes.length ? ancestorNodes[ancestorNodes.length - 1] : center);
+    for (var ch = 0; ch < kinNodes.length; ch++) {
+      drawFlowEdge(edgeLayer, kinSource, kinNodes[ch], "#ffad42", !declaresChildren, { rank: ch, total: kinNodes.length, spread: Math.min(64, 14 + kinNodes.length * 3) });
+    }
+
+    if (depItems.length) {
+      laneLabel(t("map.rust_lane_dependencies", { crate: node.crateName }) || ("Crate dependencies of " + node.crateName), leftX, depStartY - 10, "#b9c0d0");
+      for (var dep = 0; dep < depItems.length; dep++) {
+        var item = depItems[dep];
+        var targetRoot = item.dep.navigable && state.rustGraph ? state.rustGraph.crateRootOf[item.dep.name] : "";
+        var activate = targetRoot ? (function (target) { return function () { selectModule(target, false); }; })(targetRoot) : null;
+        var depNode = createNode(item.dep.name, item.x, item.y, depWidth, item.h, "#b9c0d0", item.dep.label, item.dep.name + "\n" + item.dep.label, activate);
+        drawFlowEdge(edgeLayer, center, depNode, "#b9c0d0", true, { rank: dep, total: depItems.length, spread: Math.min(40, depItems.length * 4), vertical: true });
+      }
+    }
+
+    if (bandRows.length) {
+      drawBridgeBands(bandLayout, {
+        leftX: leftX,
+        edgeLayer: edgeLayer,
+        center: center,
+        laneLabel: laneLabel,
+        createNode: function (name, x, y, w, h, color, subtitle, tooltip) {
+          /* The counterparts here are Lean modules drawn inside the Rust
+             chart, so they carry the Lean marker that undoes the mono face. */
+          return createNode(name, x, y, w, h, color, subtitle, tooltip, (function (target) {
+            return function () { selectModule(target, false); };
+          })(name), moduleSourceLink(name), "flow-node-bridge flow-node-lean");
+        }
+      });
     }
 
     flowSvg.flush();
@@ -2888,6 +3576,13 @@
     var canCompactCalls = state.declarationLanesExpanded && sortedCalls.length > LANE_COLLAPSE_THRESHOLD;
     var canCompactCallers = state.declarationLanesExpanded && sortedCallers.length > LANE_COLLAPSE_THRESHOLD;
 
+    /* Looked up once and used for both the measurement and the painting: a
+       translated label measured at its English width wraps wrongly. */
+    var expandAllHint = t("map.expand_all") || "expand to show all";
+    var compactLabel = t("map.return_compact_short") || "Return to Compact";
+    var hideExtraCalls = t("map.hide_extra_calls") || "hide extra calls";
+    var hideExtraCallers = t("map.hide_extra_callers") || "hide extra callers";
+
     var callLayout = [];
     var cursorLeft = laneYStart;
     for (var ci = 0; ci < visibleCalls.length; ci++) {
@@ -2897,14 +3592,14 @@
       cursorLeft += ch + laneGapY;
     }
     if (collapsedCallCount > 0) {
-      var collapsedCallLabel = "+" + collapsedCallCount + " more";
-      var cch = nodeContentHeight(collapsedCallLabel, "expand to show all", sideWidth, true, "", false);
+      var collapsedCallLabel = laneMoreLabel("map.lane_more", collapsedCallCount, "");
+      var cch = nodeContentHeight(collapsedCallLabel, expandAllHint, sideWidth, true, "", false);
       callLayout.push({ name: collapsedCallLabel, y: cursorLeft, h: cch, collapsed: true, expandable: true });
       cursorLeft += cch + laneGapY;
     }
     if (canCompactCalls) {
-      var compactCallLabel = "Return to Compact";
-      var compactCallH = nodeContentHeight(compactCallLabel, "hide extra calls", sideWidth, true, "", false);
+      var compactCallLabel = compactLabel;
+      var compactCallH = nodeContentHeight(compactCallLabel, hideExtraCalls, sideWidth, true, "", false);
       callLayout.push({ name: compactCallLabel, y: cursorLeft, h: compactCallH, compactControl: true });
       cursorLeft += compactCallH + laneGapY;
     }
@@ -2919,14 +3614,14 @@
       cursorRight += bh + laneGapY;
     }
     if (collapsedCallerCount > 0) {
-      var collapsedCallerLabel = "+" + collapsedCallerCount + " more";
-      var ccbh = nodeContentHeight(collapsedCallerLabel, "expand to show all", sideWidth, true, "", false);
+      var collapsedCallerLabel = laneMoreLabel("map.lane_more", collapsedCallerCount, "");
+      var ccbh = nodeContentHeight(collapsedCallerLabel, expandAllHint, sideWidth, true, "", false);
       callerLayout.push({ name: collapsedCallerLabel, y: cursorRight, h: ccbh, collapsed: true, expandable: true });
       cursorRight += ccbh + laneGapY;
     }
     if (canCompactCallers) {
-      var compactCallerLabel = "Return to Compact";
-      var compactCallerH = nodeContentHeight(compactCallerLabel, "hide extra callers", sideWidth, true, "", false);
+      var compactCallerLabel = compactLabel;
+      var compactCallerH = nodeContentHeight(compactCallerLabel, hideExtraCallers, sideWidth, true, "", false);
       callerLayout.push({ name: compactCallerLabel, y: cursorRight, h: compactCallerH, compactControl: true });
       cursorRight += compactCallerH + laneGapY;
     }
@@ -2967,9 +3662,9 @@
     var hasCallees = calls.length > 0;
     var hasCallers = calledBy.length > 0;
 
-    if (hasCallees) laneLabel("Calls (outgoing)", leftX, 30, "#82f0b0");
-    laneLabel("Selected declaration", centerX, centerY - 12, "#7c9cff");
-    if (hasCallers) laneLabel("Called by (incoming)", rightX, 30, "#ffad42");
+    if (hasCallees) laneLabel(t("map.lane_calls") || "Calls (outgoing)", leftX, 30, "#82f0b0");
+    laneLabel(t("map.lane_selected_decl") || "Selected declaration", centerX, centerY - 12, "#7c9cff");
+    if (hasCallers) laneLabel(t("map.lane_called_by") || "Called by (incoming)", rightX, 30, "#ffad42");
 
     if (!hasCallees && !hasCallers) {
       var emptyHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 28, fill: "#8fa3bf", "font-size": "12", "class": "flow-lane-label" });
@@ -2995,9 +3690,9 @@
       var callItem = callLayout[i];
       if (callItem.expandable) {
         var expandCallTooltip = "Expand to show all " + (collapsedCallCount + visibleCalls.length) + " called declarations";
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", "expand to show all", expandCallTooltip, false, expandDeclarationLanes, null));
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", expandAllHint, expandCallTooltip, false, expandDeclarationLanes, null));
       } else if (callItem.compactControl) {
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", "hide extra calls", "Return to compact view", false, compactDeclarationLanes, null));
+        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", hideExtraCalls, "Return to compact view", false, compactDeclarationLanes, null));
       } else {
         var callColor = declNodeColor(callItem.name);
         var callNavigable = isDeclNavigable(callItem.name);
@@ -3010,9 +3705,9 @@
       var callerItem = callerLayout[j];
       if (callerItem.expandable) {
         var expandCallerTooltip = "Expand to show all " + (collapsedCallerCount + visibleCallers.length) + " caller declarations";
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", "expand to show all", expandCallerTooltip, false, expandDeclarationLanes, null));
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", expandAllHint, expandCallerTooltip, false, expandDeclarationLanes, null));
       } else if (callerItem.compactControl) {
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", "hide extra callers", "Return to compact view", false, compactDeclarationLanes, null));
+        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", hideExtraCallers, "Return to compact view", false, compactDeclarationLanes, null));
       } else {
         var callerColor = declNodeColor(callerItem.name);
         var callerNavigable = isDeclNavigable(callerItem.name);
@@ -3138,156 +3833,6 @@
     layer.appendChild(path);
   }
 
-  /* ── Repository inventory ──────────────────────────────────────────────── */
-
-  function githubBlobHref(path, line, ref) {
-    var cleanPath = String(path || "").replace(/^\/+/, "");
-    if (!cleanPath) return "";
-    var useRef = ref || state.commitSha || REF;
-    var encodedPath = cleanPath.split("/").map(encodeURIComponent).join("/");
-    return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(useRef) + "/" + encodedPath + (line > 0 ? "#L" + line : "");
-  }
-
-  function githubTreeHref(path, ref) {
-    var cleanPath = String(path || "").replace(/^\/+/, "");
-    var useRef = ref || state.commitSha || REF;
-    var encodedPath = cleanPath.split("/").map(encodeURIComponent).join("/");
-    return "https://github.com/" + REPO + "/tree/" + encodeURIComponent(useRef) + (encodedPath ? "/" + encodedPath : "");
-  }
-
-  function scriptKind(path) {
-    if (/\.sh$/.test(path)) return "shell";
-    if (/\.py$/.test(path)) return "python";
-    if (/\.(mjs|js|cjs)$/.test(path)) return "javascript";
-    return "other";
-  }
-
-  /* The crate whose directory holds a path, from the snapshot's crate list
-     (longest path wins, so a package nested inside another is its own). */
-  function owningCrate(path, crates) {
-    var list = Array.isArray(crates) ? crates : [];
-    var best = null;
-    for (var i = 0; i < list.length; i++) {
-      var dir = list[i] && typeof list[i].path === "string" ? list[i].path : "";
-      if (dir && path.indexOf(dir + "/") === 0 && (!best || dir.length > best.path.length)) best = list[i];
-    }
-    return best;
-  }
-
-  /* The crate's own entry for a file, when its card lists it: the scanner's
-     role travels with it. */
-  function crateFileEntry(crate, path) {
-    var files = crate && Array.isArray(crate.files) ? crate.files : [];
-    for (var i = 0; i < files.length; i++) if (files[i] && files[i].path === path) return files[i];
-    return null;
-  }
-
-  /* Where a repository path belongs in the inventory: one of the six groups,
-     and a subgroup within it (a Lean subsystem, a Rust crate, a directory).
-     `crates` is the snapshot's crate list, so a crate's files are grouped by
-     the crate that owns them wherever it sits (a nested member included). */
-  function classifyRepositoryPath(path, crates) {
-    var p = String(path || "").replace(/^\/+/, "");
-    var parts = p.split("/");
-    var top = parts.length > 1 ? parts[0] : "";
-
-    /* The in-tree testing framework is test code by the published scope. */
-    if (p.indexOf("SeLe4n/Testing/") === 0) {
-      return { group: "tests", subgroup: "SeLe4n/Testing" };
-    }
-    if ((top === "SeLe4n" && /\.lean$/.test(p)) || p === "Main.lean" || p === "SeLe4n.lean") {
-      return { group: "lean", subgroup: moduleSubsystem(moduleFromPath(p)) || "SeLe4n" };
-    }
-    if (top === "rust") {
-      /* A crate's integration tests, benches and examples are test code by
-         Cargo's layout — the scanner files them under role "test" — so they
-         belong with the tests, not the production sources. The runtime test
-         checks this agrees with the bundled snapshot's roles, file by file. */
-      var owner = owningCrate(p, crates);
-      if (owner) {
-        var relative = p.slice(owner.path.length + 1);
-        /* The scanner's role decides when the crate lists the file: a
-           manifest-declared test target outside tests/ is test code too. */
-        var entry = crateFileEntry(owner, p);
-        var testDir = /^(tests|benches|examples)\//.exec(relative);
-        if (testDir || (entry && entry.role === "test")) {
-          var dir = testDir ? testDir[1] : (relative.indexOf("/") === -1 ? "" : relative.slice(0, relative.lastIndexOf("/")));
-          return { group: "tests", subgroup: owner.path + (dir ? "/" + dir : "") };
-        }
-        /* A root package sits in the workspace directory itself: name it. */
-        var crateLabel = owner.path.length > top.length ? owner.path.slice(top.length + 1) : String(owner.name || owner.path);
-        return { group: "rust", subgroup: crateLabel };
-      }
-      if (parts.length > 3 && /^(tests|benches|examples)$/.test(parts[2])) {
-        return { group: "tests", subgroup: "rust/" + parts[1] + "/" + parts[2] };
-      }
-      return { group: "rust", subgroup: parts.length > 2 ? parts[1] : "workspace" };
-    }
-    if (top === "tests") {
-      if (parts.length > 2) return { group: "tests", subgroup: "tests/" + parts[1] };
-      return { group: "tests", subgroup: /\.lean$/.test(p) ? "tests" : "tests (other)" };
-    }
-    if (top === "scripts") {
-      if (parts.length > 2) return { group: "scripts", subgroup: "scripts/" + parts[1] };
-      return { group: "scripts", subgroup: "scripts (" + scriptKind(p) + ")" };
-    }
-    if (top === "docs") {
-      return { group: "docs", subgroup: parts.length > 2 ? "docs/" + parts[1] : "docs" };
-    }
-    if (!top && (/\.(md|txt|rst)$/i.test(p) || p === "LICENSE")) {
-      return { group: "docs", subgroup: "repository root" };
-    }
-    if (top === ".github") {
-      return { group: "project", subgroup: parts.length > 2 ? ".github/" + parts[1] : ".github" };
-    }
-    return { group: "project", subgroup: top || "repository root" };
-  }
-
-  function buildRepositoryInventory(files, moduleMap, crates) {
-    var groups = Object.create(null);
-    for (var o = 0; o < REPOSITORY_GROUP_ORDER.length; o++) {
-      var id = REPOSITORY_GROUP_ORDER[o];
-      groups[id] = { id: id, production: Boolean(PRODUCTION_GROUPS[id]), count: 0, subgroups: Object.create(null), subgroupOrder: [] };
-    }
-    var pathToModule = Object.create(null);
-    var map = moduleMap || Object.create(null);
-    for (var moduleName in map) {
-      if (Object.prototype.hasOwnProperty.call(map, moduleName)) pathToModule[map[moduleName]] = moduleName;
-    }
-    var list = Array.isArray(files) ? files : [];
-    for (var i = 0; i < list.length; i++) {
-      var path = String(list[i] || "");
-      if (!path) continue;
-      var cls = classifyRepositoryPath(path, crates);
-      var group = groups[cls.group] || groups.project;
-      var sub = group.subgroups[cls.subgroup];
-      if (!sub) {
-        sub = group.subgroups[cls.subgroup] = { key: cls.subgroup, files: [], modules: [] };
-        group.subgroupOrder.push(cls.subgroup);
-      }
-      sub.files.push(path);
-      var owner = pathToModule[path];
-      if (owner && cls.group === "lean") sub.modules.push(owner);
-      group.count += 1;
-    }
-    var out = [];
-    for (var k = 0; k < REPOSITORY_GROUP_ORDER.length; k++) {
-      var entry = groups[REPOSITORY_GROUP_ORDER[k]];
-      var subs = [];
-      for (var si = 0; si < entry.subgroupOrder.length; si++) {
-        var subgroup = entry.subgroups[entry.subgroupOrder[si]];
-        subgroup.files.sort();
-        subgroup.modules.sort();
-        subs.push(subgroup);
-      }
-      subs.sort(function (a, b) { return a.key.localeCompare(b.key); });
-      var moduleTotal = 0;
-      for (var mi = 0; mi < subs.length; mi++) moduleTotal += subs[mi].modules.length;
-      out.push({ id: entry.id, production: entry.production, count: entry.count, modules: moduleTotal, subgroups: subs });
-    }
-    return out;
-  }
-
   /* A live refresh replaces the module graph but may carry no repository tree
      (the canonical artifact lists only Lean modules) and no Rust inventory
      (nothing upstream produces one). Keep whichever the previous data had, and
@@ -3337,19 +3882,428 @@
     };
   }
 
-  function rustItemColor(kind) {
-    return RUST_ITEM_COLOR_MAP[String(kind || "")] || "#8fa3bf";
+  /* ------------------------------------------------------------------
+     The Rust module graph
+
+     One node per production Rust source file, addressed by the Rust module
+     path the file owns: `sele4n-abi::args::cspace`. A crate's library root is
+     the bare crate name; a target that is its own crate root — a binary, the
+     build script — carries that target as a path segment, and the node's
+     subtitle says which it is, so the address is never mistaken for a module
+     of the library. Test targets are left out: production code is the map's
+     subject, and the crate root's summary still names the test surface.
+     ------------------------------------------------------------------ */
+
+  var RUST_TARGET_ROLES = { lib: true, bin: true, build: true, test: true };
+
+  /* The target a root file belongs to, as cargo names it: `src/bin/x.rs` and
+     `src/bin/x/main.rs` are both the binary `x`, `src/main.rs` the package's
+     default binary, `tests/x.rs` the integration test `x`. */
+  function rustTargetName(crate, file) {
+    /* A manifest-declared target's name is the only place a nonconventional
+       path's identity is written down — `[[bin]] name = "runner", path =
+       "tool/entry.rs"` builds `runner` — so the snapshot records it and it
+       wins. Deriving `tool_entry` from the path addresses a target Cargo does
+       not have, in the chart and in the shareable URL alike. A snapshot
+       predating the field falls back to the conventional reading below. */
+    var declared = urlSafeNodeSegment(file && file.targetName);
+    if (declared) return declared;
+    var rel = String(file && file.relativePath || "");
+    var nested = rel.match(/^(?:src\/bin|tests|benches|examples)\/([^/]+)\/main\.rs$/);
+    if (nested) return nested[1];
+    var flat = rel.match(/^(?:src\/bin|tests|benches|examples)\/([^/]+)\.rs$/);
+    if (flat) return flat[1];
+    if (rel === "src/main.rs") return String(crate && crate.name || "");
+    return rel.replace(/\.rs$/, "").replace(/\//g, "_");
   }
 
-  function sortRustItems(items) {
-    var rank = Object.create(null);
-    for (var i = 0; i < RUST_ITEM_KIND_ORDER.length; i++) rank[RUST_ITEM_KIND_ORDER[i]] = i;
-    return (Array.isArray(items) ? items : []).slice().sort(function (a, b) {
-      var ra = rank[a.kind] === undefined ? RUST_ITEM_KIND_ORDER.length : rank[a.kind];
-      var rb = rank[b.kind] === undefined ? RUST_ITEM_KIND_ORDER.length : rank[b.kind];
-      if (ra !== rb) return ra - rb;
-      return (a.line || 0) - (b.line || 0);
-    });
+  /* The node address for a crate file. Modules take their Rust module path;
+     the roles that open a crate of their own take a segment naming the role,
+     which `rustNodeRoleLabel` then spells out on the node itself. */
+  function rustNodeName(crate, file) {
+    var crateName = String(crate && crate.name || "");
+    if (!crateName) return "";
+    var modulePath = String(file && file.modulePath || "");
+    if (modulePath) return crateName + "::" + modulePath;
+    var role = String(file && file.role || "");
+    if (role === "build") return crateName + "::build";
+    if (role === "bin") return crateName + "::bin::" + rustTargetName(crate, file);
+    if (role === "test") return crateName + "::tests::" + rustTargetName(crate, file);
+    return crateName;
+  }
+
+  function rustNodeRoleLabel(role) {
+    var key = "map.rust_role_" + String(role || "module");
+    var fallback = {
+      lib: "crate root",
+      module: "module",
+      bin: "binary target",
+      build: "build script",
+      test: "test target"
+    };
+    return t(key) || fallback[role] || fallback.module;
+  }
+
+  /* The module that declares this one: `args::cspace` hangs off `args`, a
+     top-level module off the target root it belongs to. A module reached from
+     a binary root keeps that binary as its root rather than the library. */
+  function rustParentName(crate, file, byModulePath, rootsByRole, byRelativePath) {
+    var modulePath = String(file && file.modulePath || "");
+    if (!modulePath) return "";
+    /* Keyed by target *and* module path. Two targets in one package can carry
+       the same nested path — `src/args/cspace.rs` in the library and
+       `src/bin/tool/args/cspace.rs` in a binary both reach `args::cspace` —
+       and a path-only index holds one `args`, so one `cspace` hung off the
+       other target's parent. */
+    var target = String(file && file.target || "");
+    var parts = modulePath.split("::");
+    parts.pop();
+    if (parts.length) {
+      var parentPath = parts.join("::");
+      var scoped = byModulePath[target + "\u0000" + parentPath];
+      if (scoped) return scoped;
+    }
+    /* The file's own target root, when the snapshot names it: a module of
+       `src/bin/tool/main.rs` hangs off that binary, not off the library that
+       happens to exist alongside it. */
+    if (target && byRelativePath[target]) return byRelativePath[target];
+    return rootsByRole.lib || rootsByRole.bin || rootsByRole.build || "";
+  }
+
+  function buildRustGraph(rust) {
+    var inventory = rust && Array.isArray(rust.crates) ? rust : null;
+    if (!inventory) return null;
+
+    var byName = Object.create(null);
+    var nodes = [];
+    var crateRoots = [];
+    var crateRootOf = Object.create(null);
+
+    for (var c = 0; c < inventory.crates.length; c++) {
+      var crate = inventory.crates[c];
+      var files = Array.isArray(crate.files) ? crate.files : [];
+      var byModulePath = Object.create(null);
+      var byRelativePath = Object.create(null);
+      var rootsByRole = Object.create(null);
+      var crateNodes = [];
+
+      for (var f = 0; f < files.length; f++) {
+        var file = files[f];
+        if (!file || typeof file.path !== "string") continue;
+        /* Test code is outside the production surface the map draws. `role`
+           reads the pathname, so it calls `src/tests.rs` a module; the
+           file-level flag is the one that knows `#[cfg(test)] mod tests;`
+           makes that file — and every module it declares in turn — test-only.
+           A snapshot predating the flag is judged on role alone, as before. */
+        if (file.role === "test" || file.testOnly === true) continue;
+        /* So is a file no Cargo target reaches: the scanner lists it (its
+           items are real text) but it compiles into nothing, and drawing it
+           would present stale or generated source as part of the module
+           tree. `reachable` is compilation reachability, wider than the
+           `exported` flag the boundary uses. A snapshot predating it says
+           nothing, and everything it lists is drawn as before. */
+        if (file.reachable === false) continue;
+        var name = rustNodeName(crate, file);
+        if (!name) continue;
+        /* Two files can only collide when a crate declares a module named
+           after one of its own targets; keep both by falling back to the
+           path, so no file is silently dropped. The suffix has to survive
+           sanitizeModuleName() — a node the URL cannot carry is a node whose
+           selection is lost on reload and cannot be shared. */
+        if (byName[name]) name = name + "::" + urlSafeNodeSegment(file.relativePath);
+        if (byName[name]) continue;
+
+        var record = {
+          name: name,
+          crateName: String(crate.name || ""),
+          crate: crate,
+          file: file,
+          path: String(file.path || ""),
+          relativePath: String(file.relativePath || ""),
+          modulePath: String(file.modulePath || ""),
+          role: String(file.role || "module"),
+          isRoot: !file.modulePath && Boolean(RUST_TARGET_ROLES[file.role]),
+          parent: "",
+          children: []
+        };
+        byName[name] = record;
+        nodes.push(name);
+        crateNodes.push(record);
+        byRelativePath[record.relativePath] = name;
+        if (record.modulePath) byModulePath[String(file.target || "") + "\u0000" + record.modulePath] = name;
+        else if (!rootsByRole[record.role]) rootsByRole[record.role] = name;
+      }
+
+      var libRoot = rootsByRole.lib || rootsByRole.bin || rootsByRole.build || "";
+      if (libRoot) {
+        crateRoots.push(libRoot);
+        crateRootOf[String(crate.name || "")] = libRoot;
+      }
+      for (var n = 0; n < crateNodes.length; n++) {
+        var node = crateNodes[n];
+        node.parent = rustParentName(crate, node.file, byModulePath, rootsByRole, byRelativePath);
+        if (node.parent === node.name) node.parent = "";
+      }
+    }
+
+    for (var k = 0; k < nodes.length; k++) {
+      var child = byName[nodes[k]];
+      if (child.parent && byName[child.parent]) byName[child.parent].children.push(child.name);
+    }
+    for (var p = 0; p < nodes.length; p++) byName[nodes[p]].children.sort();
+    nodes.sort();
+
+    return {
+      nodes: nodes,
+      byName: byName,
+      crateRoots: crateRoots,
+      crateRootOf: crateRootOf,
+      inventory: inventory
+    };
+  }
+
+  function isRustNode(name) {
+    return Boolean(state.rustGraph && state.rustGraph.byName[name]);
+  }
+
+  function rustNode(name) {
+    return (state.rustGraph && state.rustGraph.byName[name]) || null;
+  }
+
+  function rustCrateStratum(crateName) {
+    return RUST_CRATE_STRATUM[String(crateName || "")] || "shared";
+  }
+
+  /* ------------------------------------------------------------------
+     The Lean ↔ Rust boundary
+
+     Two declarations are the same declaration across the boundary when their
+     names agree once case convention is normalised away: `ffiGicAcknowledge`
+     and `ffi_gic_acknowledge`, `ThreadId` and `ThreadId`, `MAX_LABEL` and
+     `maxLabel`. What that pair *means* follows from the Lean side's kind: a
+     Lean `opaque` has no Lean body, so a Rust `fn` of the same name is its
+     implementation and the kernel calls down into it. Everything softer than
+     that is labelled as what it is and never as a call.
+     ------------------------------------------------------------------ */
+
+  function toBridgeKey(name) {
+    var raw = String(name || "").replace(/^r#/, "");
+    if (!raw || raw.charAt(0) === "<") return "";
+    return raw
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+      .toLowerCase();
+  }
+
+  function bridgeRelation(rustKind, leanKind, crateName) {
+    if (rustKind !== "fn") return "shares";
+    if (BRIDGE_FOREIGN_LEAN_KINDS[leanKind]) return "implements";
+    var stratum = rustCrateStratum(crateName);
+    if (stratum === "userspace") return "invokes";
+    if (stratum === "hardware") return "mirrors";
+    return "shares";
+  }
+
+  /* Lean declarations by normalised name. A name declared several times keeps
+     every declaration: the same type can be named in a structure and restated
+     in an abbreviation, and both are real. */
+  function leanDeclarationsByBridgeKey() {
+    var index = Object.create(null);
+    for (var i = 0; i < state.modules.length; i++) {
+      var moduleName = state.modules[i];
+      var meta = state.moduleMeta[moduleName];
+      var byKind = (meta && meta.symbols && meta.symbols.byKind) || null;
+      if (!byKind) continue;
+      for (var kind in byKind) {
+        if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
+        if (!BRIDGE_LEAN_KINDS[kind]) continue;
+        var list = byKind[kind];
+        if (!Array.isArray(list)) continue;
+        for (var j = 0; j < list.length; j++) {
+          var entry = list[j];
+          var declName = entry && typeof entry === "object" ? entry.name : entry;
+          var key = toBridgeKey(declName);
+          if (!key) continue;
+          if (!index[key]) index[key] = [];
+          index[key].push({
+            module: moduleName,
+            name: String(declName),
+            kind: kind,
+            line: (entry && entry.line) || 0
+          });
+        }
+      }
+    }
+    return index;
+  }
+
+  /* One edge per (Rust module, Lean module, relation), carrying the matched
+     declarations so a node can say which ones they are. */
+  function buildBridgeIndex() {
+    if (!state.rustGraph || !state.modules.length) {
+      state.bridge = { byRust: Object.create(null), byLean: Object.create(null), links: 0, pairs: 0 };
+      return state.bridge;
+    }
+
+    var leanIndex = leanDeclarationsByBridgeKey();
+    var byRust = Object.create(null);
+    var byLean = Object.create(null);
+    var edges = Object.create(null);
+    var links = 0;
+
+    /* Whether this snapshot knows about export reachability at all. The flag
+       is emitted for every item, so its total absence — and only that — means
+       an older bundle whose items can be judged on syntax alone. */
+    var carriesExportFlag = false;
+    for (var e = 0; e < state.rustGraph.nodes.length && !carriesExportFlag; e++) {
+      var probeNode = state.rustGraph.byName[state.rustGraph.nodes[e]];
+      var probeItems = (probeNode.file && Array.isArray(probeNode.file.items)) ? probeNode.file.items : [];
+      for (var p = 0; p < probeItems.length; p++) {
+        if (probeItems[p] && typeof probeItems[p].exported === "boolean") { carriesExportFlag = true; break; }
+      }
+    }
+
+    for (var i = 0; i < state.rustGraph.nodes.length; i++) {
+      var nodeName = state.rustGraph.nodes[i];
+      var node = state.rustGraph.byName[nodeName];
+      var items = (node.file && Array.isArray(node.file.items)) ? node.file.items : [];
+      for (var j = 0; j < items.length; j++) {
+        var item = items[j];
+        if (!item || item.test) continue;
+        /* `exported`, not `visibility`: a `pub` item inside a private module is
+           crate-private, and matching it published a boundary link for an
+           implementation detail — `sele4n-hal`'s `error_code::VM_FAULT` and
+           `USER_EXCEPTION` both name Lean definitions and both are unreachable
+           from outside the crate. A snapshot predating the flag carries it on
+           no item at all, and falls back to the syntactic test rather than
+           emptying the boundary (see carriesExportFlag). */
+        if (!(carriesExportFlag ? item.exported === true : item.visibility === "pub")) continue;
+        if (!BRIDGE_RUST_KINDS[item.kind]) continue;
+        var matches = leanIndex[toBridgeKey(item.name)];
+        if (!matches) continue;
+        for (var m = 0; m < matches.length; m++) {
+          var lean = matches[m];
+          var relation = bridgeRelation(item.kind, lean.kind, node.crateName);
+          var edgeKey = nodeName + "\u0000" + lean.module + "\u0000" + relation;
+          var edge = edges[edgeKey];
+          if (!edge) {
+            edge = edges[edgeKey] = {
+              rustNode: nodeName,
+              leanModule: lean.module,
+              relation: relation,
+              links: []
+            };
+            if (!byRust[nodeName]) byRust[nodeName] = [];
+            if (!byLean[lean.module]) byLean[lean.module] = [];
+            byRust[nodeName].push(edge);
+            byLean[lean.module].push(edge);
+          }
+          edge.links.push({
+            leanName: lean.name,
+            leanKind: lean.kind,
+            leanLine: lean.line,
+            rustName: String(item.name),
+            rustKind: String(item.kind),
+            rustLine: item.line || 0
+          });
+          links += 1;
+        }
+      }
+    }
+
+    var relationRank = Object.create(null);
+    for (var r = 0; r < BRIDGE_RELATIONS.length; r++) relationRank[BRIDGE_RELATIONS[r]] = r;
+    function sortEdges(list, labelOf) {
+      list.sort(function (a, b) {
+        var byRelation = relationRank[a.relation] - relationRank[b.relation];
+        if (byRelation) return byRelation;
+        var byLinks = b.links.length - a.links.length;
+        return byLinks || labelOf(a).localeCompare(labelOf(b));
+      });
+      for (var s = 0; s < list.length; s++) {
+        list[s].links.sort(function (a, b) { return a.rustName.localeCompare(b.rustName); });
+      }
+    }
+    for (var rustKey in byRust) {
+      if (Object.prototype.hasOwnProperty.call(byRust, rustKey)) {
+        sortEdges(byRust[rustKey], function (edge) { return edge.leanModule; });
+      }
+    }
+    for (var leanKey in byLean) {
+      if (Object.prototype.hasOwnProperty.call(byLean, leanKey)) {
+        sortEdges(byLean[leanKey], function (edge) { return edge.rustNode; });
+      }
+    }
+
+    var pairs = 0;
+    for (var key in edges) if (Object.prototype.hasOwnProperty.call(edges, key)) pairs += 1;
+
+    state.bridge = { byRust: byRust, byLean: byLean, links: links, pairs: pairs };
+    return state.bridge;
+  }
+
+  /* The boundary edges a node carries, grouped into the three bands the chart
+     draws: what Rust implements for Lean, what Rust calls into Lean, and the
+     definitions the two sides share. Empty in `lean` and `rust` scope — the
+     boundary is what the combined reading adds. */
+  function bridgeBandsFor(name) {
+    var empty = { implements: [], invokes: [], mirrors: [], shared: [], total: 0 };
+    if (state.scope !== "both" || !state.bridge) return empty;
+    var edges = isRustNode(name) ? state.bridge.byRust[name] : state.bridge.byLean[name];
+    if (!edges || !edges.length) return empty;
+    var bands = { implements: [], invokes: [], mirrors: [], shared: [], total: 0 };
+    for (var i = 0; i < edges.length; i++) {
+      var edge = edges[i];
+      /* `mirrors` keeps its own band. Folded into `shared` it was relabelled
+         as a definition the two sides hold, which is the opposite of what it
+         means: a HAL routine written once in Lean and once in Rust is two
+         implementations of one contract, not one definition. */
+      if (edge.relation === "implements") bands.implements.push(edge);
+      else if (edge.relation === "invokes") bands.invokes.push(edge);
+      else if (edge.relation === "mirrors") bands.mirrors.push(edge);
+      else bands.shared.push(edge);
+      bands.total += 1;
+    }
+    return bands;
+  }
+
+  function bridgeCounterpartName(edge, fromRust) {
+    return fromRust ? edge.leanModule : edge.rustNode;
+  }
+
+  /* "ffiGicAcknowledge, ffiGicEoi +6 more" — the declarations behind an edge,
+     named rather than counted, because the names are the evidence. */
+  function bridgeEdgeSubtitle(edge, fromRust) {
+    var shown = [];
+    var limit = 3;
+    for (var i = 0; i < edge.links.length && i < limit; i++) {
+      shown.push(fromRust ? edge.links[i].leanName : edge.links[i].rustName);
+    }
+    var text = shown.join(", ");
+    var extra = edge.links.length - shown.length;
+    if (extra > 0) text += " " + (t("map.bridge_more", { count: extra }) || ("+" + formatCount(extra) + " more"));
+    return text;
+  }
+
+  function bridgeRelationLabel(relation) {
+    var fallback = {
+      implements: "Lean declares · Rust defines",
+      invokes: "Rust wrapper · Lean operation",
+      mirrors: "Lean operation · Rust routine",
+      shares: "same definition on both sides"
+    };
+    return t("map.bridge_relation_" + relation) || fallback[relation] || relation;
+  }
+
+  function bridgeEdgeTooltip(edge, fromRust) {
+    var counterpart = bridgeCounterpartName(edge, fromRust);
+    var lines = [bridgeRelationLabel(edge.relation), counterpart, ""];
+    for (var i = 0; i < edge.links.length && i < 12; i++) {
+      var link = edge.links[i];
+      lines.push(link.leanKind + " " + link.leanName + "  ↔  " + link.rustKind + " " + link.rustName);
+    }
+    if (edge.links.length > 12) lines.push("… +" + (edge.links.length - 12));
+    return lines.join("\n");
   }
 
   /* The crate-level lint and the counted sites are two facts, not one. A
@@ -3400,771 +4354,227 @@
     return parts.join(" \u00B7 ");
   }
 
-  function crateDirectory(crate) {
-    return String(crate && crate.path || "").replace(/^\/+|\/+$/g, "");
+  /* ------------------------------------------------------------------
+     Scope-aware node accessors
+
+     A node is either a Lean module or a Rust module; these are the handful of
+     questions the chart, the chooser and the sidebar ask without caring which.
+     ------------------------------------------------------------------ */
+
+  function scopeIncludesLean() { return state.scope !== "rust"; }
+  function scopeIncludesRust() { return state.scope !== "lean"; }
+
+  function nodeExists(name) {
+    if (!name) return false;
+    if (scopeIncludesLean() && state.moduleMap[name]) return true;
+    return scopeIncludesRust() && isRustNode(name);
   }
 
-  /* Files under a crate directory that its card does not list — the manifest,
-     linker scripts, assembly sources — so that every path in the tree has one
-     entry: the card owns the Rust sources, the inventory owns the rest. */
-  function crateSupportFiles(group, crate) {
-    var dir = crateDirectory(crate);
-    if (!dir) return [];
-    var listed = Object.create(null);
-    var files = Array.isArray(crate.files) ? crate.files : [];
-    for (var i = 0; i < files.length; i++) if (files[i] && files[i].path) listed[files[i].path] = true;
+  function nodePath(name) {
+    if (state.moduleMap[name]) return state.moduleMap[name];
+    var node = rustNode(name);
+    return node ? node.path : "";
+  }
+
+  /* The Rust inventory can be a commit behind the module graph after a live
+     refresh that carried no crates, so each half links at its own revision. */
+  function nodeSourceRef(name) {
+    if (isRustNode(name)) return state.rustCommit || state.commitSha || REF;
+    return state.commitSha || REF;
+  }
+
+  function scopeNodes() {
     var out = [];
-    var subgroups = group && Array.isArray(group.subgroups) ? group.subgroups : [];
-    for (var s = 0; s < subgroups.length; s++) {
-      var paths = Array.isArray(subgroups[s].files) ? subgroups[s].files : [];
-      for (var p = 0; p < paths.length; p++) {
-        if (paths[p].indexOf(dir + "/") !== 0 || listed[paths[p]]) continue;
-        /* A file inside a package nested in this crate's directory is that
-           package's, not this crate's. */
-        var owner = owningCrate(paths[p], state.rust && state.rust.crates);
-        if (owner && owner.path !== crate.path) continue;
-        out.push(paths[p]);
-      }
-    }
-    out.sort();
+    if (scopeIncludesLean()) out = out.concat(state.modules);
+    if (scopeIncludesRust() && state.rustGraph) out = out.concat(state.rustGraph.nodes);
     return out;
   }
 
-  function repositoryGroupLabel(id) {
-    var fallback = { lean: "Production Lean", rust: "Production Rust", tests: "Tests", scripts: "Scripts", docs: "Documentation", project: "Project & tooling" };
-    return t("map.group_" + id) || fallback[id] || id;
+  /* The node the workspace opens on: the kernel's syscall surface in any scope
+     that carries Lean, the first crate root otherwise. */
+  function defaultNodeName() {
+    if (scopeIncludesLean()) {
+      var leanDefault = defaultModuleName();
+      if (leanDefault) return leanDefault;
+    }
+    if (scopeIncludesRust() && state.rustGraph) {
+      if (state.rustGraph.crateRoots.length) return state.rustGraph.crateRoots[0];
+      if (state.rustGraph.nodes.length) return state.rustGraph.nodes[0];
+    }
+    return null;
   }
 
-  function repositoryGroupDescription(id) {
-    var fallback = {
-      lean: "Kernel, model and platform modules — the corpus every published statistic describes.",
-      rust: "The user-space syscall crates and the bare-metal HAL, inventoried from the same checkout.",
-      tests: "Lean test suites, fixtures and scenarios, plus the in-tree testing framework — all outside the production corpus.",
-      scripts: "Shell and Python tooling that builds, checks and audits the kernel.",
-      docs: "Specifications, audits, planning notes and development history.",
-      project: "CI workflows, toolchain pins, build manifests and other repository plumbing."
+  /* ------------------------------------------------------------------
+     Rust declarations for the sidebar
+     ------------------------------------------------------------------ */
+
+  /* A Rust kind is a keyword, so it reads the same in every locale: the
+     fallback is the keyword itself, not a title-cased word. Only the "(test)"
+     qualifier around it is prose. */
+  function rustKindLabel(kind) {
+    var raw = String(kind || "");
+    var isTest = raw.indexOf(RUST_TEST_KIND_PREFIX) === 0;
+    var bare = isTest ? raw.slice(RUST_TEST_KIND_PREFIX.length) : raw;
+    var base = t("map.rust_kind_" + bare) || (bare === "macro" ? "macro_rules!" : bare);
+    if (!isTest) return base;
+    return (t("map.rust_kind_test", { kind: base }) || (base + " (test)"));
+  }
+
+  function rustKindGroupLabel(key) {
+    return t("map.kind_" + key) || RUST_KIND_GROUP_LABELS_EN[key] || key;
+  }
+
+  /* The file's items bucketed by kind, with test items under a `test:` prefix
+     so the sidebar's fourth tab holds them without a second control. The
+     shapes match the Lean interior so one renderer serves both.
+
+     `listed` and `tests` count what the sidebar shows, which is not the same
+     quantity as the snapshot's `productionItems`: an `impl` block is listed
+     but never counted as a declaration. The node summary quotes the
+     snapshot's figure and this one stays inside the sidebar, so the two can
+     never be mistaken for each other. */
+  function rustInteriorForNode(name) {
+    var node = rustNode(name);
+    var byKind = Object.create(null);
+    for (var i = 0; i < ALL_RUST_KINDS.length; i++) byKind[ALL_RUST_KINDS[i]] = [];
+    var empty = { byKind: byKind, theorems: [], functions: [], total: 0, listed: 0, tests: 0 };
+    if (!node) return empty;
+    if (node.__interiorCache && node.__interiorCacheSource === node.file) return node.__interiorCache;
+
+    var items = Array.isArray(node.file && node.file.items) ? node.file.items : [];
+    var listed = 0;
+    var tests = 0;
+    for (var j = 0; j < items.length; j++) {
+      var item = items[j];
+      if (!item || !item.name) continue;
+      var kind = String(item.kind || "");
+      var key = item.test ? RUST_TEST_KIND_PREFIX + kind : kind;
+      if (!byKind[key]) continue;
+      byKind[key].push({
+        name: String(item.name),
+        line: item.line || 0,
+        visibility: String(item.visibility || "private"),
+        kind: kind,
+        test: Boolean(item.test)
+      });
+      if (item.test) tests += 1; else listed += 1;
+    }
+
+    var normalized = {
+      byKind: byKind,
+      theorems: [],
+      functions: (byKind.fn || []).slice(),
+      total: listed + tests,
+      listed: listed,
+      tests: tests
     };
-    return t("map.group_" + id + "_desc") || fallback[id] || "";
+    node.__interiorCacheSource = node.file;
+    node.__interiorCache = normalized;
+    return normalized;
   }
 
-  function fileCountLabel(count) {
-    return t("map.count_files", { count: count }) || pluralEn(count, "file", "files");
+  /* "18 items · 4 pub · 229 lines · 2 unsafe · 10 test" — the production
+     surface first, the test surface named separately, never one mixed total. */
+  function rustNodeSummary(name) {
+    var node = rustNode(name);
+    if (!node) return "";
+    var file = node.file || {};
+    var parts = [];
+    var production = Number(file.productionItems) || 0;
+    var publicItems = Number(file.publicItems) || 0;
+    var testItems = Number(file.testItems) || 0;
+    parts.push(t("map.rust_items", { count: production }) || pluralEn(production, "item", "items"));
+    if (publicItems) parts.push(t("map.rust_public", { count: publicItems }) || (formatCount(publicItems) + " pub"));
+    parts.push(t("map.rust_lines", { count: Number(file.lines) || 0 }) || pluralEn(Number(file.lines) || 0, "line", "lines"));
+    var unsafeSites = unsafeCounts(file.unsafe).sites;
+    if (unsafeSites) parts.push(t("map.rust_unsafe_sites", { count: unsafeSites }) || pluralEn(unsafeSites, "unsafe site", "unsafe sites"));
+    if (testItems) parts.push(t("map.rust_tests", { count: testItems }) || pluralEn(testItems, "test", "tests"));
+    return parts.join(" · ");
   }
 
-  function moduleCountLabel(count) {
-    return t("map.count_modules", { count: count }) || pluralEn(count, "module", "modules");
-  }
-
-  function theoremCountLabel(count) {
-    return t("map.count_theorems", { count: count }) || pluralEn(count, "theorem", "theorems");
-  }
-
-  function crateCountLabel(count) {
-    return t("map.count_crates", { count: count }) || pluralEn(count, "crate", "crates");
-  }
-
-  function createProductionBadge(kindLabel) {
-    var badge = document.createElement("span");
-    badge.className = "production-badge";
-    badge.textContent = (t("map.production_badge") || "production") + (kindLabel ? " · " + kindLabel : "");
-    return badge;
-  }
-
-  function createExternalLink(href, text, className) {
-    var link = document.createElement("a");
-    link.href = href;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = text;
-    if (className) link.className = className;
-    return link;
-  }
-
-  function scrollToWorkspace() {
-    var target = document.getElementById("module-graph");
-    if (!target || typeof target.scrollIntoView !== "function") return;
-    var reduce = false;
-    try { reduce = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) {}
-    try { target.scrollIntoView({ behavior: reduce ? "instant" : "smooth", block: "start" }); } catch (e) { target.scrollIntoView(); }
-  }
-
-  function selectModuleFromInventory(name) {
-    selectModule(name, false);
-    /* Scroll after the frame that repaints the chart: the repaint changes the
-       document height, and a smooth scroll started before it can be cancelled
-       by that layout change, leaving the reader where they clicked. */
-    window.requestAnimationFrame(function () {
-      window.requestAnimationFrame(scrollToWorkspace);
-    });
-  }
-
-  function renderInventory() {
-    var openState = captureInventoryOpenState();
-    renderRustCrates();
-    renderRepositoryGroups();
-    renderInventoryProvenance();
-    restoreInventoryOpenState(openState);
-  }
-
-  /* A live refresh and a locale switch both rebuild these sections from
-     scratch, and on a networked visit the refresh lands a few seconds after
-     first paint — exactly when a reader has started opening things. Every
-     <details> carries a stable `data-open-key`; the states are captured before
-     the rebuild and re-applied after it (setting `open` fires `toggle`, so the
-     lazily rendered lists come back too). */
-  function captureInventoryOpenState() {
-    var states = Object.create(null);
-    if (typeof document === "undefined" || !document.querySelectorAll) return states;
-    var all = document.querySelectorAll("#repository-inventory-groups details[data-open-key], #rust-crate-grid details[data-open-key]");
-    for (var i = 0; i < all.length; i++) states[all[i].dataset.openKey] = Boolean(all[i].open);
-    return states;
-  }
-
-  function restoreInventoryOpenState(states) {
-    if (typeof document === "undefined" || !document.querySelectorAll) return;
-    var all = document.querySelectorAll("#repository-inventory-groups details[data-open-key], #rust-crate-grid details[data-open-key]");
-    for (var i = 0; i < all.length; i++) {
-      var key = all[i].dataset.openKey;
-      if (key in states && all[i].open !== states[key]) all[i].open = states[key];
+  /* A crate root also answers for its crate, so its node says so. The unsafe
+     line keeps the crate lint and the counted production sites apart, and
+     names the test sites separately — never one total that mixes the two. */
+  function rustCrateSummary(crate) {
+    var parts = [];
+    var sourceFiles = Number(crate && crate.sourceFiles) || 0;
+    parts.push(t("map.rust_crate_files", { count: sourceFiles }) || pluralEn(sourceFiles, "file", "files"));
+    parts.push(t("map.rust_items", { count: Number(crate && crate.items) || 0 }) || pluralEn(Number(crate && crate.items) || 0, "item", "items"));
+    var summary = rustUnsafeSummary(crate);
+    if (summary.sites) {
+      var detail = rustUnsafeDetail(summary);
+      parts.push((t("map.rust_unsafe_sites", { count: summary.sites }) || pluralEn(summary.sites, "unsafe site", "unsafe sites")) + (detail ? " (" + detail + ")" : ""));
+    } else if (summary.deniesUnsafe) {
+      parts.push(t("map.rust_denies_unsafe") || "denies unsafe");
+    } else if (summary.testSites) {
+      parts.push(t("map.rust_unsafe_test", { count: summary.testSites }) || ("+" + formatCount(summary.testSites) + " in test code"));
     }
+    return parts.join(" · ");
   }
 
-  function renderInventoryProvenance() {
-    var note = DOM.inventoryNote || document.getElementById("inventory-provenance");
-    if (!note) return;
-    var graphCommit = (state.commitSha || "").slice(0, 7);
-    var treeCommit = (state.inventoryCommit || state.commitSha || "").slice(0, 7);
-    var rustCommit = (state.rustCommit || treeCommit || "").slice(0, 7);
-    if (!graphCommit && !treeCommit) {
-      note.textContent = "";
-      return;
-    }
-    if (!graphCommit) {
-      /* The graph's revision is unknown (a refresh that named none); the
-         inventory's own revisions are still worth stating — this is the mixed
-         snapshot the note exists to disclose. */
-      note.textContent = (!state.rust || rustCommit === treeCommit)
-        ? (t("map.inventory_at", { commit: treeCommit }) || ("Inventory at seLe4n commit " + treeCommit + "."))
-        : (t("map.inventory_sources", { tree: treeCommit, rust: rustCommit }) || ("File inventory from commit " + treeCommit + ", Rust inventory from " + rustCommit + "."));
-      return;
-    }
-    if (treeCommit === graphCommit && (!state.rust || rustCommit === graphCommit)) {
-      note.textContent = t("map.inventory_at", { commit: graphCommit }) || ("Inventory at seLe4n commit " + graphCommit + ".");
-      return;
-    }
-    note.textContent = t("map.inventory_retained", { tree: treeCommit, rust: rustCommit, graph: graphCommit })
-      || ("File inventory from commit " + treeCommit + ", Rust inventory from " + rustCommit + "; the module graph is synced to " + graphCommit + ".");
+  function rustNodeTooltip(name, roleLabel) {
+    var node = rustNode(name);
+    if (!node) return roleLabel + ": " + name;
+    var file = node.file || {};
+    var lines = [
+      roleLabel,
+      name,
+      rustNodeRoleLabel(node.role) + " · " + node.crateName,
+      "path: " + node.path,
+      "items: " + (Number(file.productionItems) || 0) + " production, " + (Number(file.publicItems) || 0) + " public, " + (Number(file.testItems) || 0) + " test",
+      "unsafe: " + unsafeCounts(file.unsafe).sites + " production site(s), " + unsafeCounts(file.testUnsafe).sites + " in test code"
+    ];
+    if (node.parent) lines.push("declared in: " + node.parent);
+    if (node.children.length) lines.push("declares: " + node.children.length + " module(s)");
+    return lines.join("\n");
   }
 
-  function renderRepositoryGroups() {
-    var container = DOM.inventoryGroups || document.getElementById("repository-inventory-groups");
-    if (!container) return;
-    container.innerHTML = "";
-    if (!state.files || !state.files.length) {
-      var empty = document.createElement("p");
-      empty.className = "panel-note";
-      empty.textContent = t("map.inventory_empty") || "No repository inventory loaded.";
-      container.appendChild(empty);
-      return;
-    }
-    var inventory = buildRepositoryInventory(state.files, state.moduleMap, state.rust && state.rust.crates);
-    var fragment = document.createDocumentFragment();
-    for (var i = 0; i < inventory.length; i++) {
-      if (!inventory[i].count) continue;
-      fragment.appendChild(renderInventoryGroup(inventory[i]));
-    }
-    container.appendChild(fragment);
-  }
-
-  function renderInventoryGroup(group) {
-    var details = document.createElement("details");
-    details.className = "inventory-group";
-    details.dataset.group = group.id;
-    details.dataset.openKey = "group:" + group.id;
-    details.dataset.production = group.production ? "true" : "false";
-    details.open = group.production;
-
-    var summary = document.createElement("summary");
-    summary.className = "inventory-group-summary";
-    var title = document.createElement("span");
-    title.className = "inventory-group-title";
-    title.textContent = repositoryGroupLabel(group.id);
-    summary.appendChild(title);
-    if (group.production) summary.appendChild(createProductionBadge(group.id === "lean" ? "Lean 4" : "Rust"));
-    var count = document.createElement("span");
-    count.className = "inventory-group-count";
-    var countParts = [];
-    if (group.id === "lean") countParts.push(moduleCountLabel(group.modules));
-    if (group.id === "rust" && state.rust) countParts.push(crateCountLabel(state.rust.crates.length));
-    countParts.push(fileCountLabel(group.count));
-    count.textContent = countParts.join(" · ");
-    summary.appendChild(count);
-    details.appendChild(summary);
-
-    var body = document.createElement("div");
-    body.className = "inventory-group-body";
-    var description = document.createElement("p");
-    description.className = "inventory-group-desc";
-    description.textContent = repositoryGroupDescription(group.id);
-    body.appendChild(description);
-
-    if (group.id === "rust" && state.rust) {
-      body.appendChild(renderRustGroupBody(group));
-    } else {
-      var subgroups = document.createElement("div");
-      subgroups.className = "inventory-subgroups";
-      for (var i = 0; i < group.subgroups.length; i++) subgroups.appendChild(renderInventorySubgroup(group, group.subgroups[i]));
-      body.appendChild(subgroups);
-    }
-    details.appendChild(body);
-    return details;
-  }
-
-  function subgroupTheorems(subgroup) {
-    var total = 0;
-    for (var i = 0; i < subgroup.modules.length; i++) total += ((state.moduleMeta[subgroup.modules[i]] || {}).theorems || 0);
-    return total;
-  }
-
-  function renderInventorySubgroup(group, subgroup) {
-    var details = document.createElement("details");
-    details.className = "inventory-subgroup";
-    details.dataset.openKey = "subgroup:" + group.id + ":" + subgroup.key;
-    var summary = document.createElement("summary");
-    summary.className = "inventory-subgroup-summary";
-    var key = document.createElement("code");
-    key.className = "inventory-subgroup-key";
-    key.textContent = subgroup.key;
-    summary.appendChild(key);
-    var meta = document.createElement("span");
-    meta.className = "inventory-subgroup-meta";
-    var metaParts = [];
-    if (group.id === "lean" && subgroup.modules.length) {
-      metaParts.push(moduleCountLabel(subgroup.modules.length));
-      metaParts.push(theoremCountLabel(subgroupTheorems(subgroup)));
-      if (subgroup.files.length > subgroup.modules.length) metaParts.push(fileCountLabel(subgroup.files.length));
-    } else {
-      metaParts.push(fileCountLabel(subgroup.files.length));
-    }
-    meta.textContent = metaParts.join(" · ");
-    summary.appendChild(meta);
-    details.appendChild(summary);
-
-    /* Lists render on first open: 866 anchors on page load would be paid by
-       every visitor for a section most never expand. */
-    details.addEventListener("toggle", function () {
-      if (!details.open || details.dataset.rendered === "1") return;
-      details.dataset.rendered = "1";
-      details.appendChild(renderInventoryList(group, subgroup));
-    });
-    return details;
-  }
-
-  function renderInventoryList(group, subgroup) {
-    var list = document.createElement("ul");
-    list.className = group.id === "lean" ? "inventory-module-list" : "inventory-file-list";
-    var fragment = document.createDocumentFragment();
-    var listedModules = Object.create(null);
-
-    if (group.id === "lean") {
-      for (var m = 0; m < subgroup.modules.length; m++) {
-        var moduleName = subgroup.modules[m];
-        listedModules[state.moduleMap[moduleName]] = true;
-        var li = document.createElement("li");
-        li.className = "inventory-module";
-        var assurance = assuranceForModule(moduleName);
-        var dot = document.createElement("span");
-        dot.className = "inventory-assurance assurance-" + (assurance.level || "none");
-        dot.title = assurance.label || "";
-        dot.setAttribute("aria-hidden", "true");
-        li.appendChild(dot);
-        var button = document.createElement("button");
-        button.type = "button";
-        button.className = "inventory-module-btn";
-        button.textContent = moduleName;
-        button.title = t("map.open_in_workspace", { module: moduleName }) || ("Open " + moduleName + " in the workspace");
-        button.addEventListener("click", (function (name) {
-          return function () { selectModuleFromInventory(name); };
-        })(moduleName));
-        li.appendChild(button);
-        var stats = document.createElement("span");
-        stats.className = "inventory-module-stats";
-        var theorems = (state.moduleMeta[moduleName] || {}).theorems || 0;
-        stats.textContent = t("map.theorems_short", { count: theorems }) || (formatCount(theorems) + " thm");
-        li.appendChild(stats);
-        fragment.appendChild(li);
-      }
-    }
-
-    for (var f = 0; f < subgroup.files.length; f++) {
-      var path = subgroup.files[f];
-      if (listedModules[path]) continue;
-      var fileItem = document.createElement("li");
-      fileItem.className = "inventory-file";
-      fileItem.appendChild(createExternalLink(githubBlobHref(path, 0, state.inventoryCommit || state.commitSha), path, "inventory-file-link"));
-      fragment.appendChild(fileItem);
-    }
-    list.appendChild(fragment);
-    return list;
-  }
-
-  function renderInventoryFileLinks(paths, prefix, className) {
-    var span = document.createElement("span");
-    span.className = className;
-    for (var e = 0; e < paths.length; e++) {
-      if (e) span.appendChild(document.createTextNode(" · "));
-      var label = paths[e].indexOf(prefix) === 0 ? paths[e].slice(prefix.length) : paths[e];
-      span.appendChild(createExternalLink(githubBlobHref(paths[e], 0, state.rustCommit || state.commitSha), label, "inventory-file-link"));
-    }
-    return span;
-  }
-
-  function renderRustGroupBody(group) {
-    var list = document.createElement("ul");
-    list.className = "inventory-crate-list";
-    var crates = state.rust.crates;
-    var crateDirs = [];
-    for (var i = 0; i < crates.length; i++) {
-      var crate = crates[i];
-      var dir = crateDirectory(crate);
-      if (dir) crateDirs.push(dir + "/");
-      var li = document.createElement("li");
-      li.className = "inventory-crate";
-      var link = document.createElement("a");
-      link.href = "#crate-" + crate.name;
-      link.className = "inventory-crate-link";
-      link.textContent = crate.name;
-      li.appendChild(link);
-      var meta = document.createElement("span");
-      meta.className = "inventory-subgroup-meta";
-      meta.textContent = fileCountLabel(crate.sourceFiles) + " · " + formatCount(crate.lines) + " " + (t("map.lines_short") || "lines");
-      li.appendChild(meta);
-      /* The card lists the Rust sources; the manifest, linker script and
-         assembly files would otherwise appear nowhere on the page. */
-      var support = crateSupportFiles(group, crate);
-      if (support.length) {
-        var supportRow = document.createElement("span");
-        supportRow.className = "inventory-crate-support";
-        var supportLabel = document.createElement("span");
-        supportLabel.className = "inventory-crate-support-label";
-        supportLabel.textContent = t("map.rust_support_files") || "support files";
-        supportRow.appendChild(supportLabel);
-        supportRow.appendChild(renderInventoryFileLinks(support, dir + "/", "inventory-file-links"));
-        li.appendChild(supportRow);
-      }
-      list.appendChild(li);
-    }
-    /* Whatever no crate directory covers — the workspace manifest, lockfile,
-       toolchain pin — is listed once here, so the group omits no file. */
-    var extras = [];
-    for (var s = 0; s < group.subgroups.length; s++) {
-      var paths = group.subgroups[s].files;
-      for (var p = 0; p < paths.length; p++) {
-        var covered = false;
-        for (var c = 0; c < crateDirs.length && !covered; c++) covered = paths[p].indexOf(crateDirs[c]) === 0;
-        if (!covered) extras.push(paths[p]);
-      }
-    }
-    if (extras.length) {
-      extras.sort();
-      var workspaceItem = document.createElement("li");
-      workspaceItem.className = "inventory-crate";
-      var wsLabel = document.createElement("span");
-      wsLabel.className = "inventory-crate-link";
-      wsLabel.textContent = t("map.rust_workspace_files") || "workspace files";
-      workspaceItem.appendChild(wsLabel);
-      workspaceItem.appendChild(renderInventoryFileLinks(extras, (state.rust.root || "rust") + "/", "inventory-subgroup-meta inventory-file-links"));
-      list.appendChild(workspaceItem);
-    }
-    return list;
-  }
-
-  /* ── Rust crate cards ──────────────────────────────────────────────────── */
-
-  function renderRustCrates() {
-    var grid = DOM.rustCrateGrid || document.getElementById("rust-crate-grid");
-    if (!grid) return;
-    grid.innerHTML = "";
-    var rust = state.rust;
-    if (!rust || !Array.isArray(rust.crates) || !rust.crates.length) {
-      var note = document.createElement("p");
-      note.className = "panel-note";
-      note.textContent = t("map.rust_unavailable") || "The Rust crate inventory is not part of this snapshot.";
-      grid.appendChild(note);
-      return;
-    }
-    grid.appendChild(renderRustDependencyStrip(rust));
-    var fragment = document.createDocumentFragment();
-    for (var i = 0; i < rust.crates.length; i++) fragment.appendChild(renderRustCrateCard(rust.crates[i], rust));
-    grid.appendChild(fragment);
-  }
-
-  function renderRustDependencyStrip(rust) {
-    var crates = rust.crates;
-    var nodeWidth = 168;
-    var nodeHeight = 54;
-    var gap = 34;
-    var pad = 12;
-    var arcLift = 26;
-    var width = pad * 2 + crates.length * nodeWidth + (crates.length - 1) * gap;
-    var height = nodeHeight + arcLift + pad * 2 + 6;
-    var shell = document.createElement("figure");
-    shell.className = "rust-dependency-strip";
-    var caption = document.createElement("figcaption");
-    caption.className = "rust-dependency-caption";
-    caption.textContent = t("map.rust_dependency_caption") || "Runtime dependencies between the workspace crates. Arrows point from a crate to what it depends on.";
-    var scroller = document.createElement("div");
-    scroller.className = "rust-dependency-scroll";
-    var svg = createSvgNode("svg", {
-      "class": "rust-dependency-svg",
-      viewBox: "0 0 " + width + " " + height,
-      width: width,
-      height: height,
-      role: "img",
-      "aria-label": t("map.rust_dependency_aria") || "Crate dependency diagram"
-    });
-    var defs = createSvgNode("defs", {});
-    var marker = createSvgNode("marker", { id: "crate-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "6", markerHeight: "6", orient: "auto" });
-    marker.appendChild(createSvgNode("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "currentColor" }));
-    defs.appendChild(marker);
-    svg.appendChild(defs);
-
-    var positions = Object.create(null);
-    var baseY = pad + arcLift;
-    for (var i = 0; i < crates.length; i++) {
-      var x = pad + i * (nodeWidth + gap);
-      positions[crates[i].name] = { x: x, y: baseY, w: nodeWidth, h: nodeHeight };
-    }
-
-    var edgeLayer = createSvgNode("g", { "class": "rust-dependency-edges", "aria-hidden": "true" });
-    for (var c = 0; c < crates.length; c++) {
-      var from = positions[crates[c].name];
-      var deps = crates[c].internalDependencies || [];
-      for (var d = 0; d < deps.length; d++) {
-        var to = positions[deps[d]];
-        if (!to) continue;
-        var startX = from.x + from.w / 2;
-        var endX = to.x + to.w / 2;
-        var y = from.y;
-        var span = Math.abs(startX - endX);
-        var lift = Math.min(arcLift, 12 + span / 14);
-        var path = createSvgNode("path", {
-          d: "M " + startX + " " + y + " C " + startX + " " + (y - lift) + ", " + endX + " " + (y - lift) + ", " + endX + " " + (y - 3),
-          "class": "rust-dependency-edge",
-          "marker-end": "url(#crate-arrow)"
+  /* The crate-level dependency context a Rust node sits in, as a flat list of
+     labelled chips. A target-scoped table keeps its cfg and a dev-dependency
+     says it is test-only, exactly as the crate cards used to state it. */
+  function rustCrateDependencies(crate) {
+    var out = [];
+    var seen = Object.create(null);
+    /* A dependency is navigable when it names a workspace member, whichever
+       table it came from: the HAL reaches sele4n-types only as a
+       dev-dependency, and that edge is still worth following. */
+    function push(names, label) {
+      var list = Array.isArray(names) ? names : [];
+      for (var i = 0; i < list.length; i++) {
+        var name = String(list[i]);
+        var key = name + "\u0000" + label;
+        if (!name || seen[key]) continue;
+        seen[key] = true;
+        out.push({
+          name: name,
+          label: label,
+          navigable: Boolean(state.rustGraph && state.rustGraph.crateRootOf[name])
         });
-        edgeLayer.appendChild(path);
       }
     }
-    svg.appendChild(edgeLayer);
-
-    var nodeLayer = createSvgNode("g", { "class": "rust-dependency-nodes" });
-    for (var n = 0; n < crates.length; n++) {
-      var crate = crates[n];
-      var pos = positions[crate.name];
-      var link = createSvgNode("a", { href: "#crate-" + crate.name, "aria-label": crate.name });
-      var siteSummary = rustUnsafeSummary(crate);
-      var group = createSvgNode("g", { "class": "rust-dependency-node" + (siteSummary.sites ? " rust-unsafe" : " rust-safe") });
-      group.appendChild(createSvgNode("rect", { x: pos.x, y: pos.y, width: pos.w, height: pos.h, rx: 9, ry: 9 }));
-      var name = createSvgNode("text", { x: pos.x + pos.w / 2, y: pos.y + 22, "text-anchor": "middle", "class": "rust-dependency-name" });
-      name.textContent = crate.name;
-      group.appendChild(name);
-      var sub = createSvgNode("text", { x: pos.x + pos.w / 2, y: pos.y + 40, "text-anchor": "middle", "class": "rust-dependency-sub" });
-      sub.textContent = siteSummary.sites
-        ? (t("map.rust_unsafe_short", { count: siteSummary.sites }) || pluralEn(siteSummary.sites, "unsafe site", "unsafe sites"))
-        : (t("map.rust_no_unsafe_short") || "no unsafe");
-      group.appendChild(sub);
-      link.appendChild(group);
-      nodeLayer.appendChild(link);
+    push(crate && crate.internalDependencies, t("map.rust_dep_workspace") || "workspace crate");
+    push(crate && crate.externalDependencies, t("map.rust_dep_external") || "external");
+    var optional = Array.isArray(crate && crate.optionalDependencies) ? crate.optionalDependencies : [];
+    for (var o = 0; o < optional.length; o++) {
+      var entry = optional[o];
+      /* The snapshot's shape is { package, internal, features } — reading
+         `name`/`enablingFeatures` pushed the entry object itself and rendered
+         a dependency called "[object Object]" with no feature label. No crate
+         in the tree carries an optional dependency today, which is why it went
+         unseen. */
+      var featureList = entry && Array.isArray(entry.features) ? entry.features.join(", ") : "";
+      push([entry && entry.package].filter(Boolean),
+        (t("map.rust_dep_optional") || "optional") + (featureList ? " · " + featureList : ""));
     }
-    svg.appendChild(nodeLayer);
-    scroller.appendChild(svg);
-    shell.appendChild(scroller);
-    shell.appendChild(caption);
-    return shell;
-  }
-
-  function rustStat(label, value, extraClass) {
-    var cell = document.createElement("div");
-    cell.className = "rust-crate-stat" + (extraClass ? " " + extraClass : "");
-    var dt = document.createElement("dt");
-    dt.textContent = label;
-    var dd = document.createElement("dd");
-    if (typeof value === "string" || typeof value === "number") dd.textContent = String(value);
-    else dd.appendChild(value);
-    cell.appendChild(dt);
-    cell.appendChild(dd);
-    return cell;
-  }
-
-  function renderRustCrateCard(crate, rust) {
-    var card = document.createElement("article");
-    card.className = "rust-crate";
-    card.id = "crate-" + crate.name;
-
-    var head = document.createElement("header");
-    head.className = "rust-crate-head";
-    var titleRow = document.createElement("div");
-    titleRow.className = "rust-crate-title-row";
-    var title = document.createElement("h3");
-    title.className = "rust-crate-name";
-    title.appendChild(createExternalLink(githubTreeHref(crate.path, state.rustCommit || state.commitSha), crate.name));
-    titleRow.appendChild(title);
-    titleRow.appendChild(createProductionBadge("Rust"));
-    head.appendChild(titleRow);
-    if (crate.description) {
-      var description = document.createElement("p");
-      description.className = "rust-crate-desc";
-      description.textContent = crate.description;
-      head.appendChild(description);
+    var targeted = Array.isArray(crate && crate.targetDependencies) ? crate.targetDependencies : [];
+    for (var g = 0; g < targeted.length; g++) {
+      var table = targeted[g];
+      push(table && table.names, t("map.rust_dep_target", { cfg: String(table && table.cfg || "") })
+        || ("under " + String(table && table.cfg || "")));
     }
-    card.appendChild(head);
-
-    var stats = document.createElement("dl");
-    stats.className = "rust-crate-stats";
-    stats.appendChild(rustStat(t("map.rust_stat_files") || "Source files", formatCount(crate.sourceFiles)));
-    stats.appendChild(rustStat(t("map.rust_stat_lines") || "Lines", formatCount(crate.lines)));
-    var itemsValue = document.createElement("span");
-    itemsValue.appendChild(document.createTextNode(formatCount(crate.items) + " "));
-    var pubNote = document.createElement("small");
-    pubNote.textContent = (t("map.rust_pub_count", { count: formatCount(crate.publicItems) }) || (formatCount(crate.publicItems) + " pub"));
-    itemsValue.appendChild(pubNote);
-    stats.appendChild(rustStat(t("map.rust_stat_items") || "Items", itemsValue));
-    var unsafeSummary = rustUnsafeSummary(crate);
-    var unsafeValue = document.createElement("span");
-    unsafeValue.appendChild(document.createTextNode(unsafeSummary.sites
-      ? (t("map.rust_unsafe_sites", { count: unsafeSummary.sites }) || pluralEn(unsafeSummary.sites, "site", "sites"))
-      : (t("map.rust_unsafe_none") || "none")));
-    /* The breakdown, the item-level `#[allow(unsafe_code)]` exception under a
-       crate-level deny (sele4n-abi), and the sites in test code are all named
-       here; the lint itself is stated on its own in the facts line below. */
-    var unsafeDetail = rustUnsafeDetail(unsafeSummary);
-    if (unsafeDetail) {
-      unsafeValue.appendChild(document.createTextNode(" "));
-      var detailNote = document.createElement("small");
-      detailNote.textContent = unsafeDetail;
-      unsafeValue.appendChild(detailNote);
-    }
-    stats.appendChild(rustStat("unsafe", unsafeValue, unsafeSummary.sites ? "rust-stat-unsafe" : "rust-stat-safe"));
-    card.appendChild(stats);
-
-    /* Test items are bundled but hidden until asked for: the production surface
-       is what the card describes. The toggle re-renders this card only. */
-    if (crate.testItems) {
-      var tools = document.createElement("div");
-      tools.className = "rust-crate-tools";
-      var showTests = Boolean(state.rustShowTests[crate.name]);
-      var toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = "rust-tests-toggle";
-      toggle.setAttribute("aria-pressed", showTests ? "true" : "false");
-      toggle.textContent = showTests
-        ? (t("map.rust_hide_tests") || "Hide test items")
-        : (t("map.rust_show_tests", { count: crate.testItems }) || ("Show " + pluralEn(crate.testItems, "test item", "test items")));
-      toggle.addEventListener("click", function () {
-        state.rustShowTests[crate.name] = !state.rustShowTests[crate.name];
-        rerenderRustCrateCard(card, crate);
-      });
-      tools.appendChild(toggle);
-      card.appendChild(tools);
-    }
-
-    var facts = document.createElement("p");
-    facts.className = "rust-crate-facts";
-    var factParts = [];
-    if (unsafeSummary.deniesUnsafe) factParts.push("#![deny(unsafe_code)]");
-    if (crate.internalDependencies && crate.internalDependencies.length) {
-      factParts.push((t("map.rust_depends_on") || "depends on") + " " + crate.internalDependencies.join(", "));
-    } else {
-      factParts.push(t("map.rust_no_runtime_deps") || "no runtime crate dependencies");
-    }
-    if (crate.externalDependencies && crate.externalDependencies.length) {
-      factParts.push((t("map.rust_external_deps") || "external") + " " + crate.externalDependencies.join(", "));
-    }
-    /* A target-scoped table (`[target.'cfg(loom)'.dependencies]`) is resolved
-       only when its predicate holds, so it is stated under its cfg rather than
-       as an ordinary dependency; dev-dependencies are test-only. */
-    var targets = Array.isArray(crate.targetDependencies) ? crate.targetDependencies : [];
-    for (var td = 0; td < targets.length; td++) {
-      var target = targets[td];
-      if (!target || !Array.isArray(target.names) || !target.names.length) continue;
-      var tableNote = target.table && target.table !== "dependencies" ? " (" + target.table + ")" : "";
-      factParts.push((t("map.rust_target_deps", { cfg: target.cfg }) || ("under " + target.cfg)) + tableNote + ": " + target.names.join(", "));
-    }
-    if (crate.devDependencies && crate.devDependencies.length) {
-      factParts.push((t("map.rust_dev_deps") || "test-only") + " " + crate.devDependencies.join(", "));
-    }
-    /* An optional dependency is compiled only when a feature enables it: it
-       draws no edge in the strip and is stated with its enabling features. */
-    var optional = Array.isArray(crate.optionalDependencies) ? crate.optionalDependencies : [];
-    if (optional.length) {
-      factParts.push((t("map.rust_optional_deps") || "optional") + " " + optional.map(function (dep) {
-        var features = dep && Array.isArray(dep.features) ? dep.features : [];
-        return String(dep && dep.package || "") + (features.length ? " (" + features.join(", ") + ")" : "");
-      }).join(", "));
-    }
-    if (crate.features && crate.features.length) {
-      factParts.push((t("map.rust_features") || "features") + " " + crate.features.join(", "));
-    }
-    if (crate.edition) factParts.push(t("map.rust_edition", { edition: crate.edition }) || ("edition " + crate.edition));
-    if (crate.testItems) factParts.push(t("map.rust_test_items", { count: crate.testItems }) || pluralEn(crate.testItems, "test item", "test items"));
-    facts.textContent = factParts.join(" · ");
-    card.appendChild(facts);
-
-    var files = document.createElement("ul");
-    files.className = "rust-crate-files";
-    var fragment = document.createDocumentFragment();
-    var ordered = crate.files.slice().sort(function (a, b) {
-      var roleRank = { lib: 0, module: 1, bin: 2, build: 3, test: 4 };
-      var ra = roleRank[a.role] === undefined ? 5 : roleRank[a.role];
-      var rb = roleRank[b.role] === undefined ? 5 : roleRank[b.role];
-      if (ra !== rb) return ra - rb;
-      return a.relativePath.localeCompare(b.relativePath);
-    });
-    for (var i = 0; i < ordered.length; i++) fragment.appendChild(renderRustFile(crate, ordered[i]));
-    files.appendChild(fragment);
-    card.appendChild(files);
-    return card;
-  }
-
-  function rerenderRustCrateCard(card, crate) {
-    var openPaths = Object.create(null);
-    var wasOpen = card.querySelectorAll(".rust-file-details[open]");
-    for (var i = 0; i < wasOpen.length; i++) openPaths[wasOpen[i].dataset.path] = true;
-    var next = renderRustCrateCard(crate);
-    if (card.parentNode) card.parentNode.replaceChild(next, card);
-    /* Re-open the files the reader had open; setting `open` fires `toggle`,
-       which renders their lists lazily as on a click. */
-    var details = next.querySelectorAll(".rust-file-details");
-    for (var d = 0; d < details.length; d++) {
-      if (openPaths[details[d].dataset.path]) details[d].open = true;
-    }
-    var toggle = next.querySelector(".rust-tests-toggle");
-    if (toggle) toggle.focus();
-  }
-
-  function rustRoleLabel(role) {
-    var fallback = { lib: "crate root", bin: "binary", build: "build script", test: "integration test", module: "module" };
-    return t("map.rust_role_" + role) || fallback[role] || role;
-  }
-
-  function visibleRustItems(crate, file) {
-    var items = Array.isArray(file.items) ? file.items : [];
-    if (state.rustShowTests[crate.name]) return items;
-    var production = [];
-    for (var i = 0; i < items.length; i++) if (!items[i].test) production.push(items[i]);
-    return production;
-  }
-
-  function renderRustFile(crate, file) {
-    var li = document.createElement("li");
-    li.className = "rust-file";
-    li.dataset.role = file.role;
-    var details = document.createElement("details");
-    details.className = "rust-file-details";
-    details.dataset.path = file.relativePath;
-    details.dataset.openKey = "file:" + crate.name + ":" + file.relativePath;
-    var visibleItems = visibleRustItems(crate, file);
-    var summary = document.createElement("summary");
-    summary.className = "rust-file-summary";
-    var path = document.createElement("code");
-    path.className = "rust-file-path";
-    path.textContent = file.relativePath;
-    summary.appendChild(path);
-    var meta = document.createElement("span");
-    meta.className = "rust-file-meta";
-    var metaParts = [];
-    if (file.modulePath) metaParts.push(file.modulePath);
-    /* "module" is the default role; naming it on every row is noise. */
-    if (file.role !== "module") metaParts.push(rustRoleLabel(file.role));
-    metaParts.push(formatCount(file.lines) + " " + (t("map.lines_short") || "lines"));
-    var productionItemCount = typeof file.productionItems === "number" ? file.productionItems : file.items.length - (file.testItems || 0);
-    if (productionItemCount > 0) metaParts.push(formatCount(productionItemCount) + " " + (t("map.items_short") || "items") + (file.publicItems ? " (" + formatCount(file.publicItems) + " pub)" : ""));
-    if (file.testItems) metaParts.push(formatCount(file.testItems) + " " + (t("map.test_items_short") || "test"));
-    var unsafeSites = unsafeCounts(file.unsafe).sites + (state.rustShowTests[crate.name] ? unsafeCounts(file.testUnsafe).sites : 0);
-    if (unsafeSites) {
-      var unsafeTag = document.createElement("span");
-      unsafeTag.className = "rust-unsafe-tag";
-      unsafeTag.textContent = formatCount(unsafeSites) + " unsafe";
-      meta.appendChild(unsafeTag);
-      meta.appendChild(document.createTextNode(" "));
-    }
-    meta.appendChild(document.createTextNode(metaParts.join(" · ")));
-    summary.appendChild(meta);
-    details.appendChild(summary);
-
-    if (!visibleItems.length) {
-      var openLink = document.createElement("p");
-      openLink.className = "rust-file-empty";
-      openLink.appendChild(createExternalLink(githubBlobHref(file.path, 0, state.rustCommit || state.commitSha), t("map.open_source") || "Source ↗"));
-      if (file.testItems) {
-        openLink.appendChild(document.createTextNode(" \u00B7 " + (t("map.rust_tests_hidden", { count: file.testItems }) || (pluralEn(file.testItems, "test item", "test items") + " hidden"))));
-      }
-      details.appendChild(openLink);
-    } else {
-      details.addEventListener("toggle", function () {
-        if (!details.open || details.dataset.rendered === "1") return;
-        details.dataset.rendered = "1";
-        details.appendChild(renderRustItemList(file, visibleItems));
-      });
-    }
-    li.appendChild(details);
-    return li;
-  }
-
-  function renderRustItemList(file, itemsToList) {
-    var list = document.createElement("ul");
-    list.className = "rust-item-list";
-    var items = sortRustItems(Array.isArray(itemsToList) ? itemsToList : file.items);
-    var fragment = document.createDocumentFragment();
-    var ref = state.rustCommit || state.commitSha;
-    for (var i = 0; i < items.length; i++) {
-      var item = items[i];
-      var li = document.createElement("li");
-      li.className = "rust-item";
-      li.dataset.kind = item.kind;
-      li.style.setProperty("--rust-kind-color", rustItemColor(item.kind));
-      if (item.visibility !== "pub") li.classList.add("rust-item-private");
-      if (item.test) li.classList.add("rust-item-test");
-      var kind = document.createElement("span");
-      kind.className = "rust-item-kind";
-      kind.textContent = item.kind;
-      li.appendChild(kind);
-      var name = createExternalLink(githubBlobHref(file.path, item.line, ref), item.name, "rust-item-name");
-      name.title = "L" + item.line;
-      li.appendChild(name);
-      if (item.module) {
-        var scope = document.createElement("span");
-        scope.className = "rust-item-scope";
-        scope.textContent = t("map.rust_item_in", { module: item.module }) || ("in " + item.module);
-        li.appendChild(scope);
-      }
-      if (item.visibility !== "pub") {
-        var vis = document.createElement("span");
-        vis.className = "rust-item-vis";
-        vis.textContent = item.visibility;
-        li.appendChild(vis);
-      }
-      if (item.unsafe) {
-        var unsafeTag = document.createElement("span");
-        unsafeTag.className = "rust-unsafe-tag";
-        unsafeTag.textContent = "unsafe";
-        li.appendChild(unsafeTag);
-      }
-      if (item.test) {
-        var testTag = document.createElement("span");
-        testTag.className = "rust-test-tag";
-        testTag.textContent = t("map.rust_test_tag") || "test";
-        li.appendChild(testTag);
-      }
-      var line = document.createElement("span");
-      line.className = "rust-item-line";
-      line.textContent = "L" + item.line;
-      li.appendChild(line);
-      fragment.appendChild(li);
-    }
-    list.appendChild(fragment);
-    return list;
+    push(crate && crate.devDependencies, t("map.rust_dep_dev") || "test-only");
+    push(crate && crate.buildDependencies, t("map.rust_dep_build") || "build-time");
+    return out;
   }
 
   function isTypingTarget(target) {
@@ -4219,14 +4629,16 @@
     ASSURANCE_CACHE = Object.create(null);
     for (var k = 0; k < pairs.length; k++) state.proofPairMap[pairs[k].base] = pairs[k];
     for (var m = 0; m < state.modules.length; m++) moduleDegree(state.modules[m]);
-    updateMetric("files", state.files.length);
     updateMetric("rustCrates", state.rust && Array.isArray(state.rust.crates) ? state.rust.crates.length : "\u2013");
+    updateMetric("rustModules", state.rustGraph ? state.rustGraph.nodes.length : "\u2013");
+    updateMetric("bridgeLinks", state.bridge ? state.bridge.links : "\u2013");
     updateMetric("leanModules", state.modules.length);
     updateMetric("importEdges", totals.importEdges);
     updateMetric("theorems", totals.theorems);
     updateMetric("proofPairs", totals.pairs);
     updateMetric("linkedPairs", totals.linked);
     updateMetric("generatedAt", formatGeneratedAt(state.generatedAt));
+    renderInventoryProvenance();
 
     /* Pre-warm assurance cache for all visible modules so the first render
        doesn't stall on assurance computation for each node.  This moves the
@@ -4237,11 +4649,15 @@
   }
 
   function renderAll() {
+    renderScopeToggle();
     renderContextChooser();
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (state.flowContext === "declaration" && state.selectedDeclaration) {
       if (wrap) wrap.setAttribute("aria-label", "Declaration call graph for " + state.selectedDeclaration);
       renderDeclarationFlowchart();
+    } else if (isRustNode(state.selectedModule)) {
+      if (wrap) wrap.setAttribute("aria-label", "Rust module, crate dependency and Lean boundary chart");
+      renderRustFlowchart();
     } else {
       if (wrap) wrap.setAttribute("aria-label", "Dependency and proof flow chart");
       renderFlowchart();
@@ -5205,25 +5621,32 @@
     state.generatedAt = data.generatedAt || "";
     LABEL_WRAP_CACHE.clear();
     rebuildImportsToIndex();
+    /* Order matters: the Rust graph feeds the search index, and the boundary
+       is matched against both halves once they exist. */
+    state.rustGraph = buildRustGraph(state.rust);
     buildSearchIndex();
+    buildBridgeIndex();
 
     buildPairs();
-    if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = defaultModuleName();
+    if (!nodeExists(state.selectedModule)) state.selectedModule = defaultNodeName();
     if (state.flowContext === "declaration" && state.selectedDeclaration) {
+      /* A declaration resolves to a Lean module, so it can only be restored in
+         a scope that carries Lean — `nodeExists`, not `moduleMap`. A URL
+         pairing `scope=rust` with a Lean `decl=` otherwise pulled the Lean
+         module into the selection while the toggle and badge still read Rust. */
       var resolvedModule = declarationModuleOf(state.selectedDeclaration);
-      if (resolvedModule && state.moduleMap[resolvedModule]) {
+      if (resolvedModule && nodeExists(resolvedModule)) {
         state.selectedDeclarationModule = resolvedModule;
         if (state.selectedModule !== resolvedModule) {
           state.selectedModule = resolvedModule;
           state.interiorMenuModule = resolvedModule;
         }
-      } else if (!state.selectedDeclarationModule || !state.moduleMap[state.selectedDeclarationModule]) {
+      } else if (!state.selectedDeclarationModule || !nodeExists(state.selectedDeclarationModule)) {
         state.flowContext = "module";
         state.selectedDeclaration = "";
         state.selectedDeclarationModule = "";
       }
     }
-    renderInventory();
     renderAll();
   }
 
@@ -5445,12 +5868,17 @@
           buildSearchIndex();
           state.commitSha = latestCommitSha || "";
           state.generatedAt = new Date().toISOString();
+          /* Before buildPairs(), which stamps the header's Boundary Links
+             from state.bridge: the Rust inventory is unchanged by a tree
+             rebuild, but the Lean declarations it is matched against are
+             not, so rebuilding afterwards left the published total one
+             refresh behind the bands drawn from it. */
+          buildBridgeIndex();
           buildPairs();
-          if (!state.selectedModule || !state.moduleMap[state.selectedModule]) state.selectedModule = defaultModuleName();
+          if (!nodeExists(state.selectedModule)) state.selectedModule = defaultNodeName();
           /* The tree fetched above is a complete file inventory at this commit;
              the Rust crate inventory, if any, is still the bundled one. */
           state.inventoryCommit = state.commitSha;
-          renderInventory();
           scheduleRender();
           syncUrlState();
           var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
@@ -5603,7 +6031,18 @@
     }
   }
 
+  /* A declaration lives in a Lean module, so a scope that shows no Lean has
+     none to find. Filtering here rather than at the point of selection is what
+     keeps the search control honest: the earlier guard refused the selection
+     but every caller still overwrote the input, closed the suggestions and
+     announced "Declaration: …", so the control claimed to be showing Lean
+     content while the Rust chart stayed put. */
+  function declarationSearchAvailable() {
+    return scopeIncludesLean();
+  }
+
   function declarationSearchMatch(query) {
+    if (!declarationSearchAvailable()) return null;
     var value = (query || "").trim();
     if (!value || value.indexOf(".") === -1) return null;
 
@@ -5723,6 +6162,7 @@
   }
 
   function declarationSearchMatches(query, limit) {
+    if (!declarationSearchAvailable()) return [];
     var value = (query || "").trim();
     if (!value || value.indexOf(".") === -1) return [];
     var queryLower = value.toLowerCase();
@@ -5976,8 +6416,13 @@
         var value = (query || "").trim();
         if (!value) return "";
 
+        /* `nodeExists`, not `moduleMap`: the third site of the same mistake.
+           In `scope=rust` an exactly-typed Lean module was accepted here, the
+           caller closed the suggestions and left the field showing it, and
+           only `selectModule` refused — so the control disagreed with the
+           chart. The scope-aware predicate belongs at every acceptance point. */
         var direct = sanitizeModuleName(value);
-        if (direct && state.moduleMap[direct]) return direct;
+        if (direct && nodeExists(direct)) return direct;
 
         var matches = moduleSearchMatches(value, list);
         return matches.length ? matches[0] : "";
@@ -6188,14 +6633,14 @@
         }
 
         /* Reset to the same module a first visit opens on */
-        var firstModule = defaultModuleName();
+        var firstModule = defaultNodeName();
         state.selectedModule = firstModule;
         state.laneGroupsExpanded = { imports: Object.create(null), importers: Object.create(null) };
 
         /* Clear interior menu state */
         state.interiorMenuModule = "";
         state.interiorMenuQuery = "";
-        state.interiorMenuSelections = { object: "", extension: "", contextInit: "" };
+        state.interiorMenuSelections = Object.create(null);
 
         /* Reset search field to match the initial module */
         if (search) search.value = firstModule || "";
@@ -6226,6 +6671,9 @@
       }
       return fallbackParams[name] || "";
     }
+
+    var scopeParam = sanitizeScope(getParam("scope"));
+    if (scopeParam) state.scope = scopeParam;
 
     var moduleParam = sanitizeModuleName(getParam("module"));
     if (moduleParam) state.selectedModule = moduleParam;
@@ -6262,6 +6710,7 @@
   function syncUrlState() {
     if (typeof URLSearchParams !== "function") return;
     var params = new URLSearchParams(window.location.search);
+    if (state.scope && state.scope !== DEFAULT_SCOPE) params.set("scope", state.scope); else params.delete("scope");
     if (state.selectedModule) params.set("module", state.selectedModule); else params.delete("module");
     if (state.activeLayerFilter && state.activeLayerFilter !== "all") params.set("layer", state.activeLayerFilter); else params.delete("layer");
     var detailLevel = detailLevelFromState();
@@ -6285,6 +6734,105 @@
     var target = window.location.pathname + (next ? "?" + next : "");
     if (target === window.location.pathname + window.location.search) return;
     try { window.history.replaceState(null, "", target); } catch (e) {}
+  }
+
+  /* ------------------------------------------------------------------
+     Scope toggle
+     ------------------------------------------------------------------ */
+
+  function scopeLabel(scope) {
+    var fallback = { lean: "Lean", both: "Lean + Rust", rust: "Rust" };
+    return t("map.scope_" + scope) || fallback[scope] || scope;
+  }
+
+  function scopeDescription(scope) {
+    var fallback = {
+      lean: "The Lean kernel alone: imports, dependents and proof pairs.",
+      both: "Both languages, with the declaration-level boundary between them drawn.",
+      rust: "The Rust workspace alone: crates, module trees and dependencies."
+    };
+    return t("map.scope_" + scope + "_desc") || fallback[scope] || "";
+  }
+
+  /* Switching scope keeps the selection when the node survives it — the Lean
+     module you were reading is still there in the combined scope — and falls
+     back to that scope's default when it does not. */
+  function setScope(scope) {
+    var next = sanitizeScope(scope);
+    if (!next || next === state.scope) return;
+    state.scope = next;
+    invalidateDerivedCaches();
+    if (!nodeExists(state.selectedModule)) {
+      state.selectedModule = defaultNodeName();
+      state.flowContext = "module";
+      state.selectedDeclaration = "";
+      state.selectedDeclarationModule = "";
+      state.interiorMenuModule = "";
+      /* Centre the replacement rather than clearing the target: an empty one
+         means "keep the scroll you had" on desktop, which left the fallback
+         node off-screen after scrolling down a band and narrowing the scope. */
+      state.flowScrollTarget = state.selectedModule;
+    }
+    state.laneGroupsExpanded = { imports: Object.create(null), importers: Object.create(null) };
+    closeModuleSearchOptions();
+    syncUrlState();
+    scheduleRender();
+  }
+
+  function renderScopeToggle() {
+    var toggle = DOM.scopeToggle || document.getElementById("map-scope-toggle");
+    if (toggle) {
+      var buttons = toggle.querySelectorAll("[data-scope]");
+      for (var i = 0; i < buttons.length; i++) {
+        var button = buttons[i];
+        var scope = button.dataset.scope;
+        var active = scope === state.scope;
+        button.setAttribute("aria-checked", active ? "true" : "false");
+        button.tabIndex = active ? 0 : -1;
+        button.classList.toggle("is-active", active);
+        button.textContent = scopeLabel(scope);
+        button.title = scopeDescription(scope);
+        /* A scope with no Rust to show is offered but not selectable — except
+           when it is already the active one, because a checked radio that is
+           also disabled reads as broken. Until the snapshot lands, `both`
+           simply degrades to the Lean reading. */
+        var unavailable = scope !== "lean" && !(state.rustGraph && state.rustGraph.nodes.length);
+        button.disabled = Boolean(unavailable) && !active;
+      }
+    }
+    var badge = DOM.workspaceBadge || document.getElementById("workspace-scope-badge");
+    if (badge) {
+      var languages = { lean: "Lean 4", both: "Lean 4 + Rust", rust: "Rust" }[state.scope] || "";
+      badge.textContent = (t("map.production_badge") || "production") + (languages ? " · " + languages : "");
+    }
+  }
+
+  function setupScopeToggle() {
+    var toggle = DOM.scopeToggle || document.getElementById("map-scope-toggle");
+    if (!toggle) return;
+    toggle.addEventListener("click", function (event) {
+      var button = event.target && event.target.closest ? event.target.closest("[data-scope]") : null;
+      if (!button || button.disabled) return;
+      setScope(button.dataset.scope);
+    });
+    /* Radio-group semantics: arrows move the choice, not just the focus. */
+    toggle.addEventListener("keydown", function (event) {
+      var key = event.key;
+      if (key !== "ArrowRight" && key !== "ArrowLeft" && key !== "ArrowUp" && key !== "ArrowDown" && key !== "Home" && key !== "End") return;
+      var index = SCOPES.indexOf(state.scope);
+      if (index === -1) return;
+      var next = index;
+      if (key === "ArrowRight" || key === "ArrowDown") next = (index + 1) % SCOPES.length;
+      else if (key === "ArrowLeft" || key === "ArrowUp") next = (index - 1 + SCOPES.length) % SCOPES.length;
+      else if (key === "Home") next = 0;
+      else next = SCOPES.length - 1;
+      var target = toggle.querySelector('[data-scope="' + SCOPES[next] + '"]');
+      if (target && target.disabled) return;
+      event.preventDefault();
+      setScope(SCOPES[next]);
+      if (target) target.focus();
+    });
+    renderScopeToggle();
   }
 
   function hydrateFilterControls() {
@@ -6329,7 +6877,6 @@
      render time, so a locale change only needs a repaint. */
   function repaintForLocale() {
     LABEL_WRAP_CACHE.clear();
-    renderInventory();
     scheduleRender();
   }
 
@@ -6389,6 +6936,7 @@
     hardenExternalLinks();
     readUrlState();
     setupFilters();
+    setupScopeToggle();
     setupKeyboardNavigation();
     setupFlowchartResize();
     setupLocaleRerender();
@@ -6478,31 +7026,72 @@
       moduleSubsystem: moduleSubsystem,
       groupLaneModules: groupLaneModules,
       buildLaneEntries: buildLaneEntries,
-      classifyRepositoryPath: classifyRepositoryPath,
-      buildRepositoryInventory: buildRepositoryInventory,
       retainInventory: retainInventory,
       seedBundledInventory: seedBundledInventory,
       normalizeRustInventory: normalizeRustInventory,
       isOutsideProductionScope: isOutsideProductionScope,
       isLeanModulePath: isLeanModulePath,
       isInRepoOutsideScope: isInRepoOutsideScope,
-      visibleRustItems: visibleRustItems,
-      rustItemColor: rustItemColor,
-      sortRustItems: sortRustItems,
       rustUnsafeSummary: rustUnsafeSummary,
       rustUnsafeDetail: rustUnsafeDetail,
-      fileCountLabel: fileCountLabel,
-      moduleCountLabel: moduleCountLabel,
-      captureInventoryOpenState: captureInventoryOpenState,
-      restoreInventoryOpenState: restoreInventoryOpenState,
-      crateSupportFiles: crateSupportFiles,
       pickInteriorMenuGroup: pickInteriorMenuGroup,
       formatCount: formatCount,
+      pluralEn: pluralEn,
       setCache: setCache,
       cacheMaxChars: function () { return CACHE_MAX_CHARS; },
       isLibraryRoot: isLibraryRoot,
       externalImportSubtitle: externalImportSubtitle,
-      classifyRepositoryPath: classifyRepositoryPath,
+      /* Scope, the Rust graph and the Lean ↔ Rust boundary */
+      scopes: function () { return SCOPES.slice(); },
+      defaultScope: function () { return DEFAULT_SCOPE; },
+      sanitizeScope: sanitizeScope,
+      sanitizeModuleName: sanitizeModuleName,
+      setScope: setScope,
+      currentScope: function () { return state.scope; },
+      scopeNodes: scopeNodes,
+      defaultNodeName: defaultNodeName,
+      nodeExists: nodeExists,
+      nodePath: nodePath,
+      nodeSortScore: nodeSortScore,
+      buildRustGraph: buildRustGraph,
+      rustNodeName: rustNodeName,
+      rustTargetName: rustTargetName,
+      rustAncestorChain: rustAncestorChain,
+      isRustNode: isRustNode,
+      rustNode: rustNode,
+      rustCrateStratum: rustCrateStratum,
+      rustInteriorForNode: rustInteriorForNode,
+      rustNodeSummary: rustNodeSummary,
+      rustCrateSummary: rustCrateSummary,
+      rustCrateDependencies: rustCrateDependencies,
+      rustKindGroupOrder: function () { return RUST_KIND_GROUP_ORDER.slice(); },
+      rustKindGroups: function () { return JSON.parse(JSON.stringify(RUST_KIND_GROUPS)); },
+      rustFlowLegendItems: rustFlowLegendItems,
+      bridgeLegendItems: bridgeLegendItems,
+      toBridgeKey: toBridgeKey,
+      bridgeRelation: bridgeRelation,
+      buildBridgeIndex: buildBridgeIndex,
+      bridgeIndex: function () { return state.bridge; },
+      bridgeBandsFor: bridgeBandsFor,
+      bridgeBandRows: bridgeBandRows,
+      bridgeUndirected: function () { return JSON.parse(JSON.stringify(BRIDGE_UNDIRECTED)); },
+      selectDeclaration: selectDeclaration,
+      declarationSearchMatch: declarationSearchMatch,
+      declarationSearchMatches: declarationSearchMatches,
+      urlSafeNodeSegment: urlSafeNodeSegment,
+      flowScrollTarget: function () { return state.flowScrollTarget; },
+      selectionState: function () {
+        return {
+          module: state.selectedModule,
+          context: state.flowContext,
+          declaration: state.selectedDeclaration,
+          declarationModule: state.selectedDeclarationModule
+        };
+      },
+      bridgeEdgeSubtitle: bridgeEdgeSubtitle,
+      interiorForNode: interiorForNode,
+      interiorGroupsForNode: interiorGroupsForNode,
+      interiorKindLabelForNode: interiorKindLabelForNode,
       translate: t,
       handleLocaleReady: handleLocaleReady,
       localePaintState: function () { return { ready: localeReady, painted: paintedBeforeLocale }; },
@@ -6527,9 +7116,14 @@
         if (typeof patch.flowShowAll === "boolean") state.flowShowAll = patch.flowShowAll;
         if (patch.laneGroupsExpanded) state.laneGroupsExpanded = patch.laneGroupsExpanded;
         if (patch.files) state.files = patch.files;
-        if ("rust" in patch) state.rust = patch.rust;
-        if (patch.rustShowTests) state.rustShowTests = patch.rustShowTests;
+        if ("rust" in patch) {
+          state.rust = patch.rust;
+          state.rustGraph = buildRustGraph(state.rust);
+        }
+        if (typeof patch.scope === "string") state.scope = patch.scope;
         if (typeof patch.commitSha === "string") state.commitSha = patch.commitSha;
+        if (typeof patch.rustCommit === "string") state.rustCommit = patch.rustCommit;
+        if (patch.buildBridge) buildBridgeIndex();
         // Rebuild declarationIndex from moduleMeta when moduleMeta is patched
         if (patch.moduleMeta && !patch.declarationIndex) {
           var idx = Object.create(null);

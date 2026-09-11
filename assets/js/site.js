@@ -85,6 +85,26 @@
     }
   }
 
+  /**
+   * Hydrate the architecture diagram's per-subsystem figures.
+   *
+   * Addressed as `subsystem.<key>.<field>` so one span says which subsystem it
+   * counts. scripts/lib/static-values.mjs stamps the same keys into the
+   * markup; a key the snapshot does not carry keeps the stamped literal,
+   * which is the correct fallback rather than a blank.
+   */
+  function updateSubsystems(subsystems) {
+    if (!subsystems || typeof subsystems !== "object") return;
+
+    for (var key in subsystems) {
+      if (!Object.prototype.hasOwnProperty.call(subsystems, key)) continue;
+      var entry = subsystems[key];
+      if (!entry || typeof entry !== "object") continue;
+      update("subsystem." + key + ".modules", entry.modules);
+      update("subsystem." + key + ".theorems", entry.theorems);
+    }
+  }
+
   function updateMetadata(data) {
     if (!data.theorems) return;
 
@@ -112,10 +132,17 @@
     update("modules", data.modules);
     update("lines", data.lines);
     update("theorems", data.theorems);
+    update("syscalls", data.syscalls);
+    update("externs", data.externs);
+    update("ni-steps", data.niSteps);
+    update("ni-cross-core", data.niCrossCore);
+    update("enforcement-ops", data.enforcementOps);
+    update("enforcement-ops-per-core", data.enforcementOpsPerCore);
     update("scripts", data.scripts);
     update("docs", data.docs);
     update("admitted", data.admitted);
     update("commit-sha", data.commitSha);
+    updateSubsystems(data.subsystems);
 
     if (data.updatedAt) {
       var updatedDate = new Date(data.updatedAt);
@@ -457,9 +484,16 @@
       modules: data.modules,
       lines: data.lines,
       theorems: data.theorems,
+      syscalls: data.syscalls,
+      externs: data.externs,
+      niSteps: data.niSteps,
+      niCrossCore: data.niCrossCore,
+      enforcementOps: data.enforcementOps,
+      enforcementOpsPerCore: data.enforcementOpsPerCore,
       scripts: data.scripts,
       docs: data.docs,
       admitted: data.admitted,
+      subsystems: data.subsystems,
       commitSha: data.commitSha,
       updatedAt: data.updatedAt
     };

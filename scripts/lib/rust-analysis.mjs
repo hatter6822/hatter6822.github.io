@@ -1083,6 +1083,10 @@ const CONVENTIONAL_TEST_ROOT = /^(?:tests|benches|examples)\/(?:[^/]+\.rs|[^/]+\
  * `src/main.rs` left behind under `autobins = false` is a module Cargo never
  * builds as a target. This is the one place those rules live; roles, module
  * paths, module resolution and `deniesUnsafe` all follow from it.
+ *
+ * `names` maps each binary and test root to the name Cargo builds it under,
+ * so a declared target keeps its manifest identity instead of one derived
+ * from its path.
  */
 export function cargoTargets(manifest, relativeSources) {
   const present = new Set((relativeSources || []).map(String));
@@ -1100,7 +1104,53 @@ export function cargoTargets(manifest, relativeSources) {
   for (const target of [...(manifest.tests || []), ...(manifest.benches || []), ...(manifest.examples || [])]) {
     if (target.path && present.has(target.path) && !tests.includes(target.path)) tests.push(target.path);
   }
-  return { lib, bins, tests };
+  /* What Cargo calls each target that is its own crate root. A conventional
+     path names itself — `src/bin/x.rs` and `src/bin/x/main.rs` both build `x`,
+     `src/main.rs` builds the package — but a declared target's `name` is the
+     only place a nonconventional path's identity is written down: `[[bin]]
+     name = "runner", path = "tool/entry.rs"` builds `runner`, and a node
+     addressed `bin::tool_entry` names a target the manifest does not have.
+     Declared names are applied last so they override the conventional
+     reading of a path they also claim. */
+  const names = Object.create(null);
+  for (const path of [...bins, ...tests]) {
+    const conventional = conventionalTargetName(path, pkg);
+    if (conventional) names[path] = conventional;
+  }
+  for (const target of [...(manifest.bins || []), ...(manifest.tests || []), ...(manifest.benches || []), ...(manifest.examples || [])]) {
+    if (target.path && target.name && present.has(target.path)) names[target.path] = target.name;
+  }
+  return { lib, bins, tests, names };
+}
+
+/** The target name Cargo reads off a conventional root path; '' when the path names no target of its own. */
+function conventionalTargetName(path, pkg) {
+  const nested = /^(?:src\/bin|tests|benches|examples)\/([^/]+)\/main\.rs$/.exec(path);
+  if (nested) return nested[1];
+  const flat = /^(?:src\/bin|tests|benches|examples)\/([^/]+)\.rs$/.exec(path);
+  if (flat) return flat[1];
+  if (path === 'src/main.rs') return typeof pkg?.name === 'string' ? pkg.name : '';
+  return '';
+}
+
+/**
+ * Is this inventory file one node of the production module graph?
+ *
+ * Three conditions, and `role` answers only the first: not a test target, not
+ * a file reached solely through a test-only declaration (`#[cfg(test)] mod
+ * tests;` names an ordinary module by path), and not a file no Cargo target
+ * reaches at all, which compiles into nothing and must not be drawn as part
+ * of the module tree.
+ *
+ * `buildRustGraph()` in assets/js/map.js applies the same three, and
+ * `map-runtime.test.mjs` holds the two to each other over the bundled
+ * snapshot. The browser probe sizes its expectations from here rather than
+ * from a number typed into it, so a data refresh that legitimately adds an
+ * orphan or a test module does not fail the probe.
+ */
+export function isProductionGraphFile(file) {
+  if (!file || typeof file.path !== 'string') return false;
+  return file.role !== 'test' && file.testOnly !== true && file.reachable !== false;
 }
 
 /** Is a crate-relative path one of the crate's target roots (a library, binary or test crate of its own)? */
@@ -1159,6 +1209,32 @@ export function rustModulePath(relativePath, roots) {
   const parts = path.slice(owner.length + 1, -3).split('/');
   if (parts[parts.length - 1] === 'mod') parts.pop();
   return parts.join('::');
+}
+
+/**
+ * The target root a file's module path is measured from.
+ *
+ * `rustModulePath` picks the deepest owning directory and then throws away
+ * which root that was, so a nested binary module (`src/bin/tool/helper.rs`,
+ * module path `helper`) was indistinguishable from a library module and the
+ * code map hung it off the library root — showing the library as declaring a
+ * binary's module. Returns the root file, or '' when the path is itself a root
+ * or belongs to none.
+ */
+export function rustModuleTarget(relativePath, roots) {
+  const path = String(relativePath ?? '');
+  if (!/\.rs$/.test(path)) return '';
+  const rootFiles = roots ? [roots.lib, ...(Array.isArray(roots.bins) ? roots.bins : [])].filter(Boolean) : [];
+  if (rootFiles.includes(path)) return '';
+
+  // Deepest owning root wins, the same rule rustModulePath applies: a file
+  // under `src/bin/tool/` belongs to that binary, not to `src/lib.rs`.
+  const owned = rootFiles
+    .map((file) => ({ file, dir: file.replace(/\/[^/]*$/, '') }))
+    .filter(({ dir }) => dir && path.startsWith(`${dir}/`))
+    .sort((a, b) => b.dir.length - a.dir.length);
+
+  return owned.length ? owned[0].file : '';
 }
 
 /**
@@ -1345,14 +1421,23 @@ export function buildRustInventory(files, readText, options = {}) {
     // — is unreachable, so its `pub` items are not public API. (A crate root
     // resolves `mod x;` beside itself; any other file under a directory of
     // its own name.)
+    //
+    // Compilation reachability is a second, wider set: a file any `mod`
+    // declaration reaches, whatever its visibility. Every exported file is
+    // compiled, but not the reverse — a file behind a private `mod` is
+    // compiled and is not public API. The two must be tracked apart: the code
+    // map draws the *compiled* module tree, so an orphan must not appear
+    // there, while the boundary index needs the narrower export set.
     const rootFile = (relative) => isTargetRoot(relative, roots) || relative === 'build.rs';
     const exportedFiles = new Set([...scans.keys()].filter(rootFile));
+    const reachedFiles = new Set([...scans.keys()].filter(rootFile));
     let grew = true;
     while (grew) {
       grew = false;
       for (const entry of scans.values()) {
         const parentTest = testFiles.has(entry.relative);
         const parentExported = exportedFiles.has(entry.relative);
+        const parentReached = reachedFiles.has(entry.relative);
         for (const item of entry.scan.items) {
           // Out-of-line declarations only: an inline `mod tests { … }` names
           // no file, so a same-named file elsewhere must not inherit from it.
@@ -1363,10 +1448,50 @@ export function buildRustInventory(files, readText, options = {}) {
             if (!scans.has(candidate)) continue;
             if (childTest && !testFiles.has(candidate)) { testFiles.add(candidate); grew = true; }
             if (childExported && !exportedFiles.has(candidate)) { exportedFiles.add(candidate); grew = true; }
+            if (parentReached && !reachedFiles.has(candidate)) { reachedFiles.add(candidate); grew = true; }
           }
         }
       }
     }
+    // The module path each file is *declared* under, discovered by following
+    // `mod` declarations from the target roots rather than read off the
+    // pathname. The two agree wherever Cargo's conventions are followed and
+    // disagree exactly where `#[path = "…"]` redirects a declaration:
+    // `#[path = "impl/foo.rs"] mod renamed;` compiles as `renamed`, so a node
+    // addressed `impl::foo` names a module the crate does not have and hangs
+    // it off a parent chain that does not exist either.
+    //
+    // Breadth-first from the roots, first assignment winning, so a file two
+    // targets both declare is addressed under the shallower path and, at equal
+    // depth, under the earlier root — the library before its binaries. This is
+    // a separate traversal from the status closure above on purpose: status is
+    // a union over every way a file is reached (reached once as test code, it
+    // is test code), while its address is one path among those ways.
+    const declaredRoots = [
+      ...[roots.lib, ...(Array.isArray(roots.bins) ? roots.bins : []), ...(Array.isArray(roots.tests) ? roots.tests : [])].filter(Boolean),
+      ...[...scans.keys()].filter(rootFile)
+    ].filter((relative, index, all) => scans.has(relative) && all.indexOf(relative) === index);
+    const declaredModules = new Map();
+    const queue = [];
+    for (const relative of declaredRoots) {
+      declaredModules.set(relative, { modulePath: '', target: '' });
+      queue.push({ relative, parts: [], target: relative });
+    }
+    for (let head = 0; head < queue.length; head += 1) {
+      const { relative, parts, target } = queue[head];
+      const entry = scans.get(relative);
+      if (!entry) continue;
+      for (const item of entry.scan.items) {
+        if (item.kind !== 'mod' || item.inline) continue;
+        const childParts = [...parts, ...String(item.module ?? '').split('::').filter(Boolean), item.name].map(bareIdentifier);
+        for (const candidate of childModuleFiles(relative, item.name, item.module, item.path, { root: rootFile(relative) })) {
+          if (!scans.has(candidate) || declaredModules.has(candidate)) continue;
+          declaredModules.set(candidate, { modulePath: childParts.join('::'), target });
+          queue.push({ relative: candidate, parts: childParts, target });
+        }
+      }
+    }
+
     for (const entry of scans.values()) {
       const testFile = testFiles.has(entry.relative);
       const exported = exportedFiles.has(entry.relative);
@@ -1375,12 +1500,28 @@ export function buildRustInventory(files, readText, options = {}) {
 
     for (const entry of scans.values()) {
       const { path, relative, text, role, scan } = entry;
+      /* Where this file sits in the compiled module tree, and which target
+         root that is measured from. The walk answers both for a file some
+         target reaches; the pathname derivation answers for one nothing
+         declares, which is listed but never drawn. */
+      const walked = declaredModules.get(relative);
+      const modulePath = walked ? walked.modulePath : rustModulePath(relative, roots);
+      const target = walked ? walked.target : rustModuleTarget(relative, roots);
+      const targetName = (roots.names && roots.names[relative]) || '';
       if (relative === crateRoot) deniesUnsafe = crateDeniesUnsafe(text);
       const items = scan.items.map((item) => ({
         kind: item.kind,
         name: item.name,
         line: item.line,
         visibility: item.visibility,
+        /* `pub` is syntax; `exported` is reachability — every enclosing inline
+           module `pub` and the file itself reached through `pub mod` from a
+           target root. The scanner already computed it for `publicItems` and
+           then dropped it here, so consumers had only the syntactic flag: the
+           code map published boundary links for `pub` constants sitting in a
+           private module (`sele4n-hal`'s `error_code::VM_FAULT`), which are
+           crate-private implementation details, not shared API. */
+        exported: Boolean(item.exported),
         ...(item.unsafe ? { unsafe: true } : {}),
         ...(item.module ? { module: item.module } : {}),
         ...(item.test ? { test: true } : {})
@@ -1388,7 +1529,26 @@ export function buildRustInventory(files, readText, options = {}) {
       crateFiles.push({
         path,
         relativePath: relative,
-        modulePath: rustModulePath(relative, roots),
+        modulePath,
+        /* Which target root that module path is measured from. Absent for a
+           root itself. */
+        ...(target ? { target } : {}),
+        /* The name Cargo builds this root under, when it is a root that has
+           one. Absent for a module, and for a root whose name is the
+           package's. */
+        ...(targetName ? { targetName } : {}),
+        /* Whether any Cargo target reaches this file through `mod`
+           declarations. A file nothing declares — stale, generated input,
+           `include!`d — is listed in the inventory but compiles into nothing,
+           so the code map must not draw it as part of the module tree. */
+        reachable: reachedFiles.has(relative),
+        /* Whether the file compiles only into test builds. Wider than `role`,
+           which reads the pathname and so calls `src/tests.rs` a module: the
+           common `#[cfg(test)] mod tests;` makes that file and everything it
+           declares test code, and the production map must leave it out. Like
+           `reachable`, emitted for every file so its absence is a fact about
+           the snapshot's age rather than a value. */
+        testOnly: testFiles.has(relative),
         role,
         lines: scan.lines,
         items,

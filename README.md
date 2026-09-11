@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.30.0`
+- Website version: `0.32.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -56,6 +56,23 @@ artifact does not record, the import graph, and the artifact's
 snapshots cannot blend two revisions. The site and map snapshots record the same
 `commitSha` and `sourceDigest`; `validate-data.mjs` fails if they disagree.
 
+Four figures the artifact does not carry are counted off those digest-verified
+sources instead: the syscall surface (`inductive SyscallId`'s constructors), the
+FFI bridge (`@[extern …]` declarations), and the two enforcement-boundary
+tables, whose sizes the kernel proves by `rfl` — the site reads the theorem
+rather than a sentence about it. A fifth, `niSteps`, is published only while
+every constructor of `NonInterferenceStep` still has its own per-core
+non-interference proof, because that correspondence is what the page claims; a
+step without one fails the sync and is named.
+
+Two further things are projected rather than written by hand. `subsystems`
+carries the architecture diagram's per-layer module and theorem counts, over
+the same corpus as the headline figures, addressed in the markup as
+`data-live="subsystem.<key>.modules"`. `sourceAnchors` records the line each
+deep link's declaration sits on, so a `…/Policy.lean#L281` anchor tracks the
+kernel instead of rotting — the sync reads the page to learn which links exist,
+so adding one is enough. A label it cannot place is reported, never guessed.
+
 The same checkout's `rust/` workspace is scanned by `scripts/lib/rust-analysis.mjs`
 into `map-data.json#rust`: the four production crates with their manifest
 facts, per-file item lists, and `unsafe` sites counted at any depth and split
@@ -88,6 +105,7 @@ node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
+node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
 ```
@@ -115,46 +133,82 @@ tested and validated in CI.
 `map.html` and `run.html` still refresh their larger payloads from GitHub, with
 the bundled snapshot as the fallback.
 
-## Code map layout (0.30.0)
+## Code map layout (0.31.0)
 
-`map.html` is the **Lean module workspace**. It opens on `SeLe4n.Kernel.API`
-— the kernel's unified public API, the entry-point surface the subsystems
-compose into — whenever the URL carries no `module=`. Its flow chart shows the
-selected module's imports, dependents, proof pair, nearest linked-proof path
-and external imports; a lane with more modules than the detail budget is
-grouped by subsystem (`SeLe4n.Kernel.IPC`, `SeLe4n.Kernel.Architecture`, …)
-and each group opens in place. The chart is always drawn at full size and
-scrolls inside its frame when it is wider than its column. The declaration
-sidebar lists the module's interior declarations in three tabs (Objects,
-Contexts/Inits, Extensions); from 1440px it sits beside the chart and follows
-the scroll, below that it stacks under the chart.
+`map.html` is **one section**: the production module workspace. A scope toggle
+in its toolbar chooses which languages the workspace is read in — **Lean**,
+**Lean + Rust** (the default) or **Rust** — and rides the URL as `scope=`, so a
+reading is linkable. Before 0.31.0 the page carried two further sections, a
+Rust crate card grid and a repository file inventory; both are gone, and the
+Rust half of the codebase is now navigated in the workspace itself.
 
-The **Rust production crates** section renders one card per workspace crate
-(`sele4n-types`, `sele4n-abi`, `sele4n-sys`, `sele4n-hal`) from
-`data/map-data.json#rust`: description and edition from `Cargo.toml`, internal
-and external dependencies (a target-scoped table such as `loom` under
-`cfg(loom)` is stated under its cfg, dev-dependencies as test-only), feature
-flags, per-file item lists with visibility and line anchors, and `unsafe`
-usage read from the sources — the sites in production code as the headline,
-the sites in test code named apart, and the crate-level
-`#![deny(unsafe_code)]` lint as a separate fact, so `sele4n-abi`'s three
-exception sites under its lint stay visible. Test items are bundled too and
-listed behind a per-crate toggle, so the cards describe the production surface
-by default; file lists are bounded and scroll inside their card. A small
-dependency diagram shows the `sys → abi → types` chain and the standalone HAL.
+**Lean scope.** The chart opens on `SeLe4n.Kernel.API` — the kernel's unified
+public API, the entry-point surface the subsystems compose into — whenever the
+URL carries no `module=`. It shows the selected module's imports, dependents,
+proof pair, nearest linked-proof path and external imports; a lane with more
+modules than the detail budget is grouped by subsystem
+(`SeLe4n.Kernel.IPC`, `SeLe4n.Kernel.Architecture`, …) and each group opens in
+place. The chart is always drawn at full size and scrolls inside its frame when
+it is wider than its column. The declaration sidebar lists the module's
+interior declarations in three tabs (Objects, Contexts/Inits, Extensions); from
+1440px it sits beside the chart and follows the scroll, below that it stacks
+under the chart.
 
-The **repository inventory** lists every file in the seLe4n tree, grouped:
-production Lean (by subsystem, each module opening in the workspace),
-production Rust (linking to the crate cards, with each crate's manifest, linker
-script and assembly files listed beneath), then tests, scripts, documentation
-and project tooling as closed, muted groups whose file lists render on first
-open and link to the source at the snapshot commit. Whatever a reader has
-opened survives the live refresh and a locale switch.
+**Rust scope.** One node per production Rust source file, addressed by the Rust
+module path that reaches it (`sele4n-abi::args::cspace`); a crate's library
+root is the bare crate name, and a target that is its own crate root — a
+binary, the build script — carries that target as a path segment and says so on
+the node. The lanes are the module path that reaches the file, the modules it
+declares (or, for a leaf, the modules its parent declares alongside it), and
+its crate's dependency context — a target-scoped table such as `loom` under
+`cfg(loom)` stated under its cfg, dev-dependencies as test-only. Node summaries
+carry the counts the crate cards used to: production items, public items,
+lines, `unsafe` sites in production code with the test sites named apart, and
+the crate-level `#![deny(unsafe_code)]` lint as a separate fact, so
+`sele4n-abi`'s three exception sites under its lint stay visible. The
+declaration sidebar lists the file's items in four tabs (Types, Functions,
+Impls/Mods, Tests), each linked to its source line. Test targets are not nodes:
+production code is the map's subject, as it is on the Lean side.
+
+**Lean + Rust scope.** Both languages in one workspace, with the boundary
+between them drawn. See *Lean ↔ Rust boundary* below.
 
 `node scripts/map-smoke.mjs` checks all of this in headless Chromium against a
 local static server (`python3 -m http.server 4173`); it needs `playwright-core`
 on `NODE_PATH` or installed next to the repository. `.github/workflows/ci.yml`
 runs it, and every unit test and validator, on each push and pull request.
+
+## Lean ↔ Rust boundary (0.31.0)
+
+The two halves of the codebase meet at named declarations, and the snapshot
+already carries enough to say where and in which direction. Two declarations
+are the same declaration across the boundary when their names agree once case
+convention is normalised away — `ffiGicAcknowledge` and `ffi_gic_acknowledge`,
+`ThreadId` and `ThreadId`, `MAX_LABEL` and `maxLabel` — with the Rust side
+restricted to `pub` production items of a nameable kind.
+
+What such a pair *means* follows from the Lean side's own kind:
+
+| pair | relation | direction |
+|------|----------|-----------|
+| Lean `opaque`/`axiom` + Rust `pub fn` | **implements** | Lean declares it with no Lean body, Rust defines it — the kernel calls **down** into the HAL |
+| Lean `def` + Rust `pub fn` in a user-space crate | **invokes** | Lean implements it, the syscall wrapper names the same operation — Rust calls **up** into the kernel |
+| Lean `def` + Rust `pub fn` in the HAL | **mirrors** | specification and machine code either side of the seam, not a call |
+| a type or constant on both sides | **shares** | the data that crosses the boundary |
+
+Only the first is a certainty read straight from the data; the other three are
+labelled as what they are and never as a call. The crate's stratum — which side
+of the kernel it sits on — is the one editorial fact the model needs, and it
+only ever decides how a matched *function* is labelled, never whether a pair
+exists. A crate the table does not name is "shared": it gets no direction
+rather than a guessed one.
+
+On the bundled snapshot this resolves to **194 declaration-level links over 48
+module pairs**, the largest being `SeLe4n.Platform.FFI` ↔ `sele4n-hal::ffi`
+(68 `opaque` declarations the HAL defines). In the combined scope a selected
+node grows a boundary band under its own context, with an arrow per direction
+and the matched declarations named on each edge rather than counted; clicking
+one crosses into the other language.
 
 ## Code map declaration context and interior explorer
 

@@ -1,3 +1,5 @@
+import { SITE_SUBSYSTEMS, subsystemNamespaces } from './canonical-map.mjs';
+
 function isObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -167,7 +169,32 @@ function validateRustInventory(rust, files) {
       }
       if (typeof file.relativePath !== 'string') errors.push(`${fileLabel}.relativePath must be a string`);
       if (typeof file.modulePath !== 'string') errors.push(`${fileLabel}.modulePath must be a string`);
+      if (file.reachable !== undefined && typeof file.reachable !== 'boolean') {
+        errors.push(`${fileLabel}.reachable must be a boolean when present`);
+      }
+      if (file.target !== undefined && (typeof file.target !== 'string' || !file.target.trim())) {
+        errors.push(`${fileLabel}.target must be a non-empty string when present`);
+      }
+      if (file.testOnly !== undefined && typeof file.testOnly !== 'boolean') {
+        errors.push(`${fileLabel}.testOnly must be a boolean when present`);
+      }
+      if (file.targetName !== undefined && (typeof file.targetName !== 'string' || !file.targetName.trim())) {
+        errors.push(`${fileLabel}.targetName must be a non-empty string when present`);
+      }
       if (!RUST_FILE_ROLES.has(file.role)) errors.push(`${fileLabel}.role ${JSON.stringify(file.role)} is not a known role`);
+      /* `testOnly` is wider than the role, never narrower: it is reached
+         through a test-only declaration, and every test target is. A test
+         target the snapshot calls production would put test code on a map
+         whose subject is production code. */
+      if (file.role === 'test' && file.testOnly === false) {
+        errors.push(`${fileLabel} is a test target but testOnly is false`);
+      }
+      /* Only a root has a target name; a module is addressed by its module
+         path, and naming one would put a Cargo target in the address of
+         something Cargo does not build. */
+      if (file.targetName !== undefined && file.role === 'module') {
+        errors.push(`${fileLabel}.targetName is set on a module, which is no Cargo target`);
+      }
       for (const key of ['lines', 'productionItems', 'publicItems', 'testItems']) {
         if (!isNonNegativeInteger(file[key])) errors.push(`${fileLabel}.${key} must be a non-negative integer`);
       }
@@ -187,6 +214,16 @@ function validateRustInventory(rust, files) {
           errors.push(`${itemLabel}.visibility ${JSON.stringify(item.visibility)} is not a visibility`);
         }
         if (item.test !== undefined && item.test !== true) errors.push(`${itemLabel}.test must be true when present`);
+        // `exported` is reachability, not syntax: an item can only be exported
+        // if it is also syntactically `pub`, so a flag on a private item means
+        // the scanner and the snapshot disagree about what is public API — and
+        // the boundary index trusts this flag to decide what crosses the seam.
+        if (item.exported !== undefined && typeof item.exported !== 'boolean') {
+          errors.push(`${itemLabel}.exported must be a boolean when present`);
+        }
+        if (item.exported === true && !/^pub\b/.test(String(item.visibility ?? ''))) {
+          errors.push(`${itemLabel} is marked exported but its visibility is ${JSON.stringify(item.visibility)}`);
+        }
         if (item.test === true) flagged += 1;
         else if (item.kind !== 'impl') counted += 1;
       });
@@ -260,7 +297,8 @@ export function validateSiteDataObject(data) {
     'version', 'leanVersion', 'lines', 'commitSha', 'generatedAt',
     'schemaVersion', 'sourceDigest'
   ];
-  const requiredNumber = ['modules', 'theorems', 'scripts', 'docs', 'admitted'];
+  const requiredNumber = ['modules', 'theorems', 'syscalls', 'externs', 'scripts', 'docs', 'admitted',
+    'niSteps', 'niCrossCore', 'enforcementOps', 'enforcementOpsPerCore'];
 
   for (const key of requiredString) {
     if (typeof data[key] !== 'string') errors.push(`site-data.json: expected string at ${key}`);
@@ -304,6 +342,76 @@ export function validateSiteDataObject(data) {
 
   if (data.updatedAt !== undefined && data.updatedAt !== '' && !isIsoDateString(data.updatedAt)) {
     errors.push('site-data.json: updatedAt must be empty or an ISO-8601 UTC timestamp');
+  }
+
+  errors.push(...subsystemErrors(data.subsystems));
+  errors.push(...sourceAnchorErrors(data.sourceAnchors));
+
+  // The revision the anchor lines were resolved against, written into every
+  // anchored href. A branch name here would put a line number on a moving
+  // target, which is the failure the anchors exist to prevent.
+  if (data.sourceAnchorRef !== undefined && !/^[0-9a-f]{7,40}$/.test(String(data.sourceAnchorRef))) {
+    errors.push('site-data.json: sourceAnchorRef must be a commit id, not a branch name');
+  }
+
+  return errors;
+}
+
+/**
+ * The architecture diagram's per-layer figures.
+ *
+ * Every layer named in `SITE_SUBSYSTEMS` must be present: the page paints one
+ * span per layer, and a key the snapshot drops leaves whatever literal was
+ * last stamped there, which is the silent staleness this replaced.
+ */
+function subsystemErrors(subsystems) {
+  const errors = [];
+  if (!isObject(subsystems)) return ['site-data.json: subsystems must be an object'];
+
+  for (const { key } of SITE_SUBSYSTEMS) {
+    const entry = subsystems[key];
+    if (!isObject(entry)) {
+      errors.push(`site-data.json: subsystems.${key} is missing — the architecture diagram paints a span for it`);
+      continue;
+    }
+    for (const field of ['modules', 'theorems']) {
+      if (!Number.isInteger(entry[field]) || entry[field] < 0) {
+        errors.push(`site-data.json: subsystems.${key}.${field} must be a non-negative integer`);
+      }
+    }
+  }
+
+  for (const key of Object.keys(subsystems)) {
+    if (!SITE_SUBSYSTEMS.some((subsystem) => subsystem.key === key)) {
+      errors.push(`site-data.json: subsystems.${key} is not a subsystem the page names — add it to SITE_SUBSYSTEMS or drop it`);
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Resolved line anchors: `path → label → line`.
+ *
+ * A line of 0 or a non-integer would be stamped into a link as `#L0`, so the
+ * shape is checked rather than trusted. Which links exist is the page's
+ * business, not this file's — the sync discovers them by reading the page.
+ */
+function sourceAnchorErrors(anchors) {
+  const errors = [];
+  if (anchors === undefined) return errors;
+  if (!isObject(anchors)) return ['site-data.json: sourceAnchors must be an object'];
+
+  for (const [path, labels] of Object.entries(anchors)) {
+    if (!isObject(labels)) {
+      errors.push(`site-data.json: sourceAnchors[${JSON.stringify(path)}] must map labels to line numbers`);
+      continue;
+    }
+    for (const [label, line] of Object.entries(labels)) {
+      if (!Number.isInteger(line) || line < 1) {
+        errors.push(`site-data.json: sourceAnchors[${JSON.stringify(path)}][${JSON.stringify(label)}] must be a 1-based line number`);
+      }
+    }
   }
 
   return errors;
@@ -495,6 +603,46 @@ export function validateCrossFile(siteData, mapData) {
       .reduce((total, meta) => total + (isObject(meta) && Number.isInteger(meta.theorems) ? meta.theorems : 0), 0);
     if (mapped !== siteData.theorems) {
       errors.push(`cross-file: site-data reports ${siteData.theorems} theorems but map-data modules sum to ${mapped}`);
+    }
+  }
+
+  errors.push(...subsystemCrossFileErrors(siteData.subsystems, mapData));
+
+  return errors;
+}
+
+/**
+ * Reconcile each architecture-diagram figure against the graphed modules.
+ *
+ * The same guarantee the headline counts get, one namespace at a time: the
+ * landing page and the code map describe one kernel, so a layer the diagram
+ * calls 24 modules is 24 modules in the graph. Both are projected from the
+ * artifact in the same run, which is what makes this checkable — and a
+ * mismatch means the snapshots were not built together.
+ */
+function subsystemCrossFileErrors(subsystems, mapData) {
+  const errors = [];
+  if (!isObject(subsystems) || !Array.isArray(mapData.modules) || !isObject(mapData.moduleMeta)) return errors;
+
+  for (const subsystem of SITE_SUBSYSTEMS) {
+    const { key } = subsystem;
+    const namespaces = subsystemNamespaces(subsystem);
+    const namespace = namespaces.join(' + ');
+    const entry = subsystems[key];
+    if (!isObject(entry)) continue;
+
+    const members = mapData.modules.filter((name) => typeof name === 'string'
+      && namespaces.some((ns) => name === ns || name.startsWith(`${ns}.`)));
+    const theorems = members.reduce((total, name) => {
+      const meta = mapData.moduleMeta[name];
+      return total + (isObject(meta) && Number.isInteger(meta.theorems) ? meta.theorems : 0);
+    }, 0);
+
+    if (Number.isInteger(entry.modules) && entry.modules !== members.length) {
+      errors.push(`cross-file: site-data reports ${entry.modules} modules under ${namespace} but map-data graphs ${members.length}`);
+    }
+    if (Number.isInteger(entry.theorems) && entry.theorems !== theorems) {
+      errors.push(`cross-file: site-data reports ${entry.theorems} theorems under ${namespace} but map-data modules sum to ${theorems}`);
     }
   }
 

@@ -155,25 +155,41 @@ assert(/setAttribute\("role",\s*"tablist"\)/.test(mapJs), "interior menu should 
 assert(/interior-menu-tab\b/.test(mapJs) && /\.interior-menu-tab\[aria-selected="true"\]/.test(css), "interior menu tabs should exist and style the selected tab");
 assert(!/interior-menu-grid/.test(mapJs), "interior menu should no longer render the three-column grid");
 
-// HTML: the redesigned page carries the Rust crate section and the repository inventory
-assert(/id="rust-crate-grid"/.test(html), "map markup should include the Rust crate grid container");
-assert(/id="repository-inventory-groups"/.test(html), "map markup should include the repository inventory container");
-assert(/data-map="rustCrates"/.test(html), "hero stats should include the Rust crate count");
-assert(/class="map-section-nav"/.test(html), "hero should carry jump links to the page sections");
+// HTML: the page is one section. The Rust crate cards and the repository
+// inventory that stood beside it are gone; their subject moved into the
+// workspace itself, reachable through the scope toggle.
+assert(!/id="rust-crate-grid"/.test(html), "the Rust crate grid section should no longer exist");
+assert(!/id="repository-inventory-groups"/.test(html), "the repository inventory section should no longer exist");
+assert(!/id="rust-crates"/.test(html) && !/id="repository-inventory"/.test(html), "neither removed section should keep an anchor");
+assert(!/class="map-section-nav"/.test(html), "with one section there are no jump links to carry");
+assert(/data-map="rustCrates"/.test(html), "hero stats should still include the Rust crate count");
+assert(/data-map="rustModules"/.test(html), "hero stats should include the Rust module count");
+assert(/data-map="bridgeLinks"/.test(html), "hero stats should include the Lean/Rust boundary link count");
+assert(!/data-map="files"/.test(html), "the repository file count lost its section and its stat card");
 const workspaceIndex = html.indexOf('id="module-graph"');
-const rustIndex = html.indexOf('id="rust-crates"');
-const inventoryIndex = html.indexOf('id="repository-inventory"');
-assert(workspaceIndex !== -1 && rustIndex !== -1 && inventoryIndex !== -1, "all three page sections should exist");
-assert(workspaceIndex < rustIndex && rustIndex < inventoryIndex, "the Lean workspace must come first, then Rust crates, then the inventory");
+assert(workspaceIndex !== -1, "the workspace section should exist");
+assert((html.match(/<section class="section[^"]*map-section"/g) || []).length === 1, "the page should carry exactly one map section");
+
+// HTML: the scope toggle is a radiogroup of three mutually exclusive readings,
+// and its markup opens on the same scope DEFAULT_SCOPE names.
+assert(/id="map-scope-toggle"[^>]*role="radiogroup"/.test(html), "the scope toggle should expose radiogroup semantics");
+for (const scope of ["lean", "both", "rust"]) {
+  assert(new RegExp(`data-scope="${scope}"[^>]*`).test(html), `the scope toggle should offer the ${scope} scope`);
+}
+const activeScope = html.match(/<button[^>]*class="map-scope-option is-active"[^>]*data-scope="([a-z]+)"/);
+assert(activeScope, "one scope option should be marked active in the static markup");
+assert(new RegExp(`var DEFAULT_SCOPE = "${activeScope[1]}"`).test(mapJs), "the statically active scope must be the one DEFAULT_SCOPE names, or the toggle flashes on boot");
+assert(/aria-checked="true"[^>]*data-scope="both"|data-scope="both"[^>]*aria-checked="true"/.test(html), "the active option should also be aria-checked");
 
 // JS: the default module is the kernel API surface, and the grouped lanes exist
 assert(/var DEFAULT_MODULE = "SeLe4n\.Kernel\.API"/.test(mapJs), "the workspace should default to SeLe4n.Kernel.API");
 assert(/function buildLaneEntries\(/.test(mapJs) && /function groupLaneModules\(/.test(mapJs), "over-budget lanes should group modules by subsystem");
 assert(/\.flow-node\.lane-group\s+rect/.test(css), "subsystem group nodes should have their own style");
 
-// CSS: production groups in the inventory are visually distinguished
-assert(/\.inventory-group\[data-production="true"\]/.test(css), "production inventory groups should be highlighted");
+// CSS: the production badge survives as the workspace's scope badge
 assert(/\.production-badge\b/.test(css), "production badge style should exist");
+assert(/id="workspace-scope-badge"/.test(html), "the workspace badge should be addressable so it can name the active scope");
+assert(!/\.inventory-|\.rust-crate|\.rust-file|\.rust-item|\.rust-dependency/.test(css), "the removed sections should leave no styles behind");
 
 // CSS: interior menu item navigable should prevent flex wrapping
 assert(/\.interior-menu-item-navigable\s*\{[^}]*flex-wrap:\s*nowrap/s.test(css), "interior menu item navigable should prevent flex wrapping");
@@ -261,20 +277,55 @@ assert(/verifiableSurfaceArea:\s*verifiableSurfaceArea/.test(mapJs), "verifiable
 // CSS: cross-module declaration nodes should have dashed border
 assert(/\.flow-node\.cross-module\s+rect\s*\{[^}]*stroke-dasharray/s.test(css), "cross-module declaration nodes should have dashed stroke");
 
-// Review round on the 0.30.0 redesign: the dependency strip must scroll on
-// phones rather than shrink, and the unsafe lint never stands in for the
-// counted sites.
-assert(/\.rust-dependency-svg\s*\{[^}]*\}/.test(css) && !/\.rust-dependency-svg\s*\{[^}]*max-width/.test(css), "the dependency SVG keeps its intrinsic width so .rust-dependency-scroll can scroll");
-assert(/\.rust-dependency-strip\s*\{[^}]*min-width:\s*0/.test(css), ".rust-dependency-strip needs min-width: 0 so the grid item does not grow to the SVG");
-assert(/\.inventory-crate-support\b/.test(css), "map.css should style the crate support-file rows of the inventory");
-assert(!/rust_unsafe_denied/.test(mapJs), "the unsafe cell shows the counted sites; the deny lint is a separate fact");
-assert(/function rustUnsafeSummary\(/.test(mapJs) && /function crateSupportFiles\(/.test(mapJs), "rustUnsafeSummary and crateSupportFiles should exist");
-assert(/testUnsafe/.test(mapJs) && /function rustUnsafeDetail\(/.test(mapJs), "the unsafe cell names production and test sites separately");
-assert(/targetDependencies/.test(mapJs), "target-scoped dependency tables are rendered under their cfg");
-assert(/function captureInventoryOpenState\(/.test(mapJs) && /data-open-key|dataset\.openKey/.test(mapJs), "open groups, subgroups and files must survive a re-render");
-assert(/\.rust-crate-grid\s*\{[^}]*align-items:\s*start/s.test(css), "crate cards must not stretch to the tallest card");
-assert(/\.rust-crate-files\s*\{[^}]*max-height:/s.test(css), "a crate's file list is bounded and scrolls inside the card");
-assert(/\.rust-dependency-svg\s*\{[^}]*margin-inline:\s*auto/s.test(css), "the dependency strip is centred when narrower than its figure");
+// The Rust facts the crate cards used to carry still hold, now in the chart:
+// the crate lint never stands in for the counted sites, production and test
+// sites stay apart, and a target-scoped table keeps its cfg.
+assert(!/rust_unsafe_denied/.test(mapJs), "the unsafe summary shows the counted sites; the deny lint is a separate fact");
+assert(/function rustUnsafeSummary\(/.test(mapJs) && /function rustUnsafeDetail\(/.test(mapJs), "rustUnsafeSummary and rustUnsafeDetail should survive the section removal");
+assert(/testUnsafe/.test(mapJs), "the unsafe summary names production and test sites separately");
+assert(/targetDependencies/.test(mapJs), "target-scoped dependency tables are still labelled under their cfg");
 assert(!/testing-framework modules/.test(mapJs), "the production Lean description must not claim the testing framework");
+
+// The Rust half of the workspace: one node per production source file, the
+// boundary derived from the Lean declaration's own kind, and a chart that
+// reuses the same 1:1 frame as the Lean one.
+assert(/function buildRustGraph\(/.test(mapJs), "the Rust module graph should be projected from the bundled inventory");
+assert(/function renderRustFlowchart\(/.test(mapJs), "the Rust scope should have its own chart");
+assert(/function buildBridgeIndex\(/.test(mapJs) && /function bridgeRelation\(/.test(mapJs), "the Lean/Rust boundary should be a derived index, not a hand-written table");
+assert(/BRIDGE_FOREIGN_LEAN_KINDS = \{ opaque: true, axiom: true \}/.test(mapJs), "the foreign-function direction comes from the Lean declaration having no Lean body");
+// Three conditions keep the graph to production code that compiles, and the
+// file's `role` — read off its pathname — answers only the first.
+assert(/if \(file\.role === "test" \|\| file\.testOnly === true\) continue;/.test(mapJs), "test targets and out-of-line test modules stay outside the graph, as tests stay outside the Lean scope");
+assert(/if \(file\.reachable === false\) continue;/.test(mapJs), "a file no Cargo target reaches compiles into nothing and is drawn as nothing");
+assert(/setAttribute\("aria-label", "Rust module, crate dependency and Lean boundary chart"\)/.test(mapJs), "renderAll should label the Rust chart for screen readers");
+assert(/computeFlowLayout\(\)/.test(mapJs), "the Rust chart must reuse the shared layout so the 1:1 guarantee holds for it too");
+
+// CSS: the scope toggle and the boundary nodes
+assert(/\.map-scope-toggle\s*\{/.test(css), "map.css should style the scope toggle");
+assert(/\.map-scope-option\.is-active\s*\{/.test(css), "the active scope option should be visually distinct");
+assert(/\.map-toolbar\s*\{[^}]*grid-template-columns:\s*auto\s+minmax/s.test(css), "the toolbar grid should reserve a column for the scope control");
+assert(/\.flow-node-rust\s+text\s*\{[^}]*font-family/s.test(css), "Rust nodes should read as Rust wherever they are drawn");
+assert(/\.flow-node-rust\.flow-node-lean\s+text\s*\{/.test(css), "a Lean counterpart drawn inside the Rust chart drops the Rust face again");
+assert(/\.flow-node-bridge\s+rect\s*\{[^}]*stroke-dasharray/s.test(css), "boundary nodes should be visually distinct from same-language nodes");
+
+// Source hygiene: no stray control characters. A literal NUL inside a string
+// literal is valid JavaScript and invisible in every editor, but it makes the
+// file binary to grep and diff — and it has reached this file twice, both
+// times from a cache key written as `a + "\0" + b` instead of `a + "\\u0000" + b`.
+for (const [label, text] of [["map.js", mapJs], ["map.css", css], ["map.html", html]]) {
+  const control = [...text].map((ch, i) => [i, ch.charCodeAt(0)])
+    .filter(([, code]) => code < 9 || (code > 13 && code < 32));
+  assert.deepEqual(control, [], `${label} carries ${control.length} control character(s) at ${control.slice(0, 3).map(([i]) => i).join(", ")}; write a separator as the escape "\\u0000", never as a literal`);
+}
+
+
+/* A live canonical refresh advances the Lean graph and carries no Rust
+   inventory, so the Rust Modules and Boundary Links figures can be a commit
+   behind the "Generated" stamp beside them. Through 0.30.0 the crate cards
+   disclosed that; removing those sections took the only disclosure with them. */
+assert(/id="map-inventory-note"[^>]*hidden/.test(html),
+  "the retained-inventory note should ship hidden and appear only when the two halves disagree");
+assert(html.indexOf('id="map-inventory-note"') > html.indexOf('data-map="generatedAt"'),
+  "the retained-inventory note should sit with the snapshot provenance, not among the stat cards");
 
 console.log("map-toolbar.test: ok");

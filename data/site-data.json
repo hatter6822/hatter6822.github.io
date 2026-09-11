@@ -1,19 +1,193 @@
 {
-  "version": "0.34.56",
+  "version": "0.35.1",
   "leanVersion": "4.28.0",
-  "modules": 303,
-  "lines": "325,346",
-  "theorems": 10929,
+  "modules": 318,
+  "lines": "356,150",
+  "theorems": 12026,
+  "syscalls": 35,
+  "externs": 73,
+  "niSteps": 35,
+  "niCrossCore": 35,
+  "enforcementOps": 44,
+  "enforcementOpsPerCore": 59,
   "scripts": 65,
-  "docs": 252,
+  "docs": 253,
   "admitted": 0,
-  "commitSha": "dcbd1dd",
-  "updatedAt": "2026-09-05T15:46:20.000Z",
+  "subsystems": {
+    "scheduler": {
+      "modules": 49,
+      "theorems": 1900
+    },
+    "capability": {
+      "modules": 13,
+      "theorems": 285
+    },
+    "ipc": {
+      "modules": 66,
+      "theorems": 2758
+    },
+    "lifecycle": {
+      "modules": 11,
+      "theorems": 454
+    },
+    "service": {
+      "modules": 7,
+      "theorems": 120
+    },
+    "frozen-ops": {
+      "modules": 6,
+      "theorems": 47
+    },
+    "frozen-ops-commutativity": {
+      "modules": 1,
+      "theorems": 19
+    },
+    "radix-tree": {
+      "modules": 4,
+      "theorems": 58
+    },
+    "sched-context": {
+      "modules": 14,
+      "theorems": 175
+    },
+    "concurrency": {
+      "modules": 36,
+      "theorems": 1391
+    },
+    "information-flow": {
+      "modules": 24,
+      "theorems": 1680
+    },
+    "architecture": {
+      "modules": 33,
+      "theorems": 1169
+    },
+    "register-decode": {
+      "modules": 1,
+      "theorems": 24
+    },
+    "syscall-arg-decode": {
+      "modules": 1,
+      "theorems": 62
+    },
+    "robin-hood": {
+      "modules": 8,
+      "theorems": 187
+    },
+    "robin-hood-bridge": {
+      "modules": 1,
+      "theorems": 47
+    },
+    "robin-hood-lookup": {
+      "modules": 1,
+      "theorems": 44
+    },
+    "robin-hood-preservation": {
+      "modules": 1,
+      "theorems": 64
+    },
+    "ipc-structural": {
+      "modules": 5,
+      "theorems": 589
+    },
+    "ipc-endpoint-preservation": {
+      "modules": 1,
+      "theorems": 38
+    },
+    "ipc-cap-transfer": {
+      "modules": 1,
+      "theorems": 30
+    },
+    "model-object": {
+      "modules": 7,
+      "theorems": 218
+    },
+    "model-state": {
+      "modules": 1,
+      "theorems": 244
+    },
+    "model-object-state": {
+      "modules": 8,
+      "theorems": 462
+    }
+  },
+  "sourceAnchors": {
+    "SeLe4n/Prelude.lean": {
+      "KernelM": 1030,
+      "ObjId": 71,
+      "ThreadId": 103,
+      "DomainId": 238,
+      "Priority": 261,
+      "CPtr": 562,
+      "Slot": 612,
+      "ASID": 837,
+      "VAddr": 872,
+      "PAddr": 996
+    },
+    "SeLe4n/Kernel/API.lean": {
+      "apiInvariantBundle": 150
+    },
+    "SeLe4n/Model/Object/Types.lean": {
+      "CdtNodeId": 618,
+      "TCB": 908,
+      "Endpoint": 1271,
+      "Notification": 1317,
+      "CNode": 1385,
+      "Untyped": 1423,
+      "Capability": 394,
+      "AccessRightSet": 114
+    },
+    "SeLe4n/Machine.lean": {
+      "RegName": 26
+    },
+    "SeLe4n/Model/Object/Structures.lean": {
+      "VSpaceRoot": 172,
+      "childMapConsistent": 1426,
+      "CapDerivationTree": 1159
+    },
+    "SeLe4n/Model/State.lean": {
+      "SystemState": 638
+    },
+    "SeLe4n/Kernel/Scheduler/RunQueue.lean": {
+      "RunQueue": 39
+    },
+    "SeLe4n/Kernel/Scheduler/Invariant.lean": {
+      "schedulerWellFormed": 93
+    },
+    "SeLe4n/Kernel/RobinHood/Core.lean": {
+      "RHTable": 39
+    },
+    "SeLe4n/Platform/Contract.lean": {
+      "PlatformBinding": 85
+    },
+    "SeLe4n/Kernel/InformationFlow/Policy.lean": {
+      "DomainFlowPolicy": 281
+    },
+    "SeLe4n/Kernel/InformationFlow/Projection.lean": {
+      "ObservableState": 46
+    },
+    "SeLe4n/Kernel/Architecture/Invariant.lean": {
+      "proofLayerInvariantBundle": 150
+    },
+    "SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean": {
+      "endpointSendDualChecked": 31,
+      "cspaceMintChecked": 58,
+      "registerServiceChecked": 632
+    },
+    "SeLe4n/Kernel/Scheduler/Operations/Core.lean": {
+      "schedule": 359,
+      "handleYield": 430,
+      "timerTick": 483
+    }
+  },
+  "sourceAnchorRef": "c3861661701c81cd2ae79cc8bc644be01d0cd14a",
+  "commitSha": "c386166",
+  "updatedAt": "2026-09-10T19:45:14.000Z",
   "sourceRepo": "hatter6822/seLe4n",
   "sourceRef": "main",
   "metricsSource": "docs/codebase_map.json",
   "metricsScope": "production",
   "schemaVersion": "1.0.0",
-  "sourceDigest": "bdc85722687bda8b68127e35f5e49c2eb402455d940c6a95d75eb658263ab810",
-  "generatedAt": "2026-09-08T04:56:31.813Z"
+  "sourceDigest": "bbe172e6b4469dfd08b2db29ae95a6794a4b03b343b6b33d9f6fa063939a26a9",
+  "generatedAt": "2026-09-11T08:02:42.471Z"
 }

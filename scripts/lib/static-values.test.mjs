@@ -11,6 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { applyStaticValues, applyLocaleStaticValues } from './static-values.mjs';
+import { collectSourceAnchors, labelIdentifier } from './source-anchors.mjs';
 
 const SAMPLE = [
   '<script type="application/ld+json">{"version": "0.0.1"}</script>',
@@ -133,4 +134,92 @@ test('every locale bundle is in sync with data/site-data.json', async () => {
       `locales/${name} metric literals are out of sync with data/site-data.json — run: node scripts/apply-static-values.mjs`
     );
   }
+});
+
+test('stamps per-subsystem figures on both surfaces', () => {
+  // The architecture diagram's "N files &middot; N thms" labels. Ten of the
+  // twelve had gone stale by 0.31.0 because they were typed into the markup.
+  const data = { subsystems: { ipc: { modules: 66, theorems: 2758 } } };
+  const markup = '<span data-live="subsystem.ipc.modules">0</span>/<span data-live="subsystem.ipc.theorems">0</span>';
+
+  assert.equal(applyStaticValues(markup, data), '<span data-live="subsystem.ipc.modules">66</span>/<span data-live="subsystem.ipc.theorems">2,758</span>');
+  assert.match(applyLocaleStaticValues(JSON.stringify({ t: markup }), data), /subsystem\.ipc\.theorems\\">2,758</);
+});
+
+test('a subsystem key is matched literally, not as a pattern', () => {
+  // `.` is a regexp metacharacter; unescaped, `subsystem.ipc.modules` would
+  // also match `subsystemXipcYmodules` and, worse, another subsystem's span.
+  const out = applyStaticValues(
+    '<span data-live="subsystemXipcYmodules">0</span>',
+    { subsystems: { ipc: { modules: 66 } } }
+  );
+  assert.match(out, /subsystemXipcYmodules">0</);
+});
+
+test('stamps the security card figures the kernel proves', () => {
+  const data = { niSteps: 35, niCrossCore: 35, enforcementOps: 44, enforcementOpsPerCore: 59 };
+  const markup = [
+    '<span data-live="ni-steps">0</span>',
+    '<span data-live="ni-cross-core">0</span>',
+    '<span data-live="enforcement-ops">0</span>',
+    '<span data-live="enforcement-ops-per-core">0</span>'
+  ].join('\n');
+
+  const out = applyStaticValues(markup, data);
+  assert.match(out, /data-live="ni-steps">35</);
+  assert.match(out, /data-live="ni-cross-core">35</);
+  assert.match(out, /data-live="enforcement-ops">44</);
+  assert.match(out, /data-live="enforcement-ops-per-core">59</);
+});
+
+test('stamps line anchors on both surfaces', () => {
+  const data = { sourceAnchors: { 'SeLe4n/Kernel/API.lean': { apiInvariantBundle: 150 } } };
+  const link = '<a href="https://github.com/hatter6822/seLe4n/blob/main/SeLe4n/Kernel/API.lean#L130" class="code-link"><code>apiInvariantBundle</code></a>';
+
+  assert.match(applyStaticValues(link, data), /API\.lean#L150"/);
+  assert.match(applyLocaleStaticValues(JSON.stringify({ t: link }), data), /API\.lean#L150\\"/);
+});
+
+test('every subsystem the snapshot carries has a span on the real page', async () => {
+  // The inverse of the validator's check: it rejects a snapshot key the page
+  // does not name, this rejects a page span the snapshot cannot fill. Between
+  // them, no diagram label goes back to being hand-written.
+  const html = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
+  const data = JSON.parse(await readFile(new URL('../../data/site-data.json', import.meta.url), 'utf8'));
+
+  for (const key of html.match(/data-live="subsystem\.[^"]+"/g) || []) {
+    const [, name, field] = /subsystem\.(.+)\.(modules|theorems)"$/.exec(key);
+    assert.ok(Number.isInteger(data.subsystems?.[name]?.[field]),
+      `index.html paints ${key} but data/site-data.json has no subsystems.${name}.${field}`);
+  }
+});
+
+test('every line anchor on the real page is one the snapshot resolved', async () => {
+  // A link whose label the sync could not place keeps a hand-written line
+  // number; this names it rather than letting it rot unnoticed.
+  const html = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
+  const data = JSON.parse(await readFile(new URL('../../data/site-data.json', import.meta.url), 'utf8'));
+
+  const unresolved = collectSourceAnchors(html)
+    .filter(({ path, label }) => labelIdentifier(label) && !Number.isInteger(data.sourceAnchors?.[path]?.[label]))
+    .map(({ path, label }) => `${path}#${label}`);
+
+  assert.deepEqual(unresolved, [],
+    'these deep links carry a hand-written line number — re-run scripts/sync-upstream.mjs, or fix the path if the declaration moved file');
+});
+
+test('every anchored deep link on the real page names the resolved revision', async () => {
+  // A line number against a branch is a line number on a moving target: the
+  // unpinned sync falls back to the artifact's generation commit, and a line
+  // resolved there is not a line on `main`.
+  const html = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
+  const data = JSON.parse(await readFile(new URL('../../data/site-data.json', import.meta.url), 'utf8'));
+
+  const refs = new Set(
+    [...html.matchAll(/\/blob\/([^/"]+)\/[^"#]+#L\d+/g)].map((match) => match[1])
+  );
+
+  assert.ok(refs.size > 0, 'index.html carries anchored deep links');
+  assert.deepEqual([...refs], [data.sourceAnchorRef],
+    'anchored links all name data/site-data.json#sourceAnchorRef');
 });

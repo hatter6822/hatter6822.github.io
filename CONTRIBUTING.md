@@ -36,6 +36,7 @@ node scripts/lib/trace-analysis.test.mjs
 node scripts/lib/run-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
 node scripts/lib/static-values.test.mjs
+node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
 node scripts/validate-data.mjs
@@ -61,7 +62,7 @@ If you changed UI behavior or layout:
    section in `CLAUDE.md` before adding a rule inside `@media` or `@supports`.
 3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills, Arrow keys across the declaration tabs).
 4. Confirm declaration context switching works (click declaration → flowchart shows calls/callers → breadcrumb navigation returns to module).
-5. On `map.html` with no URL state: the workspace opens on `SeLe4n.Kernel.API`, over-budget lanes are grouped by subsystem and open in place, the flow chart is drawn at full size (its rendered width equals its `width` attribute) at 1280, 1366, 1440 and 1920px, and the declaration sidebar sits beside the chart from 1440px and below it under that; the Rust crate cards and the repository inventory render from the bundled snapshot, no card is taller than its content, the production groups are the open ones, a crate's "Show test items" toggle reveals its test code, and opening a group or file survives a locale switch. `node scripts/map-smoke.mjs` checks all of this in headless Chromium (see `docs/TESTING.md`); CI runs it on every push.
+5. On `map.html` with no URL state: the workspace opens on `SeLe4n.Kernel.API` in the **Lean + Rust** scope, over-budget lanes are grouped by subsystem and open in place, the flow chart is drawn at full size (its rendered width equals its `width` attribute) at 1280, 1366, 1440 and 1920px, and the declaration sidebar sits beside the chart from 1440px and below it under that. Switching the scope toggle to Rust must render the Rust module chart at the same 1:1 guarantee with its own four-tab sidebar; in the combined scope a module with a counterpart (`SeLe4n.Platform.FFI`) must grow the boundary band, and clicking a boundary node must cross into the other language. `node scripts/map-smoke.mjs` checks all of this in headless Chromium (see `docs/TESTING.md`); CI runs it on every push.
 6. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the invariant rail, the inspector, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation.
 7. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
 
@@ -82,6 +83,21 @@ Published statistics are projected from the kernel's canonical
 artifact, the sync must fail rather than substitute an estimate — a README
 parse, a byte-count heuristic, or an arithmetic guess. See the scope and
 substitution rules in `scripts/lib/canonical-map.mjs`.
+
+Two exceptions are deliberate and both read the same pinned checkout rather
+than a second source: the version comes from `lakefile.toml`, where the project
+declares it (`readme_sync.version` is a copy), and a handful of figures the
+artifact's inventory cannot answer — the syscall surface, the FFI bridge, the
+enforcement-boundary sizes, the non-interference step coverage — are counted
+off the digest-verified Lean sources.
+
+**No figure and no line number is written by hand.** That includes the
+architecture diagram's per-layer counts (`subsystems`) and the `#L` anchors on
+every deep link into the kernel tree (`sourceAnchors`); both are stamped by
+`apply-static-values.mjs`, and `static-values.test.mjs` fails on a page span
+the snapshot cannot fill or a link the sync did not resolve. If you add a deep
+link to the page, re-run the sync and it will be resolved; if you add a layer
+to the diagram, add it to `SITE_SUBSYSTEMS` first.
 
 Keep it one pipeline. The landing page and the code map describe the same
 production corpus at the same revision, and `validate-data.mjs` enforces it: do

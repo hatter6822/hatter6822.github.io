@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.30.0**.
+> Documentation baseline: website release **0.32.0**.
 
 ## Audit summary
 
@@ -830,6 +830,43 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
   and `static-values.test.mjs` fails if the committed tree drifts. Counts are
   comma-grouped identically on both sides so hydration does not visibly rewrite
   a figure.
+- **The version is the one figure taken from outside the artifact**, because
+  the artifact has none: `readme_sync.version` mirrors `lakefile.toml`, as do
+  the README badge and `rust/Cargo.toml`. Reading the mirror published a mirror
+  of a mirror, so `readProjectVersion()` reads the declaration from the same
+  pinned checkout and `canonicalCrossChecks` reports any disagreement.
+- **Four figures are counted off the digest-verified sources**, which the
+  artifact's inventory cannot answer on its own: `syscalls` (constructors of
+  `inductive SyscallId`), `externs` (`@[extern …]` declarations), and the two
+  enforcement-boundary sizes, read from the `.length = N` statements the kernel
+  proves by `rfl`. Reading the theorem rather than a sentence about it is what
+  upstream's own docstring asks for.
+- **`niSteps` is a coverage check, not a count.** The security card says every
+  kernel step has its own non-interference proof, so `nonInterferenceCoverage()`
+  pairs each constructor of `NonInterferenceStep` with a
+  `nonInterference_perCore_<step>` theorem and the sync refuses to publish a
+  figure when a step has none — the claim and the number cannot drift apart.
+- **The architecture diagram's own figures are projected too.** `subsystems`
+  holds `{key: {modules, theorems}}` per layer, over the same corpus as the
+  headline counts, addressed as `data-live="subsystem.<key>.modules"`. Ten of
+  the twelve hand-written labels had gone stale by 0.31.0. `validate-data.mjs`
+  reconciles each layer against the code map's graph, so the two pages cannot
+  describe different kernels.
+- **Deep-link line anchors are stamped, not maintained.** `sourceAnchors` maps
+  `path → label → line` for every anchored blob link the page carries; sixteen
+  of thirty-seven pointed at unrelated code by 0.31.0. The sync discovers the
+  links by reading the committed page, so adding one needs no pipeline change,
+  and a label it cannot resolve is reported rather than repointed — a
+  declaration that moved file is an editorial decision. The href names the
+  commit the line was resolved at (`sourceAnchorRef`) rather than `main`,
+  because the unpinned sync falls back to the artifact's generation commit and
+  a line resolved there is not a line on the branch tip.
+- **A coverage claim is gated on coverage.** The page says the Rust wrappers
+  cover all the syscalls; `syscalls` counts Lean constructors and cannot see
+  `sele4n-sys`, so `assertSyscallWrapperCoverage()` checks the correspondence
+  and fails the sync when a syscall has no wrapper. The figure stays
+  canonical-or-absent — the Rust inventory gates publication, it derives
+  nothing.
 - **`admitted` is derived, not asserted.** It counts `axiom` declarations plus
   declarations whose `called` list reaches `sorry`/`sorryAx`, and returns
   `undefined` rather than a published `0` when the artifact carries no
@@ -1466,3 +1503,146 @@ compares plural forms as families.
 
 Both were pre-existing; the headless probe (`scripts/map-smoke.mjs`) that
 found them is checked in and runs in CI so the sequence stays covered.
+
+## One workspace, two languages, one boundary (0.31.0)
+
+0.30.0 answered "what is in this repository" with three sections: the Lean
+module workspace, a card per Rust crate, and an inventory of all 866 files. It
+answered it well and it answered the wrong question. A reader arriving at a
+verified microkernel's code map wants to know how the proofs and the machine
+code meet, and three parallel catalogues cannot say that — the Lean half and
+the Rust half sat on the same page without a single edge between them.
+
+0.31.0 removes the crate cards and the inventory and puts the Rust codebase
+*into* the workspace, behind a scope toggle, with the boundary between the two
+languages drawn as directed edges.
+
+### The scope toggle
+
+Three readings — `lean`, `both` (the default), `rust` — chosen by a radiogroup
+in the toolbar and carried in the URL as `scope=`. `both` is the default
+because the page's subject is now the unified production map, and because for
+any given Lean module the combined reading is a strict superset of the Lean
+one: 280 of the 303 modules have no counterpart on the other side and render
+identically. Existing `?module=` links keep working and gain context rather
+than losing it.
+
+Switching scope keeps the selected node when it survives the switch and falls
+back to that scope's own default when it does not, so narrowing from a Rust
+node to `lean` lands on `SeLe4n.Kernel.API` rather than on nothing.
+`DEFAULT_MODULE` is untouched: every scope that carries Lean still opens there.
+
+### A Rust node is a source file
+
+The alternative was a node per crate, which gives a four-node graph and a
+sidebar that would have to flatten 814 items with no structure. A node per
+production source file gives 63 nodes, a real module tree, and a declaration
+sidebar that is the direct analogue of the Lean one — the file's items with
+their kind, visibility and line.
+
+Addresses are the Rust module path (`sele4n-abi::args::cspace`), with a crate's
+library root as the bare crate name. A target that is its own crate root — a
+binary, the build script — takes that target as a path segment
+(`sele4n-hal::bin::rw_lock_oracle`) and the node says which kind of target it
+is, so the segment is never read as a module of the library. Test targets are
+not nodes at all: production code is the map's subject, exactly as the Lean
+scope leaves out `tests/` and `SeLe4n/Testing/`.
+
+A leaf module declares nothing, which would leave its right lane empty and the
+crate unbrowsable from it. It shows its siblings instead — the modules its own
+parent declares alongside it — with the edges drawn from that parent, because
+that is who declares them. Drawing them from the centre would have asserted a
+relation that does not exist.
+
+### The boundary is derived, and its direction is not a guess
+
+The first design was symmetric: match declarations that share a name and draw
+an undirected "correspondence" lane. The data turned out to carry more than
+that. `SeLe4n.Platform.FFI` declares 73 `opaque` declarations, and 68 of them
+match a `pub fn ffi_*` in `sele4n-hal::ffi` once case convention is normalised
+away. An `opaque` Lean declaration has **no Lean body** — its implementation is
+necessarily elsewhere. That is not a correspondence; it is a call, and its
+direction is legible from the Lean side's own kind.
+
+So the model reads the relation off the Lean declaration:
+
+| Rust | Lean | relation | direction |
+|------|------|----------|-----------|
+| `pub fn` | `opaque`, `axiom` | `implements` | Lean → Rust; the kernel calls down into the HAL |
+| `pub fn` | `def`, `abbrev` | `invokes` (user-space crate) | Rust → Lean; the wrapper calls up |
+| `pub fn` | `def`, `abbrev` | `mirrors` (the HAL) | neither; spec and machine code either side of the seam |
+| type / constant | any | `shares` | neither; the data that crosses |
+
+Only `implements` is certain from the data alone. The other three are labelled
+as what they are and never as a call — `mirrors` in particular is a *name*
+shared one hop either side of the FFI seam (`sele4n-hal::cpu::idle_wait` and
+`Runtime.idleWait`), not evidence that one calls the other.
+
+The chart honours that distinction in two places it did not at first. Each
+relation gets its own band, colour and legend row: `mirrors` was folded into
+`shared` and so came out labelled "definitions shared across the boundary",
+which says the two sides hold one definition when in fact they hold two
+implementations of one contract. And an arrowhead is a claim about direction,
+so `BRIDGE_UNDIRECTED` names the two relations that make none and
+`drawFlowEdge()` omits `marker-end` for them — a shared `ThreadId` drawn with
+an arrow reads as a call that does not happen.
+
+Distinguishing `invokes` from `mirrors` needs one fact the scan cannot supply:
+which side of the kernel a crate sits on. `RUST_CRATE_STRATUM` states it for
+the four crates, restating what their own manifests say of themselves ("Safe
+high-level syscall wrappers", "ARM64 Hardware Abstraction Layer"). It is
+declared as editorial, it only ever decides how a matched *function* is
+labelled, and a crate it does not name is "shared" — no direction rather than a
+guessed one. The alternative, inferring the stratum from the crate description
+by regex, would have been a heuristic dressed as a derivation.
+
+Two narrowings keep the match honest. The Rust side contributes only `pub`
+production items of a nameable kind: `impl` blocks and `mod` declarations are
+named after other things, and a private helper sharing a name with a Lean
+declaration is not a mirror by contract. Without the `pub` filter the seam also
+picked up `fn main` in the HAL's build script against `Main.main` — a
+coincidence, and the kind of thing a denylist would have had to paper over.
+
+The result on the bundled snapshot is 194 links over 48 module pairs. Both
+readings index the same edge objects, so the Lean view and the Rust view of one
+edge cannot drift apart. An edge names the declarations behind it rather than
+counting them, because the names are the evidence a reader needs to check the
+claim.
+
+### What the removed sections took with them, and what they did not
+
+The crate cards' counters survive as node summaries — `rustUnsafeSummary()` and
+`rustUnsafeDetail()` are unchanged, so the crate lint and the counted sites
+stay apart, and production and test sites stay apart. The target-scoped
+dependency tables keep their cfg. What is gone is the file inventory: 866 paths
+grouped six ways, with `classifyRepositoryPath()`, `buildRepositoryInventory()`
+and `crateSupportFiles()` deleted along with it. `retainInventory()` stays,
+because the Rust inventory must still survive a live refresh that carries none.
+
+The sidebar's listing count and the snapshot's `productionItems` are two
+different quantities — an `impl` block is listed but never counted — so they
+live in different places: the node summary quotes the snapshot's figure, the
+sidebar's stays inside the sidebar.
+
+### Chart chrome, localised
+
+Adding a localised boundary band next to hard-coded English lane labels would
+have shipped a chart in two languages. Every visible label in all three charts
+— lane labels, "+38 more imports", "Return to Compact mode", both legends — now
+goes through `t()`, looked up once and used for both the node's measurement and
+its painting, because a translated label measured at its English width wraps
+wrongly. Node tooltips and the SVG `aria-label` summaries are still English;
+that is a pre-existing surface, called out here rather than half-converted.
+
+### What the browser pass found
+
+- The Rust sidebar opened on an empty Types tab, because the remembered group
+  defaulted to a real group key and a crate root declares only modules. The
+  remembered Rust group now starts unset, so the first non-empty group opens.
+- The `pub` chip on sidebar items was being squeezed to 8px by the flex line
+  and clipped by the item's min-height: it needed `white-space: nowrap` so the
+  name wraps instead. The probe now fails on any sidebar item whose content
+  overflows its box.
+- The scope buttons were 36px tall on a phone against the 2.6rem every other
+  control on that toolbar gets. A `min-height` on the strip does not reach a
+  stretched child; it belongs on the button, which is the tap target.

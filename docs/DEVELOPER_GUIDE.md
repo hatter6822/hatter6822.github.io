@@ -63,7 +63,7 @@ Edit this file when adding/removing a section, changing metadata defaults, or wi
 Owns:
 
 - compact hero: status column with the snapshot stamp, one-line stats strip (`data-map="..."` placeholders, including `rustCrates`), section jump links.
-- the three page sections in the order tests assert: `#module-graph` (toolbar shell, `.workspace-grid` with `#flowchart-wrap` and the `.declaration-explorer` sidebar holding `#flow-node-interior-menu`, side by side from 90rem), `#rust-crates` (`#rust-crate-grid`, rendered by JS), `#repository-inventory` (`#repository-inventory-groups` and `#inventory-provenance`, rendered by JS).
+- one page section, `#module-graph`: the toolbar shell (`#map-scope-toggle`, the context search, reset) and `.workspace-grid` with `#flowchart-wrap` and the `.declaration-explorer` sidebar holding `#flow-node-interior-menu`, side by side from 90rem. `map-toolbar.test.mjs` asserts it is the only section — the Rust crate grid and the repository inventory that stood beside it through 0.30.0 are gone.
 - compact control surface (context search + reset).
 - map status and stat placeholders.
 - script load order:
@@ -159,7 +159,9 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - scopes live payloads and the tree-rebuild path the way the bundle is scoped (`isOutsideProductionScope`, `isLeanModulePath`: nothing under `tests/` or `SeLe4n/Testing/`, plus `Main.lean`), and labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
 - writes the `localStorage` cache only when the serialized snapshot is under `CACHE_MAX_CHARS`; `setCache()` returns whether it wrote. The bundled map is past the quota, so the page is bundle-first in practice.
 - formats every count for the active locale (`formatCount` → `Intl.NumberFormat(document.documentElement.lang)`) and builds count labels from plural families (`fileCountLabel`, `moduleCountLabel`, `theoremCountLabel`, `crateCountLabel`, `pluralEn` for the English fallback).
-- renders the Rust crate section (`renderRustCrates`, `renderRustDependencyStrip`, `renderRustCrateCard`, `renderRustFile`, `renderRustItemList`) and the repository inventory (`classifyRepositoryPath`, `buildRepositoryInventory`, `renderRepositoryGroups`, `renderInventorySubgroup`, `renderInventoryList`) from `state.rust` and `state.files`, once per data load (`renderInventory`) and again on locale change; `captureInventoryOpenState` / `restoreInventoryOpenState` carry every `<details>`'s open state across the rebuild.
+- projects `state.rust` into the Rust module graph (`buildRustGraph`, `rustNodeName`, `rustTargetName`, `rustSiblings`) and matches it against the Lean declarations to build the boundary index (`buildBridgeIndex`, `toBridgeKey`, `bridgeRelation`), once per data load and again whenever a tree refresh changes the Lean side.
+- draws the Rust chart (`renderRustFlowchart`) and the boundary band under either chart (`bridgeBandRows`, `layoutBridgeBands`, `drawBridgeBands`), reusing `computeFlowLayout` and `createFlowSvg` so the 1:1 guarantee holds for both.
+- owns the scope (`setScope`, `renderScopeToggle`, `setupScopeToggle`) and the scope-aware node accessors every renderer asks through (`nodeExists`, `nodePath`, `nodeSourceRef`, `scopeNodes`, `defaultNodeName`, `nodeSortScore`).
 - reads a crate's `unsafe` (production) and `testUnsafe` (test code) counters apart (`rustUnsafeSummary`, `rustUnsafeDetail`), states target-scoped dependency tables under their cfg and dev-dependencies as test-only, and lists Rust test items only behind each card's toggle (`state.rustShowTests`, `visibleRustItems`, `rerenderRustCrateCard`).
 - keeps the file tree and Rust inventory across live refreshes that carry neither (`retainInventory`, `normalizeRustInventory`, `seedBundledInventory`), tracking `inventoryCommit` / `rustCommit`.
 
@@ -187,8 +189,8 @@ Map-page-only styles:
 - responsive breakpoints for interior menu items (mobile touch targets, landscape compaction, narrow viewport overflow prevention).
 - the workspace grid: single column by default; chart + sticky declaration sidebar side by side from `90rem`, where the chart keeps a ~900px column; the pinned sidebar's list is viewport-bound so it fits a 720px-tall screen.
 - `.flowchart-svg { width: auto; min-width: 100% }` at every width — the chart is never scaled below 1:1 (a `width: 100%` here once shrank it to 58–86% beside the sidebar).
-- the Rust crate section: dependency strip (intrinsic width, centred, scrolls when wider than its figure), cards on an `align-items: start` grid with bounded, scrolling file lists (`.rust-crate-files`), item lists coloured by kind.
-- the repository inventory: production groups highlighted with a badge, muted secondary groups, module and file lists, support-file rows.
+- the scope toggle (`.map-scope-toggle`, `.map-scope-option`), a segmented control that stretches to full width and keeps a 2.6rem tap target once the toolbar stacks.
+- the Rust and boundary nodes (`.flow-node-rust`, `.flow-node-bridge`, `.flow-node-lean`) and the `pub` chip on public Rust sidebar items.
 - map-specific responsive/mobile tuning.
 
 ### `assets/css/run.css`
@@ -320,6 +322,9 @@ Run when any upstream data needs refreshing.
 ### `scripts/apply-static-values.mjs`
 Rewrites the static fallback values in `index.html` (mapped `data-live` spans, JSON-LD version, snapshot `<time>` stamp) **and in every `locales/*.json` bundle** from `data/site-data.json` via `scripts/lib/static-values.mjs`. Locales need stamping because `data-i18n-html` replaces an element's innerHTML wholesale, so each translation carries its own copy of the spans — they once said "546 build jobs" while `index.html` said 574. Idempotent; run after `sync-upstream.mjs`. The committed tree must stay in sync — `static-values.test.mjs` fails otherwise.
 
+### `scripts/lib/source-anchors.mjs`
+Keeps the page's deep links into the kernel tree pointing at the right line. `collectSourceAnchors` finds every `…/blob/main/<path>#L<n>` link with a `<code>` label, on either surface (index.html's bare quotes and a locale file's escaped ones); `resolveSourceAnchors` looks each label's declaration up in the pinned checkout; `applySourceAnchors` stamps the result back. The sync records the resolution in `data/site-data.json#sourceAnchors`, so the numbers are generated rather than maintained — sixteen of thirty-seven were pointing at unrelated code before this existed. A label that no longer resolves is reported and left as written: a declaration that changed file is an editorial call, not a substitution. The stamped href names the commit the line was resolved at rather than `main` — a line number against a branch is a line number on a moving target, and the unpinned sync can fall back to the artifact's generation commit.
+
 ### `scripts/validate-data.mjs`
 Schema/consistency gate for the site and map snapshots. Fails non-zero if either payload violates required invariants.
 
@@ -342,6 +347,9 @@ labels must still come out in Spanish). `.github/workflows/ci.yml` runs it with 
 request; `PLAYWRIGHT_CHROMIUM=<path>` points it at another binary.
 
 ## 8) Script libraries and tests (`scripts/lib/`)
+
+### `scripts/index-smoke.mjs`
+Headless-Chromium probe for `index.html`. Asserts on the rendered page what `static-values.test.mjs` asserts in the file: every `data-live` span shows exactly what `data/site-data.json` holds (a mismatch means hydration visibly rewrites a figure), no figure label is clipped, no width scrolls sideways, the console is clean, a locale arriving after the snapshot does not carry a stale copy of a figure back onto the page, and every `#L` anchor matches the resolved `sourceAnchors` inventory. Runs at 1920/1440/1024/390px, in both themes, and against a deliberately delayed Spanish locale. `INDEX_SMOKE_BASE` picks the server, `PLAYWRIGHT_CHROMIUM` or `INDEX_SMOKE_CHANNEL` the browser. CI runs it on every push.
 
 ### `scripts/lib/canonical-map.mjs`
 The contract with seLe4n's canonical `docs/codebase_map.json`: the schema it
@@ -386,21 +394,27 @@ a feature or a target), `parseToml` and `parseCargoManifest` (the TOML subset
 Cargo uses, then package fields, workspace inheritance, dependency tables with
 target-scoped tables kept apart, features, `[lib]`, `[[bin]]`), `cargoTargets`
 (the roots Cargo would build: the library root and the binaries, declared or
-conventional, which roles and module paths follow), `rustFileRole` /
+conventional, which roles and module paths follow, plus `names` — what Cargo
+builds each binary and test root under, a conventional path naming itself and a
+declared target carrying its manifest `name`), `isProductionGraphFile` (the
+three conditions the code map draws on: not a test target, not test-only, not
+unreachable), `rustFileRole` /
 `rustModulePath`, `childModuleFiles` (rustc's rule for where `mod x;` lives:
 crate roots and `mod.rs` files resolve beside themselves, other files under a
 directory of their own name, inline-module path and `#[path]` included), and
 `buildRustInventory`, which assembles the
 crates in workspace order from a file list and a reader, rescanning
 out-of-line modules with the test and export status they inherit from their
-`mod` declarations. Anonymous `const _` assertions are not items; raw
+`mod` declarations and addressing each reached file by the module path it is
+declared under rather than the one its pathname suggests (they part only where
+`#[path = "…"]` redirects a declaration). Anonymous `const _` assertions are not items; raw
 identifiers keep their `r#`; `#[macro_export]` macros are public; a
 `#[cfg(test)]` on an associated method sends its `unsafe` sites to the test
 counters. Not a Rust parser; it lists a crate's
 surface the way a rustdoc sidebar does, one item header per line.
 
 ### `scripts/lib/data-validation.mjs`
-Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal to per-file sums for items, test items, lines and both `unsafe` counters, target-scoped dependency tables).
+Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal to per-file sums for items, test items, lines and both `unsafe` counters, target-scoped dependency tables, and the file-level facts the code map draws on — `reachable`, `testOnly` never narrower than the role, and a `targetName` only on a file that is a Cargo target).
 
 ### `scripts/lib/trace-analysis.mjs`
 Trace schema validation and the deterministic fold engine (`reconstructState`/`scenarioStates`) shared by `validate-traces.mjs`, `sync-upstream.mjs`, and the Simulator tests.
@@ -412,9 +426,9 @@ The `data/site-data.json` → `index.html` + `locales/*.json` static-fallback ma
 Node tests for parser and validation correctness:
 
 - `lean-analysis.test.mjs`: parser behavior, edge cases, `isLikelyModuleToken` validation, theorem deduplication, null/empty input guards, noncomputable theorem counting, comment-only continuation line handling, non-numeric metric cell robustness.
-- `rust-analysis.test.mjs`: comment/string stripping with line structure preserved, item scanning (kinds, visibility, `unsafe`, nested-body exclusion, inline modules, multi-line signatures, `static mut`), `unsafe` sites at any depth split by test code, `cfg` predicate reading, public-item reachability, manifest parsing (workspace inheritance, dependency and target-scoped tables, `[[bin]]`), file roles and module paths, and `buildRustInventory` assembly with the crate-root lint rule.
+- `rust-analysis.test.mjs`: comment/string stripping with line structure preserved, item scanning (kinds, visibility, `unsafe`, nested-body exclusion, inline modules, multi-line signatures, `static mut`), `unsafe` sites at any depth split by test code, `cfg` predicate reading, public-item reachability, manifest parsing (workspace inheritance, dependency and target-scoped tables, `[[bin]]`), file roles and module paths, declared module addressing under `#[path]`, declared target names, file-level test classification, and `buildRustInventory` assembly with the crate-root lint rule.
 - `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection, non-string module array entries.
-- `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none), the default module rule, `moduleSubsystem`, subsystem-grouped lane entries, repository path classification and inventory grouping, inventory retention across canonical and tree refreshes, `rust` block pass-through, Rust item colouring/ordering, the production/test `unsafe` summary and detail line, count-label plural fallbacks, tab selection, and locale digit grouping.
+- `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none), the default module rule, `moduleSubsystem`, subsystem-grouped lane entries, inventory retention across canonical and tree refreshes, `rust` block pass-through, the production/test `unsafe` summary and detail line, plural fallbacks, tab selection, locale digit grouping — and the 0.31.0 model: the Rust graph (one node per production file, test targets excluded, node addressing per role, parent/child and sibling edges), the boundary index (key normalisation, the four relations, the FFI seam in the bundled snapshot, band symmetry and direction), and the scope (node membership, defaults, URL whitelisting, selection fallback on a narrowing switch).
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.
 - `trace-analysis.test.mjs`: trace schema validation and fold-engine determinism (see `docs/TESTING.md`).
 - `run-runtime.test.mjs`: boots the real `assets/js/run.js` in a `vm` DOM shim and exercises the Simulator end-to-end (see `docs/TESTING.md`).
