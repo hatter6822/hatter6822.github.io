@@ -685,6 +685,33 @@ mobile layout. This has caused five separate visual defects in this codebase.
 - `@media print` colour resets are the one place `!important` is correct — a
   bare `a` or `code` selector loses to every component rule on the page.
 
+### An override wins only the properties it names
+
+Winning is per-declaration, not per-rule: a component rule that outranks a base
+rule for `content` inherits everything the base rule declares and the component
+does not. `.card ul li::before` painted an absolutely positioned 6px dot on
+every list item inside a card, and the code map's whole workspace is one card.
+The declaration sidebar's `pub` chip re-generated that pseudo-element with its
+own text, colour and padding — and with the base rule's `position: absolute;
+left: 0; top: 0.7rem; width: 6px; height: 6px` still live underneath, so the
+word was painted across the row's corner, over the name, in a box a fifth of
+its size. The same rule was silently overriding the search listbox's inset and
+its top margin. Nothing here was a specificity failure; the chip rule outranked
+the bullet everywhere it spoke.
+
+- A base rule written as a **descendant** selector (`.card ul li`) reaches into
+  every component nested inside it. If it describes prose, scope it to the
+  prose: `.card > ul > li` keeps a card's own list and stops at the first
+  widget that happens to be a list. Undoing it per widget, property by
+  property, is the state that breaks — the next property is always the one
+  nobody named.
+- A component that wants a box of its own should state the box: a chip's
+  padding and its text are not a size if something upstream still says
+  `width: 6px`.
+- Generated content contributes nothing to `scrollHeight`, so an overflow
+  check over the row will not see it. A probe for a chip has to measure the
+  chip (`getComputedStyle(el, '::before')`) — `map-smoke.mjs` now does.
+
 ### A winning declaration can still do nothing (inline boxes)
 
 Specificity is only half of it — the box has to be able to accept the property.

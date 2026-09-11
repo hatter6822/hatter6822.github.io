@@ -256,7 +256,10 @@ The declaration sidebar serves both languages through one renderer:
 tabs are **Types** (`struct`, `enum`, `union`, `trait`, `type`), **Functions**
 (`fn`, `const`, `static`), **Impls/Mods** (`impl`, `mod`, `macro_rules!`) and
 **Tests**, the last holding every test item under a `test:` kind prefix so no
-second control is needed. Public items carry a `pub` chip. Rust items have no
+second control is needed. Public items carry a `pub` chip — generated content at
+the head of the row, in flow and measured from its own text, so it needs the
+card's prose bullet (`.card > ul > li::before`) to keep out of this list, which
+is why that rule is scoped to a card's own children. Rust items have no
 call graph in the snapshot, so an item resolves to its source line rather than
 to a declaration view. The open tab is remembered per language, and starts
 unset for Rust so a crate root — which declares only modules — does not open on

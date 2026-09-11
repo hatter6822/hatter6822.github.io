@@ -465,21 +465,23 @@
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
-.interior-menu-items .interior-menu-item::before {
-  content: none;
-  display: none;
-}
 /* A Rust item's visibility is part of what it is, so public items carry a
    `pub` chip rather than private ones being dimmed — a contrast change would
-   make the majority of a HAL module harder to read, not easier. Three classes
-   (0,3,0) outrank the `content: none` reset directly above. */
-.interior-menu-items .interior-menu-item[data-visibility="pub"]::before {
+   make the majority of a HAL module harder to read, not easier. The chip is an
+   ordinary flex item at the head of the row and takes its size from its own
+   text, so it declares no box of its own; it needs the card's prose bullet
+   (`.card > ul > li::before` in style.css) to keep out of this list, which is
+   why that rule is scoped to a card's own children. */
+.interior-menu-item[data-visibility="pub"]::before {
   content: "pub";
   display: inline-block;
+  /* `flex: none` is what keeps the chip at its own text width: the row wraps
+     long monospace names, and a name too wide for what is left of the line
+     takes a line of its own rather than squeezing the chip. `nowrap` holds
+     that word together independently of the flex settings — the row's
+     `overflow-wrap: anywhere` is inherited here and would otherwise be free to
+     break a three-letter keyword across lines. */
   flex: none;
-  /* The row wraps long monospace names, so without nowrap the flex line
-     squeezes this chip to one letter per line and the item's min-height then
-     clips it. The name wraps instead; the chip keeps its intrinsic width. */
   white-space: nowrap;
   line-height: 1.4;
   align-self: center;
@@ -492,17 +494,16 @@
   color: var(--green);
   background: color-mix(in oklab, var(--green) 16%, transparent);
 }
-.interior-menu-items .interior-menu-item {
-  /* Override the shared `.card ul li` list padding so declaration chips keep
-     balanced insets. Two classes (0,2,0) already outrank `.card ul li` (0,1,2),
-     so this stays at the same weight as the responsive overrides further down
-     and they win on source order rather than losing to a more specific base. */
-  padding: 0.22rem 0.52rem;
-}
 .interior-menu-item {
   list-style: none;
   font-family: var(--font-mono);
   font-size: 0.68rem;
+  /* The row states its own metrics rather than inheriting a list's: the inset
+     and the line box were coming from `.card ul li` until that rule was scoped
+     to a card's own children. One class (0,1,0), so the responsive overrides
+     further down win on specificity rather than on source order. */
+  padding: 0.22rem 0.52rem;
+  line-height: 1.6;
   border: 1px solid color-mix(in oklab, var(--interior-kind-color, var(--border)) 62%, var(--border));
   border-radius: 0.5rem;
   min-height: 1.6rem;

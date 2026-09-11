@@ -202,7 +202,14 @@ language, the Rust chart holds the same 1:1 guarantee at every width and on a
 phone, the Rust sidebar opens on a group that has items and clips nothing, a
 leaf module browses its crate through its siblings, a Rust deep link
 reconstructs scope and node from the URL alone, and a
-dispatched `sele4n:locale-changed`.
+dispatched `sele4n:locale-changed`. Since 0.32.0 it also measures the two list
+widgets that sit inside the workspace's card, where a rule written for a card's
+prose list would otherwise reach them: every `pub` chip is read through
+`getComputedStyle(el, '::before')` and must be in flow, sized by its own text
+and clear of the declaration's name (an overflow check cannot see generated
+content, which is how a chip painted across the row's corner survived a
+release), and the open search listbox's rows must carry no marker and keep
+their own inset.
 
 ```bash
 # from the repository root

@@ -137,7 +137,31 @@ function metrics(page) {
       tabLabels: Array.from(document.querySelectorAll('.interior-menu-tab')).map((t) => t.textContent.trim()),
       declarationItems: document.querySelectorAll('.interior-menu-item').length,
       clippedItems: Array.from(document.querySelectorAll('.interior-menu-item')).filter((li) => li.scrollHeight > li.clientHeight + 1).length,
-      pubChips: Array.from(document.querySelectorAll('.interior-menu-item[data-visibility="pub"]')).length,
+      /* The `pub` chip is generated content, so it contributes nothing to
+         scrollHeight: the clipped reading above stayed green through a release
+         in which the chip was an absolutely positioned 6px box — the card's
+         prose bullet reaching this list — with the word painted across the
+         row's corner. So measure the chip itself: in flow, sized by its own
+         text, and the name starting clear of it. */
+      pubChips: (function () {
+        const rows = Array.from(document.querySelectorAll('.interior-menu-item[data-visibility="pub"]'));
+        const broken = rows.filter((li) => {
+          const chip = window.getComputedStyle(li, '::before');
+          if (chip.content !== '"pub"' || chip.position !== 'static') return true;
+          const size = parseFloat(chip.fontSize);
+          const width = parseFloat(chip.width);
+          const height = parseFloat(chip.height);
+          if (!(width >= size * 2 && height >= size)) return true;
+          const name = li.firstElementChild;
+          if (!name) return false;
+          const row = li.getBoundingClientRect();
+          const label = name.getBoundingClientRect();
+          /* Either the name sits after the chip on the chip's line, or it
+             wrapped to a line of its own below it. */
+          return label.left - row.left < width && label.top - row.top < height;
+        });
+        return { total: rows.length, broken: broken.length };
+      })(),
       stats: Array.from(document.querySelectorAll('[data-map]')).map((el) => `${el.getAttribute('data-map')}=${el.textContent}`),
       scope: (document.querySelector('.map-scope-option.is-active') || {}).dataset?.scope || '',
       scopeOptions: Array.from(document.querySelectorAll('.map-scope-option')).map((b) => `${b.dataset.scope}:${b.textContent.trim()}`),
@@ -213,6 +237,22 @@ async function shot(page, name) {
 
   await page.click('#module-search', { clickCount: 3 });
   await page.keyboard.type('SeLe4n.Kernel.API');
+  await page.waitForTimeout(200);
+  /* The workspace is one `.card`, and this page's two list widgets are `ul`s
+     inside it: whatever style.css paints on a card's list items lands on them
+     unless each undoes it property by property. The listbox is the cheaper of
+     the two to read — its rows keep their own inset rather than a prose
+     indent, and carry no marker. Read it before Enter closes it. */
+  const listbox = await page.evaluate(() => Array.from(document.querySelectorAll('.module-search-option'), (li) => {
+    const row = window.getComputedStyle(li);
+    return {
+      marker: window.getComputedStyle(li, '::before').content,
+      padLeft: Math.round(parseFloat(row.paddingLeft)),
+      padRight: Math.round(parseFloat(row.paddingRight))
+    };
+  }));
+  check(listbox.length > 0 && listbox.every((row) => row.marker === 'none' && row.padLeft <= row.padRight + 1),
+    `the search listbox rows are the listbox's own (${listbox.length} option(s), first ${JSON.stringify(listbox[0] || null)})`);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(400);
   await page.click('.interior-menu-item-btn');
@@ -299,7 +339,8 @@ async function shot(page, name) {
   check(m.scope === 'rust' && m.search === 'sele4n-abi::args::cspace', `a Rust deep link restores scope and node (${m.scope}, ${m.search})`);
   const deepTab = m.tabLabels[m.tabs.indexOf('true')] || '';
   check(/ [1-9]/.test(deepTab) && m.declarationItems > 0, `the Rust sidebar opens on a populated group (open: ${deepTab}; ${m.declarationItems} items)`);
-  check(m.pubChips > 0 && m.clippedItems === 0, `public Rust items are marked and nothing is clipped (${m.pubChips} pub of ${m.declarationItems}, ${m.clippedItems} clipped)`);
+  check(m.pubChips.total > 0 && m.pubChips.broken === 0 && m.clippedItems === 0,
+    `public Rust items carry a chip of their own and nothing is clipped (${m.pubChips.total} pub of ${m.declarationItems}, ${m.pubChips.broken} misplaced, ${m.clippedItems} clipped)`);
   check(m.laneLabels.some((label) => /Module path/.test(label)), `the module path lane names the enclosing modules (${JSON.stringify(m.laneLabels)})`);
   check(chartAtScale(m), `Rust chart at 1:1 from a cold load (${chartSummary(m)})`);
   check(m.scrollWidth <= m.innerWidth, 'no horizontal overflow on a Rust deep link');
