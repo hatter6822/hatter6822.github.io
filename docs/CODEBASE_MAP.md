@@ -57,6 +57,31 @@ to the first entry of the score-sorted list,
 visitor saw one module for a few seconds and another afterwards. The tree path
 now keeps `Main.lean` (`isLeanModulePath`).
 
+### Node source lines
+
+Every node carries a link to the file it stands for, and the link's text is the
+file's address **inside its own codebase**: `Kernel/API.lean`,
+`sele4n-types/src/error.rs`. The snapshot ships repository-relative paths, whose
+first segment is the same on every node of a chart — `SeLe4n/` on every Lean
+node, `rust/` on every Rust one — and that segment says where the codebase sits
+in the repository, not where the file sits in the codebase. The node's title
+already names the library or the crate, so the repository root is not the
+subject anywhere on this page.
+
+The label and the href are deliberately different strings. `moduleSourceLink()`
+shortens only the label; the href keeps the full repository path, which is the
+only one GitHub resolves. `map-smoke.mjs` reads both off the rendered anchor, in
+each language, for exactly that reason.
+
+`codebaseRoot()` takes each root from the data rather than from a constant:
+Rust's is the snapshot's `rust.root` (the workspace directory), Lean's is the
+first component of the module name, which is the library root Lake compiles from
+(`SeLe4n.Kernel.API` is built from `SeLe4n/Kernel/API.lean`). A file that does
+not sit under its codebase's root keeps its path untouched rather than being
+guessed at — `Main.lean` is a Lean module at the repository root, and the tree
+path keeps it deliberately. The two node tooltips' `path:` line reads the same
+way.
+
 ### Subsystem-grouped lanes
 
 `SeLe4n.Kernel.API` imports 46 modules; a lane budget of eight used to show

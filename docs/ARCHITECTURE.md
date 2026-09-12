@@ -1735,3 +1735,42 @@ pixel diff, since PNG encoding alone is not byte-stable between runs). The
 browser parses one rule and 38 declarations fewer from `map.css` and exactly as
 many from `style.css` — the removed duplicate and the four inert declarations,
 and nothing else lost to a typo.
+
+## A node states its path inside its own codebase (0.32.0)
+
+Every node on both charts carried a source line reading
+`SeLe4n/Kernel/API.lean` or `rust/sele4n-types/src/lib.rs`. The leading segment
+is the same on every node of a chart, and it is not a fact about the file: it
+says where the codebase sits in the repository. The code map's subject is the
+codebase — the page is one section, and production code is what it draws in
+every scope — so the repository root had no business being the first thing a
+reader saw on each of sixteen nodes at once, twice over in the combined scope.
+
+The label is now the file's address inside its own codebase: `Kernel/API.lean`,
+`sele4n-types/src/error.rs`. Nothing is lost — the node's title already names
+the library (`SeLe4n.Kernel.API`) or the crate (`sele4n-types::error`), and the
+two tooltips' `path:` line reads the same way.
+
+Two properties keep this honest:
+
+- **The label and the href are different strings by design.**
+  `moduleSourceLink()` shortens only the label; the href is still built from
+  the full repository path, which is the only one GitHub resolves. A probe that
+  read one and inferred the other would pass on a broken link, so `map-smoke.mjs`
+  reads both off the rendered anchor — in the Lean desktop pass and again on the
+  Rust deep link — and asserts the label carries no root while the href ends in
+  `/<root>/<label>`.
+- **Each root comes from the data.** `codebaseRoot()` takes Rust's from the
+  snapshot's `rust.root` (the workspace directory the scanner recorded) and
+  Lean's from the first component of the module name, which is the library root
+  Lake compiles from. Writing `rust` or `SeLe4n` into `map.js` would put a fact
+  about the kernel's tree into this page's source, where the next upstream
+  rename would not reach it.
+
+A path that does not sit under its codebase's root is left exactly as it is
+rather than guessed at. `Main.lean` is a Lean module at the repository root —
+`isLeanModulePath` keeps it in the tree deliberately, because dropping it is
+what made a previous release open on the wrong module — and its single-component
+name names no library directory, so `codebaseRoot()` returns nothing and the
+path is untouched. Stripping a root down to an empty label is refused for the
+same reason: a node with no path at all states less than a long one.

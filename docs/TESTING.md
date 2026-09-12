@@ -209,7 +209,11 @@ prose list would otherwise reach them: every `pub` chip is read through
 and clear of the declaration's name (an overflow check cannot see generated
 content, which is how a chip painted across the row's corner survived a
 release), and the open search listbox's rows must carry no marker and keep
-their own inset.
+their own inset. It also reads every node's source line off the rendered
+anchor, in both languages: the text must be the file's address inside its own
+codebase (no `SeLe4n/` or `rust/` prefix) while the `href` keeps the repository
+path GitHub resolves — the two are deliberately different strings, so checking
+one proves nothing about the other.
 
 ```bash
 # from the repository root

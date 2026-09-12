@@ -1321,7 +1321,7 @@
     var encodedPath = path.split("/").map(encodeURIComponent).join("/");
     return {
       href: "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath,
-      label: path,
+      label: codebaseRelativePath(name, path),
       title: "Open " + name + " source on GitHub"
     };
   }
@@ -2667,7 +2667,7 @@
         if (pairInfo.invariantModule) pairParts.push("inv=" + pairInfo.invariantModule);
         pairLine = "\nproof pair: " + pairParts.join(", ") + (pairInfo.invariantImportsOperations ? " (linked)" : " (unlinked)");
       }
-      return roleLabel + "\n" + name + "\npath: " + ctx.path + "\ntheorems: " + ctx.degree.theorems + " | obj: " + objCount + " | ext: " + extCount + " | verifiable: " + vArea + " | total: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label + coverageLine + pairLine;
+      return roleLabel + "\n" + name + "\npath: " + codebaseRelativePath(name, ctx.path) + "\ntheorems: " + ctx.degree.theorems + " | obj: " + objCount + " | ext: " + extCount + " | verifiable: " + vArea + " | total: " + interior.total + " | fan-in: " + ctx.degree.incoming + " | fan-out: " + ctx.degree.outgoing + "\nactive kinds: " + (kindPreview || "none") + "\nassurance: " + ctx.assurance.label + coverageLine + pairLine;
     }
 
     var layout = computeFlowLayout();
@@ -4376,6 +4376,39 @@
     return node ? node.path : "";
   }
 
+  /* Where a codebase sits in the repository, as that codebase's own data
+     records it: the workspace directory for Rust, the library root — the
+     first component of a Lean module name, which is the directory Lake
+     compiles the library from — for Lean. Never a constant: `rust` and
+     `SeLe4n` are facts about the kernel's tree, not about this page. */
+  function codebaseRoot(name) {
+    if (isRustNode(name)) return String((state.rust && state.rust.root) || "");
+    if (!state.moduleMap[name]) return "";
+    var dot = String(name).indexOf(".");
+    return dot > 0 ? String(name).slice(0, dot) : "";
+  }
+
+  /* A file's address inside its own codebase, which is what a node is about.
+     Both halves ship repository-relative paths — `SeLe4n/Kernel/API.lean`,
+     `rust/sele4n-types/src/error.rs` — whose leading segment is the same on
+     every node of a chart: it says where the codebase sits in the repository,
+     not where the file sits in the codebase, and the node's own title already
+     names the library or the crate. Only the label is read this way; the link
+     still opens the repository path, which is the only one GitHub resolves.
+
+     A file that does not sit under its codebase's root is left exactly as it
+     is rather than guessed at: `Main.lean` is a Lean module at the repository
+     root, and `isLeanModulePath` keeps it in the tree deliberately. */
+  function codebaseRelativePath(name, path) {
+    var full = String(path || "");
+    if (!full) return "";
+    var prefix = codebaseRoot(name);
+    if (!prefix) return full;
+    prefix += "/";
+    if (full.slice(0, prefix.length) !== prefix) return full;
+    return full.slice(prefix.length) || full;
+  }
+
   /* The Rust inventory can be a commit behind the module graph after a live
      refresh that carried no crates, so each half links at its own revision. */
   function nodeSourceRef(name) {
@@ -4520,7 +4553,7 @@
       roleLabel,
       name,
       rustNodeRoleLabel(node.role) + " · " + node.crateName,
-      "path: " + node.path,
+      "path: " + codebaseRelativePath(name, node.path),
       "items: " + (Number(file.productionItems) || 0) + " production, " + (Number(file.publicItems) || 0) + " public, " + (Number(file.testItems) || 0) + " test",
       "unsafe: " + unsafeCounts(file.unsafe).sites + " production site(s), " + unsafeCounts(file.testUnsafe).sites + " in test code"
     ];
@@ -7041,6 +7074,9 @@
       cacheMaxChars: function () { return CACHE_MAX_CHARS; },
       isLibraryRoot: isLibraryRoot,
       externalImportSubtitle: externalImportSubtitle,
+      codebaseRoot: codebaseRoot,
+      codebaseRelativePath: codebaseRelativePath,
+      moduleSourceLink: moduleSourceLink,
       /* Scope, the Rust graph and the Lean ↔ Rust boundary */
       scopes: function () { return SCOPES.slice(); },
       defaultScope: function () { return DEFAULT_SCOPE; },

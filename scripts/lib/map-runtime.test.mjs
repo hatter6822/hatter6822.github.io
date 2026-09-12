@@ -1223,6 +1223,56 @@ test('declarationSourceHref builds GitHub line links for declaration nodes', asy
   assert.equal(hooks.declarationSourceHref('missing_decl'), '', 'unknown declarations should have no source link');
 });
 
+test('a node states its path inside its own codebase while the link keeps the repository one', async () => {
+  const hooks = await loadMapTestHooks();
+
+  hooks.applyTestState({
+    moduleMap: { 'SeLe4n.Kernel.API': 'SeLe4n/Kernel/API.lean', Main: 'Main.lean' },
+    rust: {
+      root: 'rust',
+      crates: [{
+        name: 'sele4n-types',
+        files: [
+          { path: 'rust/sele4n-types/src/lib.rs', relativePath: 'src/lib.rs', modulePath: '', target: 'src/lib.rs', role: 'lib', reachable: true, items: [] },
+          { path: 'rust/sele4n-types/src/error.rs', relativePath: 'src/error.rs', modulePath: 'error', target: 'src/lib.rs', role: 'module', reachable: true, items: [] }
+        ]
+      }]
+    },
+    commitSha: 'abc1234',
+    rustCommit: 'abc1234'
+  });
+
+  /* The leading segment is the same on every node of a chart — it says where
+     the codebase sits in the repository, not where the file sits in the
+     codebase — and the node's title already names the library or the crate. */
+  assert.equal(hooks.codebaseRoot('SeLe4n.Kernel.API'), 'SeLe4n', "Lean's root is the library the module name opens with");
+  assert.equal(hooks.codebaseRoot('sele4n-types::error'), 'rust', "Rust's root is the workspace directory the snapshot records");
+  assert.equal(hooks.codebaseRelativePath('SeLe4n.Kernel.API', 'SeLe4n/Kernel/API.lean'), 'Kernel/API.lean');
+  assert.equal(hooks.codebaseRelativePath('sele4n-types::error', 'rust/sele4n-types/src/error.rs'), 'sele4n-types/src/error.rs');
+  assert.equal(hooks.codebaseRelativePath('sele4n-types', 'rust/sele4n-types/src/lib.rs'), 'sele4n-types/src/lib.rs');
+
+  /* A file outside its codebase's root is left exactly as it is rather than
+     guessed at: Main.lean is a Lean module at the repository root, and
+     isLeanModulePath keeps it in the tree deliberately. */
+  assert.equal(hooks.codebaseRoot('Main'), '', 'a single-component module names no library directory');
+  assert.equal(hooks.codebaseRelativePath('Main', 'Main.lean'), 'Main.lean');
+  assert.equal(hooks.codebaseRelativePath('SeLe4n.Kernel.API', 'docs/API.lean'), 'docs/API.lean', 'a path that is not under the root is untouched');
+  assert.equal(hooks.codebaseRelativePath('SeLe4n', 'SeLe4n'), 'SeLe4n', 'the root on its own is never stripped to nothing');
+  assert.equal(hooks.codebaseRelativePath('ghost', 'SeLe4n/Kernel/API.lean'), 'SeLe4n/Kernel/API.lean', 'a name the graph does not hold names no codebase');
+
+  /* Only the label is read in the codebase's terms; GitHub resolves the
+     repository path alone. */
+  const lean = hooks.moduleSourceLink('SeLe4n.Kernel.API');
+  assert.equal(lean.label, 'Kernel/API.lean');
+  assert.ok(lean.href.endsWith('/abc1234/SeLe4n/Kernel/API.lean'), 'the href keeps the repository path');
+
+  const rust = hooks.moduleSourceLink('sele4n-types::error');
+  assert.equal(rust.label, 'sele4n-types/src/error.rs');
+  assert.ok(rust.href.endsWith('/abc1234/rust/sele4n-types/src/error.rs'), 'the href keeps the repository path');
+
+  assert.equal(hooks.moduleSourceLink('ghost'), null, 'a node with no path has no source link');
+});
+
 test('declaration flowchart renders clickable flow-meta line links', async () => {
   const mapSource = await fs.readFile(mapScriptPath, 'utf8');
   assert.ok(

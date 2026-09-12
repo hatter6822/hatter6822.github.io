@@ -269,6 +269,31 @@ two more — a Rust crate card grid and a repository file inventory — and both
 are gone: the Rust codebase is navigated in the workspace itself, behind a
 scope toggle. Production code is the subject in every scope.
 
+#### A node states its path inside its own codebase
+
+- The subject is the codebase, not the repository that holds it. A node's
+  source line says where the file sits in **its own** codebase —
+  `Kernel/API.lean`, `sele4n-types/src/error.rs` — because the repository-
+  relative path the snapshot ships opens with the same segment on every node
+  of a chart: every Lean label read `SeLe4n/…` and every Rust label `rust/…`,
+  which is where the codebase sits in the repository and nothing about the
+  file. The node's own title already names the library or the crate.
+- **The label and the href are deliberately different strings.** Only the
+  label is shortened; `moduleSourceLink()` builds the href from the full
+  repository path, which is the only one GitHub resolves. The same holds for
+  the Lean and Rust node tooltips' `path:` line, and for
+  `declarationSourceHref()` / `symbolSourceHref()`, which are hrefs only.
+- **The root comes from the data, never from a constant.** `codebaseRoot()`
+  in `map.js` takes Rust's from the snapshot's `rust.root` (the workspace
+  directory) and Lean's from the first component of the module name, which is
+  the library root Lake compiles from — `SeLe4n.Kernel.API` is built from
+  `SeLe4n/Kernel/API.lean`. Hard-coding `rust` or `SeLe4n` here would state a
+  fact about the kernel's tree in this page's source.
+- A path that does not sit under its codebase's root is left **exactly as it
+  is** rather than guessed at: `Main.lean` is a Lean module at the repository
+  root, and `isLeanModulePath` keeps it in the tree deliberately. Stripping a
+  root down to an empty label is likewise refused.
+
 #### Scope
 
 - Three readings, chosen by the toolbar's radiogroup and carried in the URL as
@@ -504,7 +529,10 @@ scope toggle. Production code is the subject in every scope.
   console, both themes, a Spanish deep link, a locale held back until after the
   snapshot paints, the scope toggle end to end, the boundary band's direction,
   crossing into the other language, a Rust deep link, tappable scope options on
-  a phone, and nothing clipped in the sidebar). `.github/workflows/ci.yml` runs
+  a phone, nothing clipped in the sidebar, and every node's source line reading
+  inside its own codebase while its href keeps the repository path — read off
+  the rendered anchor in both languages, since the two are different strings).
+  `.github/workflows/ci.yml` runs
   it with the runner's Chrome on every push. A layout guarantee the docs make
   gets a probe assertion.
 

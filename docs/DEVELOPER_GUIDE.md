@@ -342,8 +342,10 @@ declaration context, the flow chart drawn at 1:1 at 1200–1920px, the sidebar
 beside the chart from 1440px and below it under that, the pinned sidebar
 fitting a 720px viewport, no horizontal overflow, a clean console, both themes,
 a tablet and a phone width, a Spanish deep link with locale digit grouping,
-and a locale held back until after the snapshot has painted (the generated
-labels must still come out in Spanish). `.github/workflows/ci.yml` runs it with the runner's Chrome
+a locale held back until after the snapshot has painted (the generated
+labels must still come out in Spanish), and every node's source line reading
+inside its own codebase while its `href` keeps the repository path.
+`.github/workflows/ci.yml` runs it with the runner's Chrome
 (`MAP_SMOKE_CHANNEL=chrome`) after the unit tests on every push and pull
 request; `PLAYWRIGHT_CHROMIUM=<path>` points it at another binary.
 

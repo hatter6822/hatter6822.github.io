@@ -171,6 +171,14 @@ function metrics(page) {
       bridgeNodes: document.querySelectorAll('.flow-node-bridge').length,
       legend: Array.from(document.querySelectorAll('.legend-item')).map((el) => el.textContent.trim()),
       laneLabels: Array.from(document.querySelectorAll('.flow-lane-label')).map((el) => el.textContent.trim()),
+      /* Each node's source line: what it says, and where it actually goes.
+         The label is the file inside its own codebase, the href the
+         repository path GitHub resolves — the two are deliberately not the
+         same string, so read both off the rendered anchor. */
+      sourceLines: Array.from(document.querySelectorAll('.flow-node-layer a')).map((a) => ({
+        label: Array.from(a.querySelectorAll('.flow-meta-link'), (span) => span.textContent).join(''),
+        href: a.getAttribute('href') || ''
+      })).filter((line) => line.label),
       sections: document.querySelectorAll('main .map-section').length,
       h2s: Array.from(document.querySelectorAll('h2')).map((h) => h.textContent)
     };
@@ -188,6 +196,19 @@ async function setScope(page, scope) {
 function chartAtScale(m) {
   return Boolean(m.chart) && Math.abs(m.chart.rendered - m.chart.attr) <= 1;
 }
+
+/* A node's source line reads in its own codebase's terms — `Kernel/API.lean`,
+   `sele4n-types/src/error.rs` — while its link carries the repository path,
+   which is the only one GitHub resolves. Both roots are checked together so
+   the reading holds in the combined scope, where one chart carries nodes from
+   each: every Lean label would otherwise open with the same `SeLe4n/` and
+   every Rust one with the same `rust/`, on every node of every chart. */
+const CODEBASE_ROOTS = ['SeLe4n', 'rust'];
+function statesCodebasePath(line) {
+  if (CODEBASE_ROOTS.some((root) => line.label.startsWith(`${root}/`))) return false;
+  return CODEBASE_ROOTS.some((root) => line.href.endsWith(`/${root}/${line.label}`));
+}
+
 function chartSummary(m) {
   return m.chart ? `layout ${m.chart.attr}px, rendered ${Math.round(m.chart.rendered)}px in a ${m.chart.wrapClient}px frame` : 'no chart';
 }
@@ -218,6 +239,8 @@ async function shot(page, name) {
     && m.stats.some((s) => s === `rustModules=${RUST_MODULES}`)
     && bridgeLinks > 100,
     `hero stats carry the Rust and boundary figures (${m.stats.filter((s) => /^(rust|bridge)/.test(s)).join(', ')})`);
+  check(m.sourceLines.length > 0 && m.sourceLines.every(statesCodebasePath),
+    `every Lean node states its path inside the library, not under the repository root (${JSON.stringify(m.sourceLines.slice(0, 2))})`);
   check(errors.length === 0, `no console errors ${JSON.stringify(errors)}`);
   await shot(page, 'desktop-dark');
 
@@ -342,6 +365,8 @@ async function shot(page, name) {
   check(m.pubChips.total > 0 && m.pubChips.broken === 0 && m.clippedItems === 0,
     `public Rust items carry a chip of their own and nothing is clipped (${m.pubChips.total} pub of ${m.declarationItems}, ${m.pubChips.broken} misplaced, ${m.clippedItems} clipped)`);
   check(m.laneLabels.some((label) => /Module path/.test(label)), `the module path lane names the enclosing modules (${JSON.stringify(m.laneLabels)})`);
+  check(m.sourceLines.length > 0 && m.sourceLines.every(statesCodebasePath),
+    `every Rust node states its path inside the workspace, not under the repository root (${JSON.stringify(m.sourceLines.slice(0, 2))})`);
   check(chartAtScale(m), `Rust chart at 1:1 from a cold load (${chartSummary(m)})`);
   check(m.scrollWidth <= m.innerWidth, 'no horizontal overflow on a Rust deep link');
   check(errors.length === 0, `no console errors (rust deep link) ${JSON.stringify(errors)}`);

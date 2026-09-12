@@ -142,6 +142,14 @@ reading is linkable. Before 0.31.0 the page carried two further sections, a
 Rust crate card grid and a repository file inventory; both are gone, and the
 Rust half of the codebase is now navigated in the workspace itself.
 
+In every scope a node links to the file it stands for, and the link's text is
+that file's address **inside its own codebase** — `Kernel/API.lean`,
+`sele4n-types/src/error.rs`. The repository-relative path the snapshot ships
+opens with the same segment on every node of a chart (`SeLe4n/`, `rust/`),
+which says where the codebase sits in the repository rather than anything about
+the file; the node's title already names the library or the crate. Only the
+text is read this way — the link itself keeps the repository path.
+
 **Lean scope.** The chart opens on `SeLe4n.Kernel.API` — the kernel's unified
 public API, the entry-point surface the subsystems compose into — whenever the
 URL carries no `module=`. It shows the selected module's imports, dependents,
