@@ -5226,6 +5226,14 @@
   /* The bundled snapshot is the page's only data source. A failure rejects
      with the reason, so boot can say the map did not load rather than paint
      an empty workspace. */
+  /* Resolves with `value` from a fresh task, so the work on either side of it
+     is two tasks rather than one long one. */
+  function yieldToBrowser(value) {
+    return new Promise(function (resolve) {
+      window.setTimeout(function () { resolve(value); }, 0);
+    });
+  }
+
   function fetchBundledMapData() {
     return safeFetch(DATA_ENDPOINT, false).then(function (payload) {
       var normalized = normalizeMapData(payload);
@@ -6265,7 +6273,7 @@
 
     /* One request, one revision: the bundled snapshot is fetched, normalized
        and rendered, and nothing replaces it afterwards. */
-    fetchBundledMapData().then(function (data) {
+    fetchBundledMapData().then(yieldToBrowser).then(function (data) {
       applyData(data);
       hardenExternalLinks();
       paintLoadStatus("ready");

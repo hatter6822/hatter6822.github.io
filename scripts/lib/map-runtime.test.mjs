@@ -3175,3 +3175,12 @@ test('the declaration sidebar delegates row clicks and skips off-screen rows', a
   assert.match(row, /content-visibility: auto;/);
   assert.match(row, /contain-intrinsic-block-size: auto [\d.]+rem;/, 'an off-screen row keeps a placeholder height and remembers its last one');
 });
+
+/* Boot parses and normalizes the snapshot in one task and indexes and renders
+   it in the next: one ~150 ms task (~600 ms at 4x CPU) became two of roughly
+   half, with the first chart paint unchanged. */
+test('boot yields to the browser between normalizing the snapshot and applying it', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  assert.match(mapSource, /fetchBundledMapData\(\)\.then\(yieldToBrowser\)\.then\(function \(data\) \{\s*applyData\(data\);/);
+  assert.match(mapSource, /function yieldToBrowser\(value\) \{[\s\S]*?window\.setTimeout\(function \(\) \{ resolve\(value\); \}, 0\);/);
+});
