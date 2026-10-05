@@ -6,6 +6,16 @@ This repository uses lightweight Node-based checks.
 
 ## Automated checks
 
+Tiers 0-2 in one command — every `scripts/lib/*.test.mjs`, both validators and
+`node --check` on every `assets/js/*.js`, discovered by glob:
+
+```bash
+./scripts/check.sh
+```
+
+CI and the data-sync workflow both run this script (the sync job before it
+pushes, together with the two browser probes). The individual commands follow.
+
 ### Parser and extraction regression tests
 
 ```bash
@@ -25,7 +35,7 @@ node scripts/lib/i18n-runtime.test.mjs
 ```
 
 Validates:
-- Static fallback sync (`static-values.test.mjs`): pins the `data/site-data.json` → `index.html` + `locales/*.json` static-value mapping used by `scripts/apply-static-values.mjs` (every mapped `data-live` span, JSON-LD version, `<time>` stamp), verifies idempotence, `$`-safe replacement, and that counts are comma-grouped exactly as `assets/js/site.js` groups them on hydration; and asserts that the committed `index.html` *and every locale bundle* are byte-identical to what the rewriter produces from the committed snapshot — a diff means someone changed `data/site-data.json` without re-running `node scripts/apply-static-values.mjs`
+- Static fallback sync (`static-values.test.mjs`): pins the `data/site-data.json` → `index.html` + `locales/*.json` static-value mapping used by `scripts/apply-static-values.mjs` (every mapped `data-live` span including `frozen-syscalls` and the footer's `commit-sha`, JSON-LD version, the `<time>` stamp's `datetime` and visible date, and the `sitemap.xml` `lastmod` of `/` and `/map.html`), checks that the API Surface table lists syscall IDs `0 … syscalls-1` exactly once each, verifies idempotence, `$`-safe replacement, and that counts are comma-grouped exactly as `assets/js/site.js` groups them on hydration; and asserts that the committed `index.html` *and every locale bundle* are byte-identical to what the rewriter produces from the committed snapshot — a diff means someone changed `data/site-data.json` without re-running `node scripts/apply-static-values.mjs`
 - Deep-link anchors (`source-anchors.test.mjs`): collecting line-anchored blob links off both surfaces (index.html's bare attribute quotes and a locale bundle's escaped ones), ignoring links with no anchor or a prose label, resolving a declaration past attributes and modifiers and through a qualified Lean name, the one label alias (`Untyped` → `UntypedObject`), reporting an unplaceable label or a missing file instead of guessing a line, stamping onto both surfaces without breaking the locale JSON, refusing any "line" that is not a positive integer, and the whole round trip page → resolve → stamp. `static-values.test.mjs` adds the committed-tree guards: every `subsystem.*` span on the page is one `data/site-data.json` can fill, and every deep link on the page is one the sync resolved — a failure there means a hand-written line number crept back in
 - Locale completeness (`i18n-locales.test.mjs`): every `locales/*.json` has exact key parity with `en.json` (this silently broke before — four locales shipped without the entire simulator `run.*` surface), no empty or non-string leaf values, and every `data-i18n*` key referenced by the HTML pages resolves in `en.json`
 - CSP compliance (`csp-html.test.mjs`): static guard asserting `index.html`, `map.html`, `run.html`, and `404.html` carry no inline `style="…"` attributes. The pages ship `style-src 'self'` with no `'unsafe-inline'`, so an inline style is blocked at runtime and silently fails to apply — this catches that regression class at build time (it was found in the wild via a Playwright render: the status-legend swatches rendered colourless until their colours were moved to a CSS class)
@@ -120,7 +130,7 @@ node --check assets/js/theme-init.js
 - Confirm the scope toggle opens on **Lean + Rust**, that the section badge reads `production · Lean 4 + Rust`, and that switching to Rust and back changes the badge and the `scope=` parameter (absent at the default).
 - Confirm the boundary band: select `SeLe4n.Platform.FFI` in the combined scope and check it shows one coral row, "Declared here · implemented in Rust", pointing *out* to `sele4n-hal::ffi` with the matched `ffi_*` names on the node; select `SeLe4n.Kernel.Capability.Operations` and check the teal row points *in* from `sele4n-sys::cspace`. In the Lean and Rust scopes neither band nor its legend entries appear.
 - Confirm clicking a boundary node crosses into the other language: the chart switches to the Rust renderer, the sidebar switches to the four Rust tabs (Types, Functions, Impls/Mods, Tests) and opens on one that has items, and the URL names the Rust node.
-- Confirm a Rust crate root (`sele4n-abi`) reads `17 files · 70 items · 3 unsafe sites (2 fn · 1 block · under item-level allow)`, `sele4n-hal` reads `99 unsafe sites (… +24 in test code)`, and `sele4n-types` reads `denies unsafe` — the crate lint never standing in for the counted sites, and production never mixed with test.
+- Confirm a Rust crate root quotes the snapshot's own counters (`data/map-data.json#rust.crates[]`: `items`, `unsafe`, `testUnsafe`) rather than any figure typed here. At the 0.36.41 snapshot `sele4n-abi` reads `17 files · 76 items · 4 unsafe sites (2 fn · 2 blocks · under item-level allow · +1 in test code)`, `sele4n-hal` reads `600 unsafe sites (182 fn · 6 impls · 412 blocks · … · +112 in test code)`, and `sele4n-types` reads `denies unsafe` — the crate lint never standing in for the counted sites, and production never mixed with test. Re-derive these from the snapshot after a sync.
 - Confirm the crate dependency row states `loom` as `under cfg(loom)` and the HAL's `sele4n-types` / `sele4n-abi` as `test-only`, and that clicking a workspace member opens that crate's root.
 - Confirm a leaf Rust module (`sele4n-hal::ffi`) shows its siblings under "Declared alongside, in sele4n-hal" with the edges drawn from the crate root, and that a module with children (`sele4n-abi`) shows those instead.
 - Confirm public Rust items in the sidebar carry a `pub` chip that is not clipped, and that an item opens its source at the right line.

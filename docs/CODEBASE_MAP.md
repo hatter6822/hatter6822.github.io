@@ -396,7 +396,14 @@ Declaration search suggestions are rendered with distinct styling (italic text, 
 
 ## Upstream module structure (reflected in map data)
 
-The published production corpus comprises 303 modules across 4 layers (the
+> **Historical snapshot.** The counts in this section were typed in at the
+> 303-module snapshot and are kept as history. At kernel 0.36.41 the corpus is
+> 345 modules, Robin Hood carries 193 theorems, IPC 69 files, Architecture 41
+> and Capability 315 theorems. Read current figures from `data/site-data.json`
+> (`modules`, `subsystems`) — the pipeline projects them and the landing page
+> stamps them; this page does not restate them.
+
+The published production corpus comprised 303 modules across 4 layers (the
 eight `SeLe4n.Testing.*` framework modules are outside it):
 
 | Layer | Module count | Description |

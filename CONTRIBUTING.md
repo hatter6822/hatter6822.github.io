@@ -2,7 +2,7 @@
 
 Thanks for improving the seLe4n website.
 
-> Current release target: **0.27.0**
+> Current release target: **0.32.0**
 
 ## Repository principles
 
@@ -23,7 +23,15 @@ Thanks for improving the seLe4n website.
 
 ## Required checks before committing
 
-Run all checks below from repository root:
+Run all checks from repository root with one command — the same script CI and
+the data-sync workflow run, so the three cannot drift apart:
+
+```bash
+./scripts/check.sh
+```
+
+It discovers every `scripts/lib/*.test.mjs` and `assets/js/*.js` by glob, so
+today that is:
 
 ```bash
 node scripts/lib/lean-analysis.test.mjs
@@ -88,8 +96,14 @@ Two exceptions are deliberate and both read the same pinned checkout rather
 than a second source: the version comes from `lakefile.toml`, where the project
 declares it (`readme_sync.version` is a copy), and a handful of figures the
 artifact's inventory cannot answer — the syscall surface, the FFI bridge, the
-enforcement-boundary sizes, the non-interference step coverage — are counted
+enforcement-boundary sizes, the frozen-phase syscall coverage
+(`frozenOpCoverage_count`), the non-interference step coverage — are counted
 off the digest-verified Lean sources.
+
+A table that enumerates something the snapshot counts is held to the count:
+the API Surface table must list syscall IDs `0 … syscalls-1` exactly once each
+(`static-values.test.mjs`), because it once stopped at ID 34 under a lead that
+said "All 41".
 
 **No figure and no line number is written by hand.** That includes the
 architecture diagram's per-layer counts (`subsystems`) and the `#L` anchors on
