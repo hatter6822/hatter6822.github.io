@@ -18,6 +18,10 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 ### Required before every commit
 
+`bash scripts/check.sh` runs all of the below (tests found by glob, so a new
+`*.test.mjs` is covered the day it lands); CI and the sync workflow run the
+same script.
+
 ```bash
 # Parser and validation tests (all must pass, zero warnings)
 node scripts/lib/lean-analysis.test.mjs
@@ -72,15 +76,15 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~7,000 | Largest runtime; read in chunks of ≤500 lines |
-| `scripts/lib/map-runtime.test.mjs` | ~2,700 | Map runtime tests |
-| `assets/css/style.css` | ~2,020 | Global design system |
-| `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
-| `assets/css/map.css` | ~1,100 | Map-specific styles (hero, workspace, scope toggle, chart, sidebar) |
+| `assets/js/map.js` | ~7,150 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~3,200 | Map runtime tests |
+| `assets/css/style.css` | ~2,040 | Global design system |
+| `assets/js/run.js` | ~2,130 | Simulator runtime (fold engine, SVG scenes, kernel path, guarantees) |
+| `assets/css/map.css` | ~1,070 | Map-specific styles (hero, workspace, scope toggle, chart, sidebar) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
-| `scripts/lib/rust-analysis.mjs` | ~1,450 | Rust crate inventory scanner, TOML reader |
-| `scripts/lib/rust-analysis.test.mjs` | ~1,200 | Rust scanner tests |
-| `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
+| `scripts/lib/rust-analysis.mjs` | ~1,660 | Rust crate inventory scanner, TOML reader |
+| `scripts/lib/rust-analysis.test.mjs` | ~1,390 | Rust scanner tests |
+| `assets/js/site.js` | ~600 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
 - Never read an entire large file in one operation. Use offset/limit (≤500 lines per read).
@@ -96,7 +100,8 @@ Several files exceed 500 lines:
 3. Attempt live refresh from GitHub APIs (with cooldown + jitter)
 4. Fall back gracefully if network refresh fails
 
-**The landing page is exempt from steps 2-4 and must stay that way.** Its
+**The landing page and the simulator are exempt from steps 2-4 and must stay
+that way** (the simulator's reasons are under "Simulator" below). Its
 statistics come from `data/site-data.json` alone, which
 `scripts/sync-upstream.mjs` projects offline from the kernel's canonical
 `docs/codebase_map.json`; `index.html` ships with those same values stamped into
@@ -182,6 +187,7 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   | `externs` | `@[extern …]` declarations across production Lean | 17 | 73 |
   | `enforcementOps` | the length `enforcementBoundaryExtended_count` proves | 38 | 44 |
   | `enforcementOpsPerCore` | the length `enforcementBoundaryPerCore_count` proves | — | 59 |
+  | `frozenSyscalls` | the length `frozenOpCoverage_count` proves | — | 18 |
 
   The enforcement figures come off a machine-checked statement, which is as
   close to the truth as a published number gets — and upstream's own docstring
@@ -653,6 +659,58 @@ statistic**; the landing page stays canonical-or-absent.
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.
 
+### Simulator (`run.html`)
+
+The simulator shows, for every step of a scenario, what the kernel did (the
+state change), how it got there (the checked syscall path, stage by stage) and
+why that is safe (the security properties the step relies on and the
+invariants it preserves). Its data is `data/execution-traces.json`, schema
+**v2**, validated by `scripts/lib/trace-analysis.mjs`.
+
+- **The scenarios are hand-written; their names are not.** The kernel exports
+  no JSON traces yet (`source: "fixture"`). Every `{ name, module }` the trace
+  cites — a property's theorems, an invariant's predicate, preservation
+  theorems and runtime check, a step's source refs and each path stage — is
+  resolved by `scripts/lib/trace-anchors.mjs` in the same digest-verified
+  checkout the map is generated from, and stamped with `path` and `line`;
+  `sourceRef` records the commit. `checkTraceKernelFacts` also checks what a
+  step restates about the interface: the syscall is a `SyscallId`
+  constructor, its `requiredRight` is the `syscallRequiredRight` arm, every
+  error is a `KernelError`. `sync-upstream.mjs` refuses to write the traces
+  when any of this fails, and `validate-traces.mjs` cross-checks every
+  stamped line against `map-data.json` at the same commit. The 0.33.6 fixture
+  is why: by 0.36.41 fifteen of its names were off the executed path, two
+  required rights and one syscall were wrong, and nothing noticed. A name that
+  stops resolving is an editorial call — rewrite the step, do not repoint it.
+- **A refused step changes nothing.** A kernel transition is
+  `σ → Except ε (α × σ)`: an error carries no state. The validator rejects a
+  step with `outcome.status: "error"` whose ops are anything but event ops
+  (`flowCheck`, `vspaceReject`, `message`, `note`), and the runtime's adoption
+  gate refuses the whole document. A syscall `path` has exactly one `fail`
+  stage, matching `outcome.error`, and every later stage is `skip`.
+- **Ops follow the kernel, not a story about it.** `cdtRevoke` removes a
+  capability's derivations and keeps the capability (`cspaceRevoke`);
+  `untypedReset` needs its children revoked first; declassification is
+  `auditAppend` — it never edits the flow policy. `untypedRevoke`,
+  `ifPolicyAdd/Remove`, `servicePatch` and the services scene are gone because
+  the kernel has no such paths.
+- **Runtime checks are tests.** An invariant's `runtimeCheck` names the test
+  harness's executable mirror (`SeLe4n.Testing.InvariantChecks`); the page
+  labels it so, and the proof is the `preservedBy` theorem.
+- **Links are built from stamped fields only.** `sourceHref()` takes the
+  40-hex `sourceRef`, a whitelisted `.lean` path and an integer line; an
+  unstamped reference is shown as text. Code-map links are offered only for
+  production modules.
+- **Bundle-only**, like the landing page: `run.js` fetches
+  `data/execution-traces.json` and nothing else, keeps no trace cache, and
+  `run.html`'s `connect-src` is `'self'`. A remote document could not have been
+  grounded against the revision the bundle was.
+- On a phone the stage SVG is drawn at 1:1 and scrolls inside its shell;
+  scaled to fit, a two-column scene set its labels at about six pixels.
+- `run-runtime.test.mjs` boots the real `run.js` in a DOM shim; the shim must
+  implement every DOM call the runtime makes (it lacked `createTextNode`, and
+  boot failed silently into "Could not load trace data").
+
 ### Map data normalization
 
 - `modules[]` array is the canonical source of graph nodes
@@ -754,6 +812,8 @@ Both HTML pages enforce:
 - `referrer` policy (`strict-origin-when-cross-origin`)
 - `X-Content-Type-Options: nosniff`
 - All external links hardened with `rel="noopener noreferrer"`
+- No third-party origin on the landing page: the hero logo is self-hosted
+  (`assets/images/logo{,-dark}-{128,640,1024}.webp`), so `img-src` is `'self'`
 
 ### Operations/Invariant split (upstream seLe4n convention)
 
@@ -785,6 +845,8 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Global styles | `assets/css/style.css` |
 | Simulator (kernel-in-action) | `run.html`, `assets/js/run.js`, `assets/css/run.css` |
 | Trace data + fold engine | `data/execution-traces.json`, `scripts/lib/trace-analysis.mjs` |
+| Trace grounding (names → kernel lines) | `scripts/lib/trace-anchors.mjs` |
+| Tiers 0-2 gate | `scripts/check.sh` |
 
 ## Documentation Sync Requirements
 
