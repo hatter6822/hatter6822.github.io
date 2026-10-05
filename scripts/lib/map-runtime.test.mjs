@@ -107,7 +107,6 @@ test('normalizeMapData sanitizes modules/imports and accepts legacy symbol bucke
   });
 
   assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Helper', 'SeLe4n.Core.Main']);
-  assert.deepEqual(Array.from(normalized.files), ['README.md', 'SeLe4n/Core/Helper.lean', 'SeLe4n/Core/Main.lean']);
   assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, 'Bad Name'));
   assert.deepEqual(Array.from(normalized.importsFrom['SeLe4n.Core.Main']), ['SeLe4n.Core.Helper']);
   assert.deepEqual(Array.from(normalized.importsFrom['SeLe4n.Core.Helper']), []);
@@ -115,6 +114,57 @@ test('normalizeMapData sanitizes modules/imports and accepts legacy symbol bucke
   assert.deepEqual(Array.from(normalized.externalImportsFrom['SeLe4n.Core.Helper']), []);
   assert.equal(normalized.moduleMeta['SeLe4n.Core.Main'].symbols.byKind.constant[0].name, 'mainConst');
   assert.equal(normalized.moduleMeta['SeLe4n.Core.Helper'].theorems, 0);
+});
+
+/* The code map renders the bundled snapshot and nothing else. A live refresh
+   used to download the upstream artifact on every boot and focus, replace the
+   bundled graph with an edgeless one from another commit, and then fetch 345
+   Lean files to regex the import edges back — a second data pipeline, which
+   "One pipeline, one revision" forbids. These pin the removal at source level,
+   alongside csp-html.test.mjs pinning connect-src 'self' on map.html. */
+test('the map runtime makes no cross-origin request', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  for (const host of ['api.github.com', 'raw.githubusercontent.com', 'codeload.github.com']) {
+    assert.ok(!mapSource.includes(host), `map.js should not name ${host}`);
+  }
+
+  /* fetch() is called in one place, safeFetch, and every safeFetch call takes
+     a named same-origin endpoint. */
+  const fetchCalls = mapSource.match(/\bfetch\(/g) || [];
+  assert.equal(fetchCalls.length, 1, 'only safeFetch should call fetch()');
+  const endpointArgs = [...mapSource.matchAll(/\bsafeFetch\(([^,)]+)/g)].map((m) => m[1].trim()).filter((arg) => arg !== 'url');
+  assert.ok(endpointArgs.length >= 1, 'boot should fetch the bundled snapshot');
+  for (const arg of endpointArgs) {
+    assert.match(arg, /^[A-Z_]+_ENDPOINT$/, `safeFetch should take a named endpoint constant, got ${arg}`);
+    const declared = mapSource.match(new RegExp(`var ${arg} = "([^"]+)";`));
+    assert.ok(declared, `${arg} should be declared as a string literal`);
+    assert.match(declared[1], /^data\/[a-z-]+\.json$/, `${arg} should be a same-origin bundled path, got ${declared[1]}`);
+  }
+  assert.match(mapSource, /mode: "same-origin"/, 'the fetch options should refuse a cross-origin request outright');
+});
+
+test('the map keeps no localStorage copy of the snapshot and runs no refresh loop', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  assert.ok(!/localStorage\.getItem/.test(mapSource), 'the map reads nothing back from localStorage');
+  /* The retired keys are named once, to be purged. */
+  assert.equal((mapSource.match(/sele4n-code-map/g) || []).length, 2, 'the retired keys appear only in the purge list');
+  assert.match(mapSource, /localStorage\.removeItem\(LEGACY_STORAGE_KEYS\[i\]\)/);
+  const storageWrites = [...mapSource.matchAll(/localStorage\.setItem\(\s*"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(storageWrites, ['sele4n-theme'], 'localStorage holds the theme preference only');
+  for (const trigger of ['"visibilitychange"', '"online"', 'setInterval(']) {
+    assert.ok(!mapSource.includes(trigger), `no refresh trigger (${trigger}) should remain`);
+  }
+  assert.ok(!/addEventListener\("focus", function \(\) \{ trigger/.test(mapSource), 'no focus-triggered refresh should remain');
+});
+
+test('the status line names the snapshot commit, or says the snapshot did not load', async () => {
+  const hooks = await loadMapTestHooks();
+  hooks.applyTestState({ commitSha: '96f442d7c1bb2407651081258145d4335bb4e6cb' });
+  assert.equal(hooks.loadStatusText('ready'), 'Map ready. Integrated dependency/proof flow graph loaded. Snapshot of commit 96f442d.');
+  hooks.applyTestState({ commitSha: '' });
+  assert.equal(hooks.loadStatusText('ready'), 'Map ready. Integrated dependency/proof flow graph loaded.');
+  assert.equal(hooks.loadStatusText('error', 'HTTP 404'), 'Unable to load the codebase map snapshot. (HTTP 404)');
+  assert.equal(hooks.loadStatusText('error', ''), 'Unable to load the codebase map snapshot.');
 });
 
 test('normalizeCaretRange clamps out-of-range selections and defaults to input length', async () => {
@@ -215,105 +265,6 @@ test('normalizeMapData marks symbolsLoaded when normalized symbol lines are comp
 
   assert.equal(normalized.moduleMeta['SeLe4n.Model.State'].symbolsLoaded, true);
 });
-
-test('normalizeCanonicalPayload unwraps branch-keyed canonical map payloads', async () => {
-  const hooks = await loadMapTestHooks();
-
-  const normalized = hooks.normalizeCanonicalPayload({
-    main: {
-      modules: ['SeLe4n.Core.Main'],
-      moduleMap: { 'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean' },
-      importsFrom: { 'SeLe4n.Core.Main': [] },
-      moduleMeta: {
-        'SeLe4n.Core.Main': {
-          layer: 'other',
-          kind: 'other',
-          base: 'SeLe4n.Core.Main',
-          theorems: 1
-        }
-      },
-      generatedAt: '2026-01-01T00:00:00.000Z'
-    }
-  });
-
-  assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Main']);
-  assert.equal(normalized.moduleMap['SeLe4n.Core.Main'], 'SeLe4n/Core/Main.lean');
-  assert.equal(normalized.generatedAt, '2026-01-01T00:00:00.000Z');
-});
-
-
-
-test('normalizeCanonicalPayload prefers candidate with valid module names over branch-ref only modules', async () => {
-  const hooks = await loadMapTestHooks();
-
-  const normalized = hooks.normalizeCanonicalPayload({
-    modules: ['main'],
-    main: {
-      modules: ['SeLe4n.Core.Main'],
-      moduleMap: { 'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean' },
-      importsFrom: { 'SeLe4n.Core.Main': [] }
-    }
-  });
-
-  assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Main']);
-  assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, 'main'));
-});
-
-test('normalizeCanonicalPayload prioritizes modules array and ignores branch-ref metadata keys', async () => {
-  const hooks = await loadMapTestHooks();
-
-  const normalized = hooks.normalizeCanonicalPayload({
-    main: 'https://githubusercontent.com/hatter6822/seLe4n/refs/heads/main',
-    generatedAt: '2026-02-03T04:05:06.000Z',
-    modules: ['SeLe4n.Core.Main'],
-    moduleMap: {
-      'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean',
-      main: 'https://githubusercontent.com/hatter6822/seLe4n/refs/heads/main'
-    },
-    importsFrom: {
-      'SeLe4n.Core.Main': [],
-      main: ['SeLe4n.Core.Main']
-    },
-    moduleMeta: {
-      'SeLe4n.Core.Main': { theorems: 2 }
-    }
-  });
-
-  assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Main']);
-  assert.deepEqual(Object.keys(normalized.moduleMap), ['SeLe4n.Core.Main']);
-  assert.ok(!Object.prototype.hasOwnProperty.call(normalized.importsFrom, 'main'));
-  assert.equal(normalized.generatedAt, '2026-02-03T04:05:06.000Z');
-});
-
-test('normalizeCanonicalPayload prefers nested branch payload over weak top-level metadata', async () => {
-  const hooks = await loadMapTestHooks();
-
-  const normalized = hooks.normalizeCanonicalPayload({
-    moduleMap: { main: 'https://githubusercontent.com/hatter6822/seLe4n/refs/heads/main' },
-    importsFrom: { main: ['SeLe4n.Core.Main'] },
-    main: {
-      modules: ['SeLe4n.Core.Main', 'SeLe4n.Core.Helper'],
-      moduleMap: {
-        'SeLe4n.Core.Main': 'SeLe4n/Core/Main.lean',
-        'SeLe4n.Core.Helper': 'SeLe4n/Core/Helper.lean'
-      },
-      importsFrom: {
-        'SeLe4n.Core.Main': ['SeLe4n.Core.Helper'],
-        'SeLe4n.Core.Helper': []
-      },
-      moduleMeta: {
-        'SeLe4n.Core.Main': { theorems: 1 },
-        'SeLe4n.Core.Helper': { theorems: 0 }
-      }
-    }
-  });
-
-  assert.deepEqual(Array.from(normalized.modules), ['SeLe4n.Core.Helper', 'SeLe4n.Core.Main']);
-  assert.deepEqual(Array.from(normalized.importsFrom['SeLe4n.Core.Main']), ['SeLe4n.Core.Helper']);
-  assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, 'main'));
-});
-
-
 
 test('normalizeMapData derives theorem totals from symbol payloads when explicit counts are missing', async () => {
   const hooks = await loadMapTestHooks();
@@ -2116,50 +2067,6 @@ test('assuranceForModule extension-only module gets extension-only strength', as
     'detail should mention extension declarations');
 });
 
-test('normalizeCanonicalPayload scopes the live refresh to production modules', async () => {
-  const hooks = await loadMapTestHooks();
-
-  // The artifact inventories production and test modules; the bundled snapshot
-  // graphs production alone, and the landing page counts the same set. Applying
-  // the artifact verbatim replaced a 311-module map with a 381-module one, so a
-  // networked visit disagreed with index.html.
-  const normalized = hooks.normalizeCanonicalPayload({
-    schema_version: '1.0.0',
-    repository: { head: { commit_sha: 'BB61196FAD5BAA8E189ADE361570F7547B0CFAA6', committed_at_utc: '2026-09-05T15:04:11+00:00' } },
-    modules: [
-      { module: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean', declarations: [{ kind: 'theorem', name: 'a', line: 1, called: [] }] },
-      { module: 'Main', path: 'Main.lean', declarations: [{ kind: 'def', name: 'main', line: 1, called: [] }] },
-      { module: 'SeLe4n.Testing.Helpers', path: 'SeLe4n/Testing/Helpers.lean', declarations: [{ kind: 'def', name: 'mkState', line: 1, called: [] }] },
-      { module: 'Tests.Smoke', path: 'tests/Smoke.lean', declarations: [{ kind: 'theorem', name: 'smoke', line: 1, called: [] }] },
-      { module: 'Tests.Deep', path: 'tests/deep/Deep.lean', declarations: [{ kind: 'theorem', name: 'deep', line: 1, called: [] }] }
-    ]
-  });
-
-  assert.deepEqual(Array.from(normalized.modules).sort(), ['Main', 'SeLe4n.Kernel.API']);
-  // The artifact names its revision as repository.head.commit_sha; a refresh
-  // that lost it blanked the inventory's provenance note.
-  assert.equal(normalized.commitSha, 'bb61196fad5baa8e189ade361570f7547b0cfaa6', 'the graph commit comes from the artifact');
-  const wrapped = hooks.normalizeCanonicalPayload({ main: { schema_version: '1.0.0', repository: { head: { commit_sha: 'a'.repeat(40) } }, modules: [{ module: 'Main', path: 'Main.lean', declarations: [] }] } });
-  assert.equal(wrapped.commitSha, 'a'.repeat(40), 'a wrapped artifact is read the same way');
-  // The in-tree testing framework is outside the published scope too.
-  for (const testModule of ['Tests.Smoke', 'Tests.Deep', 'SeLe4n.Testing.Helpers']) {
-    assert.ok(!Object.prototype.hasOwnProperty.call(normalized.moduleMap, testModule), `${testModule} must not be graphed`);
-  }
-  assert.equal(hooks.isOutsideProductionScope('SeLe4n/Testing/Helpers.lean'), true);
-  assert.equal(hooks.isOutsideProductionScope('tests/Smoke.lean'), true);
-  assert.equal(hooks.isOutsideProductionScope('SeLe4n/Kernel/API.lean'), false);
-});
-
-test('the live tree path takes the same scope as the bundle and includes the entry module', async () => {
-  const hooks = await loadMapTestHooks();
-  assert.equal(hooks.isLeanModulePath('SeLe4n/Kernel/API.lean'), true);
-  assert.equal(hooks.isLeanModulePath('Main.lean'), true, 'Main.lean is a production module the tree path must not drop');
-  assert.equal(hooks.isLeanModulePath('SeLe4n/Testing/Helpers.lean'), false);
-  assert.equal(hooks.isLeanModulePath('tests/Smoke.lean'), false);
-  assert.equal(hooks.isLeanModulePath('SeLe4n.lean'), false, 'the library root is not in the canonical inventory');
-  assert.equal(hooks.isLeanModulePath('docs/notes.lean.md'), false);
-});
-
 test('in-repository imports outside the scope are not labelled external dependencies', async () => {
   const hooks = await loadMapTestHooks();
   assert.equal(hooks.isInRepoOutsideScope('SeLe4n.Testing.MainTraceHarness'), true);
@@ -2261,49 +2168,6 @@ test('over-budget lanes group modules by subsystem and open groups in place', as
   hooks.applyTestState({ flowShowAll: false });
 });
 
-test('retainInventory keeps the file tree and Rust inventory across a canonical refresh', async () => {
-  const hooks = await loadMapTestHooks();
-  const rust = { crates: [{ name: 'sele4n-sys', files: [] }] };
-  const previous = {
-    files: ['SeLe4n/Kernel/API.lean', 'rust/sele4n-sys/src/lib.rs', 'README.md'],
-    rust: rust,
-    inventoryCommit: 'aaaaaaa',
-    rustCommit: 'aaaaaaa'
-  };
-
-  // A canonical live refresh: modules only, so files are just Lean module paths.
-  const canonical = { files: ['SeLe4n/Kernel/API.lean', 'SeLe4n/Kernel/IPC.lean'], commitSha: 'bbbbbbb', rust: null };
-  const retained = hooks.retainInventory(previous, canonical);
-  assert.deepEqual(Array.from(retained.files), previous.files, 'a Lean-only file list is not a tree; keep the previous one');
-  assert.equal(retained.inventoryCommit, 'aaaaaaa');
-  assert.equal(retained.rust, rust);
-  assert.equal(retained.rustCommit, 'aaaaaaa');
-  assert.equal(retained.retainedFiles, true);
-  assert.equal(retained.retainedRust, true);
-
-  // A tree rebuild carries every file but still no Rust inventory.
-  const tree = { files: ['SeLe4n/Kernel/API.lean', 'docs/NEW.md', 'rust/x.rs'], commitSha: 'ccccccc' };
-  const rebuilt = hooks.retainInventory(previous, tree);
-  assert.deepEqual(Array.from(rebuilt.files), tree.files);
-  assert.equal(rebuilt.inventoryCommit, 'ccccccc');
-  assert.equal(rebuilt.rust, rust, 'the bundled Rust inventory survives');
-  assert.equal(rebuilt.rustCommit, 'aaaaaaa');
-  assert.equal(rebuilt.retainedFiles, false);
-
-  // A fresh bundled snapshot replaces both.
-  const bundled = { files: ['SeLe4n/Kernel/API.lean', 'README.md'], commitSha: 'ddddddd', rust: { crates: [{ name: 'sele4n-hal', files: [] }] } };
-  const fresh = hooks.retainInventory(previous, bundled);
-  assert.equal(fresh.rust.crates[0].name, 'sele4n-hal');
-  assert.equal(fresh.rustCommit, 'ddddddd');
-  assert.equal(fresh.inventoryCommit, 'ddddddd');
-
-  // Nothing previous: whatever comes in is used.
-  const cold = hooks.retainInventory(null, canonical);
-  assert.deepEqual(Array.from(cold.files), canonical.files);
-  assert.equal(cold.rust, null);
-  assert.equal(cold.rustCommit, '');
-});
-
 test('normalizeMapData passes a well-formed rust inventory through and drops a malformed one', async () => {
   const hooks = await loadMapTestHooks();
   const rust = {
@@ -2318,15 +2182,11 @@ test('normalizeMapData passes a well-formed rust inventory through and drops a m
   };
   const normalized = hooks.normalizeMapData({
     modules: [{ name: 'SeLe4n.Kernel.API', path: 'SeLe4n/Kernel/API.lean' }],
-    rust,
-    inventoryCommit: 'abc1234',
-    rustCommit: 'abc1234'
+    rust
   });
   assert.deepEqual(Array.from(normalized.rust.crates, (crate) => crate.name), ['sele4n-sys'], 'crates without a name or file list are dropped');
   assert.equal(normalized.rust.edition, '2021');
   assert.deepEqual(Array.from(normalized.rust.members), ['sele4n-sys']);
-  assert.equal(normalized.inventoryCommit, 'abc1234');
-  assert.equal(normalized.rustCommit, 'abc1234');
 
   assert.equal(hooks.normalizeRustInventory('nope'), null);
   assert.equal(hooks.normalizeRustInventory({ crates: 'none' }), null);
@@ -2355,34 +2215,6 @@ test('formatCount groups thousands and leaves non-numbers alone', async () => {
   assert.equal(hooks.formatCount(0), '0');
   assert.equal(hooks.formatCount('–'), '–');
   assert.equal(hooks.formatCount(null), '');
-});
-
-test('seedBundledInventory fills a newer cache from the bundle when the cache lacks the tree or the crates', async () => {
-  const hooks = await loadMapTestHooks();
-  const bundled = {
-    files: ['SeLe4n/Kernel/API.lean', 'rust/sele4n-sys/src/lib.rs', 'README.md'],
-    rust: { crates: [{ name: 'sele4n-sys', files: [] }] },
-    commitSha: 'bbbbbbb'
-  };
-  // A cache from a canonical live refresh: newer, module paths only, no Rust block.
-  const cached = { files: ['SeLe4n/Kernel/API.lean', 'SeLe4n/Kernel/IPC.lean'], rust: null, commitSha: 'ccccccc' };
-  const seeded = hooks.seedBundledInventory(cached, bundled);
-  assert.equal(seeded, cached, 'the cache object itself is returned');
-  assert.equal(seeded.rust, bundled.rust);
-  assert.equal(seeded.rustCommit, 'bbbbbbb');
-  assert.deepEqual(Array.from(seeded.files), bundled.files, 'a Lean-only list yields to the bundled tree');
-  assert.equal(seeded.inventoryCommit, 'bbbbbbb');
-
-  // A cache that already carries both keeps its own.
-  const complete = { files: ['SeLe4n/Kernel/API.lean', 'docs/X.md'], rust: { crates: [{ name: 'sele4n-hal', files: [] }] }, commitSha: 'ddddddd' };
-  const kept = hooks.seedBundledInventory(complete, bundled);
-  assert.equal(kept.rust.crates[0].name, 'sele4n-hal');
-  assert.deepEqual(Array.from(kept.files), complete.files);
-
-  // The bundle winning, or nothing to seed from, is a no-op.
-  assert.equal(hooks.seedBundledInventory(bundled, bundled), bundled);
-  assert.equal(hooks.seedBundledInventory(null, bundled), null);
-  assert.equal(hooks.seedBundledInventory(cached, null), cached);
 });
 
 /* ── Review round: the unsafe lint vs. counted sites, crate support files ── */
@@ -2450,7 +2282,6 @@ async function loadBundledState() {
     externalImportsFrom: data.externalImportsFrom,
     rust: data.rust,
     commitSha: data.commitSha,
-    rustCommit: data.commitSha,
     buildBridge: true
   });
   return { hooks, data, raw };

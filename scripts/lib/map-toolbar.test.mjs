@@ -326,13 +326,13 @@ for (const [label, text] of [["map.js", mapJs], ["map.css", css], ["map.html", h
 }
 
 
-/* A live canonical refresh advances the Lean graph and carries no Rust
-   inventory, so the Rust Modules and Boundary Links figures can be a commit
-   behind the "Generated" stamp beside them. Through 0.30.0 the crate cards
-   disclosed that; removing those sections took the only disclosure with them. */
-assert(/id="map-inventory-note"[^>]*hidden/.test(html),
-  "the retained-inventory note should ship hidden and appear only when the two halves disagree");
-assert(html.indexOf('id="map-inventory-note"') > html.indexOf('data-map="generatedAt"'),
-  "the retained-inventory note should sit with the snapshot provenance, not among the stat cards");
+/* The page renders the bundled snapshot and nothing else, so both halves are
+   always from one commit: the retained-inventory note that disclosed a Rust
+   half left behind by a live refresh has nothing left to say. Nothing on the
+   page may warm a connection to a host it never talks to either. */
+assert(!html.includes('id="map-inventory-note"'),
+  "the retained-inventory note belongs to the removed live refresh");
+assert(!/rel="(?:dns-prefetch|preconnect)"[^>]*github/i.test(html),
+  "map.html fetches nothing from GitHub and should not prefetch its hosts");
 
 console.log("map-toolbar.test: ok");

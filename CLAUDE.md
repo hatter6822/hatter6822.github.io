@@ -89,26 +89,37 @@ Several files exceed 500 lines:
 
 ## Key Architectural Conventions
 
-### Runtime data strategy (local-first)
+### Runtime data strategy
+
+The simulator (`run.html`) is local-first:
 
 1. Load bundled `data/*.json` immediately
 2. Hydrate from browser `localStorage` cache if newer
 3. Attempt live refresh from GitHub APIs (with cooldown + jitter)
 4. Fall back gracefully if network refresh fails
 
-**The landing page is exempt from steps 2-4 and must stay that way.** Its
-statistics come from `data/site-data.json` alone, which
-`scripts/sync-upstream.mjs` projects offline from the kernel's canonical
-`docs/codebase_map.json`; `index.html` ships with those same values stamped into
-the markup, so a failed fetch degrades to the correct numbers. `connect-src` is
-`'self'` on that page to keep it that way.
+**The landing page and the code map are exempt from steps 2-4 and must stay
+that way.** The landing page's statistics come from `data/site-data.json`
+alone, which `scripts/sync-upstream.mjs` projects offline from the kernel's
+canonical `docs/codebase_map.json`; `index.html` ships with those same values
+stamped into the markup, so a failed fetch degrades to the correct numbers.
 
-**`map.html` is bundle-first in practice.** The serialized map snapshot is past
-the ~5M-unit `localStorage` quota, so step 2 never has anything to hydrate:
-`setCache()` skips the write above `CACHE_MAX_CHARS` (4 MiB of UTF-16 units)
-and returns `false` instead of throwing into an empty `catch`. The cache code
-stays (it works for smaller snapshots and the unit tests cover it), but no
-feature may depend on the map cache persisting between visits.
+**`map.html` renders `data/map-data.json` and nothing else.** Boot is one
+same-origin fetch, `normalizeMapData()`, render; a failed fetch shows
+`map.status_load_failed` in the status line, and success shows
+`map.status_ready_integrated` with the snapshot's commit. Through 0.32.0 the page
+also refreshed live on every boot, focus and reconnect: it downloaded the
+10 MB upstream artifact (which carries no import edges), replaced the bundled
+graph with it — Import Edges 1,139 → 0, from an older commit — and then fetched
+every Lean file to regex the edges back, silently dropping failures. That was a
+second data pipeline, which the next section forbids; the weekly
+`.github/workflows/sync-sele4n-data.yml` keeps the bundle current through the
+one pipeline instead. There is no `localStorage` copy of the snapshot (it never
+fit the quota) and no refresh loop; `purgeLegacyStorage()` removes the retired
+keys from returning visitors. `connect-src` is `'self'` on both pages, and
+`csp-html.test.mjs` pins it; `map-runtime.test.mjs` pins that `map.js` fetches
+only named `data/*.json` endpoints, and `map-smoke.mjs` fails on any request
+that leaves the origin.
 
 ### One pipeline, one revision
 
@@ -321,7 +332,7 @@ scope toggle. Production code is the subject in every scope.
   chooser fell back to the top-scored module,
   `SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership`. Never
   reintroduce the score heuristic as a default, and keep `Main.lean` in the
-  tree path (`isLeanModulePath`).
+  production scope (`isProductionModule`).
 - A lane with more modules than the detail budget groups them by
   `moduleSubsystem()` (the parent namespace, capped at three segments) and opens
   each group in place. The budget cut ("+38 more imports") is kept only for
@@ -482,26 +493,17 @@ scope toggle. Production code is the subject in every scope.
   cfg(loom)"), dev-dependencies as "test-only", build dependencies as
   "build-time"; only unconditional tables are "external". A dependency is
   navigable when it names a workspace member, whichever table it came from.
-- A live refresh may carry no repository tree (the canonical artifact lists
-  only Lean modules) and never carries a Rust inventory. `retainInventory()`
-  keeps the previous tree and crates in that case and records the commit each
-  was taken at, so the Rust half does not empty out on a networked visit. A
-  tree refresh changes the Lean declarations, so `buildBridgeIndex()` must run
-  again with it — and **before** `buildPairs()`, which stamps the header's
-  Boundary Links from `state.bridge`. Rebuilding afterwards published a total
-  one refresh behind the bands drawn from it.
-- A canonical refresh names its revision as `repository.head.commit_sha`;
-  `normalizeCanonicalPayload` adopts it as `commitSha`. Rust nodes link at
-  `state.rustCommit` and Lean modules at `state.commitSha`
-  (`nodeSourceRef()`), because the two halves can be a commit apart. When they
-  are, `renderInventoryProvenance()` says so under the "Generated" stamp
-  (`#map-inventory-note`, `map.inventory_retained`) — the header publishes Rust
-  Modules and Boundary Links beside one timestamp, which otherwise reads as a
-  single coherent snapshot. The note is hidden when the two agree.
+- Both halves come from one snapshot and so from one commit: every source
+  link, Lean or Rust, names `state.commitSha` (`nodeSourceRef()`), never
+  `main`, and the header's figures all describe the revision beside the
+  "Generated" stamp. The retained-inventory machinery that let the Rust half
+  sit a commit behind a live-refreshed Lean graph (`retainInventory()`,
+  `#map-inventory-note`) went with the live refresh.
 - `node scripts/map-smoke.mjs` renders the page in headless Chromium and
   asserts the guarantees above (chart at 1:1 at 1200–1920 in **both** scopes,
   sidebar placement, the pinned sidebar at 720p, no sideways overflow, clean
-  console, both themes, a Spanish deep link, a locale held back until after the
+  console and no request that leaves the origin, the status line naming the
+  snapshot's commit, both themes, a Spanish deep link, a locale held back until after the
   snapshot paints, the scope toggle end to end, the boundary band's direction,
   crossing into the other language, a Rust deep link, tappable scope options on
   a phone, and nothing clipped in the sidebar). `.github/workflows/ci.yml` runs

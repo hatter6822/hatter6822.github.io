@@ -16,13 +16,14 @@ The repository is a static website with two pages and a data pipeline:
 - `data/*.json` stores local snapshots consumed by the browser.
 - `scripts/*.mjs` regenerates and validates those snapshots.
 
-The runtime is intentionally **local-first**:
+The runtime renders bundled snapshots first:
 
 1. Render from bundled `data/*.json` immediately.
-2. Reuse cached payloads when they are newer.
-3. On `map.html` / `run.html` only, try a live refresh from GitHub. The landing
-   page does not: its statistics come from `data/site-data.json` alone.
-4. Keep rendering stable if network refresh fails.
+2. On `run.html` only, reuse cached payloads when they are newer and try a live
+   refresh from GitHub, keeping rendering stable if it fails.
+3. The landing page and the code map never do: their figures come from
+   `data/site-data.json` and `data/map-data.json` alone, and both pages pin
+   `connect-src 'self'`.
 
 ## 2) Top-level files
 
@@ -137,7 +138,7 @@ Use this file when changing same-page hash behavior or accessibility semantics o
 ### `assets/js/map.js`
 Largest runtime module; owns map page data and rendering behavior. Responsibilities:
 
-- hydrates graph state from `data/map-data.json` and optional live sync.
+- hydrates graph state from `data/map-data.json` and nothing else: boot is one same-origin fetch (`fetchBundledMapData`), `normalizeMapData`, `applyData`, render. The status line reports the snapshot's commit or the load failure (`paintLoadStatus`, repainted with the locale); `purgeLegacyStorage` removes the retired cache keys.
 - normalizes legacy/new payload shapes for compatibility.
 - preserves declaration call-graph relationships (`called` field) into a merged `declarationGraph` and precomputed `declarationReverseGraph` for O(1) caller lookups during declaration context navigation. Also builds a `declarationIndex` mapping every declaration name to `{module, kind, line}` for O(1) metadata lookups.
 - resolves declaration module ownership via `declarationGraph` first, then falls back to `declarationIndex` for O(1) lookup (replacing the previous O(n*m) `moduleMeta` symbol scan).
@@ -151,19 +152,17 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - handles keyboard navigation, search, reset, and URL-state synchronization (including `decl` parameter for declaration context persistence). The generalized context search bar is context-aware: in declaration context it displays `Module.Declaration` in dot-append format with the label "Context search — declaration"; in module context it shows the module name with the label "Context search — module". The `flowchart-wrap` `aria-label` updates dynamically per context. The Reset button returns from declaration context to module context. Supports dot-append declaration search (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`) via two complementary strategies: (1) `declarationSearchMatch()` progressively tries shorter dot-separated module prefixes and matches the remaining suffix against interior symbols via `searchDeclarationsInModule()`; (2) when no exact module prefix matches, a global search across all declarations uses a pre-built `declarationSearchList` index (constructed by `buildDeclarationSearchIndex()` during data load). `declarationSearchMatches()` returns multiple ranked results for dropdown suggestions. Exact matches navigate immediately; partial matches appear as styled suggestions with `data-declaration` attributes. The search flow integrates `tryDeclarationSearch` as a fallback when no module match is found.
 - caches frequently queried DOM elements (`flowchartWrap`, `moduleSearch`, `moduleSearchOptions`, `moduleSearchFeedback`, `moduleSearchLabel`, `flowNodeInteriorMenu`, `mapStatus`, `mainContent`, `moduleResults`) once at boot in a `DOM` namespace object via `cacheDomElements()` to avoid repeated `getElementById` calls during render cycles. All DOM-accessing functions use `DOM.xxx || document.getElementById(...)` fallback pattern.
 - uses batch eviction (120 entries per cycle via `LABEL_WRAP_CACHE_EVICT_BATCH`) for the label-wrap cache to amortize eviction cost and prevent single-entry churn on cache-full renders.
-- manages map status messaging and sync lifecycle feedback.
 - builds the tabbed declaration sidebar (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration; remembers the active tab across module changes.
-- opens on `DEFAULT_MODULE` (`SeLe4n.Kernel.API`) when the URL names no module (`defaultModuleName()`), on load, after a tree rebuild, and on Reset.
+- opens on `DEFAULT_MODULE` (`SeLe4n.Kernel.API`) when the URL names no module (`defaultModuleName()`), on load and on Reset.
 - groups over-budget lanes by subsystem (`moduleSubsystem`, `groupLaneModules`, `buildLaneEntries`, `toggleLaneGroup`, `drawLaneGuide`) and opens groups in place.
 - lays the flow chart out at `max(minimumFlowWidth(), column width)`; from 900px up the minimum is 900, and the CSS never scales the SVG below 1:1, so a wider layout scrolls inside its frame rather than shrinking its text.
-- scopes live payloads and the tree-rebuild path the way the bundle is scoped (`isOutsideProductionScope`, `isLeanModulePath`: nothing under `tests/` or `SeLe4n/Testing/`, plus `Main.lean`), and labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
-- writes the `localStorage` cache only when the serialized snapshot is under `CACHE_MAX_CHARS`; `setCache()` returns whether it wrote. The bundled map is past the quota, so the page is bundle-first in practice.
+- labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
 - formats every count for the active locale (`formatCount` → `Intl.NumberFormat(document.documentElement.lang)`) and builds count labels from plural families (`fileCountLabel`, `moduleCountLabel`, `theoremCountLabel`, `crateCountLabel`, `pluralEn` for the English fallback).
-- projects `state.rust` into the Rust module graph (`buildRustGraph`, `rustNodeName`, `rustTargetName`, `rustSiblings`) and matches it against the Lean declarations to build the boundary index (`buildBridgeIndex`, `toBridgeKey`, `bridgeRelation`), once per data load and again whenever a tree refresh changes the Lean side.
+- projects `state.rust` into the Rust module graph (`buildRustGraph`, `rustNodeName`, `rustTargetName`, `rustSiblings`) and matches it against the Lean declarations to build the boundary index (`buildBridgeIndex`, `toBridgeKey`, `bridgeRelation`), once per data load.
 - draws the Rust chart (`renderRustFlowchart`) and the boundary band under either chart (`bridgeBandRows`, `layoutBridgeBands`, `drawBridgeBands`), reusing `computeFlowLayout` and `createFlowSvg` so the 1:1 guarantee holds for both.
 - owns the scope (`setScope`, `renderScopeToggle`, `setupScopeToggle`) and the scope-aware node accessors every renderer asks through (`nodeExists`, `nodePath`, `nodeSourceRef`, `scopeNodes`, `defaultNodeName`, `nodeSortScore`).
 - reads a crate's `unsafe` (production) and `testUnsafe` (test code) counters apart (`rustUnsafeSummary`, `rustUnsafeDetail`), states target-scoped dependency tables under their cfg and dev-dependencies as test-only, and lists Rust test items only behind each card's toggle (`state.rustShowTests`, `visibleRustItems`, `rerenderRustCrateCard`).
-- keeps the file tree and Rust inventory across live refreshes that carry neither (`retainInventory`, `normalizeRustInventory`, `seedBundledInventory`), tracking `inventoryCommit` / `rustCommit`.
+- links every source file, Lean or Rust, at the snapshot's `commitSha` (`nodeSourceRef`), since both halves come from one snapshot.
 
 If the map visualization, interactions, or data compatibility changes, this is the primary file.
 

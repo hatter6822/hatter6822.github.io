@@ -17,41 +17,34 @@
     return ""; // callers use: t("key") || "English fallback"
   }
 
+  /* Source links point into the kernel repository at the snapshot's commit.
+     Nothing is fetched from it: the page renders the bundled snapshot and
+     nothing else (see "Runtime data strategy" in CLAUDE.md), and map.html's
+     CSP holds connect-src at 'self' so that stays true. The snapshot is kept
+     current by the weekly sync workflow, which runs the one pipeline. */
   var REPO = "hatter6822/seLe4n";
   var REF = "main";
-  var API = "https://api.github.com/repos/" + REPO;
-  var CODEBASE_MAP_PATH = "docs/codebase_map.json";
-  var CODEBASE_MAP_API = API + "/contents/" + CODEBASE_MAP_PATH;
-  var CODEBASE_MAP_RAW = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/" + CODEBASE_MAP_PATH;
   var DATA_ENDPOINT = "data/map-data.json";
 
+  /* Same-origin only, through the ordinary HTTP cache: the snapshot changes
+     when the site is redeployed, and the server's validators decide whether a
+     revisit downloads it again. */
   var FETCH_OPTIONS = {
-    credentials: "omit",
-    cache: "no-store",
-    mode: "cors",
+    credentials: "same-origin",
+    mode: "same-origin",
     redirect: "error",
     referrerPolicy: "no-referrer"
   };
 
-  var CACHE_KEY = "sele4n-code-map-v9";
-  /* localStorage holds about 5M UTF-16 units per origin. The serialized map
-     snapshot is past that, so the write below would throw and be swallowed,
-     and map.html is bundle-first in practice: every visit renders the bundled
-     snapshot and then refreshes live. The ceiling makes that explicit and
-     skips the attempt instead of paying for it; setCache() reports whether it
-     wrote so the behaviour is observable (see the "Runtime data strategy"
-     note in CLAUDE.md). */
-  var CACHE_MAX_CHARS = 4 * 1024 * 1024;
-  var CACHE_SCHEMA_VERSION = 4;
-  var CACHE_TTL_MS = 60 * 60 * 1000;
-  var CACHE_MAX_STALE_MS = 30 * 24 * 60 * 60 * 1000;
-  var LIVE_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
-  var LIVE_SYNC_JITTER_MAX_MS = 45 * 1000;
-  var LIVE_SYNC_POLL_INTERVAL_MS = 90 * 1000;
-  var COMPARE_FILES_TRUNCATION_LIMIT = 300;
-  var LIVE_SYNC_META_KEY = "sele4n-code-map-live-sync-meta-v1";
-  var FETCH_CONCURRENCY = 8;
-  var FETCH_TIMEOUT_MS = 9000;
+  /* Bounds the wait for response headers only; the body is not timed, so a
+     slow link still finishes the download. */
+  var FETCH_TIMEOUT_MS = 20000;
+
+  /* Storage keys of the retired live-refresh layer: the snapshot cache (which
+     never fit the quota) and the sync cooldown. Nothing reads them now; they
+     are purged on load so a returning visitor stops carrying them, as
+     site.js does for the landing page's retired cache. */
+  var LEGACY_STORAGE_KEYS = ["sele4n-code-map-v9", "sele4n-code-map-live-sync-meta-v1"];
   var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
   var NODE_CACHE = Object.create(null);
   var LABEL_WRAP_CACHE = new Map();
@@ -187,8 +180,7 @@
     mainContent: null,
     moduleResults: null,
     scopeToggle: null,
-    workspaceBadge: null,
-    inventoryNote: null
+    workspaceBadge: null
   };
 
   function cacheDomElements() {
@@ -203,7 +195,6 @@
     DOM.moduleResults = document.getElementById("module-results");
     DOM.scopeToggle = document.getElementById("map-scope-toggle");
     DOM.workspaceBadge = document.getElementById("workspace-scope-badge");
-    DOM.inventoryNote = document.getElementById("map-inventory-note");
   }
 
   var DETAIL_PRESETS = {
@@ -277,10 +268,10 @@
     }
     return out;
   })();
-  var BUSY_STATUS_RE = /loading|refreshing|checking|analyzing|syncing/i;
+  var BUSY_STATUS_RE = /loading/i;
 
   var state = {
-    files: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
+    modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeLayerFilter: "all",
@@ -306,11 +297,9 @@
     declarationReverseGraph: Object.create(null),
     declarationIndex: Object.create(null),
     declarationLanesExpanded: false,
-    /* The repository tree plus the Rust crate inventory. Both can outlive a
-       live refresh that carries neither (see retainInventory). */
+    /* The Rust crate inventory, from the same snapshot (and so the same
+       commit) as the Lean graph. */
     rust: null,
-    inventoryCommit: "",
-    rustCommit: "",
     /* Which languages the workspace is read in, and the two models projected
        from the Rust inventory: the module graph the chart draws, and the
        declaration-level boundary between the two languages. */
@@ -439,6 +428,27 @@
     if (main) main.setAttribute("aria-busy", BUSY_STATUS_RE.test(text) ? "true" : "false");
   }
 
+  /* The status line after boot says one of two things: the snapshot is shown
+     (and at which commit), or it could not be loaded. It is remembered so a
+     locale that lands later repaints it with the chart. */
+  var loadStatus = { kind: "", detail: "" };
+  function loadStatusText(kind, detail) {
+    if (kind === "error") {
+      var failed = t("map.status_load_failed") || "Unable to load the codebase map snapshot.";
+      return detail ? failed + " (" + detail + ")" : failed;
+    }
+    var ready = t("map.status_ready_integrated") || "Map ready. Integrated dependency/proof flow graph loaded.";
+    var commit = String(state.commitSha || "").slice(0, 7);
+    if (!commit) return ready;
+    return ready + " " + (t("map.status_snapshot_commit", { commit: commit }) || ("Snapshot of commit " + commit + "."));
+  }
+
+  function paintLoadStatus(kind, detail) {
+    if (kind) loadStatus = { kind: kind, detail: detail || "" };
+    if (!loadStatus.kind) return;
+    setStatus(loadStatusText(loadStatus.kind, loadStatus.detail), loadStatus.kind === "error");
+  }
+
   function updateMetric(key, value) {
     var els = NODE_CACHE[key];
     if (!els) {
@@ -474,43 +484,12 @@
 
     return fetch(url, opts).then(function (res) {
       if (timer) clearTimeout(timer);
-      if (!res.ok) {
-        var errMsg = "HTTP " + res.status;
-        /* Surface rate-limit info so status messages are actionable */
-        if (res.status === 403 || res.status === 429) {
-          var retryAfter = res.headers && res.headers.get ? res.headers.get("retry-after") : "";
-          if (retryAfter) errMsg += " (retry after " + retryAfter + "s)";
-          else errMsg += " (rate limited)";
-        }
-        throw new Error(errMsg);
-      }
+      if (!res.ok) throw new Error("HTTP " + res.status);
       return asText ? res.text() : res.json();
     }).catch(function (error) {
       if (timer) clearTimeout(timer);
       throw error;
     });
-  }
-
-  function decodeBlobBase64(content) {
-    var normalized = String(content || "").replace(/\n/g, "");
-    var binary = window.atob(normalized);
-    var len = binary.length;
-    var bytes = new Uint8Array(len);
-    for (var i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-
-    if (typeof TextDecoder === "function") {
-      try {
-        return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-      } catch (e) {}
-    }
-
-    var out = "";
-    for (var j = 0; j < bytes.length; j++) out += String.fromCharCode(bytes[j]);
-    try {
-      return decodeURIComponent(escape(out));
-    } catch (err) {
-      return out;
-    }
   }
 
   /* Node names come off the URL, so the whitelist is tight: Lean modules are
@@ -637,11 +616,6 @@
     return (root && root.lang) || "en";
   }
 
-  function theoremCount(text) {
-    var matches = text.match(/^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+[\w'.`]+/gm);
-    return matches ? matches.length : 0;
-  }
-
   function normalizeSymbolName(name) {
     return String(name || "").replace(/`/g, "").trim();
   }
@@ -651,30 +625,6 @@
     if (!normalized) return "";
     if (normalized === "constants") return "constant";
     return normalized;
-  }
-
-  function createLineLocator(text) {
-    var source = String(text || "");
-    var lineStarts = [0];
-
-    for (var i = 0; i < source.length; i++) {
-      if (source.charCodeAt(i) !== 10) continue;
-      lineStarts.push(i + 1);
-    }
-
-    return function lineNumberForIndex(index) {
-      var target = Math.max(0, Number(index) || 0);
-      var low = 0;
-      var high = lineStarts.length - 1;
-
-      while (low <= high) {
-        var mid = Math.floor((low + high) / 2);
-        if (lineStarts[mid] <= target) low = mid + 1;
-        else high = mid - 1;
-      }
-
-      return Math.max(1, high + 1);
-    };
   }
 
   function normalizeSymbolEntry(entry) {
@@ -851,50 +801,6 @@
     return true;
   }
 
-  function declarationLineFromMatch(match, lineNumberForIndex) {
-    var whole = String(match && match[0] || "");
-    var leading = (whole.match(/^\s*/) || [""])[0].length;
-    return lineNumberForIndex((match && typeof match.index === "number" ? match.index : 0) + leading);
-  }
-
-  function extractInteriorCodeItems(sourceText) {
-    var lineNumberForIndex = createLineLocator(sourceText);
-    var declarationPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(inductive|structure|class|def|theorem|lemma|example|instance|opaque|abbrev|axiom|constants?|declare_syntax_cat|syntax_cat|syntax|macro_rules|macro|notation|infixl|infixr|infix|prefix|postfix|elab_rules|term_elab|command_elab|elab|tactic|universes?|variables?|parameters?|section|namespace|end|initialize)\b[ \t]*([^:\s\n(\[{:=\-]*)/gm;
-    var kinds = allInteriorKinds();
-    var seenByKind = Object.create(null);
-    var byKind = Object.create(null);
-    var anonCounters = Object.create(null);
-
-    for (var i = 0; i < kinds.length; i++) {
-      seenByKind[kinds[i]] = Object.create(null);
-      byKind[kinds[i]] = [];
-      anonCounters[kinds[i]] = 0;
-    }
-
-    var match;
-    while ((match = declarationPattern.exec(sourceText)) !== null) {
-      var kind = String(match[1] || "").trim();
-      if (!kind || !Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
-      var line = declarationLineFromMatch(match, lineNumberForIndex);
-      var rawName = normalizeSymbolName(match[2]);
-      var name = rawName || "<" + kind + "@L" + line + ">";
-      if (seenByKind[kind][name]) {
-        /* Disambiguate collisions from unnamed declarations at the same line */
-        anonCounters[kind] += 1;
-        name = "<" + kind + "@L" + line + "#" + anonCounters[kind] + ">";
-        if (seenByKind[kind][name]) continue;
-      }
-      seenByKind[kind][name] = true;
-      byKind[kind].push({ name: name, line: line });
-    }
-
-    return {
-      byKind: byKind,
-      theorems: (byKind.theorem || []).concat(byKind.lemma || []),
-      functions: (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || [])
-    };
-  }
-
   function interiorCodeForModule(name) {
     var meta = state.moduleMeta[name] || {};
     if (meta.__interiorCache && meta.__interiorCacheSource === meta.symbols) return meta.__interiorCache;
@@ -922,93 +828,6 @@
     meta.__interiorCacheSource = meta.symbols;
     meta.__interiorCache = normalized;
     return normalized;
-  }
-
-  function isLikelyModuleToken(token) {
-    return /^[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*$/.test(token || "");
-  }
-
-  function tokenizeImportSegment(segment) {
-    var out = [];
-    var raw = (segment || "").split(/[\s,]+/);
-    for (var i = 0; i < raw.length; i++) {
-      var candidate = (raw[i] || "").replace(/^[()]+|[()]+$/g, "").trim();
-      if (!candidate || !isLikelyModuleToken(candidate)) continue;
-      out.push(candidate);
-    }
-    return out;
-  }
-
-  function extractImportTokens(sourceText) {
-    var tokens = [];
-    var lines = sourceText.split(/\r?\n/);
-
-    for (var i = 0; i < lines.length; i++) {
-      var raw = lines[i] || "";
-      var withoutComment = raw.split("--")[0] || "";
-      var trimmed = withoutComment.trim();
-      if (!/^import(?:\s|$)/.test(trimmed)) continue;
-
-      var inline = trimmed.replace(/^import\s*/, "");
-      var headTokens = tokenizeImportSegment(inline);
-      for (var j = 0; j < headTokens.length; j++) tokens.push(headTokens[j]);
-
-      var cursor = i + 1;
-      while (cursor < lines.length) {
-        var continuationRaw = lines[cursor] || "";
-        if (!/^\s/.test(continuationRaw)) break;
-
-        var continuation = (continuationRaw.split("--")[0] || "").trim();
-        if (!continuation) {
-          cursor += 1;
-          continue;
-        }
-
-        var contTokens = tokenizeImportSegment(continuation);
-        if (!contTokens.length) break;
-        for (var k = 0; k < contTokens.length; k++) tokens.push(contTokens[k]);
-        cursor += 1;
-      }
-
-      i = cursor - 1;
-    }
-
-    return tokens;
-  }
-
-  function parseModule(name, sourceText) {
-    var seenInternal = Object.create(null);
-    var seenExternal = Object.create(null);
-    var imports = [];
-    var external = [];
-
-    var deps = extractImportTokens(sourceText);
-    for (var i = 0; i < deps.length; i++) {
-      var dep = sanitizeModuleName(deps[i]);
-      if (!dep) continue;
-      if (Object.prototype.hasOwnProperty.call(state.moduleMap, dep)) {
-        if (!seenInternal[dep]) {
-          seenInternal[dep] = true;
-          imports.push(dep);
-        }
-      } else if (!seenExternal[dep]) {
-        seenExternal[dep] = true;
-        external.push(dep);
-      }
-    }
-
-    state.importsFrom[name] = imports;
-    state.externalImportsFrom[name] = external;
-
-    var interior = extractInteriorCodeItems(sourceText);
-    state.moduleMeta[name] = {
-      layer: classifyLayer(name),
-      kind: moduleKind(name),
-      base: moduleBase(name),
-      theorems: theoremCount(sourceText),
-      symbols: interior,
-      symbolsLoaded: hasCompleteSymbolLines(interior)
-    };
   }
 
   function normalizeImportsFromIndex() {
@@ -1631,33 +1450,6 @@
 
   /* The boundary entries only appear in the scope that draws the boundary, so
      the Lean-only and Rust-only readings keep their original legends. */
-  /* Say so when the Rust half is a commit behind the Lean graph.
-   *
-   * A live canonical refresh advances the Lean modules and carries no Rust
-   * inventory at all, so `retainInventory()` keeps the bundled crates and the
-   * commit they were taken at. That is the designed behaviour — the Rust half
-   * must not empty out on a networked visit — but the header publishes Rust
-   * Modules and Boundary Links beside one "Generated" stamp, which reads as a
-   * single coherent snapshot. Through 0.30.0 the crate cards carried this
-   * note; removing those sections took the only disclosure with them.
-   *
-   * Painted from the same data as the stats and hidden when the two halves
-   * agree, so the ordinary case stays quiet. */
-  function renderInventoryProvenance() {
-    var note = DOM.inventoryNote || document.getElementById("map-inventory-note");
-    if (!note) return;
-
-    var graphCommit = String(state.commitSha || "").slice(0, 7);
-    var rustCommit = String(state.rustCommit || "").slice(0, 7);
-    var behind = Boolean(state.rust) && rustCommit && graphCommit && rustCommit !== graphCommit;
-
-    note.hidden = !behind;
-    note.textContent = behind
-      ? (t("map.inventory_retained", { rust: rustCommit, graph: graphCommit })
-        || ("Rust inventory from commit " + rustCommit + "; the Lean graph is synced to " + graphCommit + "."))
-      : "";
-  }
-
   function bridgeLegendItems() {
     if (state.scope !== "both") return [];
     return [
@@ -1814,8 +1606,8 @@
   function renderFlowNodeInteriorMenu(selected) {
     var menu = DOM.flowNodeInteriorMenu || document.getElementById("flow-node-interior-menu");
     if (!menu) return;
-    /* Preserve focus/caret across externally-triggered re-renders (live-sync
-       refresh, window resize) that destroy the filter input mid-typing. */
+    /* Preserve focus/caret across externally-triggered re-renders (locale
+       repaint, window resize) that destroy the filter input mid-typing. */
     var prevInput = document.getElementById("interior-symbol-filter");
     var hadFocus = Boolean(prevInput && document.activeElement === prevInput);
     var savedCaret = hadFocus ? normalizeCaretRange(prevInput.value, prevInput.selectionStart, prevInput.selectionEnd) : null;
@@ -3833,33 +3625,6 @@
     layer.appendChild(path);
   }
 
-  /* A live refresh replaces the module graph but may carry no repository tree
-     (the canonical artifact lists only Lean modules) and no Rust inventory
-     (nothing upstream produces one). Keep whichever the previous data had, and
-     remember the commit each was taken at so the page can say so. */
-  function retainInventory(previous, incoming) {
-    var prior = previous || {};
-    var next = incoming || {};
-    var incomingFiles = Array.isArray(next.files) ? next.files : [];
-    var priorFiles = Array.isArray(prior.files) ? prior.files : [];
-    var incomingHasTree = false;
-    for (var i = 0; i < incomingFiles.length; i++) {
-      if (!/\.lean$/i.test(incomingFiles[i])) { incomingHasTree = true; break; }
-    }
-    var files = incomingHasTree || !priorFiles.length ? incomingFiles : priorFiles;
-    var inventoryCommit = incomingHasTree || !priorFiles.length
-      ? String(next.inventoryCommit || next.commitSha || "")
-      : String(prior.inventoryCommit || "");
-
-    var incomingRust = next.rust && Array.isArray(next.rust.crates) ? next.rust : null;
-    var rust = incomingRust || prior.rust || null;
-    var rustCommit = incomingRust
-      ? String(next.rustCommit || next.commitSha || "")
-      : (rust ? String(prior.rustCommit || "") : "");
-
-    return { files: files, inventoryCommit: inventoryCommit, rust: rust, rustCommit: rustCommit, retainedFiles: !incomingHasTree && priorFiles.length > 0, retainedRust: !incomingRust && Boolean(rust) };
-  }
-
   function normalizeRustInventory(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw) || !Array.isArray(raw.crates)) return null;
     var crates = [];
@@ -4376,10 +4141,10 @@
     return node ? node.path : "";
   }
 
-  /* The Rust inventory can be a commit behind the module graph after a live
-     refresh that carried no crates, so each half links at its own revision. */
-  function nodeSourceRef(name) {
-    if (isRustNode(name)) return state.rustCommit || state.commitSha || REF;
+  /* Both halves come from one snapshot, so every source link names the
+     commit that snapshot was taken at; a line number on `main` would be a
+     line on a moving target. */
+  function nodeSourceRef() {
     return state.commitSha || REF;
   }
 
@@ -4638,7 +4403,6 @@
     updateMetric("proofPairs", totals.pairs);
     updateMetric("linkedPairs", totals.linked);
     updateMetric("generatedAt", formatGeneratedAt(state.generatedAt));
-    renderInventoryProvenance();
 
     /* Pre-warm assurance cache for all visible modules so the first render
        doesn't stall on assurance computation for each node.  This moves the
@@ -4908,180 +4672,6 @@
     }
   }
 
-  function runInPool(items, worker) {
-    var index = 0;
-
-    function runner() {
-      if (index >= items.length) return Promise.resolve();
-      var current = index++;
-      return Promise.resolve(worker(items[current])).then(runner);
-    }
-
-    var workers = [];
-    for (var i = 0; i < Math.min(FETCH_CONCURRENCY, items.length); i++) workers.push(runner());
-    return Promise.all(workers);
-  }
-
-  function getCache() {
-    try {
-      var raw = localStorage.getItem(CACHE_KEY);
-      if (!raw) return null;
-      var parsed = JSON.parse(raw);
-      if (parsed.schema !== CACHE_SCHEMA_VERSION) return null;
-      var ageMs = Math.max(0, Date.now() - Number(parsed.ts || 0));
-      if (ageMs > CACHE_MAX_STALE_MS) return null;
-      parsed.isFresh = ageMs <= CACHE_TTL_MS;
-      parsed.ageMs = ageMs;
-      return parsed;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function setCache(data, commitSha) {
-    try {
-      var json = JSON.stringify({
-        schema: CACHE_SCHEMA_VERSION,
-        ts: Date.now(),
-        commitSha: commitSha || "",
-        data: data
-      });
-      if (json.length > CACHE_MAX_CHARS) return false;
-      localStorage.setItem(CACHE_KEY, json);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function getLiveSyncMeta() {
-    try {
-      var raw = localStorage.getItem(LIVE_SYNC_META_KEY);
-      if (!raw) return null;
-      var parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") return null;
-      return {
-        nextAllowedAt: Number(parsed.nextAllowedAt) || 0,
-        lastCheckedCommit: parsed.lastCheckedCommit ? String(parsed.lastCheckedCommit) : ""
-      };
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function setLiveSyncMeta(lastCheckedCommit) {
-    var jitter = Math.floor(Math.random() * LIVE_SYNC_JITTER_MAX_MS);
-    var nextAllowedAt = Date.now() + LIVE_SYNC_MIN_INTERVAL_MS + jitter;
-    try {
-      localStorage.setItem(LIVE_SYNC_META_KEY, JSON.stringify({
-        nextAllowedAt: nextAllowedAt,
-        lastCheckedCommit: lastCheckedCommit || ""
-      }));
-    } catch (e) {}
-    return nextAllowedAt;
-  }
-
-  function remainingSyncCooldownMs() {
-    var meta = getLiveSyncMeta();
-    if (!meta || !meta.nextAllowedAt) return 0;
-    return Math.max(0, meta.nextAllowedAt - Date.now());
-  }
-
-  function persistCurrentMapCache() {
-    /* Snapshot moduleMeta without the private __interiorCache/__interiorCacheSource
-       fields: they re-serialize symbols ~3x, inflating the localStorage payload
-       toward the quota, and are rebuilt on demand anyway. */
-    var metaSnapshot = Object.create(null);
-    for (var metaName in state.moduleMeta) {
-      if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, metaName)) continue;
-      var meta = state.moduleMeta[metaName] || {};
-      metaSnapshot[metaName] = {
-        layer: meta.layer,
-        kind: meta.kind,
-        base: meta.base,
-        theorems: meta.theorems,
-        symbols: meta.symbols,
-        symbolsLoaded: meta.symbolsLoaded
-      };
-    }
-    setCache({
-      files: state.files,
-      modules: state.modules,
-      moduleMap: state.moduleMap,
-      moduleMeta: metaSnapshot,
-      importsTo: state.importsTo,
-      importsFrom: state.importsFrom,
-      externalImportsFrom: state.externalImportsFrom,
-      rust: state.rust,
-      inventoryCommit: state.inventoryCommit,
-      rustCommit: state.rustCommit,
-      commitSha: state.commitSha,
-      generatedAt: state.generatedAt
-    }, state.commitSha);
-  }
-
-  function fetchLatestCommitSha() {
-    return safeFetch(API + "/commits/" + REF, false).then(function (payload) {
-      return payload && payload.sha ? String(payload.sha) : "";
-    }).catch(function () {
-      return "";
-    });
-  }
-
-  function fetchLatestMapCommitSha() {
-    var url = API + "/commits?sha=" + encodeURIComponent(REF) + "&path=" + encodeURIComponent(CODEBASE_MAP_PATH) + "&per_page=1";
-    return safeFetch(url, false).then(function (payload) {
-      if (!Array.isArray(payload) || !payload.length) return "";
-      var commit = payload[0] || {};
-      return commit.sha ? String(commit.sha) : "";
-    }).catch(function () {
-      return "";
-    });
-  }
-
-  /* Production Lean by the published scope: the library tree without the
-     in-tree testing framework, plus the kernel entry module. */
-  function isLeanModulePath(path) {
-    var candidate = String(path || "");
-    return /^SeLe4n\/(?!Testing\/).*\.lean$/.test(candidate) || candidate === "Main.lean";
-  }
-
-  function moduleInventoryFromTree(tree) {
-    var files = [];
-    var leanFiles = [];
-    var leanShasByPath = Object.create(null);
-
-    for (var i = 0; i < tree.length; i++) {
-      var entry = tree[i];
-      if (!entry || entry.type !== "blob") continue;
-      files.push(entry.path);
-      if (isLeanModulePath(entry.path)) {
-        leanFiles.push(entry.path);
-        leanShasByPath[entry.path] = entry.sha || "";
-      }
-    }
-
-    return { files: files, leanFiles: leanFiles, leanShasByPath: leanShasByPath };
-  }
-
-  function removeModuleState(moduleName) {
-    delete state.moduleMeta[moduleName];
-    delete state.importsFrom[moduleName];
-    delete state.externalImportsFrom[moduleName];
-    if (state.selectedModule === moduleName) state.selectedModule = null;
-    if (state.interiorMenuModule === moduleName) {
-      state.interiorMenuModule = "";
-      state.interiorMenuQuery = "";
-    }
-  }
-
-  function applyTreeInventory(inventory) {
-    state.files = inventory.files.slice();
-    state.modules = inventory.leanFiles.map(moduleFromPath);
-    state.moduleMap = Object.create(null);
-    for (var i = 0; i < state.modules.length; i++) state.moduleMap[state.modules[i]] = inventory.leanFiles[i];
-  }
-
   function normalizeMapData(data, options) {
     if (!data || typeof data !== "object") return null;
     var opts = options && typeof options === "object" ? options : {};
@@ -5196,36 +4786,12 @@
       return out;
     }
 
-    function normalizeFiles(files, moduleMap) {
-      var list = Array.isArray(files) ? files : [];
-      var out = [];
-      var seen = Object.create(null);
-
-      for (var i = 0; i < list.length; i++) {
-        var path = String(list[i] || "").trim();
-        if (!path || seen[path]) continue;
-        seen[path] = true;
-        out.push(path);
-      }
-
-      for (var moduleName in moduleMap) {
-        if (!Object.prototype.hasOwnProperty.call(moduleMap, moduleName)) continue;
-        var modulePath = String(moduleMap[moduleName] || "").trim();
-        if (!modulePath || seen[modulePath]) continue;
-        seen[modulePath] = true;
-        out.push(modulePath);
-      }
-
-      out.sort();
-      return out;
-    }
-
     function normalizeModuleSymbols(rawSymbols) {
       var source = rawSymbols || {};
       var callGraph = Object.create(null);
-      /* Seed from a previously-normalized payload (e.g. a localStorage cache
-         round-trip) whose symbols are already in byKind form: without this the
-         declarations branch below is skipped and the call graph is lost. */
+      /* The bundled snapshot ships symbols already in byKind form with a
+         `callGraph` beside them: without this the declarations branch below
+         is skipped and the call graph is lost. */
       var priorGraph = source && source.callGraph && typeof source.callGraph === "object" && !Array.isArray(source.callGraph) ? source.callGraph : null;
       if (priorGraph) {
         for (var pg in priorGraph) {
@@ -5364,7 +4930,6 @@
     }
 
     return {
-      files: normalizeFiles(data.files, normalizedModuleMap),
       modules: normalizedModules,
       moduleMap: normalizedModuleMap,
       moduleMeta: normalizedModuleMeta,
@@ -5375,237 +4940,24 @@
       declarationReverseGraph: mergedReverseGraph,
       declarationIndex: declarationIndex,
       rust: normalizeRustInventory(data.rust),
-      inventoryCommit: data.inventoryCommit ? String(data.inventoryCommit) : "",
-      rustCommit: data.rustCommit ? String(data.rustCommit) : "",
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
     };
   }
 
-  function enrichSparseMapData(data, options) {
-    if (!data || !Array.isArray(data.modules) || !data.modules.length) return Promise.resolve(data);
-
-    var modules = data.modules.slice();
-    var moduleLookup = Object.create(null);
-    for (var i = 0; i < modules.length; i++) moduleLookup[modules[i]] = true;
-
-    var totalEdges = 0;
-    for (var j = 0; j < modules.length; j++) totalEdges += (data.importsFrom[modules[j]] || []).length;
-    if (totalEdges > 0) return Promise.resolve(data);
-
-    var opts = options && typeof options === "object" ? options : {};
-    if (!opts.silent) setStatus(t("map.status_missing_edges") || "Canonical map missing import edges; deriving imports from Lean source files\u2026", false);
-
-    return runInPool(modules, function (moduleName) {
-      var path = String((data.moduleMap && data.moduleMap[moduleName]) || "").trim();
-      if (!path) return;
-      var url = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/" + path;
-      return safeFetch(url, true).then(function (sourceText) {
-        var imports = [];
-        var external = [];
-        var seenIn = Object.create(null);
-        var seenOut = Object.create(null);
-        var tokens = extractImportTokens(sourceText);
-
-        for (var idx = 0; idx < tokens.length; idx++) {
-          var dep = tokens[idx];
-          if (!dep || dep === moduleName) continue;
-          if (moduleLookup[dep]) {
-            if (seenIn[dep]) continue;
-            seenIn[dep] = true;
-            imports.push(dep);
-          } else {
-            if (seenOut[dep]) continue;
-            seenOut[dep] = true;
-            external.push(dep);
-          }
-        }
-
-        data.importsFrom[moduleName] = imports;
-        data.externalImportsFrom[moduleName] = external;
-
-        var meta = data.moduleMeta[moduleName] || (data.moduleMeta[moduleName] = {
-          layer: classifyLayer(moduleName),
-          kind: moduleKind(moduleName),
-          base: moduleBase(moduleName),
-          theorems: 0,
-          symbols: makeEmptyInteriorSymbols()
-        });
-        if (!(meta.theorems > 0)) meta.theorems = theoremCount(sourceText);
-      }).catch(function () {});
-    }).then(function () {
-      return data;
-    });
-  }
-
+  /* The bundled snapshot is the page's only data source. A failure rejects
+     with the reason, so boot can say the map did not load rather than paint
+     an empty workspace. */
   function fetchBundledMapData() {
-    return safeFetch(DATA_ENDPOINT, false).then(normalizeMapData).catch(function () {
-      return null;
-    });
-  }
-
-  /* The canonical artifact inventories production AND test modules, while the
-     bundled snapshot graphs the published production scope alone — the same
-     modules the landing page counts. Applying the artifact verbatim replaced a
-     311-module map with a 381-module one, so a networked visit silently
-     disagreed with index.html. Scope the live payload the way
-     scripts/sync-upstream.mjs scopes the bundled one: nothing under tests/, and
-     nothing from the in-tree testing framework under SeLe4n/Testing/. */
-  function isOutsideProductionScope(path) {
-    var candidate = String(path || "");
-    return candidate.indexOf("tests/") === 0 || candidate.indexOf("SeLe4n/Testing/") === 0;
-  }
-
-  function productionScopedPayload(payload) {
-    if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return payload;
-
-    var scoped = {};
-    for (var key in payload) {
-      if (Object.prototype.hasOwnProperty.call(payload, key)) scoped[key] = payload[key];
-    }
-
-    scoped.modules = payload.modules.filter(function (entry) {
-      if (!entry || typeof entry !== "object") return true;
-      return !isOutsideProductionScope(entry.path);
-    });
-
-    return scoped;
-  }
-
-  function normalizeCanonicalPayload(payload, fallbackGeneratedAt) {
-    function extractCanonicalMapPayload(input) {
-      if (!input || typeof input !== "object") return null;
-
-      var candidates = [input];
-      for (var key in input) {
-        if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
-        var value = input[key];
-        if (!value || typeof value !== "object") continue;
-        candidates.push(value);
-      }
-
-      var best = null;
-      var bestCount = -1;
-      for (var i = 0; i < candidates.length; i++) {
-        /* Scope before scoring, so the candidate that wins is the one that
-           will actually be applied. */
-        var candidate = productionScopedPayload(candidates[i]);
-        if (!Array.isArray(candidate.modules)) continue;
-        var normalizedCandidate = normalizeMapData(candidate, { requireModulesArray: true });
-        var moduleCount = normalizedCandidate && Array.isArray(normalizedCandidate.modules) ? normalizedCandidate.modules.length : 0;
-        if (moduleCount <= bestCount) continue;
-        best = candidate;
-        bestCount = moduleCount;
-      }
-
-      return best;
-    }
-
-    /* The artifact names its own revision as repository.head.commit_sha; it
-       has no top-level commitSha, so without this a live refresh cleared
-       state.commitSha and the inventory's provenance note went blank. */
-    function canonicalCommitOf(input) {
-      if (!input || typeof input !== "object") return "";
-      var candidates = [input];
-      for (var key in input) {
-        if (Object.prototype.hasOwnProperty.call(input, key) && input[key] && typeof input[key] === "object") candidates.push(input[key]);
-      }
-      for (var i = 0; i < candidates.length; i++) {
-        var head = candidates[i].repository && candidates[i].repository.head;
-        var sha = head && typeof head.commit_sha === "string" ? head.commit_sha.trim() : "";
-        if (/^[0-9a-f]{40}$/i.test(sha)) return sha.toLowerCase();
-      }
-      return "";
-    }
-
-    var canonicalPayload = extractCanonicalMapPayload(payload);
-    var normalized = normalizeMapData(canonicalPayload, { requireModulesArray: true });
-    if (!normalized) throw new Error("Canonical map payload invalid");
-    if (!normalized.commitSha) normalized.commitSha = canonicalCommitOf(payload) || canonicalCommitOf(canonicalPayload) || "";
-    if (!normalized.generatedAt) normalized.generatedAt = fallbackGeneratedAt || new Date().toISOString();
-    return normalized;
-  }
-
-  function fetchCanonicalMapDataFromRaw() {
-    var cacheBust = "?t=" + Date.now();
-    return safeFetch(CODEBASE_MAP_RAW + cacheBust, false).then(function (payload) {
-      return normalizeCanonicalPayload(payload);
-    });
-  }
-
-  function fetchCanonicalMapDataFromContentsApi() {
-    var cacheBust = "?ref=" + encodeURIComponent(REF) + "&t=" + Date.now();
-    return safeFetch(CODEBASE_MAP_API + cacheBust, false).then(function (payload) {
-      if (!payload || payload.encoding !== "base64" || !payload.content) {
-        throw new Error("Canonical map payload missing base64 content");
-      }
-
-      var decoded = decodeBlobBase64(payload.content);
-      var parsed = JSON.parse(decoded);
-      var normalized = normalizeCanonicalPayload(parsed);
-
-      /* payload.sha is the file's BLOB sha — never a commit sha, so it must
-         not be used as commitSha (it can never match commit identifiers). */
+    return safeFetch(DATA_ENDPOINT, false).then(function (payload) {
+      var normalized = normalizeMapData(payload);
+      if (!normalized) throw new Error("snapshot has no modules");
       return normalized;
     });
   }
 
-  function fetchCanonicalMapData() {
-    return fetchCanonicalMapDataFromRaw().catch(function () {
-      return fetchCanonicalMapDataFromContentsApi();
-    });
-  }
-
-  function timestampFromIsoString(value) {
-    if (!value) return 0;
-    var ts = Date.parse(String(value));
-    return isNaN(ts) ? 0 : ts;
-  }
-
-  function chooseBestLocalData(cachedData, bundledData) {
-    if (!cachedData) return bundledData;
-    if (!bundledData) return cachedData;
-
-    var cachedTs = timestampFromIsoString(cachedData.generatedAt);
-    var bundledTs = timestampFromIsoString(bundledData.generatedAt);
-
-    if (bundledTs > cachedTs) return bundledData;
-    return cachedData;
-  }
-
-  /* A cache written by an earlier live refresh can be newer than the bundled
-     snapshot and win the boot choice, yet carry no Rust inventory (nothing
-     upstream produces one) or only a Lean-only file list. The bundle always
-     has both, so fill the gaps from it before applying the cache. */
-  function seedBundledInventory(localData, bundledData) {
-    if (!localData || !bundledData || localData === bundledData) return localData;
-    if (!localData.rust && bundledData.rust) {
-      localData.rust = bundledData.rust;
-      localData.rustCommit = bundledData.rustCommit || bundledData.commitSha || "";
-    }
-    var localFiles = Array.isArray(localData.files) ? localData.files : [];
-    var localHasTree = false;
-    for (var i = 0; i < localFiles.length; i++) {
-      if (!/\.lean$/i.test(localFiles[i])) { localHasTree = true; break; }
-    }
-    if (!localHasTree && Array.isArray(bundledData.files) && bundledData.files.length > localFiles.length) {
-      localData.files = bundledData.files;
-      localData.inventoryCommit = bundledData.inventoryCommit || bundledData.commitSha || "";
-    }
-    return localData;
-  }
-
   function applyData(data) {
-    var inventory = retainInventory({
-      files: state.files,
-      rust: state.rust,
-      inventoryCommit: state.inventoryCommit,
-      rustCommit: state.rustCommit
-    }, data);
-    state.files = inventory.files;
-    state.rust = inventory.rust;
-    state.inventoryCommit = inventory.inventoryCommit;
-    state.rustCommit = inventory.rustCommit;
+    state.rust = data.rust || null;
     state.modules = data.modules || [];
     state.moduleMap = data.moduleMap || Object.create(null);
     state.moduleMeta = data.moduleMeta || Object.create(null);
@@ -5648,344 +5000,6 @@
       }
     }
     renderAll();
-  }
-
-  function applyEmptyModule(moduleName) {
-    state.importsFrom[moduleName] = [];
-    state.externalImportsFrom[moduleName] = [];
-    state.moduleMeta[moduleName] = {
-      layer: classifyLayer(moduleName),
-      kind: moduleKind(moduleName),
-      base: moduleBase(moduleName),
-      theorems: 0,
-      symbols: makeEmptyInteriorSymbols(),
-      symbolsLoaded: true
-    };
-  }
-
-  function shouldFallbackFromComparePayload(payload) {
-    if (!payload || typeof payload !== "object") return true;
-    if (payload.status && payload.status !== "ahead") return true;
-    if (payload.files === null || typeof payload.files === "undefined") return true;
-
-    var files = Array.isArray(payload.files) ? payload.files : [];
-    var total = Number(payload.total_files || files.length || 0);
-    if (files.length >= COMPARE_FILES_TRUNCATION_LIMIT && total > files.length) return true;
-
-    return false;
-  }
-
-  function fetchAndApplyIncrementalChanges(knownCommitSha, latestCommitSha, inventory) {
-    var compareUrl = API + "/compare/" + encodeURIComponent(knownCommitSha) + "..." + encodeURIComponent(latestCommitSha);
-    return safeFetch(compareUrl, false).then(function (payload) {
-      if (shouldFallbackFromComparePayload(payload)) throw new Error("incremental-compare-unavailable");
-      var changedPaths = Object.create(null);
-      var removedPaths = Object.create(null);
-      var files = payload && Array.isArray(payload.files) ? payload.files : [];
-
-      for (var i = 0; i < files.length; i++) {
-        var file = files[i] || {};
-        var filename = String(file.filename || "");
-        if (!isLeanModulePath(filename)) continue;
-
-        if (file.status === "removed") {
-          removedPaths[filename] = true;
-          continue;
-        }
-
-        if (file.status === "renamed" && file.previous_filename && isLeanModulePath(file.previous_filename)) {
-          removedPaths[String(file.previous_filename)] = true;
-        }
-
-        changedPaths[filename] = true;
-      }
-
-      applyTreeInventory(inventory);
-
-      var allModules = state.modules.slice();
-      var removedList = Object.keys(removedPaths);
-      for (var r = 0; r < removedList.length; r++) {
-        var removedPath = removedList[r];
-        var removedModule = moduleFromPath(removedPath);
-        if (!state.moduleMap[removedModule]) removeModuleState(removedModule);
-      }
-
-      for (var m = 0; m < allModules.length; m++) {
-        var moduleName = allModules[m];
-        if (!state.importsFrom[moduleName]) state.importsFrom[moduleName] = [];
-        if (!state.externalImportsFrom[moduleName]) state.externalImportsFrom[moduleName] = [];
-      }
-
-      var changedLeanFiles = Object.keys(changedPaths);
-      if (!changedLeanFiles.length) return;
-
-      setStatus("Applying incremental module sync (" + changedLeanFiles.length + " changed files)…", false);
-      return runInPool(changedLeanFiles, function (path) {
-        var moduleName = moduleFromPath(path);
-        var blobSha = inventory.leanShasByPath[path] || "";
-        if (!blobSha) {
-          applyEmptyModule(moduleName);
-          return;
-        }
-
-        return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
-          if (!blob || blob.encoding !== "base64" || !blob.content) {
-            applyEmptyModule(moduleName);
-            return;
-          }
-          parseModule(moduleName, decodeBlobBase64(blob.content));
-        }).catch(function () {
-          applyEmptyModule(moduleName);
-        });
-      });
-    });
-  }
-
-  function fetchAndBuildData(cachedCommitSha) {
-    setStatus(t("map.status_checking_commit") || "Checking latest repository commit\u2026", false);
-
-    return fetchLatestCommitSha().then(function (latestCommitSha) {
-      var knownCommit = state.commitSha || cachedCommitSha || "";
-      setLiveSyncMeta(latestCommitSha || knownCommit);
-
-      if (knownCommit && latestCommitSha && knownCommit === latestCommitSha) {
-        setStatus(t("map.status_already_synced", { commit: latestCommitSha.slice(0, 7) }) || ("Map is already synced to " + latestCommitSha.slice(0, 7) + "."), false);
-        return;
-      }
-
-      var treeRef = latestCommitSha || REF;
-      setStatus(t("map.status_loading_tree") || "Loading repository tree\u2026", false);
-
-      return safeFetch(API + "/git/trees/" + treeRef + "?recursive=1", false).then(function (payload) {
-        var tree = payload && payload.tree ? payload.tree : [];
-        var inventory = moduleInventoryFromTree(tree);
-        var known = state.commitSha || cachedCommitSha || "";
-        var canIncremental = Boolean(known && latestCommitSha && state.modules.length);
-
-        if (!canIncremental) {
-          state.moduleMeta = Object.create(null);
-          state.importsTo = Object.create(null);
-          state.importsFrom = Object.create(null);
-          state.externalImportsFrom = Object.create(null);
-          applyTreeInventory(inventory);
-          invalidateDerivedCaches();
-          state.contextList = [];
-          buildSearchIndex();
-
-          setStatus(t("map.status_analyzing") || "Analyzing Lean modules and theorem declarations\u2026", false);
-          return runInPool(inventory.leanFiles, function (path) {
-            var moduleName = moduleFromPath(path);
-            var blobSha = inventory.leanShasByPath[path];
-            if (!blobSha) {
-              applyEmptyModule(moduleName);
-              return;
-            }
-
-            return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
-              if (!blob || blob.encoding !== "base64" || !blob.content) {
-                applyEmptyModule(moduleName);
-                return;
-              }
-              parseModule(moduleName, decodeBlobBase64(blob.content));
-            }).catch(function () {
-              applyEmptyModule(moduleName);
-            });
-          });
-        }
-
-        return fetchAndApplyIncrementalChanges(known, latestCommitSha, inventory).catch(function () {
-          state.moduleMeta = Object.create(null);
-          state.importsFrom = Object.create(null);
-          state.externalImportsFrom = Object.create(null);
-          applyTreeInventory(inventory);
-          setStatus("Incremental sync unavailable; rebuilding module index…", false);
-          return runInPool(inventory.leanFiles, function (path) {
-            var moduleName = moduleFromPath(path);
-            var blobSha = inventory.leanShasByPath[path];
-            if (!blobSha) {
-              applyEmptyModule(moduleName);
-              return;
-            }
-
-            return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
-              if (!blob || blob.encoding !== "base64" || !blob.content) {
-                applyEmptyModule(moduleName);
-                return;
-              }
-              parseModule(moduleName, decodeBlobBase64(blob.content));
-            }).catch(function () {
-              applyEmptyModule(moduleName);
-            });
-          });
-        }).then(function () {
-          invalidateDerivedCaches();
-          state.contextList = [];
-          buildSearchIndex();
-        });
-      }).then(function () {
-          rebuildImportsToIndex();
-          /* Rebuild declaration state from the current moduleMeta the same way
-             normalizeMapData does, so declaration search and call lanes never
-             serve entries from a previous dataset (or stay empty on cold start).
-             Unchanged modules on the incremental path keep their symbols.callGraph,
-             so valid call lanes are preserved; freshly parsed symbols carry no
-             callGraph and correctly yield empty graphs. */
-          state.declarationGraph = Object.create(null);
-          state.declarationReverseGraph = Object.create(null);
-          state.declarationIndex = Object.create(null);
-          for (var declModule in state.moduleMeta) {
-            if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, declModule)) continue;
-            var declMeta = state.moduleMeta[declModule];
-            if (!declMeta || !declMeta.symbols) continue;
-            var declCallGraph = declMeta.symbols.callGraph;
-            if (declCallGraph && typeof declCallGraph === "object") {
-              for (var declKey in declCallGraph) {
-                if (!Object.prototype.hasOwnProperty.call(declCallGraph, declKey)) continue;
-                if (!Array.isArray(declCallGraph[declKey])) continue;
-                state.declarationGraph[declKey] = { module: declModule, calls: declCallGraph[declKey] };
-                for (var declCalledIdx = 0; declCalledIdx < declCallGraph[declKey].length; declCalledIdx++) {
-                  var declCalledTarget = declCallGraph[declKey][declCalledIdx];
-                  if (!state.declarationReverseGraph[declCalledTarget]) state.declarationReverseGraph[declCalledTarget] = [];
-                  state.declarationReverseGraph[declCalledTarget].push(declKey);
-                }
-              }
-            }
-            var declByKind = declMeta.symbols.byKind;
-            if (declByKind && typeof declByKind === "object") {
-              for (var declKind in declByKind) {
-                if (!Object.prototype.hasOwnProperty.call(declByKind, declKind)) continue;
-                var declItems = declByKind[declKind];
-                if (!Array.isArray(declItems)) continue;
-                for (var declItemIdx = 0; declItemIdx < declItems.length; declItemIdx++) {
-                  var declItem = declItems[declItemIdx];
-                  if (declItem && declItem.name && !state.declarationIndex[declItem.name]) {
-                    state.declarationIndex[declItem.name] = { module: declModule, kind: declKind, line: declItem.line || 0 };
-                  }
-                }
-              }
-            }
-          }
-          buildSearchIndex();
-          state.commitSha = latestCommitSha || "";
-          state.generatedAt = new Date().toISOString();
-          /* Before buildPairs(), which stamps the header's Boundary Links
-             from state.bridge: the Rust inventory is unchanged by a tree
-             rebuild, but the Lean declarations it is matched against are
-             not, so rebuilding afterwards left the published total one
-             refresh behind the bands drawn from it. */
-          buildBridgeIndex();
-          buildPairs();
-          if (!nodeExists(state.selectedModule)) state.selectedModule = defaultNodeName();
-          /* The tree fetched above is a complete file inventory at this commit;
-             the Rust crate inventory, if any, is still the bundled one. */
-          state.inventoryCommit = state.commitSha;
-          scheduleRender();
-          syncUrlState();
-          var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
-          setStatus((t("map.status_ready_integrated") || "Map ready. Integrated dependency/proof flow graph loaded.") + statusSuffix, false);
-          persistCurrentMapCache();
-      });
-    });
-  }
-
-  function syncFromCanonicalMap(cachedCommitSha, options) {
-    var opts = options || {};
-    var silentNoChange = Boolean(opts.silentNoChange);
-    if (!silentNoChange) setStatus("Syncing canonical codebase map from docs/codebase_map.json…", false);
-
-    return fetchCanonicalMapData().then(function (canonicalData) {
-      var knownCommit = state.commitSha || cachedCommitSha || "";
-      var canonicalCommit = canonicalData.commitSha || "";
-      setLiveSyncMeta(canonicalCommit || knownCommit);
-
-      if (knownCommit && canonicalCommit && knownCommit === canonicalCommit) {
-        if (!silentNoChange) setStatus("Map is already synced to " + canonicalCommit.slice(0, 7) + ".", false);
-        return null;
-      }
-
-      return enrichSparseMapData(canonicalData, { silent: silentNoChange });
-    }).then(function (canonicalData) {
-      if (!canonicalData) return;
-      var canonicalCommit = canonicalData.commitSha || "";
-      applyData(canonicalData);
-      persistCurrentMapCache();
-      var statusSuffix = canonicalCommit ? " Synced commit " + canonicalCommit.slice(0, 7) + "." : "";
-      setStatus("Map ready. Canonical seLe4n codebase map loaded." + statusSuffix, false);
-    }).catch(function () {
-      return fetchAndBuildData(cachedCommitSha);
-    });
-  }
-
-  function refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, options) {
-    var opts = options || {};
-    var reason = String(opts.reason || "");
-    var bypassCooldown = Boolean(opts.force || reason === "manual" || reason === "visible" || reason === "focus" || reason === "online");
-    var cooldown = remainingSyncCooldownMs();
-
-    if (reason === "poll" && hasLocalData) {
-      return fetchLatestMapCommitSha().then(function (latestMapCommitSha) {
-        if (!latestMapCommitSha) {
-          if (cooldown > 0 && !opts.force) return;
-          return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true });
-        }
-
-        /* Compare against the last file-touching commit we checked, not
-           state.commitSha (the sha embedded INSIDE the map payload) — those
-           come from different domains and can never be equal, which used to
-           force a full canonical re-download on every poll. */
-        var meta = getLiveSyncMeta();
-        if (meta && meta.lastCheckedCommit && meta.lastCheckedCommit === latestMapCommitSha) {
-          setLiveSyncMeta(latestMapCommitSha);
-          return;
-        }
-
-        return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true }).then(function () {
-          /* Key the fast path on the same identifier we polled */
-          setLiveSyncMeta(latestMapCommitSha);
-        });
-      });
-    }
-
-    if (hasLocalData && cooldown > 0 && !bypassCooldown) {
-      if (!opts.silentCooldown) {
-        var mins = Math.max(1, Math.ceil(cooldown / 60000));
-        setStatus("Using local snapshot. Next live sync check in about " + mins + " min.", false);
-      }
-      return Promise.resolve();
-    }
-
-    return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: reason === "poll" });
-  }
-
-  function setupLiveSyncPolling() {
-    var inFlight = false;
-
-    function trigger(reason) {
-      if (inFlight) return;
-      if (document.hidden && reason === "poll") return;
-      inFlight = true;
-      var knownCommit = state.commitSha || "";
-      var hasLocalData = Boolean(state.modules && state.modules.length);
-      refreshMapDataWithPolicy(knownCommit, hasLocalData, { silentCooldown: reason !== "manual", reason: reason }).finally(function () {
-        inFlight = false;
-      });
-    }
-
-    function queueNextPoll() {
-      var jitter = Math.floor(Math.random() * 15000);
-      window.setTimeout(function () {
-        trigger("poll");
-        queueNextPoll();
-      }, LIVE_SYNC_POLL_INTERVAL_MS + jitter);
-    }
-
-    queueNextPoll();
-
-    document.addEventListener("visibilitychange", function () {
-      if (!document.hidden) trigger("visible");
-    });
-    window.addEventListener("focus", function () { trigger("focus"); });
-    window.addEventListener("online", function () { trigger("online"); });
   }
 
   function detailLevelFromState() {
@@ -6877,6 +5891,7 @@
      render time, so a locale change only needs a repaint. */
   function repaintForLocale() {
     LABEL_WRAP_CACHE.clear();
+    paintLoadStatus();
     scheduleRender();
   }
 
@@ -6928,6 +5943,12 @@
   }
 
 
+  function purgeLegacyStorage() {
+    for (var i = 0; i < LEGACY_STORAGE_KEYS.length; i++) {
+      try { localStorage.removeItem(LEGACY_STORAGE_KEYS[i]); } catch (e) {}
+    }
+  }
+
   function boot() {
     setupLocaleReady();
     cacheDomElements();
@@ -6940,53 +5961,23 @@
     setupKeyboardNavigation();
     setupFlowchartResize();
     setupLocaleRerender();
-    setupLiveSyncPolling();
     hydrateFilterControls();
+    purgeLegacyStorage();
 
-    var cached = getCache();
-    var cachedData = cached && cached.data ? normalizeMapData(cached.data) : null;
-
-    fetchBundledMapData().then(function (bundledData) {
-      var localData = seedBundledInventory(chooseBestLocalData(cachedData, bundledData), bundledData);
-      if (!localData) return;
-
-      applyData(localData);
-      if (localData === cachedData && cached && !cached.isFresh) {
-        var minutes = Math.max(1, Math.round((cached.ageMs || 0) / 60000));
-        setStatus("Loaded latest local snapshot (" + minutes + " min old) while refreshing…", false);
-      } else if (localData === cachedData) {
-        setStatus("Showing cached map while refreshing…", false);
-      } else {
-        setStatus("Loaded bundled map snapshot while checking live sync…", false);
-      }
-    }).finally(function () {
-      var cachedCommitSha = cached && cached.commitSha ? String(cached.commitSha) : "";
-      var hasLocalData = Boolean(state.modules && state.modules.length);
-      refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, { force: true, reason: "boot" }).then(function () {
-        if (state.modules && state.modules.length) {
-          hardenExternalLinks();
-        }
-      }).catch(function (error) {
-        var message = error && error.message ? error.message : "Unknown error";
-        /* Provide actionable guidance depending on the error type */
-        var isRateLimit = /rate.limit|429|403/i.test(message);
-        if (!hasLocalData) {
-          setStatus(isRateLimit
-            ? "GitHub API rate limit reached. Refresh later to load the map."
-            : "Unable to load codebase map. " + message, true);
-        } else {
-          setStatus(isRateLimit
-            ? "Live refresh rate-limited; showing cached data."
-            : "Refresh failed; showing cached data. " + message, true);
-        }
-      });
+    /* One request, one revision: the bundled snapshot is fetched, normalized
+       and rendered, and nothing replaces it afterwards. */
+    fetchBundledMapData().then(function (data) {
+      applyData(data);
+      hardenExternalLinks();
+      paintLoadStatus("ready");
+    }).catch(function (error) {
+      paintLoadStatus("error", error && error.message ? error.message : "");
     });
   }
 
   if (window && window.__SELE4N_MAP_DISABLE_BOOT__) {
     window.__SELE4N_MAP_TEST_HOOKS__ = {
       normalizeMapData: normalizeMapData,
-      normalizeCanonicalPayload: normalizeCanonicalPayload,
       hasCompleteSymbolLines: hasCompleteSymbolLines,
       symbolListsFromRaw: symbolListsFromRaw,
       makeEmptyInteriorSymbols: makeEmptyInteriorSymbols,
@@ -7026,19 +6017,14 @@
       moduleSubsystem: moduleSubsystem,
       groupLaneModules: groupLaneModules,
       buildLaneEntries: buildLaneEntries,
-      retainInventory: retainInventory,
-      seedBundledInventory: seedBundledInventory,
       normalizeRustInventory: normalizeRustInventory,
-      isOutsideProductionScope: isOutsideProductionScope,
-      isLeanModulePath: isLeanModulePath,
       isInRepoOutsideScope: isInRepoOutsideScope,
       rustUnsafeSummary: rustUnsafeSummary,
       rustUnsafeDetail: rustUnsafeDetail,
       pickInteriorMenuGroup: pickInteriorMenuGroup,
       formatCount: formatCount,
+      loadStatusText: loadStatusText,
       pluralEn: pluralEn,
-      setCache: setCache,
-      cacheMaxChars: function () { return CACHE_MAX_CHARS; },
       isLibraryRoot: isLibraryRoot,
       externalImportSubtitle: externalImportSubtitle,
       /* Scope, the Rust graph and the Lean ↔ Rust boundary */
@@ -7115,14 +6101,12 @@
         if (typeof patch.neighborLimit === "number") state.neighborLimit = patch.neighborLimit;
         if (typeof patch.flowShowAll === "boolean") state.flowShowAll = patch.flowShowAll;
         if (patch.laneGroupsExpanded) state.laneGroupsExpanded = patch.laneGroupsExpanded;
-        if (patch.files) state.files = patch.files;
         if ("rust" in patch) {
           state.rust = patch.rust;
           state.rustGraph = buildRustGraph(state.rust);
         }
         if (typeof patch.scope === "string") state.scope = patch.scope;
         if (typeof patch.commitSha === "string") state.commitSha = patch.commitSha;
-        if (typeof patch.rustCommit === "string") state.rustCommit = patch.rustCommit;
         if (patch.buildBridge) buildBridgeIndex();
         // Rebuild declarationIndex from moduleMeta when moduleMeta is patched
         if (patch.moduleMeta && !patch.declarationIndex) {

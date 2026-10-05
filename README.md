@@ -130,7 +130,13 @@ upstream source asserts and cached it for thirty days. The projection now
 happens once, offline, in `scripts/sync-upstream.mjs`, where it is reviewed,
 tested and validated in CI.
 
-`map.html` and `run.html` still refresh their larger payloads from GitHub, with
+`map.html` follows the same rule: it renders `data/map-data.json` and nothing
+else, with `connect-src 'self'`. It used to refresh from GitHub on every visit
+and focus — downloading the 10 MB upstream artifact, which carries no import
+edges, replacing the bundled graph with it, then fetching every Lean file to
+regex the edges back — a second pipeline that left networked visitors with an
+edgeless graph from an older commit. The weekly sync workflow keeps the bundle
+current instead. `run.html` still refreshes its trace payload from GitHub, with
 the bundled snapshot as the fallback.
 
 ## Code map layout (0.31.0)

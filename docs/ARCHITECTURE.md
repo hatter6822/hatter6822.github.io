@@ -6,7 +6,7 @@
 
 ### Strengths
 - Strict CSP/referrer/permissions policies are present on both pages.
-- Data hydration already supports bundled snapshots plus live refresh (the landing page deliberately opts out — see "Landing-page statistics have one source").
+- Data hydration renders bundled snapshots first; only the simulator still refreshes live (the landing page and the code map deliberately opt out — see "Landing-page statistics have one source" and "The code map renders its bundle and nothing else").
 - The code map is feature rich and includes keyboard navigation, URL state sync, and caching.
 
 ### Primary growth constraints identified
@@ -53,9 +53,11 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 
 ### Runtime refresh strategy
 1. Load bundled snapshot.
-2. Optionally hydrate from local cache.
-3. Reconcile with live GitHub API data under rate/timeout policies.
+2. On `run.html` only: optionally hydrate from local cache.
+3. On `run.html` only: reconcile with live GitHub API data under rate/timeout policies.
 4. Preserve snapshot fallback on network failure.
+
+The landing page and the code map stop after step 1.
 
 ## Code map optimization changes
 
@@ -1363,6 +1365,8 @@ tests. `setCache()` now returns `false` above `CACHE_MAX_CHARS` (4 MiB of
 UTF-16 units) without attempting the write. The cache code stays — it is
 correct for smaller snapshots — but the documentation and the design no longer
 lean on it: every visit renders the bundled snapshot and then refreshes live.
+(Superseded: the cache and the live refresh were both removed later — see
+"The code map renders its bundle and nothing else".)
 
 ### Plural forms and digit grouping
 
@@ -1618,6 +1622,8 @@ dependency tables keep their cfg. What is gone is the file inventory: 866 paths
 grouped six ways, with `classifyRepositoryPath()`, `buildRepositoryInventory()`
 and `crateSupportFiles()` deleted along with it. `retainInventory()` stays,
 because the Rust inventory must still survive a live refresh that carries none.
+(It went with the live refresh itself; see "The code map renders its bundle
+and nothing else".)
 
 The sidebar's listing count and the snapshot's `productionItems` are two
 different quantities — an `impl` block is listed but never counted — so they
@@ -1735,3 +1741,44 @@ pixel diff, since PNG encoding alone is not byte-stable between runs). The
 browser parses one rule and 38 declarations fewer from `map.css` and exactly as
 many from `style.css` — the removed duplicate and the four inert declarations,
 and nothing else lost to a typo.
+
+## The code map renders its bundle and nothing else
+
+`map.html` boots on one same-origin request: `data/map-data.json`, normalized
+and rendered. Through 0.32.0 it then refreshed live — on boot (forced, past
+the cooldown), on every `focus`, `visibilitychange` and `online`, and on a
+90-second poll — and every one of those refreshes did harm:
+
+- It downloaded the upstream `docs/codebase_map.json` (10.2 MB raw, 722 KB
+  gzip) with a cache-busting query, so the HTTP cache never helped.
+- The bundle's `commitSha` (the checkout) never equals the artifact's
+  `repository.head.commit_sha` (the commit that generated it), so the
+  "already synced" check always failed and the artifact was applied: Import
+  Edges 1,139 → 0, Linked Pairs 1 → 0, and source links moved to the older
+  commit.
+- The artifact carries no import edges, so `enrichSparseMapData` then fetched
+  every Lean file (345 requests) from `main` HEAD — another revision again —
+  and regex-derived the imports, swallowing each failure. Offline, or with the
+  CSP blocking GitHub, the status line instead reported "Refresh failed;
+  showing cached data" in the error style over a perfectly good bundle, after
+  also trying the commits and tree APIs.
+- The `localStorage` snapshot cache never fit the quota; persisting it cost a
+  ~150 ms `JSON.stringify` per refresh that was then discarded.
+
+That was a second data pipeline, which "One pipeline, one revision" forbids,
+and the weekly `sync-sele4n-data.yml` workflow already keeps the bundle
+current through the real one. So the canonical fetch, the tree/blob/compare
+rebuilds, the polling and its triggers, the cooldown metadata, the cache, and
+the retained-inventory provenance (which existed only because a refresh could
+leave the Rust half a commit behind) are gone. Both halves now always share
+`state.commitSha`, and `nodeSourceRef()` links at it.
+
+Guards: `connect-src 'self'` on `map.html`, pinned with `index.html`'s by
+`csp-html.test.mjs`; `map-runtime.test.mjs` asserts `map.js` names no GitHub
+API host, calls `fetch()` once (in `safeFetch`, `mode: "same-origin"`) and only
+with named `data/*.json` endpoints; `map-smoke.mjs` fails on any request that
+leaves the origin. The status line names the snapshot's commit
+(`map.status_snapshot_commit`) or says the snapshot did not load
+(`map.status_load_failed`), and is repainted when a late locale lands.
+`purgeLegacyStorage()` removes the two retired storage keys from returning
+visitors.

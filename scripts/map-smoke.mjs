@@ -17,8 +17,9 @@
  * appear in the combined scope and vanish in the single-language ones, and a
  * boundary node has to carry the reader across into the other language.
  *
- * Live GitHub refreshes are blocked inside the page so the run is deterministic
- * and equivalent to an offline visit.
+ * The page renders the bundled snapshot and nothing else, so the run is
+ * deterministic; any request that leaves the server's origin is recorded as an
+ * error and fails the "no console errors" checks.
  *
  * Requirements (not repository dependencies):
  *   npm install --no-save playwright-core       # or any directory on NODE_PATH
@@ -81,11 +82,6 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en', 
   await context.addInitScript(([t, l]) => {
     try { localStorage.setItem('sele4n-theme', t); } catch (e) {}
     try { localStorage.setItem('sele4n-locale-v1', l); } catch (e) {}
-    const origFetch = window.fetch;
-    window.fetch = function (url, opts) {
-      if (typeof url === 'string' && /github/.test(url)) return Promise.reject(new Error('blocked by map-smoke'));
-      return origFetch.call(this, url, opts);
-    };
   }, [theme, locale]);
   const page = await context.newPage();
   // Hold the locale JSON back so it lands after the snapshot has painted.
@@ -98,6 +94,15 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en', 
   const errors = [];
   page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
   page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
+  /* The page renders the bundled snapshot and nothing else: any request that
+     leaves the origin is a second data source creeping back, so it fails
+     every "no console errors" check below. */
+  const origin = new URL(BASE).origin;
+  page.on('request', (req) => {
+    const url = req.url();
+    if (/^(data|blob):/.test(url)) return;
+    if (new URL(url).origin !== origin) errors.push(`cross-origin request: ${url}`);
+  });
   await page.goto(`${BASE}/map.html${query}`, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => {
     const status = document.getElementById('map-status');
@@ -201,6 +206,9 @@ async function shot(page, name) {
   const { context, page, errors } = await open(1440, 900);
   const m = await metrics(page);
   check(m.search === 'SeLe4n.Kernel.API', 'workspace opens on SeLe4n.Kernel.API');
+  const status = await page.textContent('#map-status');
+  const statusError = await page.evaluate(() => document.getElementById('map-status').classList.contains('error'));
+  check(!statusError && status.includes(`Snapshot of commit ${MAP_DATA.commitSha.slice(0, 7)}`), `the status line names the bundled snapshot's commit (${JSON.stringify(status)})`);
   check(m.url === '' || /module=SeLe4n\.Kernel\.API/.test(m.url), 'first-load URL is clean or names the default module');
   check(m.laneGroups >= 5, `over-budget lanes are grouped by subsystem (${m.laneGroups} groups)`);
   check(m.tabs.length === 3 && m.tabs[0] === 'true', 'declaration sidebar shows three tabs with Objects selected');
@@ -441,6 +449,8 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
     `chart lane labels repainted into the late locale (${JSON.stringify(m.laneLabels)})`);
   check(m.legend.some((item) => /Importaciones \(dependencias\)|Importaciones/.test(item)), `the legend repainted too (${JSON.stringify(m.legend.slice(0, 3))})`);
   check(m.h2s.some((h) => /Espacio de trabajo/.test(h)), 'static headings translated by the late locale');
+  const lateStatus = await page.textContent('#map-status');
+  check(/^Mapa listo\./.test(lateStatus) && lateStatus.includes(MAP_DATA.commitSha.slice(0, 7)), `the status line repainted into the late locale (${JSON.stringify(lateStatus)})`);
   check(errors.length === 0, 'no console errors (late locale)');
   await context.close();
 }
