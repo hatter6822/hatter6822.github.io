@@ -376,7 +376,7 @@ request; `PLAYWRIGHT_CHROMIUM=<path>` points it at another binary.
 ## 8) Script libraries and tests (`scripts/lib/`)
 
 ### `scripts/index-smoke.mjs`
-Headless-Chromium probe for `index.html`. Asserts on the rendered page what `static-values.test.mjs` asserts in the file: every `data-live` span shows exactly what `data/site-data.json` holds (a mismatch means hydration visibly rewrites a figure), no figure label is clipped, no width scrolls sideways, the console is clean, a locale arriving after the snapshot does not carry a stale copy of a figure back onto the page, and every `#L` anchor matches the resolved `sourceAnchors` inventory. Runs at 1920/1440/1024/390px, in both themes, and against a deliberately delayed Spanish locale. `INDEX_SMOKE_BASE` picks the server, `PLAYWRIGHT_CHROMIUM` or `INDEX_SMOKE_CHANNEL` the browser. CI runs it on every push.
+Headless-Chromium probe for `index.html`. Asserts on the rendered page what `static-values.test.mjs` asserts in the file: every `data-live` span shows exactly what `data/site-data.json` holds (a mismatch means hydration visibly rewrites a figure), no figure label is clipped, no width scrolls sideways, every card grid has even columns inside the viewport, the console is clean, a locale arriving after the snapshot does not carry a stale copy of a figure back onto the page, and every `#L` anchor matches the resolved `sourceAnchors` inventory. Runs at 1920/1440/1024/390px, in both themes, and against a deliberately delayed Spanish locale. `INDEX_SMOKE_BASE` picks the server, `PLAYWRIGHT_CHROMIUM` or `INDEX_SMOKE_CHANNEL` the browser. CI runs it on every push.
 
 ### `scripts/lib/canonical-map.mjs`
 The contract with seLe4n's canonical `docs/codebase_map.json`: the schema it

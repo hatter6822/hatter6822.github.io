@@ -66,7 +66,7 @@ node scripts/apply-static-values.mjs   # stamp index.html + locales/*.json from 
 | 1 | Unit tests (`scripts/lib/*.test.mjs`) | Every commit |
 | 2 | Data validation (`scripts/validate-data.mjs`) | Every commit, after data changes |
 | 3 | Manual browser verification (desktop + mobile) | UI/layout changes |
-| 4 | Playwright probes: `scripts/map-smoke.mjs` (code map layout and behaviour in headless Chromium), `scripts/index-smoke.mjs` (landing page: every stamped figure survives hydration, no label clipped, deep links match the resolved inventory) — CI runs both on every push — and `scripts/nav-stability-smoke.py` (navigation) | Map layout, landing-page figures, navigation or scroll behaviour changes |
+| 4 | Playwright probes: `scripts/map-smoke.mjs` (code map layout and behaviour in headless Chromium), `scripts/index-smoke.mjs` (landing page: every stamped figure survives hydration, no label clipped, card grids even and inside the viewport, deep links match the resolved inventory) — CI runs both on every push — and `scripts/nav-stability-smoke.py` (navigation) | Map layout, landing-page figures, navigation or scroll behaviour changes |
 
 Run at least Tiers 0-2 before any commit. Tier 3 for front-end changes. Tier 4 when touching navigation, scroll behaviour, the code map's layout, or any published figure.
 
@@ -793,6 +793,21 @@ mobile layout. This has caused five separate visual defects in this codebase.
   an ancestor, whatever the ancestor selector's specificity.
 - `@media print` colour resets are the one place `!important` is correct — a
   bare `a` or `code` selector loses to every component rule on the page.
+
+### A `1fr` track is not a share of the row
+
+`1fr` means `minmax(auto, 1fr)`: a track never shrinks below its widest
+unbreakable run. One slash-joined list in an architecture card
+(`suspend/resume/setPriority/…`) made its column 521px against 267px for the
+other two at 1440px, and on a phone pushed every card 80px past the screen,
+where `overflow-x: hidden` silently cut it off rather than scrolling.
+
+- Card grids use `minmax(0, 1fr)` at every breakpoint, and `.card` sets
+  `overflow-wrap: break-word` so a run longer than the column wraps.
+- A long list joined by `/` carries `<wbr>` after each slash, in `index.html`
+  and in every locale (`wbr` is in `i18n.js`'s `SAFE_TAGS`).
+- A sideways-overflow check cannot see a clipped card; `index-smoke.mjs`
+  measures the cards themselves (even columns, right edge inside the viewport).
 
 ### An override wins only the properties it names
 

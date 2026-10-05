@@ -25,7 +25,7 @@
   };
 
   /* Allowed HTML tags for data-i18n-html translations (defense-in-depth). */
-  var SAFE_TAGS = /^(a|br|code|em|span|strong)$/i;
+  var SAFE_TAGS = /^(a|br|code|em|span|strong|wbr)$/i;
 
   var currentLocale = DEFAULT_LOCALE;
   var strings = {};

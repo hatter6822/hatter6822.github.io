@@ -249,7 +249,9 @@ screen. At 1920, 1440, 1024 and 390px it asserts that every live span renders
 exactly what the snapshot holds — a mismatch means hydration rewrites a number
 in front of the reader — that no figure label is clipped now that the
 architecture diagram's labels carry nested spans, that no width scrolls
-sideways, and that the console stays clean. It then holds the Spanish locale
+sideways, that every card grid has even columns with no card past the viewport
+(the page's `overflow-x: hidden` clips a too-wide card instead of scrolling,
+so the sideways check alone cannot see it), and that the console stays clean. It then holds the Spanish locale
 back until after the snapshot has painted, because `data-i18n-html` replaces an
 element's innerHTML wholesale and that is exactly how a translator's stale copy
 of a figure once survived a refresh; and it checks in light theme that every
