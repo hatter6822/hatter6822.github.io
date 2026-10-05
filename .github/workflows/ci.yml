@@ -11,32 +11,17 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to a commit, not a movable tag.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
-      # The same checks CONTRIBUTING.md asks for before every commit.
+      # The same checks CONTRIBUTING.md asks for before every commit. The
+      # data-sync workflow runs this script too, before it pushes.
       - name: Unit tests, bundled data validation, syntax
-        run: |
-          set -euo pipefail
-          node scripts/lib/lean-analysis.test.mjs
-          node scripts/lib/rust-analysis.test.mjs
-          node scripts/lib/canonical-map.test.mjs
-          node scripts/lib/data-validation.test.mjs
-          node scripts/lib/map-runtime.test.mjs
-          node scripts/lib/map-toolbar.test.mjs
-          node scripts/lib/trace-analysis.test.mjs
-          node scripts/lib/run-runtime.test.mjs
-          node scripts/lib/static-values.test.mjs
-          node scripts/lib/source-anchors.test.mjs
-          node scripts/lib/i18n-locales.test.mjs
-          node scripts/lib/i18n-runtime.test.mjs
-          node scripts/lib/csp-html.test.mjs
-          node scripts/validate-data.mjs
-          node scripts/validate-traces.mjs
-          for f in map run header-nav site i18n theme-init; do node --check "assets/js/$f.js"; done
+        run: ./scripts/check.sh
 
       # The two probes render the pages in the runner's Chrome and assert what
       # the unit tests cannot: for map.html, that the chart is drawn at 1:1 at
