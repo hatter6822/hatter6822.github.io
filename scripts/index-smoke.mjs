@@ -12,7 +12,8 @@
  * them with a translator's copy.
  *
  * It also holds the two guarantees that are easy to break from a stylesheet:
- * no viewport scrolls sideways, and the console stays clean. Every request
+ * no viewport scrolls sideways, no card grid runs uneven or past the screen,
+ * and the console stays clean. Every request
  * the page makes is same-origin (the logo is self-hosted and the CSP names no
  * other origin), so any failed request or console error is a real one.
  *
@@ -131,6 +132,32 @@ function clippedLabels(page) {
       .map((el) => el.textContent.trim().slice(0, 48)));
 }
 
+/**
+ * Card grids whose columns are uneven or whose cards run past the viewport.
+ * `overflow-x: hidden` on the page hides a too-wide card from the sideways
+ * check above — the card is simply cut off — so the cards are measured
+ * themselves. A bare `1fr` track sized one column to its longest unbreakable
+ * run: 521 / 267 / 267 at 1440px, and 454px cards on a 390px phone.
+ */
+function cardGridDefects(page) {
+  return page.$$eval('.grid, .features-grid', (grids) => {
+    const viewport = document.documentElement.clientWidth;
+    const out = [];
+    for (const grid of grids) {
+      const where = grid.closest('section')?.id || grid.className;
+      const widths = [...grid.children].map((c) => c.getBoundingClientRect().width);
+      if (widths.length > 1 && Math.max(...widths) - Math.min(...widths) > 2) {
+        out.push(`#${where} columns ${widths.map(Math.round).join('/')}`);
+      }
+      for (const card of grid.children) {
+        const right = card.getBoundingClientRect().right;
+        if (right > viewport + 0.5) out.push(`#${where} card ends at ${Math.round(right)} of ${viewport}px`);
+      }
+    }
+    return out;
+  });
+}
+
 const sideways = (page) => page.evaluate(() =>
   document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
@@ -151,6 +178,8 @@ for (const [width, height, label] of [
 
   const overflow = await sideways(page);
   check(overflow <= 0, `no sideways overflow (${overflow}px)`);
+  const cards = await cardGridDefects(page);
+  check(cards.length === 0, `card grids have even columns inside the viewport${cards.length ? ` — ${cards.slice(0, 4).join(' | ')}` : ''}`);
   check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
   await context.close();
 }

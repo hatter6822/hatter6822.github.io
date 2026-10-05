@@ -713,8 +713,12 @@ html:not([data-theme="light"]) .hero-subtitle {
   display: grid;
   gap: 1.5rem;
 }
-.grid-2 { grid-template-columns: repeat(2, 1fr); }
-.grid-3 { grid-template-columns: repeat(3, 1fr); }
+/* `minmax(0, 1fr)`, not `1fr`: a bare `1fr` track never shrinks below its
+   widest unbreakable run, so one long slash-joined list in a card widened its
+   column (521 / 267 / 267 at 1440px) and, in the one-column phone layout,
+   pushed every card 80px past the viewport, where `overflow-x: hidden` cut it. */
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 /* --- Cards --- */
 .card {
@@ -722,6 +726,9 @@ html:not([data-theme="light"]) .hero-subtitle {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 2rem;
+  /* Lets a run longer than the column (a slash-joined list, a long
+     identifier) break instead of overflowing the card. */
+  overflow-wrap: break-word;
 }
 .card h3 {
   font-size: 1.125rem;
@@ -936,7 +943,7 @@ html:not([data-theme="light"]) .hero-subtitle {
 /* --- Features Grid --- */
 .features-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.5rem;
 }
 
@@ -1514,8 +1521,8 @@ html:not([data-theme="light"]) .hero-subtitle {
    ============================================================ */
 
 @media (max-width: 64rem) {
-  .grid-3 { grid-template-columns: repeat(2, 1fr); }
-  .features-grid { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .features-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .footer-grid { grid-template-columns: 1fr 1fr; gap: 2rem; }
 }
 
@@ -1622,10 +1629,10 @@ html:not([data-theme="light"]) .hero-subtitle {
   /* Grids */
   .grid-2,
   .grid-3 {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .features-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   /* Hero */
