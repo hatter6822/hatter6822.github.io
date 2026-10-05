@@ -2432,7 +2432,7 @@ test('the first locale load repaints only what was painted from fallbacks', asyn
 /** Production Rust source files in a snapshot: every file a graph node stands for. */
 function productionRustFiles(raw) {
   return raw.rust.crates.reduce(
-    (total, crate) => total + crate.files.filter((file) => file.role !== 'test').length,
+    (total, crate) => total + crate.files.filter(isProductionGraphFile).length,
     0
   );
 }
@@ -2602,8 +2602,13 @@ test('the boundary bands mirror each other and appear only in the combined scope
 
   hooks.applyTestState({ scope: 'both' });
   const leanRows = Array.from(hooks.bridgeBandRows('SeLe4n.Platform.FFI'));
-  assert.deepEqual(leanRows.map((row) => [row.relation, row.outbound]), [['implements', true]],
+  assert.deepEqual(leanRows.filter((row) => row.relation === 'implements').map((row) => row.outbound), [true],
     'from the Lean side the kernel calls down into Rust');
+  /* FFI.lean also holds `extendBootRamMap`, a Lean routine named like the
+     HAL's `mmu::extend_boot_ram_map` — two implementations of one contract,
+     not a call, so it may only appear as an undirected `mirrors` row. */
+  assert.ok(leanRows.every((row) => row.relation === 'implements' || row.relation === 'mirrors'),
+    'FFI.lean is the kernel side of an implementation or a mirror, nothing else');
   const rustRows = Array.from(hooks.bridgeBandRows('sele4n-hal::ffi'));
   assert.deepEqual(rustRows.map((row) => [row.relation, row.outbound]), [['implements', false]],
     'from the Rust side the same edge points inwards');
