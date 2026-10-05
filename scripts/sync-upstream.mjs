@@ -465,7 +465,6 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
   const moduleMap = Object.create(null);
   const moduleMeta = Object.create(null);
   const importsFrom = Object.create(null);
-  const importsTo = Object.create(null);
   const externalImportsFrom = Object.create(null);
 
   for (const moduleInfo of modules) moduleMap[moduleInfo.module] = moduleInfo.path;
@@ -499,10 +498,6 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
 
     importsFrom[name] = internal;
     externalImportsFrom[name] = external;
-    for (const dep of internal) {
-      if (!importsTo[dep]) importsTo[dep] = [];
-      importsTo[dep].push(name);
-    }
 
     moduleMeta[name] = {
       layer: classifyLayer(name),
@@ -518,7 +513,8 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
     modules: modules.map((moduleInfo) => moduleInfo.module),
     moduleMap,
     moduleMeta,
-    importsTo,
+    // No `importsTo`: the runtime rebuilds the reverse edges from importsFrom
+    // in every case, so shipping them was 63 KB of a derived index.
     importsFrom,
     externalImportsFrom,
     // The production Rust crates, from the same checkout: the map renders them

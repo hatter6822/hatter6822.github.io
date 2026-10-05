@@ -55,7 +55,6 @@ function mapData(overrides = {}) {
     modules: [],
     moduleMap: {},
     moduleMeta: {},
-    importsTo: {},
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: '',
@@ -79,13 +78,12 @@ test('validateSiteDataObject rejects invalid timestamps', () => {
   assert.ok(errors.some((msg) => msg.includes('updatedAt')));
 });
 
-test('validateMapDataObject checks edge symmetry and module coverage', () => {
+test('validateMapDataObject checks module coverage', () => {
   const errors = validateMapDataObject({
     files: [],
     modules: ['A.Core', 'A.Util'],
     moduleMap: { 'A.Core': 'A/Core.lean' },
-    moduleMeta: { 'A.Core': { symbols: { theorems: [], functions: [] } }, 'A.Util': { symbols: { theorems: [], functions: [] } } },
-    importsTo: { 'A.Util': [] },
+    moduleMeta: { 'A.Core': { symbols: {} }, 'A.Util': { symbols: {} } },
     importsFrom: { 'A.Core': ['A.Util'] },
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -93,7 +91,6 @@ test('validateMapDataObject checks edge symmetry and module coverage', () => {
   });
 
   assert.ok(errors.some((msg) => msg.includes('moduleMap missing entry for A.Util')));
-  assert.ok(errors.some((msg) => msg.includes('importsTo.A.Util missing reverse edge to A.Core')));
 });
 
 test('validateMapDataObject accepts minimal empty snapshot', () => {
@@ -120,8 +117,6 @@ test('validateMapDataObject validates symbols.byKind entries when present', () =
     moduleMeta: {
       'A.Core': {
         symbols: {
-          theorems: [],
-          functions: [],
           byKind: {
             theorem: [{ name: 'x', line: 2 }],
             macro: [{}]
@@ -129,7 +124,6 @@ test('validateMapDataObject validates symbols.byKind entries when present', () =
         }
       }
     },
-    importsTo: {},
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -176,8 +170,7 @@ test('validateMapDataObject rejects non-string entries in modules array', () => 
     files: [],
     modules: [123, null, 'A.Core'],
     moduleMap: { 'A.Core': 'A/Core.lean' },
-    moduleMeta: { 'A.Core': { symbols: { theorems: [], functions: [] } } },
-    importsTo: {},
+    moduleMeta: { 'A.Core': { symbols: {} } },
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -192,8 +185,7 @@ test('validateMapDataObject detects duplicate modules', () => {
     files: [],
     modules: ['A.Core', 'A.Core'],
     moduleMap: { 'A.Core': 'A/Core.lean' },
-    moduleMeta: { 'A.Core': { symbols: { theorems: [], functions: [] } } },
-    importsTo: {},
+    moduleMeta: { 'A.Core': { symbols: {} } },
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -209,10 +201,9 @@ test('validateMapDataObject detects orphaned moduleMeta entries', () => {
     modules: ['A.Core'],
     moduleMap: { 'A.Core': 'A/Core.lean' },
     moduleMeta: {
-      'A.Core': { symbols: { theorems: [], functions: [] } },
-      'A.Ghost': { symbols: { theorems: [], functions: [] } }
+      'A.Core': { symbols: {} },
+      'A.Ghost': { symbols: {} }
     },
-    importsTo: {},
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -302,7 +293,7 @@ test('validateMapDataObject validates the declaration call graph', () => {
   const withGraph = (callGraph, byKind = { theorem: [{ name: 'a', line: 1 }] }) => mapData({
     modules: ['A'],
     moduleMap: { A: 'A.lean' },
-    moduleMeta: { A: { symbols: { theorems: [], functions: [], byKind, callGraph } } },
+    moduleMeta: { A: { symbols: { byKind, callGraph } } },
     importsFrom: { A: [] }
   });
 
@@ -325,7 +316,7 @@ test('validateMapDataObject rejects a snapshot with no call graph at all', () =>
   const errors = validateMapDataObject(mapData({
     modules: ['A'],
     moduleMap: { A: 'A.lean' },
-    moduleMeta: { A: { symbols: { theorems: [], functions: [], byKind: {} } } },
+    moduleMeta: { A: { symbols: { byKind: {} } } },
     importsFrom: { A: [] }
   }));
   // Without it the map still renders modules and imports, so the regression
@@ -345,7 +336,7 @@ test('validateMapDataObject rejects modules outside the published production sco
       'Tests.Smoke': 'tests/Smoke.lean'
     },
     moduleMeta: {
-      'SeLe4n.Kernel.API': { symbols: { theorems: [], functions: [], byKind: {}, callGraph: { a: ['b'] } } },
+      'SeLe4n.Kernel.API': { symbols: { byKind: {}, callGraph: { a: ['b'] } } },
       'SeLe4n.Testing.Helpers': {},
       'Tests.Smoke': {}
     }
@@ -589,4 +580,17 @@ test('validateCrossFile does not read a sibling namespace as a member', () => {
   const errors = validateCrossFile(site, map);
   assert.ok(!errors.some((e) => e.includes('SeLe4n.Kernel.Scheduler')),
     `sibling namespace counted as a member: ${errors.join(' | ')}`);
+});
+
+test('validateMapDataObject rejects the derived indexes the bundle no longer ships', () => {
+  assert.ok(validateMapDataObject(mapData({ importsTo: {} })).some((msg) => msg.includes('importsTo is derived')));
+  const withShortcuts = mapData({
+    modules: ['A'],
+    moduleMap: { A: 'A.lean' },
+    moduleMeta: { A: { symbols: { theorems: [], functions: [], byKind: { def: [{ name: 'f', line: 1 }], lemma: [] } } } }
+  });
+  const errors = validateMapDataObject(withShortcuts);
+  assert.ok(errors.some((msg) => msg.includes('symbols.theorems duplicates byKind')));
+  assert.ok(errors.some((msg) => msg.includes('symbols.functions duplicates byKind')));
+  assert.ok(errors.some((msg) => msg.includes('symbols.byKind.lemma is empty')));
 });

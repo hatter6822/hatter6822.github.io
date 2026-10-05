@@ -425,7 +425,9 @@ export function validateMapDataObject(data) {
   if (!Array.isArray(data.modules)) errors.push('map-data.json: modules must be an array');
   if (!isObject(data.moduleMap)) errors.push('map-data.json: moduleMap must be an object');
   if (!isObject(data.moduleMeta)) errors.push('map-data.json: moduleMeta must be an object');
-  if (!isObject(data.importsTo)) errors.push('map-data.json: importsTo must be an object');
+  // Derived indexes are not shipped: the runtime rebuilds the reverse import
+  // edges from importsFrom, and these two keys were 63 KB of the bundle.
+  if (data.importsTo !== undefined) errors.push('map-data.json: importsTo is derived by the runtime and must not be shipped');
   if (!isObject(data.importsFrom)) errors.push('map-data.json: importsFrom must be an object');
   if (!isObject(data.externalImportsFrom)) errors.push('map-data.json: externalImportsFrom must be an object');
   if (typeof data.commitSha !== 'string') errors.push('map-data.json: commitSha must be a string');
@@ -481,10 +483,6 @@ export function validateMapDataObject(data) {
 
       for (const dep of deps) {
         if (!modulesSet.has(dep)) errors.push(`map-data.json: importsFrom.${moduleName} references unknown module ${dep}`);
-        const reverse = data.importsTo?.[dep];
-        if (!Array.isArray(reverse) || !reverse.includes(moduleName)) {
-          errors.push(`map-data.json: importsTo.${dep} missing reverse edge to ${moduleName}`);
-        }
       }
     }
   }
@@ -501,17 +499,11 @@ export function validateMapDataObject(data) {
 
       if (!isObject(meta.symbols)) continue;
 
+      // The theorem and function shortcuts were exact copies of byKind lists
+      // the runtime derives them from; shipping them again doubles ~1 MB.
       for (const kind of ['theorems', 'functions']) {
-        const entries = meta.symbols[kind];
-        if (!Array.isArray(entries)) {
-          errors.push(`map-data.json: moduleMeta.${moduleName}.symbols.${kind} must be an array`);
-          continue;
-        }
-        for (const entry of entries) {
-          if (!isValidSymbolEntry(entry)) {
-            errors.push(`map-data.json: invalid symbol entry in moduleMeta.${moduleName}.symbols.${kind}`);
-            break;
-          }
+        if (meta.symbols[kind] !== undefined) {
+          errors.push(`map-data.json: moduleMeta.${moduleName}.symbols.${kind} duplicates byKind and must not be shipped`);
         }
       }
 
@@ -522,6 +514,10 @@ export function validateMapDataObject(data) {
           for (const [kind, entries] of Object.entries(meta.symbols.byKind)) {
             if (!Array.isArray(entries)) {
               errors.push(`map-data.json: moduleMeta.${moduleName}.symbols.byKind.${kind} must be an array`);
+              continue;
+            }
+            if (!entries.length) {
+              errors.push(`map-data.json: moduleMeta.${moduleName}.symbols.byKind.${kind} is empty; omit kinds a module does not declare`);
               continue;
             }
             for (const entry of entries) {

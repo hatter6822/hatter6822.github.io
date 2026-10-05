@@ -1028,6 +1028,18 @@ Set against what it replaces, the trade is favourable: 262 KB gzipped bundled,
 versus a 574 KB gzipped live fetch that only arrived after page load and not at
 all offline.
 
+### Derived copies are no longer shipped
+
+The snapshot used to carry three things the runtime can derive and in every
+case did derive: `symbols.theorems` and `symbols.functions` (exact, ordered
+copies of `byKind.theorem`+`lemma` and `byKind.def`+`abbrev`+`opaque`+`instance`),
+`importsTo` (the runtime rebuilds reverse edges from `importsFrom`), and an
+empty `byKind` array for each of ~40 interior kinds a module does not declare
+(12,198 of them). `symbolsFromDeclarations` no longer emits them, and
+`validate-data.mjs` rejects each so they cannot come back. At 96f442d the
+bundle went from 6,759,050 to 5,458,509 bytes raw and from 679 KB to 632 KB
+gzipped (level 6), with the remaining content byte-for-byte equivalent.
+
 ### Two details the data forced
 
 - **The graph is keyed by the recovered names.** Call-graph keys and symbol-list

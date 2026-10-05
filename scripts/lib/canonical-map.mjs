@@ -286,8 +286,8 @@ export function resolveDeclarationName(declaration, sourceLine) {
 
 /**
  * Project a module's declarations into the shape the code map renders: one
- * array per interior kind, the theorem and function shortcuts, and the
- * declaration call graph.
+ * array per interior kind the module declares, and the declaration call
+ * graph.
  *
  * `sourceText` is the module's own Lean source, used only to recover truncated
  * identifiers; the declaration set itself always comes from the artifact.
@@ -355,12 +355,17 @@ export function symbolsFromDeclarations(declarations, sourceText) {
     if (called.length) callGraph[name] = called;
   }
 
-  return {
-    byKind,
-    theorems: [...byKind.theorem, ...byKind.lemma],
-    functions: [...byKind.def, ...byKind.abbrev, ...byKind.opaque, ...byKind.instance],
-    callGraph
-  };
+  // Only the kinds a module actually declares are shipped. An empty bucket
+  // for each of the ~40 interior kinds was 12,198 empty arrays in the bundle;
+  // the runtime fills every kind it groups whether or not the key is present.
+  for (const kind of Object.keys(byKind)) {
+    if (!byKind[kind].length) delete byKind[kind];
+  }
+
+  // No `theorems` / `functions` shortcuts: they were exact, ordered copies of
+  // byKind.theorem+lemma and byKind.def+abbrev+opaque+instance (about 1 MB of
+  // the bundle), and the runtime derives the same lists from byKind.
+  return { byKind, callGraph };
 }
 
 /**
