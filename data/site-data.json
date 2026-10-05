@@ -197,14 +197,14 @@
       "timerTick": 444
     }
   },
-  "sourceAnchorRef": "03d2f01f5d2ca3934465c4f8fda8ee4542baa952",
-  "commitSha": "03d2f01",
-  "updatedAt": "2026-10-05T07:41:25.000Z",
+  "sourceAnchorRef": "5e01b150ed05db53763c283d05ee681bac90242d",
+  "commitSha": "5e01b15",
+  "updatedAt": "2026-10-05T08:10:48.000Z",
   "sourceRepo": "hatter6822/seLe4n",
   "sourceRef": "main",
   "metricsSource": "docs/codebase_map.json",
   "metricsScope": "production",
   "schemaVersion": "2.0.0",
   "sourceDigest": "00a9a0d299a2d195b8fc70832dafc6e8b855c114dcf4e7af2e8d9a9382ba4fbd",
-  "generatedAt": "2026-10-05T07:44:48.431Z"
+  "generatedAt": "2026-10-05T08:11:09.766Z"
 }
