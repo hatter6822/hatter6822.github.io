@@ -1,9 +1,9 @@
 {
-  "version": "0.36.41",
+  "version": "0.36.45",
   "leanVersion": "4.28.0",
-  "modules": 345,
-  "lines": "423,536",
-  "theorems": 14295,
+  "modules": 346,
+  "lines": "423,625",
+  "theorems": 14305,
   "syscalls": 41,
   "externs": 85,
   "niSteps": 35,
@@ -11,8 +11,8 @@
   "enforcementOps": 52,
   "enforcementOpsPerCore": 67,
   "frozenSyscalls": 18,
-  "scripts": 73,
-  "docs": 255,
+  "scripts": 71,
+  "docs": 252,
   "admitted": 0,
   "subsystems": {
     "scheduler": {
@@ -64,8 +64,8 @@
       "theorems": 218
     },
     "concurrency": {
-      "modules": 35,
-      "theorems": 1505
+      "modules": 36,
+      "theorems": 1508
     },
     "information-flow": {
       "modules": 24,
@@ -73,7 +73,7 @@
     },
     "architecture": {
       "modules": 41,
-      "theorems": 1270
+      "theorems": 1273
     },
     "register-decode": {
       "modules": 1,
@@ -113,7 +113,7 @@
     },
     "model": {
       "modules": 14,
-      "theorems": 812
+      "theorems": 814
     },
     "model-object": {
       "modules": 7,
@@ -145,14 +145,14 @@
       "apiInvariantBundle": 151
     },
     "SeLe4n/Model/Object/Types.lean": {
-      "CdtNodeId": 676,
-      "TCB": 966,
-      "Endpoint": 2041,
-      "Notification": 2087,
-      "CNode": 2155,
-      "Untyped": 2193,
-      "Capability": 443,
-      "AccessRightSet": 114
+      "CdtNodeId": 680,
+      "TCB": 970,
+      "Endpoint": 2045,
+      "Notification": 2091,
+      "CNode": 2159,
+      "Untyped": 2197,
+      "Capability": 447,
+      "AccessRightSet": 118
     },
     "SeLe4n/Machine.lean": {
       "RegName": 26
@@ -197,14 +197,14 @@
       "timerTick": 444
     }
   },
-  "sourceAnchorRef": "96f442d7c1bb2407651081258145d4335bb4e6cb",
-  "commitSha": "96f442d",
-  "updatedAt": "2026-09-29T21:28:36.000Z",
+  "sourceAnchorRef": "03d2f01f5d2ca3934465c4f8fda8ee4542baa952",
+  "commitSha": "03d2f01",
+  "updatedAt": "2026-10-05T07:41:25.000Z",
   "sourceRepo": "hatter6822/seLe4n",
   "sourceRef": "main",
   "metricsSource": "docs/codebase_map.json",
   "metricsScope": "production",
-  "schemaVersion": "1.0.0",
-  "sourceDigest": "1c9a786408c8c3b5ff2000951687a0bcbb38cafda220571d4aace09783f7c285",
-  "generatedAt": "2026-10-05T04:09:30.638Z"
+  "schemaVersion": "2.0.0",
+  "sourceDigest": "00a9a0d299a2d195b8fc70832dafc6e8b855c114dcf4e7af2e8d9a9382ba4fbd",
+  "generatedAt": "2026-10-05T07:44:48.431Z"
 }

@@ -227,7 +227,7 @@ and clear of the declaration's name (an overflow check cannot see generated
 content, which is how a chip painted across the row's corner survived a
 release), and the open search listbox's rows must carry no marker and keep
 their own inset. It also opens `SystemState`, the densest declaration in the
-kernel (10,374 callers): the closed lanes must state their size and draw a
+kernel (10,712 callers): the closed lanes must state their size and draw a
 summary, opening a caller subsystem, a module and every page there is must
 stay inside `DECL_LANE_NODE_BUDGET` (read from `map.js`) and end in a "not
 drawn" note, no task may run 1.5 s or longer, and the lane filter must keep

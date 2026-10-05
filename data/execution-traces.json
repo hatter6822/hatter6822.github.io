@@ -3,7 +3,7 @@
   "source": "fixture",
   "generator": "hand-authored-reference-fixture",
   "disclaimer": "Reference fixture in the simulator trace schema (v2). The scenarios are written by hand, but every function, theorem, predicate, right and error they name is the kernel's own: the sync resolves each declaration in the pinned seLe4n checkout and fails if one is missing. The kernel does not yet export JSON traces; when it does (source == \"kernel\"), steps become a replay of a real run.",
-  "kernelVersion": "0.36.41",
+  "kernelVersion": "0.36.45",
   "leanToolchain": "4.28.0",
   "generatedAt": "2026-10-05T03:08:30Z",
   "propertyCatalog": [
@@ -5285,6 +5285,6 @@
       ]
     }
   ],
-  "sourceRef": "96f442d7c1bb2407651081258145d4335bb4e6cb",
-  "kernelCommit": "96f442d"
+  "sourceRef": "03d2f01f5d2ca3934465c4f8fda8ee4542baa952",
+  "kernelCommit": "03d2f01"
 }

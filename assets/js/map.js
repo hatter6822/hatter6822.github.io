@@ -303,6 +303,7 @@
     declarationGraph: Object.create(null),
     declarationReverseGraph: Object.create(null),
     declarationReverseModules: Object.create(null),
+    declarationReverseTargets: Object.create(null),
     /* "ready" once the call graph is in moduleMeta (inline in the snapshot,
        or merged from CALLGRAPH_ENDPOINT); "idle", "loading" or "failed"
        otherwise. */
@@ -1211,9 +1212,9 @@
 
   /* The module a bare name refers to when written in `contextModule`: its own
      declaration first, then one in a module it imports directly, then the
-     first module that declares the name. A call target is recorded
-     unqualified, so this is how a callee is placed and how a caller is
-     attributed to the right declaration. */
+     first module that declares the name. The snapshot writes a call target
+     bare only when this places it exactly (`callTargetRef`); it remains the
+     reading for a name with no module beside it. */
   function resolveDeclarationModule(declName, contextModule) {
     if (contextModule && declarationExistsIn(declName, contextModule)) return contextModule;
     var candidates = state.declarationModulesByName ? state.declarationModulesByName[declName] : null;
@@ -1225,6 +1226,17 @@
     }
     if (candidates && candidates.length) return candidates[0];
     return declarationModuleOf(declName);
+  }
+
+  /* A call target as the snapshot writes it. The sync resolved every target
+     upstream, by full name, the way Lean does, and writes it bare when the
+     name alone places it (the caller's own module, or the one module that
+     lists the name), else as `Module#name`. `#` occurs in no Lean name. */
+  function callTargetRef(target, callerModule) {
+    var text = String(target || "");
+    var hash = text.indexOf("#");
+    if (hash > 0) return { name: text.slice(hash + 1), module: text.slice(0, hash) };
+    return { name: text, module: resolveDeclarationModule(text, callerModule) };
   }
 
   function declarationCalls(declName, moduleName) {
@@ -1243,14 +1255,14 @@
      the callers whose bare reference resolves to that module's declaration.
 
      Memoized: the declaration chart asks for every lane node's own caller
-     count, and a hub like `SystemState` has 10,374 callers, each resolved
+     count, and a hub like `SystemState` has 10,712 callers, each resolved
      through the importing module. The memo is keyed by the indexes it reads,
      so replacing any of them (a call-graph load, a new snapshot) starts it
      afresh. Callers get a copy; the memo is never handed out. */
   var callerRefsMemo = { deps: [], entries: Object.create(null) };
 
   function callerRefsDeps() {
-    return [state.declarationReverseGraph, state.declarationReverseModules, state.declarationModulesByName,
+    return [state.declarationReverseGraph, state.declarationReverseModules, state.declarationReverseTargets, state.declarationModulesByName,
       state.declarationGraph, state.declarationIndex, state.declarationsByModule, state.importsFrom];
   }
 
@@ -1270,9 +1282,11 @@
     var reverse = state.declarationReverseGraph[declName];
     if (Array.isArray(reverse)) {
       var modules = state.declarationReverseModules ? state.declarationReverseModules[declName] : null;
+      var targets = state.declarationReverseTargets ? state.declarationReverseTargets[declName] : null;
       for (var i = 0; i < reverse.length; i++) {
         var callerModule = modules && modules[i] ? modules[i] : declarationModuleOf(reverse[i]);
-        if (moduleName && resolveDeclarationModule(declName, callerModule) !== moduleName) continue;
+        var targetModule = targets && targets[i] ? targets[i] : resolveDeclarationModule(declName, callerModule);
+        if (moduleName && targetModule !== moduleName) continue;
         out.push({ name: reverse[i], module: callerModule });
       }
     }
@@ -1288,14 +1302,11 @@
     return declarationCallerRefsShared(declName, moduleName).length;
   }
 
-  /* The callees of `declName` in `moduleName`, each placed by the module the
-     bare reference resolves to from there. */
+  /* The callees of `declName` in `moduleName`, each placed by its target. */
   function declarationCalleeRefs(declName, moduleName) {
     var calls = declarationCalls(declName, moduleName);
     var out = [];
-    for (var i = 0; i < calls.length; i++) {
-      out.push({ name: calls[i], module: resolveDeclarationModule(calls[i], moduleName) });
-    }
+    for (var i = 0; i < calls.length; i++) out.push(callTargetRef(calls[i], moduleName));
     return out;
   }
 
@@ -1402,7 +1413,7 @@
 
   /* ── Dense declaration lanes ───────────────────────────────────────────
      A hub declaration has thousands of neighbours (`SystemState` is called by
-     10,374 declarations in 221 modules), and drawing them all built a
+     10,712 declarations in 223 modules), and drawing them all built a
      974,000px-tall chart of 160,000 elements behind a 3.4 s freeze. A lane is
      therefore a bounded tree instead of a list:
 
@@ -5307,14 +5318,13 @@
     }
   }
 
-  /* A declaration is identified by its module and its name together. The
-     artifact records short names, so one name can be declared in several
-     modules (`leaves` in BarrierComposition and in TlbCacheComposition, 171
-     names in the current snapshot); the name-keyed `declarationIndex` keeps
-     the first module's entry for callers that know no module, and
-     `declarationsByModule` answers for a named one. Collisions inside one
-     module still collapse, as the data records them (see ARCHITECTURE.md,
-     "Two details the data forced"). */
+  /* A declaration is identified by its module and its name together. A name
+     is listed as written, relative to its namespace, so one name can be
+     declared in several modules (`leaves` in BarrierComposition and in
+     TlbCacheComposition, 117 names in the current snapshot); the name-keyed
+     `declarationIndex` keeps the first module's entry for callers that know
+     no module, and `declarationsByModule` answers for a named one. Inside one
+     module the sync makes every listed name unique. */
   function buildDeclarationIndexes(moduleMeta, moduleNames) {
     var declarationIndex = Object.create(null);
     var declarationsByModule = Object.create(null);
@@ -5352,12 +5362,15 @@
      wins, as it always has); the module-aware lookups read each module's own
      `symbols.callGraph`. The reverse graph lists every caller of a name with
      the caller's module beside it (`declarationReverseModules`, index for
-     index), so the callers of one module's `leaves` can be told apart from
-     the callers of another's. */
+     index), and the module a `Module#name` target names
+     (`declarationReverseTargets`, "" for a bare target, which is placed from
+     the caller's module on lookup), so the callers of one module's `leaves`
+     can be told apart from the callers of another's. */
   function buildCallGraphIndexes(moduleMeta, moduleNames) {
     var graph = Object.create(null);
     var reverse = Object.create(null);
     var reverseModules = Object.create(null);
+    var reverseTargets = Object.create(null);
     for (var m = 0; m < moduleNames.length; m++) {
       var moduleName = moduleNames[m];
       var meta = moduleMeta[moduleName];
@@ -5369,17 +5382,26 @@
         if (!Array.isArray(calls)) continue;
         graph[caller] = { module: moduleName, calls: calls };
         for (var c = 0; c < calls.length; c++) {
-          var target = calls[c];
+          var text = String(calls[c] || "");
+          var hash = text.indexOf("#");
+          var target = hash > 0 ? text.slice(hash + 1) : text;
           if (!reverse[target]) {
             reverse[target] = [];
             reverseModules[target] = [];
+            reverseTargets[target] = [];
           }
           reverse[target].push(caller);
           reverseModules[target].push(moduleName);
+          reverseTargets[target].push(hash > 0 ? text.slice(0, hash) : "");
         }
       }
     }
-    return { declarationGraph: graph, declarationReverseGraph: reverse, declarationReverseModules: reverseModules };
+    return {
+      declarationGraph: graph,
+      declarationReverseGraph: reverse,
+      declarationReverseModules: reverseModules,
+      declarationReverseTargets: reverseTargets
+    };
   }
 
   function normalizeMapData(data, options) {
@@ -5618,6 +5640,7 @@
       declarationGraph: callGraphIndexes.declarationGraph,
       declarationReverseGraph: callGraphIndexes.declarationReverseGraph,
       declarationReverseModules: callGraphIndexes.declarationReverseModules,
+      declarationReverseTargets: callGraphIndexes.declarationReverseTargets,
       declarationIndex: declarationIndexes.declarationIndex,
       declarationsByModule: declarationIndexes.declarationsByModule,
       declarationModulesByName: declarationIndexes.declarationModulesByName,
@@ -5674,6 +5697,7 @@
     state.declarationGraph = indexes.declarationGraph;
     state.declarationReverseGraph = indexes.declarationReverseGraph;
     state.declarationReverseModules = indexes.declarationReverseModules;
+    state.declarationReverseTargets = indexes.declarationReverseTargets;
     return "";
   }
 
@@ -5721,6 +5745,7 @@
     state.declarationGraph = data.declarationGraph || Object.create(null);
     state.declarationReverseGraph = data.declarationReverseGraph || Object.create(null);
     state.declarationReverseModules = data.declarationReverseModules || Object.create(null);
+    state.declarationReverseTargets = data.declarationReverseTargets || Object.create(null);
     state.declarationIndex = data.declarationIndex || Object.create(null);
     state.declarationsByModule = data.declarationsByModule || Object.create(null);
     state.declarationModulesByName = data.declarationModulesByName || Object.create(null);
@@ -6883,6 +6908,7 @@
         if (patch.declarationReverseGraph) {
           state.declarationReverseGraph = patch.declarationReverseGraph;
           state.declarationReverseModules = patch.declarationReverseModules || null;
+          state.declarationReverseTargets = patch.declarationReverseTargets || null;
         }
         if (patch.declarationIndex) {
           state.declarationIndex = patch.declarationIndex;

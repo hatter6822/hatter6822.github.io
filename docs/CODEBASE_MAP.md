@@ -115,11 +115,18 @@ It is refused unless it names the snapshot's commit; while it loads, or if it
 fails, the declaration view says so instead of claiming the declaration has no
 calls.
 
+Each call target is resolved upstream: the artifact (schema 2.x) records it by
+full name, resolved the way Lean resolves names. The sync places it on the
+module and listed name the map shows and writes it bare when that name alone
+places it (the caller's own module, or the one module that lists it), else as
+`Module#name`. The runtime never guesses between same-named declarations.
+
 `site-data.json`, `map-data.json` and `map-callgraph.json` record the same
 `commitSha` and `sourceDigest`; `validate-data.mjs` fails when they disagree,
 when the first two disagree on module or theorem totals, when the call graph is
-missing entirely, or when a call-graph caller is not a declaration of its
-module in `map-data.json`. See
+missing entirely, when a call-graph caller is not a declaration of its
+module in `map-data.json`, or when a call target lands on no listed
+declaration or on several. See
 `docs/ARCHITECTURE.md` §"One pipeline, one revision".
 
 The steps below describe the **runtime** in `assets/js/map.js`, which renders
@@ -182,8 +189,8 @@ the bundled snapshot and nothing else (`connect-src 'self'`).
 
 ### Dense declaration lanes
 
-Hub declarations have thousands of neighbours (`SystemState`: 10,374 callers
-in 221 modules), so a declaration lane is built by `buildDeclarationLane`:
+Hub declarations have thousands of neighbours (`SystemState`: 10,712 callers
+in 223 modules), so a declaration lane is built by `buildDeclarationLane`:
 
 - **≤ 12 matches** — every declaration, flat, in call order.
 - **≤ 12 modules** — one group per module, the selected declaration's module

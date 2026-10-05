@@ -1033,6 +1033,24 @@ test('caller lookups are memoized per snapshot and never hand out the memo', asy
   assert.equal(hooks.declarationCallerCount('hub', 'A'), 1, 'a new reverse graph starts the memo afresh');
 });
 
+/* The sync resolves every call target upstream, by full name, and writes
+   `Module#name` where the bare name would not place it. The import heuristic
+   would put C's call in B (which C imports); the target says A. */
+test('a qualified call target is placed on the module it names, both ways', async () => {
+  const hooks = await loadMapTestHooks();
+  hooks.applyTestState(hooks.normalizeMapData({
+    modules: [
+      { module: 'A', path: 'A.lean', declarations: [{ kind: 'def', name: 'hub', line: 1, called: [] }, { kind: 'def', name: 'x', line: 2, called: ['hub'] }] },
+      { module: 'B', path: 'B.lean', declarations: [{ kind: 'def', name: 'hub', line: 1, called: [] }, { kind: 'def', name: 'y', line: 2, called: ['A#hub'] }, { kind: 'def', name: 'z', line: 3, called: ['hub'] }] },
+      { module: 'C', path: 'C.lean', imports: ['B'], declarations: [{ kind: 'def', name: 'w', line: 1, called: ['A#hub'] }] }
+    ]
+  }));
+  assert.deepEqual(local(hooks.declarationCalleeRefs('w', 'C')), [{ name: 'hub', module: 'A' }]);
+  assert.deepEqual(local(hooks.declarationCalleeRefs('z', 'B')), [{ name: 'hub', module: 'B' }]);
+  assert.deepEqual(local(hooks.declarationCallerRefs('hub', 'A').map((r) => `${r.module}.${r.name}`)).sort(), ['A.x', 'B.y', 'C.w']);
+  assert.deepEqual(local(hooks.declarationCallerRefs('hub', 'B').map((r) => `${r.module}.${r.name}`)), ['B.z']);
+});
+
 test('assuranceForModule returns correct levels based on proof pair state', async () => {
   const hooks = await loadMapTestHooks();
 

@@ -1054,6 +1054,10 @@ digest has already proved the checkout is the artifact's corpus, the pipeline
 reads each identifier back from its own source line, adopting the result only
 when it *extends* the recorded name.
 
+*Later (schema 2.0.0):* the generator reads Lean by tokens and records every
+name whole, with its `full_name`, so the read-back is gone. See "The artifact
+reads Lean by tokens" below.
+
 ### `Main` versus `main`
 
 `Main.lean` is the kernel entry module and part of the canonical production
@@ -1153,6 +1157,9 @@ graph's own encoding.
   reverse graph, and resolves a bare call target from the calling module (own
   declaration, then a direct import, then the first declarer). Collisions
   inside one module still collapse, as the data records them.
+  *Later (schema 2.0.0):* neither collapses. `called` names full names, so
+  the sync places every target exactly and the listed names are unique per
+  module — see "The artifact reads Lean by tokens".
 
 ## Production scope narrowed to the kernel (0.30.0)
 
@@ -1937,3 +1944,51 @@ is stops at 161 nodes with no task over ~110 ms. `map-runtime.test.mjs` pins
 the tree's shape, paging, budget accounting and filter; `map-smoke.mjs`
 drives the real page through the same steps and reads the budget from
 `map.js` rather than restating it.
+
+## The artifact reads Lean by tokens
+
+seLe4n's `scripts/generate_codebase_map.py` read declarations with per-line
+regexes and recorded each call as a bare identifier. Measured against Lean's
+own environment (every production constant's `declRangeExt` and
+`getUsedConstantsAsSet`, dumped from the compiled `.olean`s), it filed 1,075
+of 19,408 production declarations under a wrong name, listed 478 `namespace`,
+`section` and `variable` commands as declarations, and 22% of its call edges
+were not references: a short name matched every declaration of that name in
+every namespace, a bound variable matched a declaration sharing its name, and
+`x?` matched `x`. The map inherited all of it, and its import heuristic for
+placing a bare target could only guess among the wrong candidates.
+
+Schema 2.0.0 (seLe4n `scripts/lean_declarations.py`) lexes Lean, tracks
+`namespace`/`section`/`open`/`mutual` scopes and resolves each reference the
+way Lean does: innermost namespace first, then the opens, `_root_`, private
+names only in their own module, everything else through the import closure.
+Each declaration carries `name` (as written, relative to its namespace) and
+`full_name`; `called` lists full names, plus `sorryAx` for a `sorry`; a
+private declaration carries `private: true`. Against the same environment:
+19,309 of 19,408 declarations under their exact full name (95 anonymous
+instances left unnamed, 4 macro-generated), call-edge precision 77.8% → 99.0%,
+true edges found 122,585 → 134,842.
+
+What the site does with it:
+
+- **`canonicalMetricsIssues` refuses a 1.x artifact.** Its `called` means
+  something else, and reading it as full names would drop every edge.
+- **Listed names are unique per module.** `siteDeclarationNames()` keeps the
+  bare name for the outermost of a colliding group and widens the rest by
+  namespace segments of their `full_name`. The 1.x data collapsed 289
+  production declarations onto shared keys, losing their calls.
+- **Targets are placed by the sync, not guessed by the runtime.**
+  `declarationIndexFromModules()` maps each full name to its module and listed
+  name (a private one to the caller's own), and `encodeCallTarget()` writes it
+  bare when the name alone places it, else `Module#name`. The runtime's
+  `callTargetRef()` reads that back; the reverse graph records the named
+  module beside each caller (`declarationReverseTargets`). `validateCrossFile`
+  fails on a target that lands on no listed declaration, or on a bare one two
+  other modules list.
+- **The resolveDeclarationName read-back is gone**: no name is truncated any
+  more.
+
+On the bundle: 19,046 listed declarations (was 19,509, of which 471 were
+scope commands), 134,919 call edges (was 161,737), 1,983 of them qualified.
+`SystemState` has 10,712 callers in 223 modules. The call graph is 360 KB
+gzipped (was 379 KB).

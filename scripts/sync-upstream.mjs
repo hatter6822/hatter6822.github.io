@@ -54,6 +54,7 @@ import {
   productionLocReproduction,
   canonicalSourceDigest,
   canonicalSourcePaths,
+  declarationIndexFromModules,
   externBridgeSize,
   syscallSurfaceSize,
   nonInterferenceCoverage,
@@ -466,6 +467,9 @@ function buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors) {
  */
 function buildMapData(codebaseMap, head, sourceDigest, work) {
   const modules = productionModules(codebaseMap);
+  // Call targets are full names; the index places each one on the module
+  // and listed name the map shows it under.
+  const declarationIndex = declarationIndexFromModules(modules);
 
   const moduleMap = Object.create(null);
   const moduleMeta = Object.create(null);
@@ -509,7 +513,7 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
       kind: moduleKind(name),
       base: moduleBase(name),
       theorems: theoremDeclarationCount(moduleInfo.declarations),
-      symbols: symbolsFromDeclarations(moduleInfo.declarations, source)
+      symbols: symbolsFromDeclarations(moduleInfo.declarations, name, declarationIndex)
     };
   }
 

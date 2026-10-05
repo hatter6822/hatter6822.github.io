@@ -364,7 +364,7 @@ scope toggle. Production code is the subject in every scope.
   is "in-repo · library root", `SeLe4n.Testing.*` is "in-repo · outside
   production scope", everything else "external dependency".
 - **A declaration lane is a bounded tree, never "show all".** `SystemState`
-  has 10,374 callers; drawing them built a 974,000px chart in one 3.4 s task.
+  has 10,712 callers; drawing them built a 974,000px chart in one 3.4 s task.
   `buildDeclarationLane` draws ≤ 12 matches flat, then groups by module (≤ 12
   modules) or by subsystem, the selected declaration's own module hoisted
   first; a group opens onto pages of `DECL_LANE_PAGE`, and no lane draws more
@@ -527,7 +527,7 @@ scope toggle. Production code is the subject in every scope.
   snapshot's commit, both themes, a Spanish deep link, a locale held back until after the
   snapshot paints, the scope toggle end to end, the boundary band's direction,
   crossing into the other language, a Rust deep link, tappable scope options on
-  a phone, nothing clipped in the sidebar, and `SystemState`'s 10,374 callers
+  a phone, nothing clipped in the sidebar, and `SystemState`'s 10,712 callers
   staying inside the declaration lanes' node budget). `.github/workflows/ci.yml` runs
   it with the runner's Chrome on every push. A layout guarantee the docs make
   gets a probe assertion.
@@ -747,18 +747,32 @@ invariants it preserves). Its data is `data/execution-traces.json`, schema
   and empty `byKind` arrays are rebuilt by the runtime and rejected by
   `validate-data.mjs`
 - Reverse import edges (`importsTo`) are always rebuilt from `importsFrom`
-- **A declaration is its module and its name.** The artifact records short
-  names, and 171 of them are declared in more than one module (`leaves` in
-  both `BarrierComposition` and `TlbCacheComposition`). The name-keyed
-  indexes (`declarationGraph`, `declarationIndex`, `declarationReverseGraph`)
-  stay for callers that know no module; everything that does — the URL's
-  `module=` beside `decl=`, a sidebar row, a lane node — asks the module-aware
-  lookups (`declarationEntryIn`, `declarationCalls(name, module)`,
-  `declarationCallerRefs`, `declarationCalleeRefs`). A bare call target is
-  placed by `resolveDeclarationModule()`: the calling module's own
-  declaration, then one in a module it imports, then the first declarer. A
-  deep link to a colliding name once switched the chart to the other module
-  and quoted the first module's line for it.
+- **A declaration is its module and its name.** A declaration is listed under
+  the name it is written with, relative to its namespace, and 117 such names
+  are declared in more than one module (`leaves` in both `BarrierComposition`
+  and `TlbCacheComposition`). The name-keyed indexes (`declarationGraph`,
+  `declarationIndex`, `declarationReverseGraph`) stay for callers that know no
+  module; everything that does — the URL's `module=` beside `decl=`, a sidebar
+  row, a lane node — asks the module-aware lookups (`declarationEntryIn`,
+  `declarationCalls(name, module)`, `declarationCallerRefs`,
+  `declarationCalleeRefs`). A deep link to a colliding name once switched the
+  chart to the other module and quoted the first module's line for it.
+- **Inside one module a listed name is unique.** `siteDeclarationNames()`
+  keeps the bare name for the outermost of a colliding group (`ipcInvariant`)
+  and widens the others by namespace segments of their `full_name`
+  (`ipcInvariantFull.ipcInvariant`) — 289 declarations collapsed onto shared
+  keys before. Every listed name is still a suffix of the full name.
+- **Call targets are resolved upstream, never guessed here.** The artifact
+  (schema 2.x, `CANONICAL_SCHEMA_MAJOR`; a 1.x artifact is refused) records
+  each target by full name, resolved the way Lean resolves names, and marks
+  `private` declarations — 13 private full names repeat across modules, and a
+  private target is the caller's own. The sync places each target on a listed
+  declaration and writes it bare when the name alone places it (the caller's
+  own module, or the one module that lists it), else `Module#name`;
+  `callTargetRef()` reads it back and `validateCrossFile` fails on a target
+  that lands on no declaration or on several. `resolveDeclarationModule()`'s
+  import heuristic only ever sees names that are unambiguous. Targets outside
+  the production inventory (the testing framework, `sorryAx`) are dropped.
 
 ### CSS override weight (media queries add no specificity)
 

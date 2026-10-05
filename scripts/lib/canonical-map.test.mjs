@@ -21,6 +21,7 @@ import {
   canonicalSourcePaths,
   compareCanonicalPaths,
   crossCoreNonInterferenceCount,
+  declarationIndexFromModules,
   enforcementBoundarySize,
   excludedFrameworkModules,
   isArtifactProductionModule,
@@ -28,7 +29,7 @@ import {
   nonInterferenceCoverage,
   productionLocReproduction,
   productionModules,
-  resolveDeclarationName,
+  siteDeclarationNames,
   siteMetricsFromCodebaseMap,
   subsystemMetricsFromCodebaseMap,
   subsystemNamespaces,
@@ -45,10 +46,10 @@ import {
  */
 const plain = (value) => ({ ...value });
 
-/** A faithful miniature of docs/codebase_map.json at schema_version 1.0.0. */
+/** A faithful miniature of docs/codebase_map.json at schema_version 2.0.0. */
 function canonicalMap(overrides = {}) {
   return {
-    schema_version: '1.0.0',
+    schema_version: '2.0.0',
     repository: {
       name: 'hatter6822/seLe4n',
       head: {
@@ -76,24 +77,24 @@ function canonicalMap(overrides = {}) {
       {
         module: 'SeLe4n.Kernel.API',
         path: 'SeLe4n/Kernel/API.lean',
-        declaration_count: 3,
+        declaration_count: 2,
         declarations: [
-          { kind: 'theorem', name: 'apiInvariantBundle_default', line: 155, called: ['default'] },
-          { kind: 'def', name: 'dispatch', line: 200, called: [] },
-          { kind: 'namespace', name: 'SeLe4n.Kernel', line: 141, called: [] }
+          { kind: 'theorem', name: 'apiInvariantBundle_default', full_name: 'SeLe4n.Kernel.apiInvariantBundle_default',
+            line: 155, called: ['SeLe4n.Kernel.dispatch'] },
+          { kind: 'def', name: 'dispatch', full_name: 'SeLe4n.Kernel.dispatch', line: 200, called: [] }
         ]
       },
       {
         module: 'Main',
         path: 'Main.lean',
         declaration_count: 1,
-        declarations: [{ kind: 'def', name: 'main', line: 10, called: [] }]
+        declarations: [{ kind: 'def', name: 'main', full_name: 'main', line: 10, called: [] }]
       },
       {
         module: 'Tests.Smoke',
         path: 'tests/Smoke.lean',
         declaration_count: 1,
-        declarations: [{ kind: 'theorem', name: 'smoke', line: 5, called: [] }]
+        declarations: [{ kind: 'theorem', name: 'smoke', full_name: 'Tests.smoke', line: 5, called: [] }]
       }
     ],
     ...overrides
@@ -348,127 +349,79 @@ test('canonicalSourceDigest hashes path and bytes with NUL separators', () => {
   assert.equal(digest, expected.digest('hex'));
 });
 
-test('resolveDeclarationName recovers identifiers the artifact truncates', () => {
-  // _extract_names splits the head at the first ":" and drops "?", so distinct
-  // theorems collapse onto one recorded name.
-  assert.equal(
-    resolveDeclarationName({ kind: 'theorem', name: 'ofErrorLabel', line: 1026 },
-      'theorem ofErrorLabel?_zero : ofErrorLabel? 0 = none := by'),
-    'ofErrorLabel?_zero'
-  );
-  assert.equal(
-    resolveDeclarationName({ kind: 'theorem', name: 'ofErrorLabel', line: 1033 },
-      'theorem ofErrorLabel?_none_of_lt_base (label : Nat) :'),
-    'ofErrorLabel?_none_of_lt_base'
-  );
-  assert.equal(
-    resolveDeclarationName({ kind: 'theorem', name: 'foo', line: 1 }, '@[simp] theorem foo_bar : True := trivial'),
-    'foo_bar'
-  );
+test('siteDeclarationNames lists the declared name and widens only collisions', () => {
+  // `name` is relative to the namespace; a module that declares one name
+  // twice keeps the bare name for the outermost declaration and widens the
+  // nested one, which is what the bare name means in Lean.
+  assert.deepEqual(siteDeclarationNames([
+    { kind: 'def', name: 'ipcInvariant', full_name: 'SeLe4n.Kernel.ipcInvariant', line: 868 },
+    { kind: 'theorem', name: 'ipcInvariant', full_name: 'SeLe4n.Kernel.ipcInvariantFull.ipcInvariant', line: 6223 },
+    { kind: 'theorem', name: 'ipcInvariant', full_name: 'SeLe4n.Kernel.ipcInvariantCore.ipcInvariant', line: 6329 },
+    { kind: 'theorem', name: 'RHTable.get?_zero', full_name: 'SeLe4n.RHTable.get?_zero', line: 9 }
+  ]), ['ipcInvariant', 'ipcInvariantFull.ipcInvariant', 'ipcInvariantCore.ipcInvariant', 'RHTable.get?_zero']);
+
+  // Two at the same depth are both widened; an anonymous one is `<kind@Lline>`.
+  assert.deepEqual(siteDeclarationNames([
+    { kind: 'theorem', name: 'refl', full_name: 'A.Left.refl', line: 1 },
+    { kind: 'theorem', name: 'refl', full_name: 'A.Right.refl', line: 2 },
+    { kind: 'example', name: '', full_name: null, line: 3 }
+  ]), ['Left.refl', 'Right.refl', '<example@L3>']);
 });
 
-test('resolveDeclarationName only ever extends the recorded name', () => {
-  // A line it cannot re-parse, or a different name, must leave the record alone.
-  assert.equal(resolveDeclarationName({ kind: 'theorem', name: 'foo', line: 1 }, 'theorem bar : True'), 'foo');
-  assert.equal(resolveDeclarationName({ kind: 'theorem', name: 'foo', line: 1 }, ''), 'foo');
-  assert.equal(resolveDeclarationName({ kind: 'theorem', name: 'foo', line: 1 }, undefined), 'foo');
-  // Multi-name declarations record one entry per name; the line yields only the
-  // first, which extends neither of the others.
-  assert.equal(resolveDeclarationName({ kind: 'variable', name: 'y', line: 1 }, 'variable x y z'), 'y');
-  assert.equal(resolveDeclarationName({ kind: 'variable', name: 'x', line: 1 }, 'variable x y z'), 'x');
-});
+/** A two-module inventory: `leaves` is declared in both, `helper` is private in both. */
+function callFixture() {
+  return [
+    {
+      module: 'M.Barrier',
+      declarations: [
+        { kind: 'def', name: 'leaves', full_name: 'M.leaves', line: 1, called: [] },
+        { kind: 'def', name: 'helper', full_name: 'M.helper', line: 2, called: [], private: true },
+        { kind: 'theorem', name: 'uses', full_name: 'M.uses', line: 3,
+          called: ['M.leaves', 'M.helper', 'M.Tlb.leaves', 'M.only', 'sorryAx', 'SeLe4n.Testing.x', 'M.uses'] }
+      ]
+    },
+    {
+      module: 'M.Tlb',
+      declarations: [
+        { kind: 'def', name: 'Tlb.leaves', full_name: 'M.Tlb.leaves', line: 1, called: [] },
+        { kind: 'def', name: 'leaves', full_name: 'M.TlbLeaves.leaves', line: 2, called: [] },
+        { kind: 'def', name: 'helper', full_name: 'M.helper', line: 3, called: [], private: true },
+        { kind: 'def', name: 'only', full_name: 'M.only', line: 4, called: ['M.helper', 'M.leaves'] }
+      ]
+    }
+  ];
+}
 
-test('symbolsFromDeclarations buckets by kind and recovers names from source', () => {
-  const source = [
-    'namespace SeLe4n',
-    'theorem ofErrorLabel?_zero : True := trivial',
-    'def dispatch : Nat := 0'
-  ].join('\n');
-  const symbols = symbolsFromDeclarations([
-    { kind: 'namespace', name: 'SeLe4n', line: 1 },
-    { kind: 'theorem', name: 'ofErrorLabel', line: 2 },
-    { kind: 'def', name: 'dispatch', line: 3 }
-  ], source);
+test('symbolsFromDeclarations places every call target exactly', () => {
+  const modules = callFixture();
+  const index = declarationIndexFromModules(modules);
+  const barrier = symbolsFromDeclarations(modules[0].declarations, 'M.Barrier', index);
+  const tlb = symbolsFromDeclarations(modules[1].declarations, 'M.Tlb', index);
 
-  assert.deepEqual(symbols.byKind.theorem, [{ name: 'ofErrorLabel?_zero', line: 2 }]);
-  assert.deepEqual(symbols.byKind.def, [{ name: 'dispatch', line: 3 }]);
-  assert.deepEqual(symbols.byKind.namespace, [{ name: 'SeLe4n', line: 1 }]);
-  // Only the kinds the module declares are shipped; the runtime fills the
-  // rest. The theorem/function shortcuts were copies of these lists.
-  assert.deepEqual(Object.keys(symbols.byKind).sort(), ['def', 'namespace', 'theorem']);
-  assert.deepEqual(Object.keys(symbols).sort(), ['byKind', 'callGraph']);
-});
-
-test('symbolsFromDeclarations keeps distinct declarations that share a name', () => {
-  // Deduplicating by name alone hid 145 production theorems, because the
-  // artifact records truncated names that collide.
-  const symbols = symbolsFromDeclarations([
-    { kind: 'theorem', name: 'ledger_head', line: 877 },
-    { kind: 'theorem', name: 'ledger_head', line: 1792 }
-  ], '');
-  assert.equal(symbols.byKind.theorem.length, 2);
-  assert.deepEqual(symbols.byKind.theorem.map((s) => s.line), [877, 1792]);
-
-  // A genuinely repeated (name, line) is still collapsed.
-  assert.equal(symbolsFromDeclarations([
-    { kind: 'theorem', name: 'a', line: 1 },
-    { kind: 'theorem', name: 'a', line: 1 }
-  ], '').byKind.theorem.length, 1);
-});
-
-test('symbolsFromDeclarations builds the call graph under recovered names', () => {
-  // The graph and the symbol lists must agree on names: the runtime resolves a
-  // declaration through byKind (declarationIndex) and its calls through
-  // callGraph (declarationGraph), so a name in only one yields a dead lookup.
-  const source = [
-    'theorem ofErrorLabel?_zero : True := trivial',
-    'def dispatch : Nat := 0',
-    'namespace SeLe4n'
-  ].join('\n');
-  const symbols = symbolsFromDeclarations([
-    { kind: 'theorem', name: 'ofErrorLabel', line: 1, called: ['trivial', 'True'] },
-    { kind: 'def', name: 'dispatch', line: 2, called: [] },
-    { kind: 'namespace', name: 'SeLe4n', line: 3 }
-  ], source);
-
-  assert.deepEqual(plain(symbols.callGraph), { 'ofErrorLabel?_zero': ['trivial', 'True'] });
-  assert.equal(symbols.byKind.theorem[0].name, 'ofErrorLabel?_zero');
-  // An empty or absent `called` produces no entry, matching what the map
-  // runtime builds from the artifact directly.
-  assert.equal('dispatch' in symbols.callGraph, false);
-  assert.equal('SeLe4n' in symbols.callGraph, false);
-});
-
-test('symbolsFromDeclarations trims call targets and drops empties', () => {
-  const symbols = symbolsFromDeclarations([
-    { kind: 'theorem', name: 'a', line: 1, called: ['  x  ', '', null, 'y'] },
-    { kind: 'theorem', name: 'b', line: 2, called: ['', '   '] }
-  ], '');
-  assert.deepEqual(plain(symbols.callGraph), { a: ['x', 'y'] });
-});
-
-test('symbolsFromDeclarations collapses a name collision the way the runtime does', () => {
-  // The artifact records short names, so `refl` in two namespaces of one file
-  // is two declarations under one key. The runtime's merged graph is keyed by
-  // bare name globally and collapses them identically; later wins.
-  const symbols = symbolsFromDeclarations([
-    { kind: 'theorem', name: 'refl', line: 1605, called: ['first'] },
-    { kind: 'theorem', name: 'refl', line: 1846, called: ['second'] }
-  ], '');
-  assert.deepEqual(plain(symbols.callGraph), { refl: ['second'] });
-  // Both declarations still appear in the symbol lists, keyed by line.
-  assert.deepEqual(symbols.byKind.theorem.map((t) => t.line), [1605, 1846]);
+  // Own module bare; a name one module lists bare; a name two modules list
+  // qualified. A private full name resolves to the caller's own declarer.
+  // Targets outside the inventory and self-references are dropped.
+  assert.deepEqual(plain(barrier.callGraph), { uses: ['leaves', 'helper', 'Tlb.leaves', 'only'] });
+  assert.deepEqual(plain(tlb.callGraph), { only: ['helper', 'M.Barrier#leaves'] });
+  assert.deepEqual(barrier.byKind.def.map((d) => d.name), ['leaves', 'helper']);
+  assert.deepEqual(Object.keys(barrier.byKind).sort(), ['def', 'theorem']);
+  assert.deepEqual(Object.keys(barrier).sort(), ['byKind', 'callGraph']);
 });
 
 test('symbolsFromDeclarations keeps a kind the interior UI does not group', () => {
-  const symbols = symbolsFromDeclarations([{ kind: 'future_kind', name: 'x', line: 3 }], '');
+  const symbols = symbolsFromDeclarations([{ kind: 'future_kind', name: 'x', full_name: 'x', line: 3 }], 'M');
   assert.deepEqual(symbols.byKind.future_kind, [{ name: 'x', line: 3 }]);
 });
 
 test('symbolsFromDeclarations tolerates a missing inventory', () => {
-  const symbols = symbolsFromDeclarations(undefined, undefined);
+  const symbols = symbolsFromDeclarations(undefined, 'M');
   assert.deepEqual(plain(symbols.byKind), {});
   assert.deepEqual(plain(symbols.callGraph), {});
+});
+
+test('canonicalMetricsIssues refuses a 1.x artifact', () => {
+  const issues = canonicalMetricsIssues({ schema_version: '1.0.0' });
+  assert.ok(issues.some((issue) => /schema_version 1\.0\.0 is not 2\.x/.test(issue)), issues.join('\n'));
 });
 
 test('canonicalCrossChecks reports the artifact disagreeing with itself', () => {

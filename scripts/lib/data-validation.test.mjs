@@ -333,7 +333,7 @@ test('validateCrossFile holds the call graph to the snapshot it was split from',
     commitSha: 'dcbd1dd',
     modules: ['A'],
     moduleMap: { A: 'A.lean' },
-    moduleMeta: { A: { theorems: 1, symbols: { byKind: { theorem: [{ name: 'a', line: 1 }] } } } },
+    moduleMeta: { A: { theorems: 1, symbols: { byKind: { theorem: [{ name: 'a', line: 1 }], def: [{ name: 'x', line: 2 }] } } } },
     importsFrom: { A: [] }
   });
   const graphErrors = (overrides) => validateCrossFile(site, map, callGraphData(overrides)).filter((m) => m.includes('callgraph') || m.includes('map-callgraph'));
@@ -349,6 +349,30 @@ test('validateCrossFile holds the call graph to the snapshot it was split from',
   // carry means the two projections drifted, and every lookup through it dies.
   assert.ok(graphErrors({ callGraph: { A: { ghost: ['x'] } } })
     .some((m) => m.includes("callGraph.A.ghost is not a declaration in map-data.json's symbol lists for A")));
+});
+
+test('validateCrossFile holds every call target to one listed declaration', () => {
+  const site = siteData({ commitSha: 'dcbd1dd', modules: 3, theorems: 1 });
+  const map = mapData({
+    commitSha: 'dcbd1dd',
+    modules: ['A', 'B', 'C'],
+    moduleMap: { A: 'A.lean', B: 'B.lean', C: 'C.lean' },
+    moduleMeta: {
+      A: { theorems: 1, symbols: { byKind: { theorem: [{ name: 'a', line: 1 }], def: [{ name: 'x', line: 2 }] } } },
+      B: { theorems: 0, symbols: { byKind: { def: [{ name: 'x', line: 1 }, { name: 'y', line: 2 }, { name: 'onlyB', line: 3 }] } } },
+      C: { theorems: 0, symbols: { byKind: { def: [{ name: 'y', line: 1 }] } } }
+    },
+    importsFrom: { A: [], B: [], C: [] }
+  });
+  const targetErrors = (calls) => validateCrossFile(site, map, callGraphData({ callGraph: { A: { a: calls } } }))
+    .filter((m) => m.includes('callGraph.A.a →'));
+
+  // Bare: the caller's own declaration, or a name one module lists.
+  // Qualified: a module that lists the name.
+  assert.deepEqual(targetErrors(['x', 'onlyB', 'B#x', 'B#y', 'C#y']), []);
+  assert.ok(targetErrors(['y']).some((m) => m.includes('is listed by 2 modules and does not say which')));
+  assert.ok(targetErrors(['B#z']).some((m) => m.includes('names a declaration B does not list')));
+  assert.ok(targetErrors(['nowhere']).some((m) => m.includes('is not a declaration any module lists')));
 });
 
 test('validateMapDataObject rejects modules outside the published production scope', () => {
