@@ -503,6 +503,13 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  /* Rows scrolled out of the list skip style, layout and paint; the largest
+     module lists ~500. `auto` remembers each row's last rendered height, so
+     the list's scroll extent settles once a row has been seen. Paint
+     containment clips descendants only, so the active row's ring (its own
+     box-shadow) and the `pub` chip (an in-flow pseudo-element) are unaffected. */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 1.75rem;
 }
 .interior-menu-item:hover {
   border-color: color-mix(in oklab, var(--interior-kind-color, var(--accent)) 72%, var(--border));

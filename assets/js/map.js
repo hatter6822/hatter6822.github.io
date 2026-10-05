@@ -1944,6 +1944,15 @@
 
     var list = document.createElement("ul");
     list.className = "interior-menu-items";
+    /* One listener for every row's button rather than a closure per row: the
+       largest module lists ~500 declarations and a filter keystroke repaints
+       them all. */
+    list.addEventListener("click", function (event) {
+      var btn = event.target && event.target.closest ? event.target.closest(".interior-menu-item-btn") : null;
+      if (!btn || !list.contains(btn)) return;
+      var declName = btn.getAttribute("data-decl");
+      if (declName) selectDeclaration(declName, selected);
+    });
 
     var emptyNote = null;
 
@@ -2001,9 +2010,6 @@
           btn.textContent = items[j].name;
           btn.title = "View declaration call graph for " + items[j].name;
           btn.dataset.decl = items[j].name;
-          btn.addEventListener("click", (function (itemName) {
-            return function () { selectDeclaration(itemName, selected); };
-          })(items[j].name));
           li.appendChild(btn);
         } else {
           var linkHref = symbolSourceHref(selected, items[j]);

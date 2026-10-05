@@ -725,6 +725,11 @@ the bullet everywhere it spoke.
 - Generated content contributes nothing to `scrollHeight`, so an overflow
   check over the row will not see it. A probe for a chip has to measure the
   chip (`getComputedStyle(el, '::before')`) — `map-smoke.mjs` now does.
+- Sidebar rows carry `content-visibility: auto`, so a row scrolled out of the
+  list is not laid out and can never measure as clipped. A probe over the rows
+  sets `content-visibility: visible` on them (through CSSOM — the CSP refuses
+  an injected `<style>`) for the duration of the reading, as `map-smoke.mjs`
+  does.
 
 ### A winning declaration can still do nothing (inline boxes)
 

@@ -3162,3 +3162,16 @@ test('in-module declaration search reads a per-module index with the same entrie
   const match = hooks.declarationSearchMatch(`${module}.${first.name}`);
   assert.equal(match && match.exact, true, 'an exact in-module query still resolves');
 });
+
+/* The declaration sidebar repaints every row on each filter keystroke. One
+   delegated listener serves every row's button, and rows scrolled out of the
+   list skip rendering. */
+test('the declaration sidebar delegates row clicks and skips off-screen rows', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  const css = await fs.readFile(path.join(repoRoot, 'assets/css/map.css'), 'utf8');
+  assert.match(mapSource, /list\.addEventListener\("click", function \(event\) \{[\s\S]*?closest\("\.interior-menu-item-btn"\)[\s\S]*?selectDeclaration\(declName, selected\)/, 'one listener on the list');
+  assert.ok(!/btn\.addEventListener\("click", \(function \(itemName\)/.test(mapSource), 'no closure per row');
+  const row = css.match(/\n\.interior-menu-item \{[\s\S]*?\n\}/)[0];
+  assert.match(row, /content-visibility: auto;/);
+  assert.match(row, /contain-intrinsic-block-size: auto [\d.]+rem;/, 'an off-screen row keeps a placeholder height and remembers its last one');
+});

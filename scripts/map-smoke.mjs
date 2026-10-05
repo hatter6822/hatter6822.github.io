@@ -122,6 +122,15 @@ function metrics(page) {
     };
     const svg = document.querySelector('.flowchart-svg');
     const wrap = document.getElementById('flowchart-wrap');
+    /* Sidebar rows carry `content-visibility: auto`, and a row scrolled out
+       of the list is not laid out, so it could never read as clipped. The
+       row checks lay every row out for the duration of the reading. */
+    const everyRowRendered = (read) => {
+      /* Through CSSOM: the page's CSP refuses an injected <style>. */
+      const rows = Array.from(document.querySelectorAll('.interior-menu-item'));
+      rows.forEach((li) => { li.style.contentVisibility = 'visible'; });
+      try { return read(); } finally { rows.forEach((li) => { li.style.removeProperty('content-visibility'); }); }
+    };
     return {
       url: location.search,
       search: document.getElementById('module-search').value,
@@ -141,14 +150,14 @@ function metrics(page) {
       tabs: Array.from(document.querySelectorAll('.interior-menu-tab')).map((t) => t.getAttribute('aria-selected')),
       tabLabels: Array.from(document.querySelectorAll('.interior-menu-tab')).map((t) => t.textContent.trim()),
       declarationItems: document.querySelectorAll('.interior-menu-item').length,
-      clippedItems: Array.from(document.querySelectorAll('.interior-menu-item')).filter((li) => li.scrollHeight > li.clientHeight + 1).length,
+      clippedItems: everyRowRendered(() => Array.from(document.querySelectorAll('.interior-menu-item')).filter((li) => li.scrollHeight > li.clientHeight + 1).length),
       /* The `pub` chip is generated content, so it contributes nothing to
          scrollHeight: the clipped reading above stayed green through a release
          in which the chip was an absolutely positioned 6px box — the card's
          prose bullet reaching this list — with the word painted across the
          row's corner. So measure the chip itself: in flow, sized by its own
          text, and the name starting clear of it. */
-      pubChips: (function () {
+      pubChips: everyRowRendered(function () {
         const rows = Array.from(document.querySelectorAll('.interior-menu-item[data-visibility="pub"]'));
         const broken = rows.filter((li) => {
           const chip = window.getComputedStyle(li, '::before');
@@ -166,7 +175,7 @@ function metrics(page) {
           return label.left - row.left < width && label.top - row.top < height;
         });
         return { total: rows.length, broken: broken.length };
-      })(),
+      }),
       stats: Array.from(document.querySelectorAll('[data-map]')).map((el) => `${el.getAttribute('data-map')}=${el.textContent}`),
       scope: (document.querySelector('.map-scope-option.is-active') || {}).dataset?.scope || '',
       scopeOptions: Array.from(document.querySelectorAll('.map-scope-option')).map((b) => `${b.dataset.scope}:${b.textContent.trim()}`),
