@@ -2,17 +2,18 @@
 /**
  * Rewrite the landing page's static fallback values from data/site-data.json.
  *
- * Run after scripts/sync-site-data.mjs so the no-JS fallbacks, the JSON-LD
+ * Run after scripts/sync-upstream.mjs so the no-JS fallbacks, the JSON-LD
  * block, and the metric literals baked into every locale's translated HTML all
  * stay in lockstep with the bundled snapshot. Idempotent: re-running with
  * unchanged data produces byte-identical output.
  */
 import { readFile, writeFile, readdir } from 'node:fs/promises';
-import { applyStaticValues, applyLocaleStaticValues } from './lib/static-values.mjs';
+import { applyStaticValues, applyLocaleStaticValues, applySitemapValues } from './lib/static-values.mjs';
 
 const ROOT = new URL('../', import.meta.url);
 const DATA_FILE = new URL('data/site-data.json', ROOT);
 const HTML_FILE = new URL('index.html', ROOT);
+const SITEMAP_FILE = new URL('sitemap.xml', ROOT);
 const LOCALES_DIR = new URL('locales/', ROOT);
 
 const data = JSON.parse(await readFile(DATA_FILE, 'utf8'));
@@ -23,6 +24,13 @@ const nextHtml = applyStaticValues(html, data);
 if (nextHtml !== html) {
   await writeFile(HTML_FILE, nextHtml);
   updated.push('index.html');
+}
+
+const sitemap = await readFile(SITEMAP_FILE, 'utf8');
+const nextSitemap = applySitemapValues(sitemap, data);
+if (nextSitemap !== sitemap) {
+  await writeFile(SITEMAP_FILE, nextSitemap);
+  updated.push('sitemap.xml');
 }
 
 for (const name of (await readdir(LOCALES_DIR)).filter((f) => f.endsWith('.json')).sort()) {

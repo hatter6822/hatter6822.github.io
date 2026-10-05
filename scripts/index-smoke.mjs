@@ -82,6 +82,7 @@ function expected(key) {
     'ni-cross-core': SITE_DATA.niCrossCore,
     'enforcement-ops': SITE_DATA.enforcementOps,
     'enforcement-ops-per-core': SITE_DATA.enforcementOpsPerCore,
+    'frozen-syscalls': SITE_DATA.frozenSyscalls,
     scripts: SITE_DATA.scripts,
     docs: SITE_DATA.docs,
     admitted: SITE_DATA.admitted,

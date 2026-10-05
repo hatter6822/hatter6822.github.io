@@ -138,6 +138,7 @@
     update("ni-cross-core", data.niCrossCore);
     update("enforcement-ops", data.enforcementOps);
     update("enforcement-ops-per-core", data.enforcementOpsPerCore);
+    update("frozen-syscalls", data.frozenSyscalls);
     update("scripts", data.scripts);
     update("docs", data.docs);
     update("admitted", data.admitted);
@@ -490,6 +491,7 @@
       niCrossCore: data.niCrossCore,
       enforcementOps: data.enforcementOps,
       enforcementOpsPerCore: data.enforcementOpsPerCore,
+      frozenSyscalls: data.frozenSyscalls,
       scripts: data.scripts,
       docs: data.docs,
       admitted: data.admitted,

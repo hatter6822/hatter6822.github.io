@@ -407,7 +407,7 @@ function buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors) {
   if (metrics.niCrossCore === undefined) {
     throw new Error('cross-core non-interference theorems could not be counted: NonInterferenceCrossCore is not in the production inventory');
   }
-  for (const [key, theorem] of [['enforcementOps', 'enforcementBoundaryExtended_count'], ['enforcementOpsPerCore', 'enforcementBoundaryPerCore_count']]) {
+  for (const [key, theorem] of [['enforcementOps', 'enforcementBoundaryExtended_count'], ['enforcementOpsPerCore', 'enforcementBoundaryPerCore_count'], ['frozenSyscalls', 'frozenOpCoverage_count']]) {
     if (metrics[key] === undefined) {
       throw new Error(`${key} could not be read: no production module proves \`${theorem}\` with a \`.length = N\` statement`);
     }
@@ -424,6 +424,7 @@ function buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors) {
     niCrossCore: metrics.niCrossCore,
     enforcementOps: metrics.enforcementOps,
     enforcementOpsPerCore: metrics.enforcementOpsPerCore,
+    frozenSyscalls: metrics.frozenSyscalls,
     scripts: head.files.filter((path) => /^scripts\/.*\.sh$/.test(path)).length,
     docs: head.files.filter((path) => /^docs\/.*\.(md|txt)$/.test(path)).length,
     admitted: metrics.admitted,

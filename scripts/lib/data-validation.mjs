@@ -298,7 +298,7 @@ export function validateSiteDataObject(data) {
     'schemaVersion', 'sourceDigest'
   ];
   const requiredNumber = ['modules', 'theorems', 'syscalls', 'externs', 'scripts', 'docs', 'admitted',
-    'niSteps', 'niCrossCore', 'enforcementOps', 'enforcementOpsPerCore'];
+    'niSteps', 'niCrossCore', 'enforcementOps', 'enforcementOpsPerCore', 'frozenSyscalls'];
 
   for (const key of requiredString) {
     if (typeof data[key] !== 'string') errors.push(`site-data.json: expected string at ${key}`);

@@ -43,6 +43,14 @@ const LIVE_KEYS = Object.freeze({
   niCrossCore: 'ni-cross-core',
   enforcementOps: 'enforcement-ops',
   enforcementOpsPerCore: 'enforcement-ops-per-core',
+  // The Execute-phase claim: how many syscalls have a frozen counterpart, read
+  // from the length `frozenOpCoverage_count` proves. Hand-written as 20 after
+  // the kernel's own count had fallen to 18.
+  frozenSyscalls: 'frozen-syscalls',
+  // The revision every figure above was measured at. The footer shipped the
+  // word "main" as its no-JS fallback, which names a moving branch on a page
+  // whose statistics come from one pinned commit.
+  commitSha: 'commit-sha',
   // Derived from the artifact (axiom declarations plus anything reaching
   // sorry), so it is no longer the constant it used to be. Left unstamped, a
   // no-JS view would keep claiming zero admitted proofs on the day it isn't.
@@ -134,8 +142,50 @@ export function applyStaticValues(html, data) {
       /(data-live="updated-at" datetime=")[^"]*(")/g,
       `$1${escapeReplacement(data.updatedAt)}$2`
     );
+    // The visible date, too. The fallback used to read "live from repository"
+    // on a page that never contacts the repository (`connect-src 'self'`).
+    const display = renderDate(data.updatedAt);
+    if (display) {
+      out = out.replace(
+        /(data-live="updated-at" datetime="[^"]*"[^>]*>)[^<]*(<)/g,
+        `$1${escapeReplacement(display)}$2`
+      );
+    }
   }
 
+  return out;
+}
+
+/**
+ * Render a date the way assets/js/site.js renders it for an English reader:
+ * `toLocaleDateString('en', { year: 'numeric', month: 'short', day: 'numeric' })`.
+ * Measured in UTC, so the stamped text does not depend on where the sync ran.
+ */
+export function renderDate(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/**
+ * The pages whose content the sync regenerates: the landing page renders
+ * site-data.json and the code map renders map-data.json, so both change
+ * whenever the snapshot does. Their sitemap `lastmod` is the snapshot's
+ * `generatedAt` day; any other URL keeps its hand-maintained date.
+ */
+const SITEMAP_SNAPSHOT_URLS = Object.freeze(['https://sele4n.org/', 'https://sele4n.org/map.html']);
+
+export function applySitemapValues(xml, data) {
+  if (typeof xml !== 'string') throw new TypeError('xml must be a string');
+  const day = typeof data?.generatedAt === 'string' ? data.generatedAt.slice(0, 10) : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return xml;
+  let out = xml;
+  for (const url of SITEMAP_SNAPSHOT_URLS) {
+    out = out.replace(
+      new RegExp(`(<loc>${escapeAttribute(url)}</loc>\\s*<lastmod>)[^<]*(</lastmod>)`, 'g'),
+      `$1${day}$2`
+    );
+  }
   return out;
 }
 

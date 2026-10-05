@@ -898,11 +898,10 @@ html:not([data-theme="light"]) .hero-subtitle {
 }
 
 /* Per-layer track counts, chosen so each layer's block count divides evenly:
-   rust 3, core 9, hw 6 over 3 tracks; security 4, platform 4 over 4 tracks.
+   rust 3, core 9, hw 6, platform 6 over 3 tracks; security 4 over 4 tracks.
    Foundations (7 blocks) is handled by the span rule below. */
 .arch-security,
-.arch-model,
-.arch-platform {
+.arch-model {
   --arch-cols: 4;
 }
 
