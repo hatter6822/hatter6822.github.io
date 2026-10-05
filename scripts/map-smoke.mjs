@@ -426,6 +426,22 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
 }
 
 {
+  /* A name two modules declare: the deep link has to stay on the module it
+     names and quote that module's line, not whichever module a name-keyed
+     index happened to keep. */
+  console.log('\n[deep link, colliding declaration name]');
+  const BARRIER = 'SeLe4n.Kernel.Architecture.BarrierComposition';
+  const barrierLine = Object.values(MAP_DATA.moduleMeta[BARRIER].symbols.byKind).flat().find((item) => item.name === 'leaves')?.line;
+  const { context, page, errors } = await open(1440, 900, { query: `?module=${BARRIER}&decl=leaves` });
+  const m = await metrics(page);
+  check(m.search === `${BARRIER}.leaves` && /module=SeLe4n\.Kernel\.Architecture\.BarrierComposition/.test(m.url), `the deep link stays on BarrierComposition (${m.search}, ${m.url})`);
+  const center = await page.evaluate(() => (document.querySelector('.flow-node.active') || {}).textContent || '');
+  check(center.includes(`L${barrierLine}`) && !/TlbCacheComposition/.test(center), `the selected node quotes BarrierComposition's own line, L${barrierLine} (${JSON.stringify(center.slice(0, 160))})`);
+  check(errors.length === 0, `no console errors (colliding deep link) ${JSON.stringify(errors)}`);
+  await context.close();
+}
+
+{
   console.log('\n[deep link, es]');
   const { context, page, errors } = await open(1440, 900, { query: '?module=SeLe4n.Model.State&decl=SystemState', locale: 'es' });
   const m = await metrics(page);

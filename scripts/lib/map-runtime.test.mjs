@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../..');
 const mapScriptPath = path.join(repoRoot, 'assets/js/map.js');
 
-async function loadMapTestHooks() {
+async function loadMapTestHooks({ search = '' } = {}) {
   const source = await fs.readFile(mapScriptPath, 'utf8');
   const context = {
     console,
@@ -58,7 +58,7 @@ async function loadMapTestHooks() {
       requestAnimationFrame: () => 0,
       addEventListener: () => {},
       matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-      location: { search: '', pathname: '/map.html' },
+      location: { search, pathname: '/map.html' },
       history: { replaceState: () => {} }
     }
   };
@@ -1181,7 +1181,7 @@ test('declaration flowchart renders clickable flow-meta line links', async () =>
     'declaration flowchart should render flow-meta-link spans for source line links'
   );
   assert.ok(
-    mapSource.includes('declMetaLink(name)'),
+    mapSource.includes('function declMetaLink(ref)'),
     'declaration flowchart should compute declaration meta links for flow nodes'
   );
 });
@@ -2715,6 +2715,63 @@ test('narrowing the scope centres the fallback node instead of keeping the old s
     'the Rust node does not survive the switch');
   assert.equal(hooks.flowScrollTarget(), hooks.defaultNodeName(),
     'and the replacement is the scroll target');
+});
+
+/* `leaves` is declared in two modules of the bundled snapshot. The name-keyed
+   indexes disagreed about it — the forward graph took the last module, the
+   index the first, the reverse graph merged callers from both — so
+   `?module=…BarrierComposition&decl=leaves` switched the chart to
+   TlbCacheComposition, quoted BarrierComposition's line number for it, and
+   listed both modules' callers. A declaration is its module and its name. */
+test('a declaration deep link to a name two modules declare stays on the module it names', async () => {
+  const BARRIER = 'SeLe4n.Kernel.Architecture.BarrierComposition';
+  const TLB = 'SeLe4n.Kernel.Architecture.TlbCacheComposition';
+  const raw = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
+  const lineIn = (moduleName) => {
+    for (const items of Object.values(raw.moduleMeta[moduleName].symbols.byKind)) {
+      const hit = items.find((item) => item.name === 'leaves');
+      if (hit) return hit.line;
+    }
+    return 0;
+  };
+  const callersIn = (moduleName) => Object.entries(raw.moduleMeta[moduleName].symbols.callGraph)
+    .filter(([, calls]) => calls.includes('leaves')).map(([caller]) => caller).sort();
+  assert.ok(lineIn(BARRIER) > 0 && lineIn(TLB) > 0 && lineIn(BARRIER) !== lineIn(TLB), 'the bundle should still carry the collision this test is about');
+
+  const hooks = await loadMapTestHooks({ search: `?module=${BARRIER}&decl=leaves` });
+  hooks.readUrlState();
+  hooks.applyData(hooks.normalizeMapData(raw));
+
+  const selection = hooks.selectionState();
+  assert.equal(selection.context, 'declaration');
+  assert.equal(selection.module, BARRIER, 'the chart stays on the module the URL names');
+  assert.equal(selection.declarationModule, BARRIER);
+  assert.equal(hooks.declarationLineOf('leaves', BARRIER), lineIn(BARRIER));
+  assert.equal(hooks.declarationLineOf('leaves', TLB), lineIn(TLB));
+  assert.match(hooks.declarationSourceHref('leaves', BARRIER), new RegExp(`BarrierComposition\\.lean#L${lineIn(BARRIER)}$`));
+  assert.deepEqual(Array.from(hooks.declarationCalls('leaves', BARRIER)), raw.moduleMeta[BARRIER].symbols.callGraph.leaves);
+  assert.deepEqual(Array.from(hooks.declarationCalls('leaves', TLB)), raw.moduleMeta[TLB].symbols.callGraph.leaves);
+
+  /* Each module's callers resolve to its own `leaves`, and only those. */
+  const barrierCallers = hooks.declarationCallerRefs('leaves', BARRIER);
+  const tlbCallers = hooks.declarationCallerRefs('leaves', TLB);
+  for (const caller of callersIn(BARRIER)) assert.ok(barrierCallers.some((ref) => ref.name === caller && ref.module === BARRIER), `${caller} calls BarrierComposition's leaves`);
+  for (const caller of callersIn(TLB)) assert.ok(tlbCallers.some((ref) => ref.name === caller && ref.module === TLB), `${caller} calls TlbCacheComposition's leaves`);
+  assert.ok(!barrierCallers.some((ref) => ref.module === TLB), 'no TlbCacheComposition caller is listed under BarrierComposition');
+  assert.ok(!tlbCallers.some((ref) => ref.module === BARRIER), 'no BarrierComposition caller is listed under TlbCacheComposition');
+
+  /* The sidebar path passes the module it lists, and the selection keeps it. */
+  hooks.selectDeclaration('leaves', TLB);
+  assert.equal(hooks.selectionState().module, TLB);
+  assert.equal(hooks.selectionState().declarationModule, TLB);
+
+  /* A callee written in a module that declares the name is that module's. */
+  assert.equal(hooks.resolveDeclarationModule('leaves', BARRIER), BARRIER);
+  assert.equal(hooks.resolveDeclarationModule('leaves', TLB), TLB);
+
+  /* Both declarations are findable by name. */
+  const found = Array.from(hooks.declarationSearchMatches('Nowhere.leaves', 20)).filter((m) => m.declaration === 'leaves').map((m) => m.module).sort();
+  assert.deepEqual(found, [BARRIER, TLB].sort());
 });
 
 test('a declaration deep link is refused when the scope cannot show its module', async () => {

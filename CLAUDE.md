@@ -666,6 +666,18 @@ statistic**; the landing page stays canonical-or-absent.
   because the runtime resolves a declaration through one and its calls through
   the other
 - Reverse import edges (`importsTo`) are always rebuilt from `importsFrom`
+- **A declaration is its module and its name.** The artifact records short
+  names, and 171 of them are declared in more than one module (`leaves` in
+  both `BarrierComposition` and `TlbCacheComposition`). The name-keyed
+  indexes (`declarationGraph`, `declarationIndex`, `declarationReverseGraph`)
+  stay for callers that know no module; everything that does — the URL's
+  `module=` beside `decl=`, a sidebar row, a lane node — asks the module-aware
+  lookups (`declarationEntryIn`, `declarationCalls(name, module)`,
+  `declarationCallerRefs`, `declarationCalleeRefs`). A bare call target is
+  placed by `resolveDeclarationModule()`: the calling module's own
+  declaration, then one in a module it imports, then the first declarer. A
+  deep link to a colliding name once switched the chart to the other module
+  and quoted the first module's line for it.
 
 ### CSS override weight (media queries add no specificity)
 

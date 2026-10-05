@@ -1043,6 +1043,15 @@ all offline.
   path assigns last-wins too, so bundled and live agree. Qualifying the names is
   not available: the `called` targets are recorded unqualified as well, and
   every lookup would miss.
+  *Later:* collisions **across** modules no longer collapse. A deep link to
+  `leaves` in `BarrierComposition` showed `TlbCacheComposition`'s declaration
+  with the first one's line and both modules' callers, because the forward
+  graph kept the last module, the index the first, and the reverse graph
+  merged them. The runtime now indexes declarations per module
+  (`declarationsByModule`), records each caller's module beside it in the
+  reverse graph, and resolves a bare call target from the calling module (own
+  declaration, then a direct import, then the first declarer). Collisions
+  inside one module still collapse, as the data records them.
 
 ## Production scope narrowed to the kernel (0.30.0)
 

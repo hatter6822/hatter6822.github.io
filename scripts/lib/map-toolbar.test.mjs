@@ -118,11 +118,13 @@ assert(/aria-hidden.*true/.test(mapJs), "legend swatches should be aria-hidden")
 // JS: drawFlowEdge should guard against same-node edges
 assert(/from\.x === to\.x/.test(mapJs), "drawFlowEdge should guard against same-node self-edges");
 
-// JS: declarationKindOf should not accept unused moduleName parameter
-assert(/function declarationKindOf\(declName\)\s*\{/.test(mapJs), "declarationKindOf should have single parameter (no unused moduleName)");
-
-// JS: declarationLineOf should not accept unused moduleName parameter
-assert(/function declarationLineOf\(declName\)\s*\{/.test(mapJs), "declarationLineOf should have single parameter (no unused moduleName)");
+// JS: declaration lookups take the module as well as the name, and use it: a
+// name two modules declare is two declarations (an earlier version took an
+// unused moduleName parameter, which only looked module-aware).
+for (const fn of ["declarationKindOf", "declarationLineOf"]) {
+  const body = (mapJs.match(new RegExp(`function ${fn}\\(declName, moduleName\\)\\s*\\{[\\s\\S]*?\\n  \\}`)) || [""])[0];
+  assert(body && /declarationEntryIn\(declName, moduleName\)/.test(body), `${fn} should resolve the declaration in the module it is given`);
+}
 
 // JS: interior menu should use DocumentFragment for batch DOM insertion
 assert(/createDocumentFragment\(\)/.test(mapJs), "interior menu should use DocumentFragment for batch DOM insertion");

@@ -295,7 +295,10 @@
     selectedDeclarationModule: "",
     declarationGraph: Object.create(null),
     declarationReverseGraph: Object.create(null),
+    declarationReverseModules: Object.create(null),
     declarationIndex: Object.create(null),
+    declarationsByModule: Object.create(null),
+    declarationModulesByName: Object.create(null),
     declarationLanesExpanded: false,
     /* The Rust crate inventory, from the same snapshot (and so the same
        commit) as the Lean graph. */
@@ -540,20 +543,38 @@
     buildDeclarationSearchIndex();
   }
 
+  /* One entry per (module, name): a name two modules declare is findable in
+     both. Falls back to the name-keyed index when no per-module index exists
+     (a hand-built test state). */
   function buildDeclarationSearchIndex() {
     var declIndex = [];
-    for (var declName in state.declarationIndex) {
-      if (!Object.prototype.hasOwnProperty.call(state.declarationIndex, declName)) continue;
-      var entry = state.declarationIndex[declName];
-      if (!entry || !entry.module) continue;
-      var qualifiedName = entry.module + "." + declName;
+    function push(declName, moduleName) {
+      var qualifiedName = moduleName + "." + declName;
       declIndex.push({
         name: declName,
         nameLower: declName.toLowerCase(),
-        module: entry.module,
+        module: moduleName,
         qualifiedName: qualifiedName,
         qualifiedLower: qualifiedName.toLowerCase()
       });
+    }
+    var byModule = state.declarationsByModule;
+    var hasByModule = false;
+    if (byModule) {
+      for (var moduleName in byModule) {
+        if (!Object.prototype.hasOwnProperty.call(byModule, moduleName)) continue;
+        hasByModule = true;
+        for (var name in byModule[moduleName]) {
+          if (Object.prototype.hasOwnProperty.call(byModule[moduleName], name)) push(name, moduleName);
+        }
+      }
+    }
+    if (!hasByModule) {
+      for (var declName in state.declarationIndex) {
+        if (!Object.prototype.hasOwnProperty.call(state.declarationIndex, declName)) continue;
+        var entry = state.declarationIndex[declName];
+        if (entry && entry.module) push(declName, entry.module);
+      }
     }
     state.declarationSearchList = declIndex;
   }
@@ -1092,17 +1113,92 @@
     return result;
   }
 
-  function declarationCalls(declName) {
+  /* Every declaration lookup takes an optional module. Without one it answers
+     by name alone, as the name-keyed indexes always have; with one it answers
+     for that module's declaration of the name, which is what a deep link, a
+     sidebar row or a lane node actually means. */
+
+  /* The entry for `declName` as declared in `moduleName`, or null. */
+  function declarationEntryIn(declName, moduleName) {
+    if (!moduleName) return null;
+    var perModule = state.declarationsByModule && state.declarationsByModule[moduleName];
+    if (perModule) return perModule[declName] || null;
+    var indexed = state.declarationIndex[declName];
+    return indexed && indexed.module === moduleName ? indexed : null;
+  }
+
+  function declarationExistsIn(declName, moduleName) {
+    if (declarationEntryIn(declName, moduleName)) return true;
+    var entry = state.declarationGraph[declName];
+    return Boolean(entry && entry.module === moduleName);
+  }
+
+  /* The module a bare name refers to when written in `contextModule`: its own
+     declaration first, then one in a module it imports directly, then the
+     first module that declares the name. A call target is recorded
+     unqualified, so this is how a callee is placed and how a caller is
+     attributed to the right declaration. */
+  function resolveDeclarationModule(declName, contextModule) {
+    if (contextModule && declarationExistsIn(declName, contextModule)) return contextModule;
+    var candidates = state.declarationModulesByName ? state.declarationModulesByName[declName] : null;
+    if (candidates && candidates.length > 1 && contextModule) {
+      var imports = state.importsFrom[contextModule] || [];
+      for (var i = 0; i < candidates.length; i++) {
+        if (imports.indexOf(candidates[i]) !== -1) return candidates[i];
+      }
+    }
+    if (candidates && candidates.length) return candidates[0];
+    return declarationModuleOf(declName);
+  }
+
+  function declarationCalls(declName, moduleName) {
+    if (moduleName) {
+      var meta = state.moduleMeta[moduleName];
+      var callGraph = meta && meta.symbols && meta.symbols.callGraph;
+      if (callGraph && Array.isArray(callGraph[declName])) return callGraph[declName].slice();
+      var owned = state.declarationGraph[declName];
+      return owned && owned.module === moduleName && Array.isArray(owned.calls) ? owned.calls.slice() : [];
+    }
     var entry = state.declarationGraph[declName];
     return entry && Array.isArray(entry.calls) ? entry.calls.slice() : [];
   }
 
-  function declarationCalledBy(declName) {
+  /* The callers of `declName`, as { name, module } pairs. With a module, only
+     the callers whose bare reference resolves to that module's declaration. */
+  function declarationCallerRefs(declName, moduleName) {
     var reverse = state.declarationReverseGraph[declName];
-    return Array.isArray(reverse) ? reverse.slice() : [];
+    if (!Array.isArray(reverse)) return [];
+    var modules = state.declarationReverseModules ? state.declarationReverseModules[declName] : null;
+    var out = [];
+    for (var i = 0; i < reverse.length; i++) {
+      var callerModule = modules && modules[i] ? modules[i] : declarationModuleOf(reverse[i]);
+      if (moduleName && resolveDeclarationModule(declName, callerModule) !== moduleName) continue;
+      out.push({ name: reverse[i], module: callerModule });
+    }
+    return out;
   }
 
-  function declarationModuleOf(declName) {
+  /* The callees of `declName` in `moduleName`, each placed by the module the
+     bare reference resolves to from there. */
+  function declarationCalleeRefs(declName, moduleName) {
+    var calls = declarationCalls(declName, moduleName);
+    var out = [];
+    for (var i = 0; i < calls.length; i++) {
+      out.push({ name: calls[i], module: resolveDeclarationModule(calls[i], moduleName) });
+    }
+    return out;
+  }
+
+  function declarationCalledBy(declName, moduleName) {
+    if (!moduleName) {
+      var reverse = state.declarationReverseGraph[declName];
+      return Array.isArray(reverse) ? reverse.slice() : [];
+    }
+    return declarationCallerRefs(declName, moduleName).map(function (ref) { return ref.name; });
+  }
+
+  function declarationModuleOf(declName, moduleName) {
+    if (moduleName && declarationExistsIn(declName, moduleName)) return moduleName;
     var entry = state.declarationGraph[declName];
     if (entry) return entry.module;
     var indexed = state.declarationIndex[declName];
@@ -1110,25 +1206,25 @@
     return "";
   }
 
-  function declarationKindOf(declName) {
-    var indexed = state.declarationIndex[declName];
+  function declarationKindOf(declName, moduleName) {
+    var indexed = declarationEntryIn(declName, moduleName) || state.declarationIndex[declName];
     if (indexed) return indexed.kind;
     return "";
   }
 
-  function declarationLineOf(declName) {
-    var indexed = state.declarationIndex[declName];
+  function declarationLineOf(declName, moduleName) {
+    var indexed = declarationEntryIn(declName, moduleName) || state.declarationIndex[declName];
     if (indexed) return indexed.line || 0;
     return 0;
   }
 
-  function declarationSourceHref(declName) {
-    var moduleName = declarationModuleOf(declName);
+  function declarationSourceHref(declName, moduleHint) {
+    var moduleName = declarationModuleOf(declName, moduleHint);
     if (!moduleName || !state.moduleMap[moduleName]) return "";
     var ref = state.commitSha || REF;
     var path = state.moduleMap[moduleName];
     var encodedPath = path.split("/").map(encodeURIComponent).join("/");
-    var line = declarationLineOf(declName);
+    var line = declarationLineOf(declName, moduleName);
     var lineAnchor = line > 0 ? "#L" + line : "";
     return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath + lineAnchor;
   }
@@ -3237,8 +3333,12 @@
       return;
     }
 
-    var calls = declarationCalls(declName);
-    var calledBy = declarationCalledBy(declName);
+    /* Lanes hold { name, module } pairs: a name alone is ambiguous when two
+       modules declare it, and a lane node must say, link and navigate to the
+       declaration it actually is. */
+    var centerRef = { name: declName, module: moduleName };
+    var calls = declarationCalleeRefs(declName, moduleName);
+    var calledBy = declarationCallerRefs(declName, moduleName);
 
     var breadcrumb = document.createElement("nav");
     breadcrumb.className = "declaration-context-breadcrumb";
@@ -3272,10 +3372,10 @@
     var laneYStart = layout.laneYStart;
     var laneGapY = layout.laneGapY;
 
-    function declSummary(name) {
-      var kind = declarationKindOf(name);
-      var mod = declarationModuleOf(name);
-      var line = declarationLineOf(name);
+    function declSummary(ref) {
+      var mod = ref.module;
+      var kind = declarationKindOf(ref.name, mod);
+      var line = declarationLineOf(ref.name, mod);
       var parts = [];
       if (kind) parts.push(symbolKindLabel(kind));
       if (mod) {
@@ -3283,8 +3383,8 @@
         parts.push((isCrossModule ? "\u2192 " : "in ") + mod);
       }
       if (line > 0) parts.push("L" + line);
-      var outgoing = declarationCalls(name).length;
-      var incoming = declarationCalledBy(name).length;
+      var outgoing = declarationCalls(ref.name, mod).length;
+      var incoming = mod ? declarationCallerRefs(ref.name, mod).length : 0;
       if (outgoing > 0 || incoming > 0) {
         parts.push("\u2190" + incoming + " \u2192" + outgoing);
       }
@@ -3300,10 +3400,11 @@
       return parts.join(" \u00B7 ") || "declaration";
     }
 
-    function declMetaLink(name) {
-      var line = declarationLineOf(name);
+    function declMetaLink(ref) {
+      if (!ref.module) return null;
+      var line = declarationLineOf(ref.name, ref.module);
       if (!(line > 0)) return null;
-      var href = declarationSourceHref(name);
+      var href = declarationSourceHref(ref.name, ref.module);
       if (!href) return null;
       return {
         href: href,
@@ -3312,34 +3413,31 @@
       };
     }
 
-    function declTooltip(name, roleLabel) {
-      var kind = declarationKindOf(name);
-      var mod = declarationModuleOf(name);
-      var line = declarationLineOf(name);
-      var callsList = declarationCalls(name);
-      return roleLabel + "\n" + name + (kind ? "\nkind: " + kind : "") + (mod ? "\nmodule: " + mod : "") + (line > 0 ? "\nline: " + line : "") + "\ncalls: " + (callsList.length || "none");
+    function declTooltip(ref, roleLabel) {
+      var mod = ref.module;
+      var kind = declarationKindOf(ref.name, mod);
+      var line = declarationLineOf(ref.name, mod);
+      var callsList = declarationCalls(ref.name, mod);
+      return roleLabel + "\n" + ref.name + (kind ? "\nkind: " + kind : "") + (mod ? "\nmodule: " + mod : "") + (line > 0 ? "\nline: " + line : "") + "\ncalls: " + (callsList.length || "none");
     }
 
-    function declNodeColor(name) {
-      var kind = declarationKindOf(name);
+    function declNodeColor(ref) {
+      var kind = declarationKindOf(ref.name, ref.module);
       if (!kind) return "#8fa3bf";
       /* Use the kind-specific color for same-module declarations but
          desaturate slightly for cross-module ones so that visual weight
          emphasizes the local module's declarations. */
       var raw = INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf";
-      var declMod = declarationModuleOf(name);
-      if (declMod && declMod !== moduleName) return blendHexColor(raw, "#8fa3bf", 0.45);
+      if (ref.module && ref.module !== moduleName) return blendHexColor(raw, "#8fa3bf", 0.45);
       return raw;
     }
 
     function sortByModuleRelevance(arr, referenceModule) {
       return arr.slice().sort(function (a, b) {
-        var modA = declarationModuleOf(a);
-        var modB = declarationModuleOf(b);
-        var sameA = modA === referenceModule ? 0 : 1;
-        var sameB = modB === referenceModule ? 0 : 1;
+        var sameA = a.module === referenceModule ? 0 : 1;
+        var sameB = b.module === referenceModule ? 0 : 1;
         if (sameA !== sameB) return sameA - sameB;
-        return a.toLowerCase().localeCompare(b.toLowerCase());
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
       });
     }
 
@@ -3379,8 +3477,8 @@
     var cursorLeft = laneYStart;
     for (var ci = 0; ci < visibleCalls.length; ci++) {
       var callMetaLink = declMetaLink(visibleCalls[ci]);
-      var ch = nodeContentHeight(visibleCalls[ci], declSummary(visibleCalls[ci]), sideWidth, true, callMetaLink ? callMetaLink.label : "", false);
-      callLayout.push({ name: visibleCalls[ci], y: cursorLeft, h: ch, collapsed: false, expandable: false, compactControl: false, metaLink: callMetaLink });
+      var ch = nodeContentHeight(visibleCalls[ci].name, declSummary(visibleCalls[ci]), sideWidth, true, callMetaLink ? callMetaLink.label : "", false);
+      callLayout.push({ name: visibleCalls[ci].name, ref: visibleCalls[ci], y: cursorLeft, h: ch, collapsed: false, expandable: false, compactControl: false, metaLink: callMetaLink });
       cursorLeft += ch + laneGapY;
     }
     if (collapsedCallCount > 0) {
@@ -3401,8 +3499,8 @@
     var cursorRight = laneYStart;
     for (var bi = 0; bi < visibleCallers.length; bi++) {
       var callerMetaLink = declMetaLink(visibleCallers[bi]);
-      var bh = nodeContentHeight(visibleCallers[bi], declSummary(visibleCallers[bi]), sideWidth, true, callerMetaLink ? callerMetaLink.label : "", false);
-      callerLayout.push({ name: visibleCallers[bi], y: cursorRight, h: bh, collapsed: false, expandable: false, compactControl: false, metaLink: callerMetaLink });
+      var bh = nodeContentHeight(visibleCallers[bi].name, declSummary(visibleCallers[bi]), sideWidth, true, callerMetaLink ? callerMetaLink.label : "", false);
+      callerLayout.push({ name: visibleCallers[bi].name, ref: visibleCallers[bi], y: cursorRight, h: bh, collapsed: false, expandable: false, compactControl: false, metaLink: callerMetaLink });
       cursorRight += bh + laneGapY;
     }
     if (collapsedCallerCount > 0) {
@@ -3419,8 +3517,8 @@
     }
     var callerBottom = callerLayout.length ? cursorRight - laneGapY : laneYStart + 44;
 
-    var centerMetaLink = declMetaLink(declName);
-    var centerHeight = nodeContentHeight(declName, declSummary(declName), centerWidth, false, centerMetaLink ? centerMetaLink.label : "", false) + 14;
+    var centerMetaLink = declMetaLink(centerRef);
+    var centerHeight = nodeContentHeight(declName, declSummary(centerRef), centerWidth, false, centerMetaLink ? centerMetaLink.label : "", false) + 14;
     var declLaneContentHeight = Math.max(callBottom, callerBottom) - laneYStart;
     var idealDeclCenterY = laneYStart + Math.floor((declLaneContentHeight - centerHeight) / 2);
     var minDeclCenterY = Math.max(laneYStart + 20, Math.min(170, laneYStart + Math.floor(declLaneContentHeight * 0.25)));
@@ -3440,11 +3538,12 @@
       flowLaneLabel(labelLayer, text, x, y, color);
     }
 
-    function createDeclNode(name, x, y, w, h, color, subtitle, tooltip, active, onActivate, metaLink) {
+    /* `declModule` is the module of the declaration a node stands for, or ""
+       for a lane control (expand, compact) whose name is only a label. */
+    function createDeclNode(name, declModule, x, y, w, h, color, subtitle, tooltip, active, onActivate, metaLink) {
       var className = "flow-node" + (active ? " active" : "");
       if (onActivate) className += " action";
-      var declMod = declarationModuleOf(name);
-      if (declMod && declMod !== moduleName) className += " cross-module";
+      if (declModule && declModule !== moduleName) className += " cross-module";
       var interactive = Boolean(onActivate);
       var focusable = interactive || active;
       var ariaLabel = interactive ? "Select declaration " + name : name;
@@ -3460,7 +3559,7 @@
 
     if (!hasCallees && !hasCallers) {
       var emptyHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 28, fill: "#8fa3bf", "font-size": "12", "class": "flow-lane-label" });
-      var kind = declarationKindOf(declName);
+      var kind = declarationKindOf(declName, moduleName);
       var hintMsg = kind
         ? "This " + kind + " has no detected internal call relationships."
         : "No internal call relationships detected for this declaration.";
@@ -3471,10 +3570,15 @@
       labelLayer.appendChild(returnHint);
     }
 
-    var center = createDeclNode(declName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(declName), declTooltip(declName, "Selected declaration"), true, null, centerMetaLink);
+    var center = createDeclNode(declName, moduleName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(centerRef), declTooltip(centerRef, "Selected declaration"), true, null, centerMetaLink);
 
-    function isDeclNavigable(name) {
-      return Boolean(state.declarationGraph[name]) || Boolean(state.declarationReverseGraph[name]);
+    function isDeclNavigable(ref) {
+      if (!ref.module) return false;
+      return declarationCalls(ref.name, ref.module).length > 0 || Boolean(state.declarationReverseGraph[ref.name]);
+    }
+
+    function selectRef(ref) {
+      return function () { selectDeclaration(ref.name, ref.module); };
     }
 
     var callNodes = [];
@@ -3482,13 +3586,13 @@
       var callItem = callLayout[i];
       if (callItem.expandable) {
         var expandCallTooltip = "Expand to show all " + (collapsedCallCount + visibleCalls.length) + " called declarations";
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", expandAllHint, expandCallTooltip, false, expandDeclarationLanes, null));
+        callNodes.push(createDeclNode(callItem.name, "", leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", expandAllHint, expandCallTooltip, false, expandDeclarationLanes, null));
       } else if (callItem.compactControl) {
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", hideExtraCalls, "Return to compact view", false, compactDeclarationLanes, null));
+        callNodes.push(createDeclNode(callItem.name, "", leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", hideExtraCalls, "Return to compact view", false, compactDeclarationLanes, null));
       } else {
-        var callColor = declNodeColor(callItem.name);
-        var callNavigable = isDeclNavigable(callItem.name);
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.name), declTooltip(callItem.name, "Called declaration"), false, callNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callItem.name) : null, callItem.metaLink || null));
+        var callColor = declNodeColor(callItem.ref);
+        var callNavigable = isDeclNavigable(callItem.ref);
+        callNodes.push(createDeclNode(callItem.name, callItem.ref.module, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.ref), declTooltip(callItem.ref, "Called declaration"), false, callNavigable ? selectRef(callItem.ref) : null, callItem.metaLink || null));
       }
     }
 
@@ -3497,13 +3601,13 @@
       var callerItem = callerLayout[j];
       if (callerItem.expandable) {
         var expandCallerTooltip = "Expand to show all " + (collapsedCallerCount + visibleCallers.length) + " caller declarations";
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", expandAllHint, expandCallerTooltip, false, expandDeclarationLanes, null));
+        callerNodes.push(createDeclNode(callerItem.name, "", rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", expandAllHint, expandCallerTooltip, false, expandDeclarationLanes, null));
       } else if (callerItem.compactControl) {
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", hideExtraCallers, "Return to compact view", false, compactDeclarationLanes, null));
+        callerNodes.push(createDeclNode(callerItem.name, "", rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", hideExtraCallers, "Return to compact view", false, compactDeclarationLanes, null));
       } else {
-        var callerColor = declNodeColor(callerItem.name);
-        var callerNavigable = isDeclNavigable(callerItem.name);
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.name), declTooltip(callerItem.name, "Caller declaration"), false, callerNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callerItem.name) : null, callerItem.metaLink || null));
+        var callerColor = declNodeColor(callerItem.ref);
+        var callerNavigable = isDeclNavigable(callerItem.ref);
+        callerNodes.push(createDeclNode(callerItem.name, callerItem.ref.module, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.ref), declTooltip(callerItem.ref, "Caller declaration"), false, callerNavigable ? selectRef(callerItem.ref) : null, callerItem.metaLink || null));
       }
     }
 
@@ -4672,6 +4776,81 @@
     }
   }
 
+  /* A declaration is identified by its module and its name together. The
+     artifact records short names, so one name can be declared in several
+     modules (`leaves` in BarrierComposition and in TlbCacheComposition, 171
+     names in the current snapshot); the name-keyed `declarationIndex` keeps
+     the first module's entry for callers that know no module, and
+     `declarationsByModule` answers for a named one. Collisions inside one
+     module still collapse, as the data records them (see ARCHITECTURE.md,
+     "Two details the data forced"). */
+  function buildDeclarationIndexes(moduleMeta, moduleNames) {
+    var declarationIndex = Object.create(null);
+    var declarationsByModule = Object.create(null);
+    var declarationModulesByName = Object.create(null);
+    for (var m = 0; m < moduleNames.length; m++) {
+      var moduleName = moduleNames[m];
+      var perModule = Object.create(null);
+      declarationsByModule[moduleName] = perModule;
+      var meta = moduleMeta[moduleName];
+      var byKind = meta && meta.symbols && meta.symbols.byKind;
+      if (!byKind) continue;
+      for (var kind in byKind) {
+        if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
+        var items = byKind[kind];
+        if (!Array.isArray(items)) continue;
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i];
+          if (!item || !item.name || perModule[item.name]) continue;
+          var entry = { module: moduleName, kind: kind, line: item.line || 0 };
+          perModule[item.name] = entry;
+          if (!declarationIndex[item.name]) declarationIndex[item.name] = entry;
+          if (!declarationModulesByName[item.name]) declarationModulesByName[item.name] = [];
+          declarationModulesByName[item.name].push(moduleName);
+        }
+      }
+    }
+    return {
+      declarationIndex: declarationIndex,
+      declarationsByModule: declarationsByModule,
+      declarationModulesByName: declarationModulesByName
+    };
+  }
+
+  /* The forward graph stays keyed by name for name-only callers (last module
+     wins, as it always has); the module-aware lookups read each module's own
+     `symbols.callGraph`. The reverse graph lists every caller of a name with
+     the caller's module beside it (`declarationReverseModules`, index for
+     index), so the callers of one module's `leaves` can be told apart from
+     the callers of another's. */
+  function buildCallGraphIndexes(moduleMeta, moduleNames) {
+    var graph = Object.create(null);
+    var reverse = Object.create(null);
+    var reverseModules = Object.create(null);
+    for (var m = 0; m < moduleNames.length; m++) {
+      var moduleName = moduleNames[m];
+      var meta = moduleMeta[moduleName];
+      var callGraph = meta && meta.symbols && meta.symbols.callGraph;
+      if (!callGraph) continue;
+      for (var caller in callGraph) {
+        if (!Object.prototype.hasOwnProperty.call(callGraph, caller)) continue;
+        var calls = callGraph[caller];
+        if (!Array.isArray(calls)) continue;
+        graph[caller] = { module: moduleName, calls: calls };
+        for (var c = 0; c < calls.length; c++) {
+          var target = calls[c];
+          if (!reverse[target]) {
+            reverse[target] = [];
+            reverseModules[target] = [];
+          }
+          reverse[target].push(caller);
+          reverseModules[target].push(moduleName);
+        }
+      }
+    }
+    return { declarationGraph: graph, declarationReverseGraph: reverse, declarationReverseModules: reverseModules };
+  }
+
   function normalizeMapData(data, options) {
     if (!data || typeof data !== "object") return null;
     var opts = options && typeof options === "object" ? options : {};
@@ -4895,39 +5074,8 @@
       return out;
     })();
 
-    var mergedDeclarationGraph = Object.create(null);
-    var mergedReverseGraph = Object.create(null);
-    var declarationIndex = Object.create(null);
-    for (var dgIdx = 0; dgIdx < moduleRecords.length; dgIdx++) {
-      var dgModule = moduleRecords[dgIdx].name;
-      var dgSymbols = normalizedModuleMeta[dgModule] && normalizedModuleMeta[dgModule].symbols;
-      var dgCallGraph = dgSymbols && dgSymbols.callGraph ? dgSymbols.callGraph : Object.create(null);
-      for (var dgKey in dgCallGraph) {
-        if (!Object.prototype.hasOwnProperty.call(dgCallGraph, dgKey)) continue;
-        mergedDeclarationGraph[dgKey] = { module: dgModule, calls: dgCallGraph[dgKey] };
-        for (var dgCalledIdx = 0; dgCalledIdx < dgCallGraph[dgKey].length; dgCalledIdx++) {
-          var calledTarget = dgCallGraph[dgKey][dgCalledIdx];
-          if (!mergedReverseGraph[calledTarget]) mergedReverseGraph[calledTarget] = [];
-          mergedReverseGraph[calledTarget].push(dgKey);
-        }
-      }
-      // Build fast declaration→{module,kind,line} index from moduleMeta symbols
-      var dgMeta = normalizedModuleMeta[dgModule];
-      if (dgMeta && dgMeta.symbols && dgMeta.symbols.byKind) {
-        var dgByKind = dgMeta.symbols.byKind;
-        for (var dgKind in dgByKind) {
-          if (!Object.prototype.hasOwnProperty.call(dgByKind, dgKind)) continue;
-          var dgItems = dgByKind[dgKind];
-          if (!Array.isArray(dgItems)) continue;
-          for (var diIdx = 0; diIdx < dgItems.length; diIdx++) {
-            var diEntry = dgItems[diIdx];
-            if (diEntry && diEntry.name && !declarationIndex[diEntry.name]) {
-              declarationIndex[diEntry.name] = { module: dgModule, kind: dgKind, line: diEntry.line || 0 };
-            }
-          }
-        }
-      }
-    }
+    var declarationIndexes = buildDeclarationIndexes(normalizedModuleMeta, normalizedModules);
+    var callGraphIndexes = buildCallGraphIndexes(normalizedModuleMeta, normalizedModules);
 
     return {
       modules: normalizedModules,
@@ -4936,9 +5084,12 @@
       importsTo: Object.create(null),
       importsFrom: normalizedImportsFrom,
       externalImportsFrom: normalizedExternalImportsFrom,
-      declarationGraph: mergedDeclarationGraph,
-      declarationReverseGraph: mergedReverseGraph,
-      declarationIndex: declarationIndex,
+      declarationGraph: callGraphIndexes.declarationGraph,
+      declarationReverseGraph: callGraphIndexes.declarationReverseGraph,
+      declarationReverseModules: callGraphIndexes.declarationReverseModules,
+      declarationIndex: declarationIndexes.declarationIndex,
+      declarationsByModule: declarationIndexes.declarationsByModule,
+      declarationModulesByName: declarationIndexes.declarationModulesByName,
       rust: normalizeRustInventory(data.rust),
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
@@ -4966,7 +5117,10 @@
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
     state.declarationGraph = data.declarationGraph || Object.create(null);
     state.declarationReverseGraph = data.declarationReverseGraph || Object.create(null);
+    state.declarationReverseModules = data.declarationReverseModules || Object.create(null);
     state.declarationIndex = data.declarationIndex || Object.create(null);
+    state.declarationsByModule = data.declarationsByModule || Object.create(null);
+    state.declarationModulesByName = data.declarationModulesByName || Object.create(null);
     invalidateDerivedCaches();
     state.contextList = [];
     state.commitSha = data.commitSha || "";
@@ -4986,7 +5140,9 @@
          a scope that carries Lean — `nodeExists`, not `moduleMap`. A URL
          pairing `scope=rust` with a Lean `decl=` otherwise pulled the Lean
          module into the selection while the toggle and badge still read Rust. */
-      var resolvedModule = declarationModuleOf(state.selectedDeclaration);
+      /* The URL's `module=` names which declaration of the name it means;
+         only when that module does not declare it does the name decide. */
+      var resolvedModule = declarationModuleOf(state.selectedDeclaration, state.selectedDeclarationModule);
       if (resolvedModule && nodeExists(resolvedModule)) {
         state.selectedDeclarationModule = resolvedModule;
         if (state.selectedModule !== resolvedModule) {
@@ -5995,6 +6151,11 @@
       declarationFlowLegendItems: declarationFlowLegendItems,
       declarationCalls: declarationCalls,
       declarationCalledBy: declarationCalledBy,
+      declarationCallerRefs: declarationCallerRefs,
+      declarationCalleeRefs: declarationCalleeRefs,
+      resolveDeclarationModule: resolveDeclarationModule,
+      applyData: applyData,
+      readUrlState: readUrlState,
       declarationModuleOf: declarationModuleOf,
       declarationKindOf: declarationKindOf,
       declarationLineOf: declarationLineOf,
@@ -6083,8 +6244,15 @@
       localePaintState: function () { return { ready: localeReady, painted: paintedBeforeLocale }; },
       applyTestState: function (patch) {
         if (patch.declarationGraph) state.declarationGraph = patch.declarationGraph;
-        if (patch.declarationReverseGraph) state.declarationReverseGraph = patch.declarationReverseGraph;
-        if (patch.declarationIndex) state.declarationIndex = patch.declarationIndex;
+        if (patch.declarationReverseGraph) {
+          state.declarationReverseGraph = patch.declarationReverseGraph;
+          state.declarationReverseModules = patch.declarationReverseModules || null;
+        }
+        if (patch.declarationIndex) {
+          state.declarationIndex = patch.declarationIndex;
+          state.declarationsByModule = patch.declarationsByModule || null;
+          state.declarationModulesByName = patch.declarationModulesByName || null;
+        }
         if (patch.moduleMeta) state.moduleMeta = patch.moduleMeta;
         if (patch.moduleMap) state.moduleMap = patch.moduleMap;
         if (patch.modules) state.modules = patch.modules;
@@ -6108,26 +6276,12 @@
         if (typeof patch.scope === "string") state.scope = patch.scope;
         if (typeof patch.commitSha === "string") state.commitSha = patch.commitSha;
         if (patch.buildBridge) buildBridgeIndex();
-        // Rebuild declarationIndex from moduleMeta when moduleMeta is patched
+        // Rebuild the declaration indexes from moduleMeta when moduleMeta is patched
         if (patch.moduleMeta && !patch.declarationIndex) {
-          var idx = Object.create(null);
-          for (var mod in state.moduleMeta) {
-            if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, mod)) continue;
-            var meta = state.moduleMeta[mod];
-            if (!meta || !meta.symbols || !meta.symbols.byKind) continue;
-            var byKind = meta.symbols.byKind;
-            for (var kind in byKind) {
-              if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
-              var items = byKind[kind];
-              if (!Array.isArray(items)) continue;
-              for (var ii = 0; ii < items.length; ii++) {
-                if (items[ii] && items[ii].name && !idx[items[ii].name]) {
-                  idx[items[ii].name] = { module: mod, kind: kind, line: items[ii].line || 0 };
-                }
-              }
-            }
-          }
-          state.declarationIndex = idx;
+          var rebuilt = buildDeclarationIndexes(state.moduleMeta, Object.keys(state.moduleMeta));
+          state.declarationIndex = rebuilt.declarationIndex;
+          state.declarationsByModule = rebuilt.declarationsByModule;
+          state.declarationModulesByName = rebuilt.declarationModulesByName;
         }
       }
     };

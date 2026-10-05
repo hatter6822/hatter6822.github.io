@@ -140,7 +140,7 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 
 - hydrates graph state from `data/map-data.json` and nothing else: boot is one same-origin fetch (`fetchBundledMapData`), `normalizeMapData`, `applyData`, render. The status line reports the snapshot's commit or the load failure (`paintLoadStatus`, repainted with the locale); `purgeLegacyStorage` removes the retired cache keys.
 - normalizes legacy/new payload shapes for compatibility.
-- preserves declaration call-graph relationships (`called` field) into a merged `declarationGraph` and precomputed `declarationReverseGraph` for O(1) caller lookups during declaration context navigation. Also builds a `declarationIndex` mapping every declaration name to `{module, kind, line}` for O(1) metadata lookups.
+- preserves declaration call-graph relationships (`called` field) into a merged `declarationGraph` and precomputed `declarationReverseGraph` for O(1) caller lookups during declaration context navigation. Also builds a `declarationIndex` mapping every declaration name to `{module, kind, line}` for O(1) metadata lookups, and `declarationsByModule` / `declarationModulesByName` so a name two modules declare resolves per module: every lookup takes an optional module (`declarationEntryIn`, `declarationCallerRefs`, `declarationCalleeRefs`, `resolveDeclarationModule`).
 - resolves declaration module ownership via `declarationGraph` first, then falls back to `declarationIndex` for O(1) lookup (replacing the previous O(n*m) `moduleMeta` symbol scan).
 - computes filtered graph neighborhood based on selected module and detail mode.
 - renders module-context node/edge flowchart and legend semantics.
