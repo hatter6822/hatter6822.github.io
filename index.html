@@ -24,19 +24,14 @@
   <link rel="canonical" href="https://sele4n.org">
   <link rel="icon" type="image/png" href="assets/images/favicon.png">
   <link rel="apple-touch-icon" href="assets/images/favicon.png">
-  <link rel="preload" as="image" href="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" imagesrcset="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png 1x" fetchpriority="high">
-
-  <!-- raw.githubusercontent.com serves the logo only; the page makes no
-       api.github.com request, so no hint is warmed for it. -->
-  <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
-
   <link rel="stylesheet" href="assets/css/style.css">
   <!-- connect-src is 'self' alone: every statistic on this page comes from the
        bundled data/site-data.json snapshot, so the runtime has no reason to
        reach GitHub. Keeping the origins out of the policy makes that a rule the
-       browser enforces, not just a convention. img-src still allows
-       raw.githubusercontent.com for the logo. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+       browser enforces, not just a convention. The logo is self-hosted too
+       (assets/images/logo-*.webp, resized from upstream's 1024px PNGs), so
+       img-src names no other origin either. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()">
 
@@ -110,8 +105,8 @@
     <div class="container hero-content">
       <p class="hero-label" data-i18n="hero.label">Microkernel &middot; Lean 4 &middot; Rust &middot; Formally Verified</p>
       <div class="hero-logo" aria-hidden="true">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="seLe4n logo" class="logo-img logo-img-light" width="320" height="128" fetchpriority="high" decoding="async">
-        <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n logo" class="logo-img logo-img-dark" width="320" height="128" fetchpriority="high" decoding="async">
+        <img src="assets/images/logo-640.webp" srcset="assets/images/logo-640.webp 640w, assets/images/logo-1024.webp 1024w" sizes="(min-width: 1076px) 624px, (max-width: 358px) 208px, 58vw" alt="seLe4n logo" class="logo-img logo-img-light" width="640" height="640" loading="lazy" decoding="async">
+        <img src="assets/images/logo-dark-640.webp" srcset="assets/images/logo-dark-640.webp 640w, assets/images/logo-dark-1024.webp 1024w" sizes="(min-width: 1076px) 624px, (max-width: 358px) 208px, 58vw" alt="seLe4n logo" class="logo-img logo-img-dark" width="640" height="640" fetchpriority="high" decoding="async">
       </div>
       <h1 class="visually-hidden" data-i18n="hero.h1">seLe4n — A Formally Verified Microkernel Written in Lean 4</h1>
       <p class="hero-subtitle">
@@ -1115,8 +1110,8 @@ lake build SeLe4n.Platform.Staged</code></pre>
       <div class="footer-grid">
         <div class="footer-brand">
           <a href="#hero" class="footer-logo-link footer-logo">
-            <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo.png" alt="seLe4n" class="logo-img logo-img-light" loading="lazy" width="160" height="64">
-            <img src="https://raw.githubusercontent.com/hatter6822/seLe4n/main/assets/logo_dark.png" alt="seLe4n" class="logo-img logo-img-dark" loading="lazy" width="160" height="64">
+            <img src="assets/images/logo-128.webp" alt="seLe4n" class="logo-img logo-img-light" loading="lazy" decoding="async" width="128" height="128">
+            <img src="assets/images/logo-dark-128.webp" alt="seLe4n" class="logo-img logo-img-dark" loading="lazy" decoding="async" width="128" height="128">
           </a>
           <p data-i18n="footer.brand_text">A microkernel written in Lean 4 with machine-checked proofs.</p>
           <p class="footer-meta">v<span data-live="version">0.36.41</span> &middot; Lean <span data-live="lean-version">4.28.0</span></p>

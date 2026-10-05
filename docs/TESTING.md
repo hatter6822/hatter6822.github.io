@@ -234,10 +234,10 @@ of a figure once survived a refresh; and it checks in light theme that every
 `#L` anchor on the page matches `sourceAnchors`, so a hand-written line number
 cannot creep back in.
 
-The kernel logo is served from `raw.githubusercontent.com` (the page's CSP
-allows that host for images and nothing else), so a run without outbound
-network reports those requests as failures; the probe ignores requests and
-console errors originating from that host rather than masking real ones.
+Every request the landing page makes is same-origin: the kernel logo is
+self-hosted under `assets/images/` (WebP, resized from upstream's 1024px PNGs)
+and the page's CSP names no other origin, so the probe treats any failed
+request or console error as a real one.
 
 ```bash
 python3 -m http.server 4174 --bind 127.0.0.1 &

@@ -12,10 +12,9 @@
  * them with a translator's copy.
  *
  * It also holds the two guarantees that are easy to break from a stylesheet:
- * no viewport scrolls sideways, and the console stays clean. The kernel logo
- * is served from raw.githubusercontent.com (the CSP allows exactly that host
- * for images), so a run without outbound network reports those two requests as
- * failures; they are ignored here rather than masking a real error.
+ * no viewport scrolls sideways, and the console stays clean. Every request
+ * the page makes is same-origin (the logo is self-hosted and the CSP names no
+ * other origin), so any failed request or console error is a real one.
  *
  * Requirements (not repository dependencies):
  *   npm install --no-save playwright-core       # or any directory on NODE_PATH
@@ -45,9 +44,6 @@ const ROOT = new URL('../', import.meta.url);
 const SITE_DATA = JSON.parse(readFileSync(new URL('data/site-data.json', ROOT), 'utf8'));
 
 const BASE = process.env.INDEX_SMOKE_BASE || 'http://127.0.0.1:4173';
-
-/** Requests that cannot succeed without outbound network, and say nothing about the page. */
-const EXTERNAL = /^https:\/\/raw\.githubusercontent\.com\//;
 
 const launchOptions = { headless: true };
 if (process.env.PLAYWRIGHT_CHROMIUM) launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM;
@@ -108,16 +104,11 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en', 
   }
   const errors = [];
   page.on('console', (msg) => {
-    // A blocked image logs a console error whose text carries no URL; the
-    // message's location does, which is what separates "the logo host is
-    // unreachable" from a real page error.
-    if (msg.type() !== 'error') return;
-    if (EXTERNAL.test(msg.location()?.url || '')) return;
-    errors.push(msg.text());
+    if (msg.type() === 'error') errors.push(msg.text());
   });
   page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
   page.on('requestfailed', (request) => {
-    if (!EXTERNAL.test(request.url())) errors.push(`requestfailed: ${request.url()}`);
+    errors.push(`requestfailed: ${request.url()}`);
   });
   await page.goto(`${BASE}/index.html${query}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(400);
