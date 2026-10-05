@@ -5,26 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark light">
   <title>seLe4n Simulator</title>
-  <meta name="description" content="Replay the seLe4n microkernel in action: step through deterministic execution traces and watch the machine-checked scheduler, IPC, and capability invariants hold at every transition." data-i18n-content="meta.run_description">
+  <meta name="description" content="Step through seLe4n microkernel scenarios: see each state change, the checked syscall path that allowed or refused it, and the security properties and invariants it relies on, linked to the Lean that proves them." data-i18n-content="meta.run_description">
   <meta property="og:title" content="seLe4n Simulator" data-i18n-content="meta.run_og_title">
-  <meta property="og:description" content="Step through deterministic kernel execution traces and watch the machine-checked invariants hold at every transition." data-i18n-content="meta.run_og_description">
+  <meta property="og:description" content="See what the seLe4n kernel does, how each syscall is checked, and which machine-checked guarantees make it safe." data-i18n-content="meta.run_og_description">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://sele4n.org/run.html">
   <meta property="og:image" content="https://sele4n.org/assets/images/favicon.png">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:image" content="https://sele4n.org/assets/images/favicon.png">
   <meta name="twitter:title" content="seLe4n Simulator" data-i18n-content="meta.run_og_title">
-  <meta name="twitter:description" content="Step through deterministic kernel execution traces and watch the machine-checked invariants hold at every transition." data-i18n-content="meta.run_og_description">
+  <meta name="twitter:description" content="See what the seLe4n kernel does, how each syscall is checked, and which machine-checked guarantees make it safe." data-i18n-content="meta.run_og_description">
   <meta name="theme-color" content="#0a0e17" id="theme-color-meta">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 
   <link rel="canonical" href="https://sele4n.org/run.html">
   <link rel="icon" type="image/png" href="assets/images/favicon.png">
   <link rel="apple-touch-icon" href="assets/images/favicon.png">
-  <link rel="dns-prefetch" href="https://api.github.com">
 
   <link rel="stylesheet" href="assets/css/style.css">
   <link rel="stylesheet" href="assets/css/run.css">
@@ -35,7 +34,7 @@
     "@context": "https://schema.org",
     "@type": "WebApplication",
     "name": "seLe4n Simulator",
-    "description": "Replay deterministic seLe4n microkernel execution traces and watch the machine-checked invariants hold at every transition.",
+    "description": "Step through seLe4n microkernel scenarios with the checked syscall path and the machine-checked guarantees behind every step.",
     "url": "https://sele4n.org/run.html",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Any"
@@ -87,30 +86,35 @@
     <header class="section theater-hero" id="theater-overview">
       <div class="container theater-hero-shell">
         <p class="hero-label" data-i18n="run.hero_label">seLe4n Simulator</p>
-        <h1 data-i18n="run.hero_title">Watch the kernel run — and the proofs hold</h1>
-        <p class="section-lead" data-i18n="run.hero_lead">Every seLe4n transition is a deterministic pure function whose invariants are machine-checked by Lean. Step through a real execution trace below and watch threads move between the CPU, the run queue, and IPC wait queues — with the proven invariants holding at every step.</p>
+        <h1 data-i18n="run.hero_title">What the kernel does, how it checks, and why it is safe</h1>
+        <p class="section-lead" data-i18n="run.hero_lead">Step through a scenario. Each step shows the state change, the checked syscall path that allowed or refused it, and the security properties and invariants it relies on, each linked to the Lean declaration that states or proves it.</p>
         <div class="theater-meta">
+          <span id="theater-source" class="source-badge" data-source="fixture"></span>
+          <span id="theater-provenance" class="theater-provenance"></span>
           <p id="theater-status" class="theater-status" role="status" aria-live="polite" data-i18n="run.loading">Loading kernel traces…</p>
-          <span id="theater-source" class="source-badge" data-source="fixture" aria-live="polite"></span>
         </div>
-        <p class="theater-fixture-note" data-i18n="run.fixture_note">When sourced from a verified kernel export, every step is a faithful replay of a machine-checked run. The bundled sample is a hand-authored reference fixture that conforms to the same schema.</p>
-        <div class="theater-legend" aria-hidden="true">
-          <span><i data-state="running"></i> Running</span>
-          <span><i data-state="ready"></i> Ready</span>
-          <span><i data-state="blocked"></i> Blocked</span>
-          <span><i data-state="inactive"></i> Inactive</span>
-        </div>
+        <p class="theater-fixture-note" data-i18n="run.fixture_note">The kernel does not export traces yet, so the scenarios are written by hand. Every function, theorem, invariant, right and error they name is the kernel's own: the build resolves each one in the seLe4n source at the commit above and fails if one is missing or misstated.</p>
       </div>
     </header>
 
-    <section class="section section-alt" id="theater" aria-label="Kernel execution theater">
+    <section class="section section-alt theater-section" id="theater" aria-label="Kernel execution theater" data-i18n-aria-label="run.theater_region">
       <div class="container">
-        <div class="theater-transport" role="group" aria-label="Playback controls">
-          <div class="transport-group">
+        <div class="scenario-bar">
+          <div class="scenario-pick">
             <label for="scenario-select" data-i18n="run.scenario">Scenario</label>
-            <select id="scenario-select" aria-label="Select scenario" data-i18n-aria-label="run.scenario"></select>
+            <select id="scenario-select"></select>
           </div>
-          <div class="transport-group" role="group" aria-label="Stepping">
+          <div class="scenario-about">
+            <p id="scenario-summary" class="scenario-summary"></p>
+            <div class="scenario-props-row">
+              <span class="scenario-props-label" data-i18n="run.demonstrates">Demonstrates</span>
+              <ul id="scenario-properties" class="scenario-props" role="list"></ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="theater-transport" role="group" aria-label="Playback controls" data-i18n-aria-label="run.playback">
+          <div class="transport-group" role="group" aria-label="Stepping" data-i18n-aria-label="run.stepping">
             <button id="theater-prev" class="transport-btn" type="button" aria-label="Previous step" data-i18n-aria-label="run.prev">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
@@ -133,28 +137,43 @@
         <div class="theater-grid">
           <div class="theater-card stage-card">
             <div class="stage-header">
-              <h2 data-i18n="run.stage">Stage</h2>
+              <h2 data-i18n="run.stage">Kernel state</h2>
               <div id="theater-scenes" class="scene-tabs" role="tablist" aria-label="Scene" data-i18n-aria-label="run.scene"></div>
             </div>
             <div class="theater-stage-shell" id="theater-stage-shell" tabindex="0" role="region" aria-label="Kernel system state" data-i18n-aria-label="run.stage_region">
               <div id="theater-stage"></div>
             </div>
+            <ul class="theater-legend" aria-hidden="true">
+              <li><i data-state="running"></i> <span data-i18n="run.legend_running">Running</span></li>
+              <li><i data-state="ready"></i> <span data-i18n="run.legend_ready">Ready</span></li>
+              <li><i data-state="blocked"></i> <span data-i18n="run.legend_blocked">Blocked</span></li>
+              <li><i data-state="touched"></i> <span data-i18n="run.legend_touched">Changed by this step</span></li>
+            </ul>
           </div>
-          <aside class="theater-card inspector-card" aria-label="Step detail">
-            <h2 data-i18n="run.step_detail">Step detail</h2>
+          <aside class="theater-card inspector-card" aria-label="Step detail" data-i18n-aria-label="run.step_detail">
+            <h2 class="visually-hidden" data-i18n="run.step_detail">Step detail</h2>
             <div id="theater-inspector" class="theater-inspector" aria-live="polite"></div>
           </aside>
         </div>
 
-        <section class="theater-card invariant-card" aria-label="Machine-checked invariants">
-          <div class="invariant-head">
-            <h2 data-i18n="run.invariants">Machine-checked invariants</h2>
-            <p id="rail-summary" data-tone="good"></p>
+        <section class="theater-card guarantee-card" id="guarantees" aria-labelledby="guarantees-title">
+          <div class="guarantee-head">
+            <h2 id="guarantees-title" data-i18n="run.guarantees">Security guarantees</h2>
+            <p id="guarantee-summary" class="guarantee-summary" data-tone="neutral" aria-live="polite"></p>
           </div>
-          <div id="invariant-rail" class="invariant-rail"></div>
+          <div id="guarantee-grid" class="guarantee-grid"></div>
         </section>
 
-        <section class="theater-sandbox" id="sandbox-panel" hidden aria-label="Sandbox (unverified preview)">
+        <details class="theater-card invariant-card" id="invariant-details">
+          <summary class="invariant-head">
+            <h2 data-i18n="run.invariants">Kernel invariants</h2>
+            <p id="invariant-summary" class="invariant-summary" data-tone="good"></p>
+          </summary>
+          <p class="invariant-intro" data-i18n="run.invariant_intro">Each invariant is a Lean predicate over the whole kernel state. A preservation theorem proves that a transition which starts in a state satisfying it ends in one that does too. Runtime checks are the test harness's executable mirrors of the same predicates; they test, they do not prove.</p>
+          <div id="invariant-list" class="invariant-list"></div>
+        </details>
+
+        <section class="theater-sandbox" id="sandbox-panel" hidden aria-label="Sandbox (unverified preview)" data-i18n-aria-label="run.sandbox_region">
           <p class="sandbox-banner" data-i18n-html="run.sandbox_banner"><strong>Unverified preview.</strong> These structural checks run in JavaScript, not Lean. Perturb the state below and watch a check break — exactly what the machine-checked proofs guarantee can never happen in the real kernel.</p>
           <div class="sandbox-actions">
             <button class="btn btn-secondary" type="button" data-perturb="enqueue-current" data-i18n="run.sb_enqueue">Enqueue the running thread</button>
@@ -165,8 +184,8 @@
         </section>
 
         <div class="theater-card theater-log-shell">
-          <h2 data-i18n="run.timeline">Execution trace</h2>
-          <div id="theater-log" class="theater-log" role="list" aria-label="Execution trace steps"></div>
+          <h2 data-i18n="run.timeline">Steps</h2>
+          <div id="theater-log" class="theater-log" role="list" aria-label="Execution trace steps" data-i18n-aria-label="run.timeline"></div>
         </div>
       </div>
     </section>

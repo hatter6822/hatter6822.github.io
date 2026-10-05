@@ -1,15 +1,25 @@
 /**
  * seLe4n Simulator — browser runtime.
  *
- * Replays deterministic kernel execution traces and renders the kernel "in
- * action": threads moving between the CPU, run queue, and IPC wait queues, with
- * the machine-checked invariants shown holding at every step.
+ * Replays kernel execution traces and shows, for every step, three things a
+ * developer needs: what the kernel did (the state change, drawn), how it got
+ * there (the checked syscall path, stage by stage, with the stage that refused
+ * a call), and why that is safe (the security properties the step relies on
+ * and the invariants it preserves, each linked to the Lean declaration that
+ * states or proves it).
+ *
+ * Every name the page shows is grounded: `scripts/sync-upstream.mjs` resolves
+ * each `{ name, module }` in the trace against the pinned kernel checkout and
+ * stamps `path` and `line`, and `data.sourceRef` names that commit. A link is
+ * built from those fields only, so it always opens the revision its line was
+ * read from (`scripts/lib/trace-anchors.mjs`).
  *
  * Design constraints (match the rest of the site):
  *   - Vanilla ES5-style IIFE, no frameworks, strict CSP (no inline/eval).
- *   - Local-first data load with graceful live refresh + localStorage cache.
- *   - Theme / i18n / nav / background are owned by the shared scripts; this file
- *     mirrors map.js for the theme + background-animation toggles.
+ *   - Bundle-only: the page reads `data/execution-traces.json` and nothing
+ *     else (`connect-src 'self'`). There is no live refresh and no cache: the
+ *     kernel exports no JSON traces, and a remote document could not have been
+ *     grounded against the revision the bundle was.
  *
  * The embedded fold engine is a faithful re-implementation of
  * scripts/lib/trace-analysis.mjs (which the Node tests pin down). It applies the
@@ -18,38 +28,38 @@
 (function () {
   "use strict";
 
-  /* ── i18n helper (returns "" so callers can || a literal fallback) ── */
+  /* ── i18n helper (returns "" so callers can || a literal fallback) ──
+     The first locale load dispatches no `sele4n:locale-changed`, so a label
+     painted before it arrived would stay English. `t()` records that it ran
+     early, and the ready callback (setupLocaleReady) repaints once if so. */
+  var localeReady = false;
+  var paintedBeforeLocale = false;
   function t(key, vars) {
+    if (!localeReady) paintedBeforeLocale = true;
     if (window.sele4nI18n && typeof window.sele4nI18n.t === "function") {
       var result = window.sele4nI18n.t(key, vars);
       if (result && result !== key) return result;
     }
     return "";
   }
-  function tt(key, fallback, vars) { return t(key, vars) || fallback; }
+  function tt(key, fallback, vars) {
+    var out = t(key, vars);
+    if (out) return out;
+    if (!vars) return fallback;
+    return String(fallback).replace(/\{\{\s*(\w+)\s*\}\}/g, function (m, k) { return Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m; });
+  }
 
   var REPO = "hatter6822/seLe4n";
-  var REF = "main";
   var DATA_ENDPOINT = "data/execution-traces.json";
-  var CANONICAL_RAW = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/docs/execution-traces.json";
+  var FETCH_OPTIONS = { credentials: "same-origin", cache: "no-cache", redirect: "error" };
+  var SCHEMA_VERSION = 2;
 
-  var FETCH_OPTIONS = {
-    credentials: "omit",
-    cache: "no-store",
-    mode: "cors",
-    redirect: "error",
-    referrerPolicy: "no-referrer"
-  };
-  var FETCH_TIMEOUT_MS = 9000;
-
-  var CACHE_KEY = "sele4n-exec-traces-v1";
-  var CACHE_SCHEMA_VERSION = 1;
-  var CACHE_TTL_MS = 60 * 60 * 1000;
-  var CACHE_MAX_STALE_MS = 30 * 24 * 60 * 60 * 1000;
-  var SCHEMA_VERSION = 1;
-
-  var PLAY_INTERVAL_MS = 1100;
-  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtPatch", "untypedRetype", "untypedRevoke", "flowCheck", "ifPolicyAdd", "ifPolicyRemove", "servicePatch", "vspaceMap", "vspaceUnmap", "vspaceReject", "message", "note"];
+  var PLAY_INTERVAL_MS = 1400;
+  var ALLOWED_OPS = ["setCurrent", "threadPatch", "epEnqueue", "epDequeue", "rqInsert", "rqRemove", "notifPatch", "cdtInsert", "cdtRemove", "cdtRevoke", "cdtPatch", "untypedRetype", "untypedReset", "auditAppend", "flowCheck", "vspaceMap", "vspaceUnmap", "vspaceReject", "message", "note"];
+  /* Ops that record an event without changing state: the only ops a refused
+     step may carry, because a refused transition returns no successor state. */
+  var EVENT_OPS = ["flowCheck", "vspaceReject", "message", "note"];
+  var PATH_STAGES = ["entry", "decode", "lookup", "rights", "flow", "operation"];
 
   /* Layout geometry for the SVG stage. */
   var BOX_W = 188;
@@ -73,7 +83,13 @@
     DOM.status = document.getElementById("theater-status");
     DOM.stage = document.getElementById("theater-stage");
     DOM.sceneTabs = document.getElementById("theater-scenes");
-    DOM.rail = document.getElementById("invariant-rail");
+    DOM.guarantees = document.getElementById("guarantee-grid");
+    DOM.guaranteeSummary = document.getElementById("guarantee-summary");
+    DOM.invariants = document.getElementById("invariant-list");
+    DOM.invariantSummary = document.getElementById("invariant-summary");
+    DOM.scenarioSummary = document.getElementById("scenario-summary");
+    DOM.scenarioProps = document.getElementById("scenario-properties");
+    DOM.provenance = document.getElementById("theater-provenance");
     DOM.inspector = document.getElementById("theater-inspector");
     DOM.log = document.getElementById("theater-log");
     DOM.caption = document.getElementById("theater-caption");
@@ -114,9 +130,9 @@
   function findNotification(s, id) { for (var i = 0; i < (s.notifications || []).length; i++) if (s.notifications[i].id === id) return s.notifications[i]; return null; }
   function findCdtNode(s, id) { var ns = (s.cdt && s.cdt.nodes) || []; for (var i = 0; i < ns.length; i++) if (ns[i].id === id) return ns[i]; return null; }
   function cdtDescendants(cdt, rootId) { var out = {}; var stack = [rootId]; while (stack.length) { var id = stack.pop(); (cdt.edges || []).forEach(function (e) { if (e[0] === id && !out[e[1]]) { out[e[1]] = 1; stack.push(e[1]); } }); } return out; }
+  function cdtDescendantCount(s, id) { return s && s.cdt ? Object.keys(cdtDescendants(s.cdt, id)).length : 0; }
   function findUntyped(s, id) { for (var i = 0; i < (s.untyped || []).length; i++) if (s.untyped[i].id === id) return s.untyped[i]; return null; }
   function findDomain(s, id) { var ds = (s.infoflow && s.infoflow.domains) || []; for (var i = 0; i < ds.length; i++) if (ds[i].id === id) return ds[i]; return null; }
-  function findService(s, id) { for (var i = 0; i < (s.services || []).length; i++) if (s.services[i].id === id) return s.services[i]; return null; }
   function findVspace(s, id) { for (var i = 0; i < (s.vspace || []).length; i++) if (s.vspace[i].id === id) return s.vspace[i]; return null; }
 
   function rqInsertOrdered(state, core, threadId) {
@@ -192,6 +208,15 @@
         }
         return state;
       }
+      case "cdtRevoke": {
+        // Revocation destroys the node's derivations and keeps the node itself.
+        if (state.cdt && findCdtNode(state, op.node)) {
+          var revoked = cdtDescendants(state.cdt, op.node);
+          state.cdt.nodes = state.cdt.nodes.filter(function (nd) { return !revoked[nd.id]; });
+          state.cdt.edges = state.cdt.edges.filter(function (e) { return !revoked[e[0]] && !revoked[e[1]]; });
+        }
+        return state;
+      }
       case "cdtPatch": {
         var cn = findCdtNode(state, op.id);
         if (cn) for (var k3 in op.set) if (Object.prototype.hasOwnProperty.call(op.set, k3)) cn[k3] = op.set[k3];
@@ -206,28 +231,17 @@
         }
         return state;
       }
-      case "untypedRevoke": {
+      case "untypedReset": {
         var utr = findUntyped(state, op.untyped);
         if (utr) { utr.children = []; utr.watermark = 0; }
         return state;
       }
-      case "ifPolicyAdd": {
-        if (state.infoflow) {
-          var dom = {}; (state.infoflow.domains || []).forEach(function (d) { dom[d.id] = 1; });
-          if (dom[op.from] && dom[op.to]) {
-            if (!Array.isArray(state.infoflow.policy)) state.infoflow.policy = [];
-            if (!state.infoflow.policy.some(function (e) { return e[0] === op.from && e[1] === op.to; })) state.infoflow.policy.push([op.from, op.to]);
-          }
+      case "auditAppend": {
+        // Declassification appends to the audit log; the flow policy never changes.
+        if (state.infoflow && op.entry && findDomain(state, op.entry.from) && findDomain(state, op.entry.to)) {
+          if (!Array.isArray(state.infoflow.audit)) state.infoflow.audit = [];
+          state.infoflow.audit.push(op.entry);
         }
-        return state;
-      }
-      case "ifPolicyRemove": {
-        if (state.infoflow && Array.isArray(state.infoflow.policy)) state.infoflow.policy = state.infoflow.policy.filter(function (e) { return !(e[0] === op.from && e[1] === op.to); });
-        return state;
-      }
-      case "servicePatch": {
-        var sv = findService(state, op.id);
-        if (sv) for (var k4 in op.set) if (Object.prototype.hasOwnProperty.call(op.set, k4)) sv[k4] = op.set[k4];
         return state;
       }
       case "vspaceMap": {
@@ -267,7 +281,7 @@
   }
 
   function touchedEntities(delta) {
-    var threads = {}, endpoints = {}, notifications = {}, cdt = {}, untyped = {}, services = {}, vspace = {};
+    var threads = {}, endpoints = {}, notifications = {}, cdt = {}, untyped = {}, vspace = {}, infoflow = false;
     var ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
     for (var i = 0; i < ops.length; i++) {
       var op = ops[i];
@@ -277,14 +291,14 @@
       else if ((op.op === "rqInsert" || op.op === "rqRemove") && op.thread) threads[op.thread] = 1;
       else if (op.op === "notifPatch" && op.id) notifications[op.id] = 1;
       else if (op.op === "cdtInsert") { if (op.node && op.node.id) cdt[op.node.id] = 1; if (op.parent) cdt[op.parent] = 1; }
-      else if (op.op === "cdtRemove") { if (op.node) cdt[op.node] = 1; }
+      else if (op.op === "cdtRemove" || op.op === "cdtRevoke") { if (op.node) cdt[op.node] = 1; }
       else if (op.op === "cdtPatch") { if (op.id) cdt[op.id] = 1; }
-      else if (op.op === "untypedRetype" || op.op === "untypedRevoke") { if (op.untyped) untyped[op.untyped] = 1; }
-      else if (op.op === "servicePatch") { if (op.id) services[op.id] = 1; }
+      else if (op.op === "untypedRetype" || op.op === "untypedReset") { if (op.untyped) untyped[op.untyped] = 1; }
+      else if (op.op === "auditAppend") { infoflow = true; }
       else if (op.op === "vspaceMap" || op.op === "vspaceUnmap" || op.op === "vspaceReject") { if (op.vspace) vspace[op.vspace] = 1; }
       else if (op.op === "message") { if (op.from) threads[op.from] = 1; if (op.to) threads[op.to] = 1; if (op.endpoint) endpoints[op.endpoint] = 1; }
     }
-    return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt, untyped: untyped, services: services, vspace: vspace };
+    return { threads: threads, endpoints: endpoints, notifications: notifications, cdt: cdt, untyped: untyped, vspace: vspace, infoflow: infoflow };
   }
 
   /* Does an op's referenced entity exist in `state`? The render fold is
@@ -304,14 +318,15 @@
       case "notifPatch": return !!findNotification(state, op.id);
       case "cdtInsert": return !op.parent || !!findCdtNode(state, op.parent);
       case "cdtRemove":
+      case "cdtRevoke":
       case "cdtPatch": return !!findCdtNode(state, op.node || op.id);
       case "untypedRetype":
-      case "untypedRevoke": return !!findUntyped(state, op.untyped);
-      case "servicePatch": return !!findService(state, op.id);
+      case "untypedReset": return !!findUntyped(state, op.untyped);
+      case "auditAppend": return !!(state.infoflow && op.entry && findDomain(state, op.entry.from) && findDomain(state, op.entry.to));
       case "vspaceMap":
       case "vspaceUnmap":
       case "vspaceReject": return !!findVspace(state, op.vspace);
-      default: return true; // message / note / flowCheck / ifPolicy* are event-only
+      default: return true; // message / note / flowCheck are event-only
     }
   }
   function scenarioRefsResolve(sc) {
@@ -327,14 +342,31 @@
     return true;
   }
 
-  /* Lightweight client-side validation — guard against malformed remote data. */
+  /* The adoption gate. The bundle was validated in CI (validate-traces.mjs),
+     so this only refuses a document the page cannot render honestly: a
+     schema it does not speak, a dangling op, or a refused step that changes
+     state, which would draw a failure atomicity the kernel does not have. */
+  function isValidStep(step) {
+    if (!step || !step.outcome || (step.outcome.status !== "ok" && step.outcome.status !== "error")) return false;
+    if (step.outcome.status === "error") {
+      var ops = (step.delta && Array.isArray(step.delta.ops)) ? step.delta.ops : [];
+      for (var i = 0; i < ops.length; i++) if (EVENT_OPS.indexOf(ops[i].op) === -1) return false;
+    }
+    if (step.path !== undefined) {
+      if (!Array.isArray(step.path)) return false;
+      for (var j = 0; j < step.path.length; j++) if (PATH_STAGES.indexOf(step.path[j] && step.path[j].stage) === -1) return false;
+    }
+    return true;
+  }
   function isValidTraceData(data) {
     if (!data || typeof data !== "object") return false;
     if (data.schemaVersion !== SCHEMA_VERSION) return false;
+    if (!Array.isArray(data.propertyCatalog) || !Array.isArray(data.invariantCatalog)) return false;
     if (!Array.isArray(data.scenarios) || !data.scenarios.length) return false;
     for (var i = 0; i < data.scenarios.length; i++) {
       var sc = data.scenarios[i];
       if (!sc || !sc.initialState || !Array.isArray(sc.steps) || !sc.steps.length) return false;
+      for (var k = 0; k < sc.steps.length; k++) if (!isValidStep(sc.steps[k])) return false;
       // Reference integrity first (reject dangling ops), then the fold must not throw.
       if (!scenarioRefsResolve(sc)) return false;
       try { scenarioStates(sc); } catch (e) { return false; }
@@ -486,11 +518,13 @@
     return (objs && objs[id]) || null;
   }
   function labelOf(id) {
-    var th = findThread(viewState(), id);
+    var state = viewState() || {};
+    var th = findThread(state, id);
     if (th && th.label) return th.label;
     var meta = objectMeta(id);
     if (meta && meta.label) return meta.label;
-    return id;
+    var obj = findEndpoint(state, id) || findNotification(state, id) || findUntyped(state, id) || findVspace(state, id);
+    return (obj && obj.label) || id;
   }
   function cdtLabelOf(id) { var n = findCdtNode(viewState(), id); return (n && n.label) || id; }
   function flowName(id) { var d = findDomain(viewState(), id); return (d && d.label) || id; }
@@ -572,7 +606,6 @@
       : app.scene === "memory" ? renderMemoryScene(root, state, step, touched)
       : app.scene === "vspace" ? renderVspaceScene(root, state, step, touched)
       : app.scene === "infoflow" ? renderInfoflowScene(root, state, step, touched)
-      : app.scene === "services" ? renderServicesScene(root, state, step, touched)
       : renderSystemScene(root, state, step, touched);
     root.setAttribute("aria-label", dims.aria || tt("run.stage_aria", "Kernel system state visualization"));
     root.setAttribute("viewBox", "0 0 " + dims.width + " " + dims.height);
@@ -742,10 +775,10 @@
      Scene switching + Scheduler scene
      ════════════════════════════════════════════════════════════ */
 
-  var SCENES = ["system", "scheduler", "capability", "memory", "vspace", "infoflow", "services"];
+  var SCENES = ["system", "scheduler", "capability", "memory", "vspace", "infoflow"];
 
   // Scenes available for a scenario: System/Scheduler always; the rest only when the
-  // scenario carries the matching state (CDT / untyped / vspace / flow policy / services).
+  // scenario carries the matching state (CDT / untyped / vspace / flow policy).
   function availableScenes(scenario) {
     var out = ["system", "scheduler"];
     var init = scenario && scenario.initialState;
@@ -753,14 +786,13 @@
     if (init && init.untyped) out.push("memory");
     if (init && init.vspace) out.push("vspace");
     if (init && init.infoflow) out.push("infoflow");
-    if (init && init.services) out.push("services");
     return out;
   }
 
   function renderSceneTabs() {
     if (!DOM.sceneTabs) return;
     clear(DOM.sceneTabs);
-    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities"), memory: tt("run.scene_memory", "Memory"), vspace: tt("run.scene_vspace", "VSpace"), infoflow: tt("run.scene_infoflow", "Information flow"), services: tt("run.scene_services", "Services") };
+    var labels = { system: tt("run.scene_system", "System"), scheduler: tt("run.scene_scheduler", "Scheduler"), capability: tt("run.scene_capability", "Capabilities"), memory: tt("run.scene_memory", "Memory"), vspace: tt("run.scene_vspace", "VSpace"), infoflow: tt("run.scene_infoflow", "Information flow") };
     availableScenes(app.scenario).forEach(function (id) {
       var active = app.scene === id;
       var b = el("button", { "class": "scene-tab", type: "button", role: "tab", dataset: { scene: id, active: active ? "true" : "false" }, text: labels[id], onclick: function () { setScene(id); } });
@@ -1076,83 +1108,36 @@
       root.appendChild(empty);
     }
 
-    var width = MARGIN + domains.length * (DOMW + GAP) - GAP + MARGIN;
-    return { width: Math.max(width, 320), height: domainY + DOMH + 64 + MARGIN, positions: positions, aria: tt("run.infoflow_aria", "Security-domain flow policy and the current flow check") };
-  }
+    var width = Math.max(MARGIN + domains.length * (DOMW + GAP) - GAP + MARGIN, 320);
 
-  var SVC_STATUS_COLORS = { registered: "var(--green)", unregistered: "var(--text-muted)", revoked: "var(--red)", running: "var(--green)", stopped: "var(--text-muted)", broken: "var(--red)", restarting: "var(--yellow)", restart: "var(--yellow)" };
-
-  function renderServicesScene(root, state, step, touched) {
-    var positions = {};
-    var svcs = state.services || [];
-    var NODEW = 134, NODEH = 54, HGAP = 30, VGAP = 58;
-    var byId = {}; svcs.forEach(function (s) { byId[s.id] = s; });
-
-    // Topological level = longest dependency depth (leaves at level 0).
-    var level = {}, computing = {};
-    function lvl(id) {
-      if (level[id] !== undefined) return level[id];
-      if (computing[id]) return 0; // cycle guard (validated out, but be safe)
-      computing[id] = 1;
-      var s = byId[id], deps = (s && s.deps) || [], m = 0;
-      deps.forEach(function (d) { if (byId[d]) m = Math.max(m, lvl(d) + 1); });
-      computing[id] = 0; level[id] = m; return m;
-    }
-    svcs.forEach(function (s) { lvl(s.id); });
-    var maxLevel = 0; svcs.forEach(function (s) { maxLevel = Math.max(maxLevel, level[s.id]); });
-
-    var perLevel = {}; svcs.forEach(function (s) { var L = level[s.id]; (perLevel[L] = perLevel[L] || []).push(s); });
-    var xOf = {}, yOf = {};
-    Object.keys(perLevel).forEach(function (L) {
-      perLevel[L].forEach(function (s, i) {
-        xOf[s.id] = MARGIN + i * (NODEW + HGAP);
-        yOf[s.id] = MARGIN + BOX_HEADER + (maxLevel - Number(L)) * (NODEH + VGAP);
+    // The declassification audit log. Declassification never edits the policy
+    // above; it is a separate, recorded release, and the log is its trace.
+    var bottom = domainY + DOMH + 64;
+    if (Array.isArray(iflow.audit)) {
+      var audit = iflow.audit;
+      var logY = bottom + BOX_HEADER;
+      var rowH = 22, logW = width - 2 * MARGIN;
+      var box = buildBox(tt("run.audit_log", "Declassification audit log"), "infoflow");
+      box.setAttribute("transform", "translate(" + MARGIN + "," + logY + ")");
+      var bodyH = Math.max(rowH, audit.length * rowH);
+      var frame = svg("rect", { x: -BOX_PAD, y: -2, width: logW + 2 * BOX_PAD, height: bodyH + 2 * BOX_PAD, rx: 9, "class": "box-frame" });
+      frame.setAttribute("data-accent", "infoflow");
+      if (touched.infoflow) frame.setAttribute("data-touched", "true");
+      box.insertBefore(frame, box.firstChild);
+      if (!audit.length) {
+        var none = svg("text", { x: logW / 2, y: BOX_PAD + 14, "class": "box-empty", "text-anchor": "middle" });
+        none.textContent = tt("run.audit_empty", "— no declassifications —");
+        box.appendChild(none);
+      }
+      audit.forEach(function (entry, i) {
+        var row = svg("text", { x: 0, y: BOX_PAD + 14 + i * rowH, "class": "chip-sub audit-row" });
+        row.textContent = (i + 1) + ". " + domName(entry.from) + " → " + domName(entry.to) + (entry.actor ? "  · " + labelOf(entry.actor) : "");
+        box.appendChild(row);
       });
-    });
-
-    var defs = svg("defs", {});
-    var mk = svg("marker", { id: "svc-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
-    mk.appendChild(svg("path", { d: "M0 0 L10 5 L0 10 z", "class": "svc-head" }));
-    defs.appendChild(mk); root.appendChild(defs);
-
-    var edgeLayer = svg("g", { "class": "svc-edges" }); root.appendChild(edgeLayer);
-    svcs.forEach(function (s) {
-      (s.deps || []).forEach(function (d) {
-        if (xOf[d] === undefined) return;
-        var x1 = xOf[s.id] + NODEW / 2, y1 = yOf[s.id] + NODEH, x2 = xOf[d] + NODEW / 2, y2 = yOf[d];
-        var midY = (y1 + y2) / 2;
-        edgeLayer.appendChild(svg("path", { "class": "svc-edge", "marker-end": "url(#svc-arrow)", d: "M" + x1 + " " + y1 + " C " + x1 + " " + midY + " " + x2 + " " + midY + " " + x2 + " " + y2 }));
-      });
-    });
-
-    var maxX = 0, maxY = 0;
-    svcs.forEach(function (s) {
-      var x = xOf[s.id], y = yOf[s.id];
-      maxX = Math.max(maxX, x + NODEW); maxY = Math.max(maxY, y + NODEH);
-      var color = SVC_STATUS_COLORS[s.status] || "var(--text-muted)";
-      var g = svg("g", { "class": "theater-chip svc-node", transform: "translate(" + x + "," + y + ")", role: "button", tabindex: "0" });
-      g.setAttribute("data-service", s.id);
-      var rect = svg("rect", { width: NODEW, height: NODEH, rx: 8, "class": "chip-rect svc-rect" });
-      rect.setAttribute("stroke", color);
-      if (s.id === app.selectedObject) rect.setAttribute("data-selected", "true");
-      if (touched.services && touched.services[s.id]) rect.setAttribute("data-touched", "true");
-      g.appendChild(rect);
-      var dot = svg("circle", { cx: 14, cy: 19, r: 5, "class": "chip-dot" }); dot.setAttribute("fill", color); g.appendChild(dot);
-      var name = svg("text", { x: 26, y: 23, "class": "chip-name" }); name.textContent = s.label || s.id; g.appendChild(name);
-      var st = svg("text", { x: 26, y: 40, "class": "chip-sub" }); st.textContent = s.status; g.appendChild(st);
-      g.addEventListener("click", function () { selectObject(s.id); });
-      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectObject(s.id); } });
-      positions[s.id] = { x: x + NODEW / 2, y: y + NODEH / 2 };
-      root.appendChild(g);
-    });
-
-    if (!svcs.length) {
-      var empty = svg("text", { x: MARGIN, y: MARGIN + BOX_HEADER + 16, "class": "box-empty" });
-      empty.textContent = tt("run.no_services", "— no services —");
-      root.appendChild(empty);
+      root.appendChild(box);
+      bottom = logY + bodyH + 2 * BOX_PAD;
     }
-
-    return { width: Math.max(maxX, 240) + MARGIN, height: Math.max(maxY, 220) + MARGIN, positions: positions, aria: tt("run.services_aria", "Service dependency graph and lifecycle status") };
+    return { width: width, height: bottom + MARGIN, positions: positions, aria: tt("run.infoflow_aria", "Security-domain flow policy, the current flow check and the declassification audit log") };
   }
 
   function renderVspaceScene(root, state, step, touched) {
@@ -1191,7 +1176,7 @@
         var t1 = svg("text", { x: 4, y: ry + 16, "class": "vs-addr" }); t1.textContent = m.vaddr + " → " + (m.paddr || "?"); g.appendChild(t1);
         var pb = svg("text", { x: 200, y: ry + 16, "class": "vs-perms" }); pb.textContent = "[" + perms + "]"; g.appendChild(pb);
         var status = svg("text", { x: BOXW, y: ry + 16, "class": (rejected || violating) ? "vs-rejected" : "vs-ok", "text-anchor": "end" });
-        status.textContent = rejected ? "✕ REJECTED (W^X)" : (violating ? "✕ W^X" : "✓ W^X");
+        status.textContent = rejected ? tt("run.wx_refused", "✕ refused (W^X)") : (violating ? "✕ W^X" : "✓ W^X");
         g.appendChild(status);
         ry += ROWH;
       }
@@ -1227,10 +1212,59 @@
   }
 
   /* ════════════════════════════════════════════════════════════
-     Invariant rail
+     Grounded links
      ════════════════════════════════════════════════════════════ */
 
-  // Client-side structural checks for the sandbox (UNVERIFIED, illustrative only).
+  /* A link to kernel source is built from a reference's stamped `path` and
+     `line` at the bundle's `sourceRef` commit, and from nothing else: a
+     reference the sync did not stamp is shown as plain text. The patterns are
+     a whitelist, so a malformed document cannot put an arbitrary URL on the
+     page. */
+  var SHA_RE = /^[0-9a-f]{40}$/;
+  var LEAN_PATH_RE = /^[A-Za-z0-9_]+(?:\/[A-Za-z0-9_]+)*\.lean$/;
+  function sourceHref(ref) {
+    var sha = app.data && app.data.sourceRef;
+    if (!ref || !SHA_RE.test(String(sha || "")) || !LEAN_PATH_RE.test(String(ref.path || ""))) return "";
+    var line = Number(ref.line);
+    if (!(line > 0) || Math.floor(line) !== line) return "";
+    return "https://github.com/" + REPO + "/blob/" + sha + "/" + ref.path + "#L" + line;
+  }
+  // The code map draws production modules only; the testing framework is outside it.
+  function mapHref(module) {
+    var m = String(module || "");
+    if (!/^SeLe4n(\.[A-Za-z0-9_]+)*$/.test(m) || /^SeLe4n\.Testing(\.|$)/.test(m)) return "";
+    return "map.html?module=" + encodeURIComponent(m);
+  }
+  function refLink(ref, cls) {
+    var href = sourceHref(ref);
+    var code = el("code", { text: ref.name });
+    var klass = cls || "ref-link";
+    if (!href) return el("span", { "class": klass + " ref-unlinked", title: ref.module }, [code]);
+    return el("a", { "class": klass, href: href, target: "_blank", rel: "noopener noreferrer", title: ref.module + " · " + ref.path + ":" + ref.line }, [code]);
+  }
+
+  function catalogEntry(list, id) {
+    for (var i = 0; i < (list || []).length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+  function propertyById(id) { return catalogEntry(app.data && app.data.propertyCatalog, id); }
+  function invariantById(id) { return catalogEntry(app.data && app.data.invariantCatalog, id); }
+  function stepGuarantees(step) { return (step && Array.isArray(step.guarantees)) ? step.guarantees : []; }
+  function stepPreserved(step) { return (step && step.invariants && Array.isArray(step.invariants.preserved)) ? step.invariants.preserved : []; }
+  function stepFailed(step) { return (step && step.invariants && Array.isArray(step.invariants.failed)) ? step.invariants.failed : []; }
+  function isRefused(step) { return !!(step && step.outcome && step.outcome.status === "error"); }
+  function refusingStage(step) {
+    var path = (step && step.path) || [];
+    for (var i = 0; i < path.length; i++) if (path[i].result === "fail") return path[i];
+    return null;
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     Guarantees band + invariant catalogue
+     ════════════════════════════════════════════════════════════ */
+
+  // Client-side structural checks for the sandbox (UNVERIFIED, illustrative
+  // only), keyed by the invariant catalogue ids they approximate.
   function jsChecks(state) {
     var results = {};
     var current = state.current && state.current.thread;
@@ -1242,111 +1276,196 @@
       var seen = {};
       (rq[core] || []).forEach(function (id) { if (seen[id]) dupRunQueue = true; seen[id] = 1; inRunQueue[id] = 1; });
     }
-    results.schedulerRunQueueUnique = !dupRunQueue;
+    results.runQueueUnique = !dupRunQueue;
     var cur = current ? findThread(state, current) : null;
-    results.currentThreadValid = !!(cur && cur.threadState === "Running" && !inRunQueue[current]);
-    results.schedulerQueueCurrentConsistent = !current || !inRunQueue[current];
-    var blockedRunnable = (state.threads || []).some(function (th) { return isBlocked(th) && inRunQueue[th.id]; });
-    results.blockedOnReceiveNotRunnable = !blockedRunnable;
-    results.blockedOnSendNotRunnable = !blockedRunnable;
+    results.currentThreadValid = !current || !!(cur && cur.threadState === "Running");
+    results.queueCurrentConsistent = !current || !inRunQueue[current];
+    results.blockedNotRunnable = !(state.threads || []).some(function (th) { return isBlocked(th) && inRunQueue[th.id]; });
     return results;
   }
 
-  var RAIL_SUBSYSTEM_ORDER = ["ipc", "scheduler", "capability", "memory", "infoflow", "services"];
-  function railSubsystemLabel(sub) {
+  var SUBSYSTEM_ORDER = ["ipc", "scheduler", "capability", "memory", "infoflow"];
+  function subsystemLabel(sub) {
     switch (sub) {
       case "ipc": return tt("run.sub_ipc", "IPC");
       case "scheduler": return tt("run.sub_scheduler", "Scheduler");
       case "capability": return tt("run.sub_capability", "Capabilities");
       case "memory": return tt("run.sub_memory", "Memory");
       case "infoflow": return tt("run.sub_infoflow", "Information flow");
-      case "services": return tt("run.sub_services", "Services");
       default: return sub || tt("run.sub_other", "Other");
     }
   }
 
-  function renderRail() {
-    if (!DOM.rail) return;
-    clear(DOM.rail);
+  /* The scenario's properties first, in the order it states them, then the
+     rest of the catalogue: the cards keep their places as the step moves, so
+     the highlight is the only thing that changes. */
+  function orderedProperties() {
+    var catalog = (app.data && app.data.propertyCatalog) || [];
+    var own = (app.scenario && app.scenario.properties) || [];
+    var first = own.map(propertyById).filter(Boolean);
+    return first.concat(catalog.filter(function (p) { return own.indexOf(p.id) === -1; }));
+  }
+
+  function renderGuarantees() {
+    if (!DOM.guarantees) return;
+    clear(DOM.guarantees);
+    var step = currentStep();
+    var active = stepGuarantees(step);
+    var preserved = stepPreserved(step);
+    var own = (app.scenario && app.scenario.properties) || [];
+    orderedProperties().forEach(function (prop) {
+      var inStep = active.indexOf(prop.id) !== -1;
+      var card = el("article", {
+        "class": "prop-card",
+        id: "property-" + prop.id,
+        dataset: { active: inStep ? "true" : "false", scenario: own.indexOf(prop.id) !== -1 ? "true" : "false" }
+      });
+      card.appendChild(el("h3", { "class": "prop-title" }, [
+        el("span", { "class": "prop-mark", "aria-hidden": "true", text: inStep ? "●" : "○" }),
+        el("span", { text: prop.label })
+      ]));
+      card.appendChild(el("p", { "class": "prop-statement", text: prop.statement }));
+      if (prop.caveat) {
+        card.appendChild(el("p", { "class": "prop-caveat" }, [
+          el("strong", { text: tt("run.caveat", "Scope") + ": " }),
+          prop.caveat
+        ]));
+      }
+      if (prop.theorems && prop.theorems.length) {
+        var thms = el("ul", { "class": "prop-theorems", "aria-label": tt("run.proved_by", "Stated or proved by") });
+        prop.theorems.forEach(function (ref) { thms.appendChild(el("li", {}, [refLink(ref)])); });
+        card.appendChild(thms);
+      }
+      if (prop.invariants && prop.invariants.length) {
+        var invs = el("ul", { "class": "prop-invariants", "aria-label": tt("run.rests_on", "Rests on") });
+        prop.invariants.forEach(function (id) {
+          var inv = invariantById(id);
+          if (!inv) return;
+          invs.appendChild(el("li", { dataset: { preserved: preserved.indexOf(id) !== -1 ? "true" : "false" } }, [
+            el("a", { href: "#invariant-" + id, title: inv.meaning || "", text: inv.label })
+          ]));
+        });
+        card.appendChild(invs);
+      }
+      DOM.guarantees.appendChild(card);
+    });
+
+    if (DOM.guaranteeSummary) {
+      var tone = "good", text;
+      if (isRefused(step)) {
+        var stage = refusingStage(step);
+        text = tt("run.summary_refused", "Refused with {{error}}{{at}}: the kernel returned no successor state, so nothing changed.", {
+          error: step.outcome.error || "",
+          at: stage ? " " + tt("run.summary_at", "at the {{stage}} stage", { stage: stage.stage }) : ""
+        });
+        tone = "refused";
+      } else if (active.length) {
+        text = tt("run.summary_relies", "This step relies on {{list}}.", { list: active.map(function (id) { var p = propertyById(id); return p ? p.label : id; }).join(" · ") });
+      } else if (step && step.kind === "boot") {
+        text = tt("run.summary_boot", "Initial state. Highlighted cards are what this scenario demonstrates; step forward to see each one at work.");
+        tone = "neutral";
+      } else {
+        text = tt("run.summary_none", "This step is bookkeeping: it relies on no security property beyond the invariants it preserves.");
+        tone = "neutral";
+      }
+      DOM.guaranteeSummary.textContent = text;
+      DOM.guaranteeSummary.dataset.tone = tone;
+    }
+  }
+
+  function renderInvariants() {
+    if (!DOM.invariants) return;
+    clear(DOM.invariants);
     var catalog = (app.data && app.data.invariantCatalog) || [];
     var step = currentStep();
-    var checkedSet = {}, failedSet = {};
-    if (step && step.invariants) {
-      if (step.invariants.checked) step.invariants.checked.forEach(function (id) { checkedSet[id] = 1; });
-      if (step.invariants.failed) step.invariants.failed.forEach(function (id) { failedSet[id] = 1; });
-    }
+    var preserved = stepPreserved(step);
+    var failed = stepFailed(step);
     var sandboxResults = app.sandbox ? jsChecks(viewState()) : null;
-    var anyViolation = false, checkedCount = 0, anyFailed = false;
+    var anyViolation = false;
 
-    // Group catalog entries by subsystem (preserving catalog order within a group).
     var groups = {}, seen = [];
     catalog.forEach(function (inv) {
       var sub = inv.subsystem || "other";
       if (!groups[sub]) { groups[sub] = []; seen.push(sub); }
       groups[sub].push(inv);
     });
-    // Known subsystems in a stable order, then any extras as first encountered.
-    var ordered = RAIL_SUBSYSTEM_ORDER.filter(function (s) { return groups[s]; })
-      .concat(seen.filter(function (s) { return RAIL_SUBSYSTEM_ORDER.indexOf(s) === -1; }));
+    var ordered = SUBSYSTEM_ORDER.filter(function (s) { return groups[s]; })
+      .concat(seen.filter(function (s) { return SUBSYSTEM_ORDER.indexOf(s) === -1; }));
 
     ordered.forEach(function (sub) {
-      var list = el("ul", { "class": "rail-group-list", role: "list" });
+      var list = el("ul", { "class": "inv-list", role: "list" });
       groups[sub].forEach(function (inv) {
-        var status = "holds";        // holds (per proof) / verified (this step) / violated (sandbox)
+        // preserved: this step's transition is covered by a preservation theorem;
+        // holds: the invariant is part of the kernel's proved state, untouched here;
+        // violated: the sandbox broke it, or the trace records a failure.
+        var status = "holds";
         if (sandboxResults && Object.prototype.hasOwnProperty.call(sandboxResults, inv.id)) {
-          status = sandboxResults[inv.id] ? "holds" : "violated";
-          if (!sandboxResults[inv.id]) anyViolation = true;
-        } else if (failedSet[inv.id]) {
-          // The recorded trace reports this invariant as not holding at this step.
+          if (!sandboxResults[inv.id]) { status = "violated"; anyViolation = true; }
+        } else if (failed.indexOf(inv.id) !== -1) {
           status = "violated";
-          anyFailed = true;
-        } else if (checkedSet[inv.id]) {
-          status = "verified";
-          checkedCount++;
+          anyViolation = true;
+        } else if (preserved.indexOf(inv.id) !== -1) {
+          status = "preserved";
         }
-        var href = "map.html?module=" + encodeURIComponent(inv.mapModule);
-        list.appendChild(el("li", { "class": "rail-item", dataset: { status: status, subsystem: sub } }, [
-          el("a", { "class": "rail-link", href: href, title: inv.label + " — " + inv.check + " (" + inv.module + ")" }, [
-            el("span", { "class": "rail-mark", "aria-hidden": "true", text: status === "violated" ? "✕" : "✓" }),
-            el("span", { "class": "rail-label", text: inv.label })
-          ])
+        var rows = el("dl", { "class": "inv-refs" });
+        if (inv.predicate) { rows.appendChild(el("dt", { text: tt("run.inv_predicate", "Predicate") })); rows.appendChild(el("dd", {}, [refLink(inv.predicate)])); }
+        if (inv.preservedBy && inv.preservedBy.length) {
+          rows.appendChild(el("dt", { text: tt("run.inv_preserved_by", "Preserved by") }));
+          rows.appendChild(el("dd", {}, inv.preservedBy.map(function (ref) { return refLink(ref); })));
+        }
+        if (inv.runtimeCheck) {
+          rows.appendChild(el("dt", { text: tt("run.inv_runtime", "Runtime check") }));
+          rows.appendChild(el("dd", {}, [refLink(inv.runtimeCheck), el("span", { "class": "inv-note", text: tt("run.inv_runtime_note", "test harness, not a proof") })]));
+        }
+        var mark = status === "violated" ? "✕" : status === "preserved" ? "✓" : "·";
+        list.appendChild(el("li", { "class": "inv-item", id: "invariant-" + inv.id, dataset: { status: status, subsystem: sub } }, [
+          el("div", { "class": "inv-head" }, [
+            el("span", { "class": "inv-mark", "aria-hidden": "true", text: mark }),
+            el("strong", { "class": "inv-label", text: inv.label }),
+            status === "preserved" ? el("span", { "class": "inv-badge", text: tt("run.inv_preserved_here", "preserved by this step") }) : null,
+            status === "violated" ? el("span", { "class": "inv-badge", text: tt("run.inv_violated", "violated") }) : null
+          ]),
+          inv.meaning ? el("p", { "class": "inv-meaning", text: inv.meaning }) : null,
+          rows
         ]));
       });
-      DOM.rail.appendChild(el("section", { "class": "rail-group" }, [
-        el("h3", { "class": "rail-group-title" }, [
-          el("span", { text: railSubsystemLabel(sub) }),
-          el("span", { "class": "rail-group-count", "aria-hidden": "true", text: String(groups[sub].length) })
+      DOM.invariants.appendChild(el("section", { "class": "inv-group" }, [
+        el("h3", { "class": "inv-group-title" }, [
+          el("span", { text: subsystemLabel(sub) }),
+          el("span", { "class": "inv-group-count", "aria-hidden": "true", text: String(groups[sub].length) })
         ]),
         list
       ]));
     });
 
-    var summary = document.getElementById("rail-summary");
-    if (summary) {
+    if (DOM.invariantSummary) {
+      var tone = "good", text;
       if (app.sandbox) {
-        summary.textContent = anyViolation
+        text = anyViolation
           ? tt("run.rail_violated", "Sandbox: a structural check is violated (this is exactly what the Lean proofs forbid).")
           : tt("run.rail_sandbox_ok", "Sandbox: client-side structural checks pass (unverified).");
-        summary.dataset.tone = anyViolation ? "bad" : "warn";
-      } else if (anyFailed) {
-        var nFailed = (step && step.invariants && step.invariants.failed && step.invariants.failed.length) || 0;
-        summary.textContent = nFailed + " " + tt("run.rail_failed", "machine-checked invariant(s) failed at this step");
-        summary.dataset.tone = "bad";
+        tone = anyViolation ? "bad" : "warn";
+      } else if (failed.length) {
+        text = tt("run.rail_failed", "Invariants recorded as failing at this step: {{count}}", { count: failed.length });
+        tone = "bad";
+      } else if (preserved.length) {
+        text = tt("run.inv_summary_preserved", "{{count}} of {{total}} preserved by a theorem covering this step", { count: preserved.length, total: catalog.length });
       } else {
-        summary.textContent = tt("run.rail_all_hold", "All machine-checked invariants hold")
-          + (checkedCount > 0 ? " · " + checkedCount + " " + tt("run.rail_checked_here", "checked at this step") : "");
-        summary.dataset.tone = "good";
+        text = tt("run.inv_summary_none", "This step changes no state these invariants constrain");
+        tone = "neutral";
       }
+      DOM.invariantSummary.textContent = text;
+      DOM.invariantSummary.dataset.tone = tone;
     }
   }
 
   /* ════════════════════════════════════════════════════════════
-     Inspector (step detail + selected object)
+     Inspector (what happened · kernel path · why it's safe)
      ════════════════════════════════════════════════════════════ */
 
   function humanizeOp(op) {
     switch (op.op) {
-      case "setCurrent": return "Context switch → " + (op.thread ? labelOf(op.thread) : "none");
+      case "setCurrent": return "Context switch → " + (op.thread ? labelOf(op.thread) : "idle");
       case "threadPatch": {
         var bits = [];
         for (var k in op.set) if (Object.prototype.hasOwnProperty.call(op.set, k)) bits.push(k + " = " + JSON.stringify(op.set[k]));
@@ -1358,17 +1477,16 @@
       case "rqRemove": return "Dequeue " + labelOf(op.thread) + " from run queue (core " + (op.core || 0) + ")";
       case "notifPatch": return labelOf(op.id) + " updated";
       case "cdtInsert": return "Derive capability " + (op.node && (op.node.label || op.node.id)) + (op.parent ? " from " + cdtLabelOf(op.parent) : "");
-      case "cdtRemove": return "Revoke capability " + cdtLabelOf(op.node) + " and its descendants";
+      case "cdtRemove": return "Delete capability " + cdtLabelOf(op.node);
+      case "cdtRevoke": return "Revoke every capability derived from " + cdtLabelOf(op.node) + " (it stays)";
       case "cdtPatch": return "Update capability " + cdtLabelOf(op.id);
-      case "untypedRetype": return "Retype " + (op.child && op.child.type) + " (" + (op.child && op.child.size) + ") from " + ((objectMeta(op.untyped) && objectMeta(op.untyped).label) || op.untyped);
-      case "untypedRevoke": return "Revoke untyped " + ((objectMeta(op.untyped) && objectMeta(op.untyped).label) || op.untyped) + " — reclaim all objects";
-      case "flowCheck": return "Flow " + flowName(op.from) + " → " + flowName(op.to) + (op.allowed === false ? " — BLOCKED" : " — allowed");
-      case "ifPolicyAdd": return "Authorize flow " + flowName(op.from) + " → " + flowName(op.to) + " (declassification)";
-      case "ifPolicyRemove": return "Revoke flow " + flowName(op.from) + " → " + flowName(op.to);
-      case "servicePatch": { var sbits = []; for (var sk in op.set) if (Object.prototype.hasOwnProperty.call(op.set, sk)) sbits.push(sk + " → " + op.set[sk]); var snm = (findService(viewState(), op.id) || {}).label || op.id; return "Service " + snm + ": " + sbits.join(", "); }
+      case "untypedRetype": return "Retype " + (op.child && op.child.type) + " (" + (op.child && op.child.size) + ") from " + labelOf(op.untyped);
+      case "untypedReset": return "Reset " + labelOf(op.untyped) + ": watermark to 0, every carved object reclaimed";
+      case "auditAppend": return "Audit log: declassify " + flowName(op.entry && op.entry.from) + " → " + flowName(op.entry && op.entry.to) + (op.entry && op.entry.actor ? " by " + labelOf(op.entry.actor) : "");
+      case "flowCheck": return "Flow check " + flowName(op.from) + " → " + flowName(op.to) + (op.allowed === false ? ": denied" : ": allowed");
       case "vspaceMap": return "Map " + (op.mapping && op.mapping.vaddr) + " → " + (op.mapping && op.mapping.paddr) + " [" + (op.mapping && op.mapping.perms) + "]";
-      case "vspaceUnmap": return "Unmap " + op.vaddr;
-      case "vspaceReject": return "REJECTED map " + (op.mapping && op.mapping.vaddr) + " [" + (op.mapping && op.mapping.perms) + "] — W^X violation";
+      case "vspaceUnmap": return "Unmap " + op.vaddr + " and shoot down its TLB entry";
+      case "vspaceReject": return "Map " + (op.mapping && op.mapping.vaddr) + " [" + (op.mapping && op.mapping.perms) + "] refused: writable and executable";
       case "message": return "Message " + labelOf(op.from) + " → " + labelOf(op.to) + " (" + (op.registers || 0) + " regs" + (op.caps ? ", " + op.caps + " caps" : "") + ")";
       case "note": return op.text || "";
       default: return op.op;
@@ -1414,14 +1532,30 @@
       var a = findNotification(prev, id), b = findNotification(next, id);
       if (a && b) diff(b.label || id, a, b, ["state", "badge", "waiters"]);
     });
-    Object.keys(touched.services || {}).forEach(function (id) {
-      var a = findService(prev, id), b = findService(next, id);
-      if (a && b) diff(b.label || id, a, b, ["status"]);
+    Object.keys(touched.cdt || {}).forEach(function (id) {
+      var a = findCdtNode(prev, id), b = findCdtNode(next, id);
+      var parentEdges = (next.cdt && next.cdt.edges) || [];
+      if (!a && b) {
+        var parent = parentEdges.filter(function (e) { return e[1] === id; }).map(function (e) { return e[0]; })[0];
+        rows.push([b.label || id, "derived", "[" + (b.rights || "") + "]" + (parent ? " ← " + ((findCdtNode(next, parent) || {}).label || parent) : "")]);
+      } else if (a && !b) rows.push([a.label || id, "destroyed", ""]);
+      else if (a && b) {
+        var before = cdtDescendantCount(prev, id), after = cdtDescendantCount(next, id);
+        if (before !== after) rows.push([b.label || id, "derivations", before + " → " + after]);
+        diff(b.label || id, a, b, ["rights", "badge"]);
+      }
     });
     Object.keys(touched.untyped || {}).forEach(function (id) {
       var a = findUntyped(prev, id), b = findUntyped(next, id);
-      if (a && b) diff(b.label || id, a, b, ["watermark"]);
+      if (a && b) {
+        diff(b.label || id, a, b, ["watermark"]);
+        if ((a.children || []).length !== (b.children || []).length) rows.push([b.label || id, "objects", (a.children || []).length + " → " + (b.children || []).length]);
+      }
     });
+    if (touched.infoflow && prev.infoflow && next.infoflow) {
+      var na = (prev.infoflow.audit || []).length, nb = (next.infoflow.audit || []).length;
+      if (na !== nb) rows.push([tt("run.audit_log", "Declassification audit log"), "entries", na + " → " + nb]);
+    }
     Object.keys(touched.vspace || {}).forEach(function (id) {
       var a = findVspace(prev, id), b = findVspace(next, id);
       if (!a || !b) return;
@@ -1436,71 +1570,127 @@
     clear(DOM.inspector);
     var step = currentStep();
     if (!step) return;
+    var refused = isRefused(step);
 
-    var kindEl = el("span", { "class": "insp-kind", dataset: { kind: step.kind }, text: step.kind });
-    var head = el("div", { "class": "insp-head" }, [
-      kindEl,
+    DOM.inspector.appendChild(el("div", { "class": "insp-head" }, [
+      el("span", { "class": "insp-kind", dataset: { kind: step.kind }, text: step.kind }),
       el("code", { "class": "insp-tag", text: step.traceTag }),
+      el("span", { "class": "insp-outcome", dataset: { outcome: refused ? "error" : "ok" }, text: refused
+        ? tt("run.outcome_refused", "refused · {{error}}", { error: step.outcome.error || "" })
+        : tt("run.outcome_ok", "completed") }),
       step.actor ? el("span", { "class": "insp-actor", text: tt("run.actor", "actor") + ": " + labelOf(step.actor) }) : null
-    ]);
-    DOM.inspector.appendChild(head);
+    ]));
     DOM.inspector.appendChild(el("h3", { "class": "insp-title", text: step.title }));
     if (step.narrative) DOM.inspector.appendChild(el("p", { "class": "insp-narrative", text: step.narrative }));
 
-    var diffRows = computeDiffRows();
-    if (diffRows.length) {
-      var dlist = el("ul", { "class": "insp-diff" });
-      diffRows.forEach(function (r) {
-        dlist.appendChild(el("li", {}, [
-          el("span", { "class": "diff-entity", text: r[0] }),
-          el("span", { "class": "diff-field", text: r[1] }),
-          el("span", { "class": "diff-change", text: r[2] })
+    /* ── How: the checked syscall path ── */
+    if (step.syscall || (step.path && step.path.length)) {
+      var section = el("div", { "class": "insp-section" }, [el("h4", { text: tt("run.kernel_path", "Kernel path") })]);
+      if (step.syscall) {
+        var sc = step.syscall;
+        section.appendChild(el("p", { "class": "insp-syscall" }, [
+          el("code", { "class": "insp-syscall-id", text: sc.id }),
+          sc.requiredRight ? el("span", { "class": "insp-right" }, [tt("run.requires", "requires") + " ", el("code", { text: sc.requiredRight })]) : null,
+          sc.capPath ? el("span", { "class": "insp-cappath", text: sc.capPath }) : null
         ]));
-      });
-      DOM.inspector.appendChild(el("div", { "class": "insp-section" }, [el("h4", { text: tt("run.changes", "State changes") }), dlist]));
-    }
-
-    if (step.syscall) {
-      var sc = step.syscall;
-      var rows = [
-        ["syscall", sc.id],
-        ["gate", sc.gate],
-        ["required right", sc.requiredRight],
-        ["cap path", sc.capPath]
-      ];
-      var dl = el("dl", { "class": "insp-grid" });
-      rows.forEach(function (r) {
-        if (!r[1]) return;
-        dl.appendChild(el("dt", { text: r[0] }));
-        dl.appendChild(el("dd", {}, [el("code", { text: String(r[1]) })]));
-      });
-      if (sc.args) {
-        dl.appendChild(el("dt", { text: "args" }));
-        dl.appendChild(el("dd", {}, [el("code", { text: JSON.stringify(sc.args) })]));
       }
-      DOM.inspector.appendChild(el("div", { "class": "insp-section" }, [el("h4", { text: tt("run.syscall", "Syscall") }), dl]));
+      if (step.path && step.path.length) {
+        var strip = el("ol", { "class": "path-strip" });
+        step.path.forEach(function (stage) {
+          var result = stage.result || "pass";
+          strip.appendChild(el("li", { "class": "path-stage", dataset: { result: result, stage: stage.stage } }, [
+            el("span", { "class": "path-mark", "aria-hidden": "true", text: result === "fail" ? "✕" : result === "skip" ? "–" : "✓" }),
+            el("span", { "class": "path-body" }, [
+              el("span", { "class": "path-label" }, [
+                el("span", { "class": "path-stage-name", text: stage.stage }),
+                stage.label
+              ]),
+              stage.ref ? refLink(stage.ref, "ref-link path-ref") : null,
+              result === "fail" && stage.error ? el("span", { "class": "path-error" }, [tt("run.returns", "returns") + " ", el("code", { text: "." + stage.error })]) : null,
+              result === "skip" ? el("span", { "class": "path-skip", text: tt("run.not_reached", "not reached") }) : null
+            ])
+          ]));
+        });
+        section.appendChild(strip);
+      }
+      DOM.inspector.appendChild(section);
     }
 
+    /* ── Why it's safe ── */
+    var guarantees = stepGuarantees(step);
+    var preserved = stepPreserved(step);
+    if (guarantees.length || preserved.length || refused) {
+      var why = el("div", { "class": "insp-section insp-why" }, [el("h4", { text: tt("run.why_safe", "Why it's safe") })]);
+      if (refused) {
+        why.appendChild(el("p", { "class": "insp-atomic", text: tt("run.atomic_note", "A kernel transition has type σ → Except ε (α × σ): an error carries no state, so a refused call cannot leave a partial change behind.") }));
+      }
+      if (guarantees.length) {
+        var gl = el("ul", { "class": "insp-guarantees" });
+        guarantees.forEach(function (id) {
+          var prop = propertyById(id);
+          if (!prop) return;
+          gl.appendChild(el("li", {}, [
+            el("a", { href: "#property-" + id, "class": "insp-prop", text: prop.label }),
+            prop.theorems && prop.theorems[0] ? refLink(prop.theorems[0]) : null
+          ]));
+        });
+        why.appendChild(gl);
+      }
+      if (preserved.length) {
+        var il = el("ul", { "class": "insp-preserved", "aria-label": tt("run.preserved", "Invariants preserved") });
+        preserved.forEach(function (id) {
+          var inv = invariantById(id);
+          if (!inv) return;
+          il.appendChild(el("li", {}, [
+            el("a", { href: "#invariant-" + id, "class": "insp-inv", text: "✓ " + inv.label }),
+            inv.preservedBy && inv.preservedBy[0] ? refLink(inv.preservedBy[0]) : null
+          ]));
+        });
+        why.appendChild(el("p", { "class": "insp-subhead", text: tt("run.preserved", "Invariants preserved") }));
+        why.appendChild(il);
+      }
+      DOM.inspector.appendChild(why);
+    }
+
+    /* ── What changed ── */
+    var diffRows = computeDiffRows();
     var ops = (step.delta && step.delta.ops) || [];
-    if (ops.length) {
-      var ul = el("ul", { "class": "insp-effects" });
-      ops.forEach(function (op) { ul.appendChild(el("li", { dataset: { op: op.op }, text: humanizeOp(op) })); });
-      DOM.inspector.appendChild(el("div", { "class": "insp-section" }, [el("h4", { text: tt("run.effects", "Effects") }), ul]));
+    if (diffRows.length || ops.length || refused) {
+      var what = el("div", { "class": "insp-section" }, [el("h4", { text: tt("run.changes", "State changes") })]);
+      if (diffRows.length) {
+        var dlist = el("ul", { "class": "insp-diff" });
+        diffRows.forEach(function (r) {
+          dlist.appendChild(el("li", {}, [
+            el("span", { "class": "diff-entity", text: r[0] }),
+            el("span", { "class": "diff-field", text: r[1] }),
+            el("span", { "class": "diff-change", text: r[2] })
+          ]));
+        });
+        what.appendChild(dlist);
+      } else if (refused || step.kind !== "boot") {
+        what.appendChild(el("p", { "class": "insp-nochange", text: tt("run.no_change", "None: the kernel state after this step equals the state before it.") }));
+      }
+      if (ops.length) {
+        var ul = el("ul", { "class": "insp-effects" });
+        ops.forEach(function (op) { ul.appendChild(el("li", { dataset: { op: op.op, event: EVENT_OPS.indexOf(op.op) !== -1 ? "true" : "false" }, text: humanizeOp(op) })); });
+        what.appendChild(ul);
+      }
+      DOM.inspector.appendChild(what);
     }
 
+    /* ── Source ── */
     if (step.sourceRefs && step.sourceRefs.length) {
       var refs = el("ul", { "class": "insp-refs" });
       step.sourceRefs.forEach(function (ref) {
-        var href = "map.html?module=" + encodeURIComponent(ref.module);
+        var map = mapHref(ref.module);
         refs.appendChild(el("li", {}, [
-          el("a", { href: href, title: ref.module }, [el("code", { text: ref.label })]),
-          el("span", { "class": "insp-ref-mod", text: ref.module })
+          refLink(ref),
+          map ? el("a", { "class": "insp-ref-mod", href: map, title: tt("run.open_in_map", "Open in the code map"), text: ref.module }) : el("span", { "class": "insp-ref-mod", text: ref.module })
         ]));
       });
       DOM.inspector.appendChild(el("div", { "class": "insp-section" }, [el("h4", { text: tt("run.source", "Source") }), refs]));
     }
 
-    // Selected object detail.
     if (app.selectedObject) renderSelectedObject();
   }
 
@@ -1554,22 +1744,13 @@
             fields.push(["may flow to", to.length ? to.join(", ") : "—"]);
             fields.push(["may receive from", from.length ? from.join(", ") : "—"]);
           } else {
-            var sv = findService(state, id);
-            if (sv) {
-              title = "Service · " + (sv.label || sv.id);
-              fields.push(["status", sv.status]);
-              fields.push(["depends on", (sv.deps || []).map(function (d) { var x = findService(state, d); return (x && x.label) || d; }).join(", ") || "—"]);
-              var dependents = (state.services || []).filter(function (x) { return (x.deps || []).indexOf(id) !== -1; }).map(function (x) { return x.label || x.id; });
-              fields.push(["required by", dependents.length ? dependents.join(", ") : "—"]);
-            } else {
-              var vsp = findVspace(state, id);
-              if (!vsp) return;
-              title = "VSpace · " + (vsp.label || vsp.id);
-              fields.push(["asid", vsp.asid]);
-              fields.push(["mappings", (vsp.mappings || []).length]);
-              (vsp.mappings || []).forEach(function (m) { fields.push([m.vaddr, "→ " + (m.paddr || "?") + " [" + (m.perms || "") + "]"]); });
-              if (vsp.tlb !== undefined) fields.push(["TLB", (vsp.tlb && vsp.tlb.length) ? vsp.tlb.join(", ") : "—"]);
-            }
+            var vsp = findVspace(state, id);
+            if (!vsp) return;
+            title = "VSpace · " + (vsp.label || vsp.id);
+            fields.push(["asid", vsp.asid]);
+            fields.push(["mappings", (vsp.mappings || []).length]);
+            (vsp.mappings || []).forEach(function (m) { fields.push([m.vaddr, "→ " + (m.paddr || "?") + " [" + (m.perms || "") + "]"]); });
+            if (vsp.tlb !== undefined) fields.push(["TLB", (vsp.tlb && vsp.tlb.length) ? vsp.tlb.join(", ") : "—"]);
           }
         }
       }
@@ -1597,12 +1778,13 @@
       var line = el("button", {
         "class": "log-line",
         type: "button",
-        dataset: { kind: step.kind, active: active ? "true" : "false" },
+        dataset: { kind: step.kind, active: active ? "true" : "false", outcome: isRefused(step) ? "error" : "ok" },
         onclick: function () { setStep(i); }
       }, [
         el("code", { "class": "log-tag", text: step.traceTag }),
         el("span", { "class": "log-kind", text: step.kind }),
-        el("span", { "class": "log-title", text: step.title })
+        el("span", { "class": "log-title", text: step.title }),
+        isRefused(step) ? el("code", { "class": "log-error", text: step.outcome.error || "" }) : null
       ]);
       if (active) line.setAttribute("aria-current", "step");
       DOM.log.appendChild(line);
@@ -1618,8 +1800,9 @@
   function render() {
     if (!app.scenario) return;
     renderStage();
-    renderRail();
     renderInspector();
+    renderGuarantees();
+    renderInvariants();
     renderLog();
     updateTransport();
   }
@@ -1629,7 +1812,7 @@
     var total = app.scenario ? app.scenario.steps.length : 0;
     if (DOM.scrubber) { DOM.scrubber.max = String(Math.max(0, total - 1)); DOM.scrubber.value = String(app.stepIndex); }
     if (DOM.stepLabel) DOM.stepLabel.textContent = (app.stepIndex + 1) + " / " + total;
-    if (DOM.caption && step) DOM.caption.textContent = step.title;
+    if (DOM.caption && step) DOM.caption.textContent = (app.stepIndex + 1) + ". " + step.title;
     if (DOM.prevBtn) DOM.prevBtn.disabled = app.stepIndex <= 0;
     if (DOM.nextBtn) DOM.nextBtn.disabled = app.stepIndex >= total - 1;
     if (DOM.playBtn) {
@@ -1693,7 +1876,21 @@
     app._urlObject = null;
     app.sandboxState = null;
     if (DOM.scenarioSelect) DOM.scenarioSelect.value = sc.id;
+    renderScenarioMeta();
     render();
+  }
+
+  /* What the scenario is for, and which guarantees it puts to work. */
+  function renderScenarioMeta() {
+    var sc = app.scenario;
+    if (DOM.scenarioSummary) DOM.scenarioSummary.textContent = (sc && sc.summary) || "";
+    if (!DOM.scenarioProps) return;
+    clear(DOM.scenarioProps);
+    ((sc && sc.properties) || []).forEach(function (id) {
+      var prop = propertyById(id);
+      if (!prop) return;
+      DOM.scenarioProps.appendChild(el("li", {}, [el("a", { href: "#property-" + id, "class": "scenario-prop", text: prop.label })]));
+    });
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -1706,6 +1903,9 @@
     if (DOM.sandboxPanel) DOM.sandboxPanel.hidden = !on;
     if (DOM.sandboxToggle) { DOM.sandboxToggle.setAttribute("aria-pressed", on ? "true" : "false"); DOM.sandboxToggle.dataset.on = on ? "true" : "false"; }
     document.documentElement.setAttribute("data-theater-sandbox", on ? "on" : "off");
+    // The sandbox's effect is a broken invariant, so show the list it breaks.
+    var details = document.getElementById("invariant-details");
+    if (on && details) details.open = true;
     render();
     syncUrl();
   }
@@ -1773,75 +1973,33 @@
   }
 
   /* ════════════════════════════════════════════════════════════
-     Data loading (local-first + graceful live refresh)
+     Data loading (bundle-only)
      ════════════════════════════════════════════════════════════ */
 
-  function safeFetchJson(url) {
-    var ctrl = typeof AbortController === "function" ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, FETCH_TIMEOUT_MS) : null;
-    var opts = ctrl ? Object.assign({}, FETCH_OPTIONS, { signal: ctrl.signal }) : FETCH_OPTIONS;
-    return fetch(url, opts).then(function (res) {
-      if (timer) clearTimeout(timer);
+  function fetchBundle() {
+    return fetch(DATA_ENDPOINT, FETCH_OPTIONS).then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);
       return res.json();
-    }).catch(function (e) { if (timer) clearTimeout(timer); throw e; });
+    });
   }
 
-  function getCache() {
-    try {
-      var raw = localStorage.getItem(CACHE_KEY);
-      if (!raw) return null;
-      var parsed = JSON.parse(raw);
-      if (parsed.schema !== CACHE_SCHEMA_VERSION || !parsed.data) return null;
-      if (Math.max(0, Date.now() - Number(parsed.ts || 0)) > CACHE_MAX_STALE_MS) return null;
-      return parsed.data;
-    } catch (e) { return null; }
-  }
-  function putCache(data) {
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ schema: CACHE_SCHEMA_VERSION, ts: Date.now(), data: data })); } catch (e) {}
-  }
-  function newer(a, b) {
-    if (!a) return false; if (!b) return true;
-    return new Date(a.generatedAt || 0).getTime() > new Date(b.generatedAt || 0).getTime();
-  }
-
-  function adoptData(data, label) {
+  function adoptData(data) {
     if (!isValidTraceData(data)) return false;
     app.data = data;
     buildScenarioOptions();
     updateSourceBadge();
     loadScenario(app.scenarioId || (data.scenarios[0] && data.scenarios[0].id), true);
-    setStatus(tt("run.ready", "Ready — replaying " + label, { label: label }) || ("Ready — " + label));
+    setStatus("");
     return true;
   }
 
   function bootstrapData() {
     setStatus(tt("run.loading", "Loading kernel traces…"));
-    var cached = getCache();
-    safeFetchJson(DATA_ENDPOINT).then(function (bundled) {
-      var best = bundled;
-      if (cached && newer(cached, bundled)) best = cached;
-      if (!adoptData(best, best === cached ? "cached snapshot" : "bundled snapshot")) {
-        if (!adoptData(bundled, "bundled snapshot") && !(cached && adoptData(cached, "cached snapshot"))) {
-          setStatus(tt("run.invalid", "Bundled trace data is invalid."), true);
-          return;
-        }
-      }
-      // Best-effort live refresh (upstream artifact may not exist yet → silent fallback).
-      liveRefresh();
+    fetchBundle().then(function (data) {
+      if (!adoptData(data)) setStatus(tt("run.invalid", "Bundled trace data is invalid."), true);
     }).catch(function () {
-      if (cached && adoptData(cached, "cached snapshot")) { liveRefresh(); return; }
       setStatus(tt("run.offline", "Could not load trace data."), true);
     });
-  }
-
-  function liveRefresh() {
-    safeFetchJson(CANONICAL_RAW).then(function (remote) {
-      if (isValidTraceData(remote) && newer(remote, app.data)) {
-        putCache(remote);
-        adoptData(remote, "live kernel export");
-      }
-    }).catch(function () { /* offline / 404 — keep local data */ });
   }
 
   function buildScenarioOptions() {
@@ -1852,14 +2010,27 @@
     });
   }
 
+  /* Say what the traces are and which kernel revision their names were
+     resolved at. The commit links to the tree the line anchors point into. */
   function updateSourceBadge() {
-    if (!DOM.sourceBadge || !app.data) return;
+    if (!app.data) return;
     var isKernel = app.data.source === "kernel";
-    DOM.sourceBadge.dataset.source = app.data.source;
-    DOM.sourceBadge.textContent = isKernel
-      ? tt("run.source_kernel", "verified kernel export · " + (app.data.kernelVersion || ""))
-      : tt("run.source_fixture", "reference fixture · schema v" + (app.data.schemaVersion || 1));
-    DOM.sourceBadge.title = app.data.disclaimer || "";
+    var version = app.data.kernelVersion || "";
+    if (DOM.sourceBadge) {
+      DOM.sourceBadge.dataset.source = app.data.source;
+      DOM.sourceBadge.textContent = isKernel
+        ? tt("run.source_kernel", "kernel export · {{version}}", { version: version })
+        : tt("run.source_fixture", "hand-written scenarios · names grounded in seLe4n {{version}}", { version: version });
+    }
+    if (DOM.provenance) {
+      clear(DOM.provenance);
+      var sha = String(app.data.sourceRef || "");
+      if (SHA_RE.test(sha)) {
+        DOM.provenance.appendChild(document.createTextNode(tt("run.grounded_at", "Every link opens the kernel at commit") + " "));
+        DOM.provenance.appendChild(el("a", { href: "https://github.com/" + REPO + "/tree/" + sha, target: "_blank", rel: "noopener noreferrer" }, [el("code", { text: sha.slice(0, 7) })]));
+        DOM.provenance.appendChild(document.createTextNode("."));
+      }
+    }
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -1901,6 +2072,13 @@
     if (DOM.scrubber) DOM.scrubber.addEventListener("input", function () { stopPlay(); setStep(parseInt(DOM.scrubber.value, 10) || 0); });
     if (DOM.scenarioSelect) DOM.scenarioSelect.addEventListener("change", function () { loadScenario(DOM.scenarioSelect.value, false); syncUrl(); });
     if (DOM.sandboxToggle) DOM.sandboxToggle.addEventListener("click", function () { setSandbox(!app.sandbox); });
+    // Following an in-page link to a card or an invariant opens the catalogue
+    // that holds it, so the anchor is never inside a closed <details>.
+    document.addEventListener("click", function (e) {
+      var a = e.target && e.target.closest && e.target.closest('a[href^="#invariant-"]');
+      var details = document.getElementById("invariant-details");
+      if (a && details && !details.open) details.open = true;
+    });
 
     if (DOM.sandboxPanel) {
       DOM.sandboxPanel.addEventListener("click", function (e) {
@@ -1920,12 +2098,26 @@
       else if (e.key === "End") { stopPlay(); setStep(app.scenario ? app.scenario.steps.length - 1 : 0); }
     });
 
-    window.addEventListener("sele4n:locale-changed", function () { if (app.scenario) { updateSourceBadge(); render(); } });
+    window.addEventListener("sele4n:locale-changed", function () { if (app.scenario) { updateSourceBadge(); renderScenarioMeta(); render(); } });
     document.addEventListener("visibilitychange", function () { if (document.hidden) stopPlay(); });
+  }
+
+  function setupLocaleReady() {
+    var i18n = window.sele4nI18n;
+    if (!i18n || typeof i18n.onReady !== "function") { localeReady = true; return; }
+    i18n.onReady(function () {
+      localeReady = true;
+      if (!paintedBeforeLocale || !app.scenario) return;
+      paintedBeforeLocale = false;
+      updateSourceBadge();
+      renderScenarioMeta();
+      render();
+    });
   }
 
   function init() {
     cacheDom();
+    setupLocaleReady();
     setupTheme();
     hardenExternalLinks();
     wireControls();
