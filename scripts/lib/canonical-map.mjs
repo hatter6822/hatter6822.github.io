@@ -7,9 +7,9 @@
  * same `readme_sync` block, so reading the artifact is what keeps the site and
  * the kernel from contradicting each other.
  *
- * Schema targeted (`schema_version` 1.0.0):
+ * Schema targeted (`schema_version` 2.x, `CANONICAL_SCHEMA_MAJOR`):
  *
- *   schema_version                        "1.0.0"
+ *   schema_version                        "2.0.0"
  *   repository.head.commit_sha            the commit the generator ran at
  *   source_sync.source_digest             sha256 over the Lean sources in scope
  *   summary.module_count                      381   production + test modules
@@ -20,7 +20,13 @@
  *   readme_sync.production_loc            330,569
  *   readme_sync.proved_theorem_lemma_decls 11,000   (see the note below)
  *   modules[]           { module, path, declaration_count, declarations[] }
- *   modules[].declarations[]      { kind, name, line, called[] }
+ *   modules[].declarations[]      { kind, name, full_name, line, called[], private? }
+ *
+ * 2.0.0 is the token reader (seLe4n `scripts/lean_declarations.py`): `name` is
+ * the declared name relative to its namespace, `full_name` the qualified one
+ * (null when anonymous), and `called` lists the targets by full name, resolved
+ * the way Lean resolves names, plus `sorryAx` for a `sorry`. A 1.x artifact's
+ * `called` held bare identifiers, so it cannot be read as 2.x and is refused.
  *
  * Scope: the site reports *production* Lean. The artifact's own production
  * definition is every module outside `tests/`; the site narrows it by one
@@ -66,6 +72,10 @@
  * So the site publishes the comment-aware inventory. It is the accurate figure,
  * it comes from the same canonical artifact, and it is the only one the code
  * map can also produce — which is what lets both pages quote one number.
+ *
+ * Schema 2.0.0 counts `proved_theorem_lemma_decls` off the same inventory, so
+ * the two now agree; `canonicalCrossChecks` keeps comparing them so a
+ * regression upstream is reported rather than absorbed.
  */
 import {
   INTERIOR_KIND_GROUPS,
@@ -82,6 +92,9 @@ const ALL_INTERIOR_KINDS = Object.freeze([
 ]);
 
 /** Required canonical keys, as dotted paths, with what each one feeds. */
+/** The `schema_version` major this projection reads. */
+export const CANONICAL_SCHEMA_MAJOR = 2;
+
 const CANONICAL_KEYS = Object.freeze([
   ['schema_version', 'snapshot provenance'],
   ['repository.head.commit_sha', 'the revision to pin to when the artifact lags its branch'],
@@ -218,6 +231,12 @@ export function canonicalMetricsIssues(codebaseMap) {
     }
   }
 
+  const schema = codebaseMap.schema_version;
+  if (schema !== undefined && schema !== null && schema !== ''
+      && Number.parseInt(String(schema), 10) !== CANONICAL_SCHEMA_MAJOR) {
+    issues.push(`docs/codebase_map.json: schema_version ${schema} is not ${CANONICAL_SCHEMA_MAJOR}.x — its declarations and call targets mean something else`);
+  }
+
   const modules = productionModules(codebaseMap);
   if (!modules.length) {
     issues.push('docs/codebase_map.json: no production modules in modules[]');
@@ -249,39 +268,114 @@ export function theoremDeclarationCount(declarations) {
   return total;
 }
 
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * The name each declaration is listed under on the map, index for index.
+ *
+ * The artifact records two names: `name`, as the declaration writes it
+ * relative to its namespace, and `full_name`, namespace-qualified. The map
+ * lists `name` — it is what the source says — and keys a module's
+ * declarations by it, so a name two declarations of one module share has to
+ * be told apart: 289 production declarations do, mostly a theorem named after
+ * the definition it is about inside that definition's namespace
+ * (`ipcInvariant` and `ipcInvariantFull.ipcInvariant`). The outermost of a
+ * colliding group keeps the bare name, which is what it means in its
+ * namespace; every other one is widened by one namespace segment of its
+ * `full_name` at a time until it is unique in its module, so every listed name
+ * is still a suffix of the declaration's full name. An anonymous declaration (an `example`, an instance
+ * whose generated name depends on elaboration) is `<kind@Lline>`.
+ */
+export function siteDeclarationNames(declarations) {
+  const list = Array.isArray(declarations) ? declarations : [];
+  const names = list.map((declaration) => {
+    const kind = String(declaration?.kind ?? '').toLowerCase();
+    const line = Number(declaration?.line);
+    const recorded = String(declaration?.name ?? '').trim();
+    return recorded || `<${kind}@L${Number.isInteger(line) && line > 0 ? line : 0}>`;
+  });
+  const fullSegments = list.map((declaration) => String(declaration?.full_name ?? '').split('.').filter(Boolean));
+
+  for (let round = 0; round < 64; round += 1) {
+    const holders = new Map();
+    names.forEach((name, i) => {
+      if (!holders.has(name)) holders.set(name, []);
+      holders.get(name).push(i);
+    });
+    let widened = false;
+    for (const indexes of holders.values()) {
+      if (indexes.length < 2) continue;
+      // The outermost declaration keeps the name — it is what the bare name
+      // means in its namespace — when it is the only one that short.
+      const depth = (i) => fullSegments[i].length || Infinity;
+      const shallowest = Math.min(...indexes.map(depth));
+      const keeper = indexes.filter((i) => depth(i) === shallowest);
+      for (const i of indexes) {
+        if (keeper.length === 1 && keeper[0] === i) continue;
+        const segments = fullSegments[i];
+        const shown = names[i].split('.').length;
+        if (segments.length > shown) {
+          names[i] = segments.slice(-(shown + 1)).join('.');
+          widened = true;
+        }
+      }
+    }
+    if (!widened) break;
+  }
+  return names;
 }
 
 /**
- * Recover a declaration's full identifier from its own source line.
+ * Index the production inventory by full name, for placing call targets.
  *
- * The artifact is authoritative about *which* lines are declarations — its
- * parser tracks nested block-comment depth and strips string literals, so it
- * never mistakes prose for code. Its *names*, though, are cut short:
- * `_extract_names` splits the head at the first `:` and tokenises with a
- * character class that excludes `?`, so `ofErrorLabel?_zero` and
- * `ofErrorLabel?_none_of_lt_base` are both recorded as `ofErrorLabel`. That
- * affects 229 of 10,937 production theorems (2.1%), and it collapses distinct
- * declarations onto one name, which breaks the map's interior explorer, its
- * search index, and its line anchors.
- *
- * Reading the identifier back from the source line fixes it, because the digest
- * has already proved these sources are the corpus the artifact describes.
- *
- * The recovered name is adopted only when it *extends* the recorded one. That
- * guard keeps this from ever rewriting a name it merely failed to re-parse, and
- * it leaves multi-name declarations (`variable x y z`, one entry per name)
- * alone: the line yields `x`, which extends neither `y` nor `z`.
+ * `called` records each target by full name. A full name is one declaration
+ * except for private ones: 13 private names repeat across modules, and only
+ * the declaring module can refer to its own (`private: true` in the artifact).
  */
-export function resolveDeclarationName(declaration, sourceLine) {
-  const recorded = String(declaration?.name ?? '').trim();
-  const kind = String(declaration?.kind ?? '').toLowerCase();
-  if (!recorded || !kind || typeof sourceLine !== 'string') return recorded;
+export function declarationIndexFromModules(modules) {
+  const byFullName = new Map();
+  const listedIn = new Map();
+  const siteNames = new Map();
+  for (const moduleInfo of Array.isArray(modules) ? modules : []) {
+    const declarations = Array.isArray(moduleInfo?.declarations) ? moduleInfo.declarations : [];
+    const names = siteDeclarationNames(declarations);
+    siteNames.set(moduleInfo.module, names);
+    declarations.forEach((declaration, i) => {
+      const name = names[i];
+      if (!listedIn.has(name)) listedIn.set(name, new Set());
+      listedIn.get(name).add(moduleInfo.module);
+      const full = String(declaration?.full_name ?? '').trim();
+      if (!full) return;
+      if (!byFullName.has(full)) byFullName.set(full, []);
+      byFullName.get(full).push({ module: moduleInfo.module, name, private: declaration?.private === true });
+    });
+  }
+  return { byFullName, listedIn, siteNames };
+}
 
-  const match = new RegExp(`(?:^|[\\s\\]])${escapeRegExp(kind)}\\b[ \\t]*([^\\s:(\\[{=]+)`).exec(sourceLine);
-  const found = match && match[1] ? match[1].trim() : '';
-  return found.length > recorded.length && found.startsWith(recorded) ? found : recorded;
+/**
+ * The declaration a `called` full name refers to from `callerModule`: the
+ * caller's own declaration first (a private one is visible only there), then
+ * the one public declarer. A name outside the production inventory — the
+ * testing framework, `sorryAx` — places nowhere.
+ */
+function placeTarget(index, fullName, callerModule) {
+  const candidates = index.byFullName.get(fullName);
+  if (!candidates) return null;
+  const own = candidates.find((candidate) => candidate.module === callerModule);
+  if (own) return own;
+  const visible = candidates.filter((candidate) => !candidate.private);
+  return visible.length === 1 ? visible[0] : null;
+}
+
+/**
+ * Encode a placed target the way the runtime reads it: the bare listed name
+ * when that alone places it (the caller's own module, or a name only one
+ * module lists), else `Module#name`. `#` cannot occur in a Lean name outside
+ * «» quotes, and no production name is quoted.
+ */
+export function encodeCallTarget(index, target, callerModule) {
+  if (target.module === callerModule) return target.name;
+  if (index.listedIn.get(target.name)?.size === 1) return target.name;
+  return `${target.module}#${target.name}`;
 }
 
 /**
@@ -289,71 +383,53 @@ export function resolveDeclarationName(declaration, sourceLine) {
  * array per interior kind the module declares, and the declaration call
  * graph.
  *
- * `sourceText` is the module's own Lean source, used only to recover truncated
- * identifiers; the declaration set itself always comes from the artifact.
- * Entries are keyed by name *and* line, so two genuinely distinct declarations
- * are both listed — deduplicating by name alone hid 145 production theorems.
+ * Every declaration is listed under its `siteDeclarationNames()` name, which
+ * is unique in the module, so the call graph keyed by it loses nothing (the
+ * 1.x artifact recorded short names and collapsed 177 collisions last-wins).
  *
- * `callGraph` maps a declaration to the identifiers it references, which is
- * what drives the map's declaration-context flowchart (outgoing calls, and
- * incoming callers via the reverse index the runtime builds from it). It is
- * keyed by the same recovered names as the symbol lists, so a lookup from one
- * always lands in the other.
+ * `callGraph` maps a declaration to the declarations it references, placed
+ * exactly: `called` names each target by full name, resolved upstream the way
+ * Lean resolves names, and `encodeCallTarget()` writes it so the runtime lands
+ * on the same declaration rather than guessing among same-named ones. Targets
+ * outside the production inventory are dropped — the map cannot show them.
  *
  * The graph is stored inline rather than in an interned table. Measured on the
- * real corpus — 119,973 edges over 10,112 distinct targets — interning halves
- * the raw file (2.60 MB → 1.09 MB of added JSON) but saves only 23 KB gzipped,
- * because gzip already captures the repetition. That is not worth a bespoke
- * format and a decoder in the runtime, especially since `symbols.callGraph` is
- * a shape `assets/js/map.js` already reads in three places.
+ * real corpus interning halves the raw file but saves only ~23 KB gzipped,
+ * because gzip already captures the repetition; `splitCallGraph()` moves it to
+ * its own payload instead.
  */
-export function symbolsFromDeclarations(declarations, sourceText) {
-  const lines = typeof sourceText === 'string' ? sourceText.split(/\r?\n/) : [];
+export function symbolsFromDeclarations(declarations, moduleName, index) {
+  const list = Array.isArray(declarations) ? declarations : [];
+  const names = index?.siteNames?.get(moduleName) || siteDeclarationNames(list);
   const byKind = Object.create(null);
-  const seen = Object.create(null);
   const callGraph = Object.create(null);
-  for (const kind of ALL_INTERIOR_KINDS) {
-    byKind[kind] = [];
-    seen[kind] = Object.create(null);
-  }
+  for (const kind of ALL_INTERIOR_KINDS) byKind[kind] = [];
 
-  for (const declaration of Array.isArray(declarations) ? declarations : []) {
+  list.forEach((declaration, i) => {
     const kind = String(declaration?.kind ?? '').toLowerCase();
-    if (!kind) continue;
-    if (!byKind[kind]) {
-      // A kind the interior UI does not group. Keep it rather than drop it: the
-      // artifact is the inventory, and an unrecognised kind is upstream news.
-      byKind[kind] = [];
-      seen[kind] = Object.create(null);
-    }
+    if (!kind) return;
+    // A kind the interior UI does not group is kept rather than dropped: the
+    // artifact is the inventory, and an unrecognised kind is upstream news.
+    if (!byKind[kind]) byKind[kind] = [];
 
     const line = Number(declaration?.line);
     const hasLine = Number.isInteger(line) && line > 0;
-    const name = resolveDeclarationName(declaration, hasLine ? lines[line - 1] : undefined)
-      || `<${kind}@L${hasLine ? line : 0}>`;
-
-    const key = `${name} ${hasLine ? line : ''}`;
-    if (seen[kind][key]) continue;
-    seen[kind][key] = true;
-
+    const name = names[i];
     byKind[kind].push(hasLine ? { name, line } : { name });
 
-    // Recorded after the de-duplication check, so every call-graph key is a
-    // name the symbol lists above also carry — an invariant validate-data.mjs
-    // asserts, because a drift between the two would break every lookup.
-    //
-    // Later declarations win a name collision. The artifact records short
-    // names, so `refl` in three namespaces of one file is three entries under
-    // one key (177 such collisions across the corpus). The runtime keys its
-    // merged graph by bare name globally and collapses them the same way, and
-    // its own live path assigns last-wins too — so this matches what the map
-    // does either way. Qualifying the names is not an option: the `called`
-    // targets are recorded unqualified as well, and every lookup would miss.
-    const called = Array.isArray(declaration?.called)
-      ? declaration.called.map((target) => String(target ?? '').trim()).filter(Boolean)
-      : [];
-    if (called.length) callGraph[name] = called;
-  }
+    if (!index || !Array.isArray(declaration?.called)) return;
+    const seen = new Set();
+    const calls = [];
+    for (const target of declaration.called) {
+      const placed = placeTarget(index, String(target ?? '').trim(), moduleName);
+      if (!placed || (placed.module === moduleName && placed.name === name)) continue;
+      const encoded = encodeCallTarget(index, placed, moduleName);
+      if (seen.has(encoded)) continue;
+      seen.add(encoded);
+      calls.push(encoded);
+    }
+    if (calls.length) callGraph[name] = calls;
+  });
 
   // Only the kinds a module actually declares are shipped. An empty bucket
   // for each of the ~40 interior kinds was 12,198 empty arrays in the bundle;

@@ -318,9 +318,11 @@ component: a flat string compare puts `SeLe4n/Kernel.lean` before
 **Projection.** Every published statistic comes from the artifact.
 `canonicalMetricsIssues()` gates the write: a missing key aborts the sync naming
 what it feeds, so an upstream schema change surfaces as a red build instead of a
-plausible-looking wrong number. The Lean sources contribute exactly two things
-the artifact does not record — the import graph, and the full identifiers behind
-the artifact's truncated declaration names. The repository's non-Lean inventory
+plausible-looking wrong number. The Lean sources contribute the one thing the
+artifact does not record, the import graph. Declaration names and call targets
+come from the artifact as they are (schema 2.x records full names and resolves
+each call the way Lean does); the sync only places each target on the module
+and listed name the map shows it under. The repository's non-Lean inventory
 (`scripts`, `docs`) is counted from the same checkout's git tree.
 
 **Coherence.** Both snapshots record the same `commitSha` and `sourceDigest`,

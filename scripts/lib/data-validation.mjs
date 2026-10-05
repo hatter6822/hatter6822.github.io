@@ -581,6 +581,60 @@ export function validateCallGraphDataObject(data) {
   return errors;
 }
 
+/** Every module that lists each declaration name, over the snapshot's byKind lists. */
+function declarationModulesByName(mapData) {
+  const listedIn = new Map();
+  for (const moduleName of Array.isArray(mapData.modules) ? mapData.modules : []) {
+    const byKind = mapData.moduleMeta?.[moduleName]?.symbols?.byKind;
+    if (!isObject(byKind)) continue;
+    for (const entries of Object.values(byKind)) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        const name = typeof entry === 'string' ? entry : entry?.name;
+        if (typeof name !== 'string' || !name) continue;
+        if (!listedIn.has(name)) listedIn.set(name, new Set());
+        listedIn.get(name).add(moduleName);
+      }
+    }
+  }
+  return listedIn;
+}
+
+/**
+ * Every call target must land on exactly one listed declaration, the way the
+ * runtime reads it: `Module#name` names a module that lists `name`; a bare
+ * name is listed by the caller's own module or by exactly one module. The
+ * sync resolves targets upstream by full name and writes them so; a bare name
+ * two other modules list would be placed by the runtime's import heuristic,
+ * which is the guess the full names exist to remove.
+ */
+function callTargetErrors(moduleName, graph, listedIn) {
+  const errors = [];
+  if (!isObject(graph)) return errors;
+  for (const [caller, calls] of Object.entries(graph)) {
+    if (!Array.isArray(calls)) continue;
+    for (const target of calls) {
+      if (typeof target !== 'string' || !target) continue;
+      const hash = target.indexOf('#');
+      const where = `map-callgraph.json: callGraph.${moduleName}.${caller} → ${target}`;
+      if (hash > 0) {
+        const targetModule = target.slice(0, hash);
+        if (!listedIn.get(target.slice(hash + 1))?.has(targetModule)) {
+          errors.push(`${where} names a declaration ${targetModule} does not list`);
+        }
+        continue;
+      }
+      const modules = listedIn.get(target);
+      if (!modules) {
+        errors.push(`${where} is not a declaration any module lists`);
+      } else if (!modules.has(moduleName) && modules.size !== 1) {
+        errors.push(`${where} is listed by ${modules.size} modules and does not say which`);
+      }
+    }
+  }
+  return errors;
+}
+
 /**
  * The call graph against the snapshot it was split from: one revision, one
  * digest, only modules the snapshot graphs, and every caller a declaration
@@ -598,6 +652,7 @@ function callGraphCrossFileErrors(mapData, callGraphData) {
   }
   if (!isObject(callGraphData.callGraph)) return errors;
   const modules = new Set(Array.isArray(mapData.modules) ? mapData.modules : []);
+  const listedIn = declarationModulesByName(mapData);
   for (const [moduleName, graph] of Object.entries(callGraphData.callGraph)) {
     if (!modules.has(moduleName)) {
       errors.push(`cross-file: map-callgraph names module ${moduleName}, which map-data does not graph`);
@@ -605,6 +660,7 @@ function callGraphCrossFileErrors(mapData, callGraphData) {
     }
     const byKind = mapData.moduleMeta?.[moduleName]?.symbols?.byKind;
     errors.push(...validateCallGraph(moduleName, byKind, graph));
+    errors.push(...callTargetErrors(moduleName, graph, listedIn));
   }
   return errors;
 }
