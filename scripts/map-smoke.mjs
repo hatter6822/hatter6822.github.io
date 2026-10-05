@@ -261,6 +261,9 @@ async function shot(page, name) {
   }));
   check(listbox.length > 0 && listbox.every((row) => row.marker === 'none' && row.padLeft <= row.padRight + 1),
     `the search listbox rows are the listbox's own (${listbox.length} option(s), first ${JSON.stringify(listbox[0] || null)})`);
+  const typed = await page.evaluate(() => ({ url: location.search, first: (document.querySelector('.module-search-option') || {}).textContent || '' }));
+  check(!/module=SeLe4n\.Kernel\.API(&|$)/.test(typed.url), `typing alone selects nothing (${typed.url})`);
+  check(/^SeLe4n\.Kernel\.API\b/.test(typed.first.trim()), `the exactly typed module leads the suggestions (${typed.first.trim().slice(0, 60)})`);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(400);
   await page.click('.interior-menu-item-btn');

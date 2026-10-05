@@ -3135,3 +3135,30 @@ test('a render reads the chart frame once, before its first write', async () => 
     assert.ok(!/wrap\.(scrollLeft|scrollTop|clientWidth|clientHeight|scrollWidth|scrollHeight)\b(?!\s*=)/.test(body), `${fn} reads no live frame geometry`);
   }
 });
+
+/* Typing in the context search only refreshes the suggestions. Each prefix
+   that happened to name a module used to be selected and its chart rendered
+   on the keystroke; the pick now waits for change, Enter, blur or a click. */
+test('typing in the context search selects nothing until the pick is committed', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  const input = mapSource.match(/search\.addEventListener\("input", function \(\) \{[\s\S]*?\n {6}\}\);/)[0];
+  assert.ok(!/chooseExactFromCurrentValue|selectModule|selectDeclaration|choose\(/.test(input), 'the input handler takes no selection');
+  assert.match(input, /refreshSuggestions\(\)/, 'the input handler still refreshes the suggestions');
+  assert.ok(!/addEventListener\("compositionend", chooseExactFromCurrentValue\)/.test(mapSource), 'an IME commit is input, not a pick');
+  assert.match(mapSource, /search\.addEventListener\("change", choose\)/, 'change still commits');
+  const keydown = mapSource.match(/search\.addEventListener\("keydown", function \(event\) \{[\s\S]*?\n {6}\}\);/)[0];
+  assert.match(keydown, /if \(searchDebounceTimer\) \{[\s\S]*?closeModuleSearchOptions\(\);/, 'Enter ahead of the debounce ignores the stale highlight');
+});
+
+test('in-module declaration search reads a per-module index with the same entries', async () => {
+  const { hooks } = await loadBundledState();
+  hooks.buildSearchIndex();
+  const module = 'SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership';
+  const entries = Array.from(hooks.declarationSearchEntriesIn(module));
+  assert.ok(entries.length > 50, `the module has its entries (${entries.length})`);
+  assert.ok(entries.every((entry) => entry.module === module));
+  assert.equal(hooks.declarationSearchEntriesIn('No.Such.Module').length, 0);
+  const first = entries[0];
+  const match = hooks.declarationSearchMatch(`${module}.${first.name}`);
+  assert.equal(match && match.exact, true, 'an exact in-module query still resolves');
+});

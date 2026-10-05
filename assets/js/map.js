@@ -282,6 +282,7 @@
     searchActiveOption: -1,
     searchDeclSuggestions: [],
     declarationSearchList: [],
+    declarationSearchByModule: Object.create(null),
     filteredModulesKey: "", filteredModulesList: [], filteredModulesValid: false,
     contextListValid: false,
     interiorMenuModule: "",
@@ -542,15 +543,20 @@
      (a hand-built test state). */
   function buildDeclarationSearchIndex() {
     var declIndex = [];
+    /* The same entries grouped by module, so a search scoped to one module
+       reads that module's few hundred entries rather than all ~24k. */
+    var byModuleEntries = Object.create(null);
     function push(declName, moduleName) {
       var qualifiedName = moduleName + "." + declName;
-      declIndex.push({
+      var entry = {
         name: declName,
         nameLower: declName.toLowerCase(),
         module: moduleName,
         qualifiedName: qualifiedName,
         qualifiedLower: qualifiedName.toLowerCase()
-      });
+      };
+      declIndex.push(entry);
+      (byModuleEntries[moduleName] || (byModuleEntries[moduleName] = [])).push(entry);
     }
     var byModule = state.declarationsByModule;
     var hasByModule = false;
@@ -571,6 +577,18 @@
       }
     }
     state.declarationSearchList = declIndex;
+    state.declarationSearchByModule = byModuleEntries;
+  }
+
+  function declarationSearchEntriesIn(moduleName) {
+    var byModule = state.declarationSearchByModule;
+    if (byModule) return byModule[moduleName] || [];
+    var all = state.declarationSearchList || [];
+    var out = [];
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].module === moduleName) out.push(all[i]);
+    }
+    return out;
   }
 
   function setSearchFeedback(message, isError) {
@@ -5417,10 +5435,9 @@
     }
 
     // Also check declarationIndex for declarations that may not appear in interior
-    var declList = state.declarationSearchList || [];
+    var declList = declarationSearchEntriesIn(moduleName);
     for (var di = 0; di < declList.length; di++) {
       var entry = declList[di];
-      if (entry.module !== moduleName) continue;
       if (entry.nameLower === declSuffixLower) {
         return { module: moduleName, declaration: entry.name, exact: true };
       } else if (entry.nameLower.indexOf(declSuffixLower) === 0) {
@@ -5803,16 +5820,27 @@
             matches = declHints.concat(moduleOnly);
           }
         }
+        /* An exactly typed module leads, so Enter on the default highlight
+           takes what was typed rather than a declaration suggestion. */
+        var typedModule = sanitizeModuleName(search.value);
+        if (typedModule && listHasModule(list, typedModule)) {
+          var typedAt = matches.indexOf(typedModule);
+          if (typedAt > 0) matches.splice(typedAt, 1);
+          if (typedAt !== 0) matches.unshift(typedModule);
+        }
         state.searchDeclSuggestions = declSuggestions;
         if (matches.length) openModuleSearchOptions(matches);
         else closeModuleSearchOptions();
       }
 
+      /* Typing only refreshes the suggestions. It used to select and render
+         every prefix that happened to name a module (`SeLe4n.Kernel` on the
+         way to `SeLe4n.Kernel.API`), a full chart render per keystroke; the
+         selection is taken on change, Enter, blur or a picked suggestion. */
       var searchDebounceTimer = null;
       search.addEventListener("input", function () {
         setSearchFeedback("", false);
         if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
-        if (chooseExactFromCurrentValue()) return;
         if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
         searchDebounceTimer = setTimeout(function () {
           searchDebounceTimer = null;
@@ -5828,7 +5856,6 @@
         }, 80);
       });
       search.addEventListener("search", choose);
-      search.addEventListener("compositionend", chooseExactFromCurrentValue);
       search.addEventListener("keydown", function (event) {
         if (event.isComposing) return;
         if (event.key === "Escape") {
@@ -5850,6 +5877,13 @@
           return;
         }
         if (event.key !== "Enter") return;
+        /* Suggestions still pending describe an earlier prefix: resolve what
+           is in the field now instead of a stale highlight. */
+        if (searchDebounceTimer) {
+          clearTimeout(searchDebounceTimer);
+          searchDebounceTimer = null;
+          closeModuleSearchOptions();
+        }
         if (state.searchVisibleOptions.length && state.searchActiveOption >= 0) {
           var selected = state.searchVisibleOptions[state.searchActiveOption];
           if (selected) {
@@ -6267,6 +6301,7 @@
       declarationSearchMatches: declarationSearchMatches,
       moduleSearchMatches: moduleSearchMatches,
       buildSearchIndex: buildSearchIndex,
+      declarationSearchEntriesIn: declarationSearchEntriesIn,
       declarationLaneCollapseThreshold: function () { return 12; },
       declarationLaneVisibleLimit: function () { return 10; },
       objectDeclarationCount: objectDeclarationCount,
