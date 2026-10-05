@@ -80,10 +80,12 @@ between production and test code. It is descriptive and feeds no landing-page
 statistic.
 
 `apply-static-values.mjs` then stamps those values into `index.html` (the
-`data-live` spans, JSON-LD version, snapshot timestamp) and into every
+`data-live` spans, JSON-LD version, the footer's commit and date) and into every
 `locales/*.json` bundle, whose translated HTML carries its own copy of the same
-spans. The weekly `sync-sele4n-data.yml` workflow runs this same pipeline. It
-uses the git protocol only, so no `GITHUB_TOKEN` and no REST rate limit.
+spans, and stamps the `lastmod` of the snapshot-rendered pages in
+`sitemap.xml`. The weekly `sync-sele4n-data.yml` workflow runs this same
+pipeline, then `./scripts/check.sh` and both browser probes, before it pushes.
+It uses the git protocol only, so no `GITHUB_TOKEN` and no REST rate limit.
 
 ### 2) Validate snapshots
 
@@ -109,6 +111,10 @@ node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
 ```
+
+`./scripts/check.sh` runs steps 2 and 3 plus `node --check` on every
+`assets/js/*.js` in one go, discovering tests by glob; CI and the sync
+workflow both call it.
 
 ## Runtime data strategy
 

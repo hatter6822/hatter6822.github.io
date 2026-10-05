@@ -55,6 +55,8 @@ Owns:
   2. `i18n.js` (early, in `<head>`) for locale detection and DOM translation.
   3. `header-nav.js`, `site.js` (deferred in body).
 
+The hero and footer logos are self-hosted WebP files (`assets/images/logo{,-dark}-{128,640,1024}.webp`, resized from upstream's `assets/logo{,_dark}.png`), so the page's CSP names no origin but its own. Refresh them by hand if upstream changes its logo; they are not part of the data sync.
+
 The landing page includes documentation of the upstream seLe4n Rust syscall wrapper crates (`sele4n-types`, `sele4n-abi`, `sele4n-sys`, `sele4n-hal`) in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap sections.
 
 Edit this file when adding/removing a section, changing metadata defaults, or wiring new live data placeholders.
@@ -101,7 +103,7 @@ Internationalization runtime for multi-language support. Responsibilities:
 
 - detects preferred locale from URL param (`?lang=`), `localStorage`, or browser `navigator.languages`.
 - fetches the appropriate locale JSON bundle from `/locales/<code>.json`.
-- walks the DOM translating elements with `data-i18n`, `data-i18n-placeholder`, `data-i18n-aria-label`, `data-i18n-title`, and `data-i18n-content` attributes.
+- walks the DOM translating elements with `data-i18n`, `data-i18n-html`, `data-i18n-placeholder`, `data-i18n-aria-label`, `data-i18n-title`, and `data-i18n-content` attributes. `data-i18n-html` values pass through `sanitizeHTML`, which parses them into a `<template>` (an inert document: no image is fetched and no handler runs while it is inspected) and keeps only the `SAFE_TAGS` allowlist (`a`, `br`, `code`, `em`, `span`, `strong`) and a few attributes.
 - exposes `window.sele4nI18n` API for JS-side translations: `t(key, vars)`, `setLocale(locale)`, `locale()`, `formatNumber(n)`, `pluralCategory(n)`, `onReady(cb)`, `translateDOM()`.
 - supports interpolation via `{{variable}}` placeholders in locale strings; a numeric value is grouped by the active locale (`Intl.NumberFormat`).
 - resolves plural families: when `vars.count` is a number and the bundle carries `key_one` / `key_few` / `key_many` / `key_other`, `t()` picks the CLDR category for the count (`Intl.PluralRules`) and falls back to `key_other`, then to `key`. `i18n-locales.test.mjs` compares families across locales; `i18n-runtime.test.mjs` exercises the resolution.
@@ -321,10 +323,13 @@ calls, so no anonymous rate limit and no token.
 Run when any upstream data needs refreshing.
 
 ### `scripts/apply-static-values.mjs`
-Rewrites the static fallback values in `index.html` (mapped `data-live` spans, JSON-LD version, snapshot `<time>` stamp) **and in every `locales/*.json` bundle** from `data/site-data.json` via `scripts/lib/static-values.mjs`. Locales need stamping because `data-i18n-html` replaces an element's innerHTML wholesale, so each translation carries its own copy of the spans — they once said "546 build jobs" while `index.html` said 574. Idempotent; run after `sync-upstream.mjs`. The committed tree must stay in sync — `static-values.test.mjs` fails otherwise.
+Rewrites the static fallback values in `index.html` (mapped `data-live` spans including the footer's `commit-sha`, JSON-LD version, the snapshot `<time>`'s `datetime` and visible date) and the `lastmod` of `/` and `/map.html` in `sitemap.xml`, **and in every `locales/*.json` bundle** from `data/site-data.json` via `scripts/lib/static-values.mjs`. Locales need stamping because `data-i18n-html` replaces an element's innerHTML wholesale, so each translation carries its own copy of the spans — they once said "546 build jobs" while `index.html` said 574. Idempotent; run after `sync-upstream.mjs`. The committed tree must stay in sync — `static-values.test.mjs` fails otherwise.
 
 ### `scripts/lib/source-anchors.mjs`
 Keeps the page's deep links into the kernel tree pointing at the right line. `collectSourceAnchors` finds every `…/blob/main/<path>#L<n>` link with a `<code>` label, on either surface (index.html's bare quotes and a locale file's escaped ones); `resolveSourceAnchors` looks each label's declaration up in the pinned checkout; `applySourceAnchors` stamps the result back. The sync records the resolution in `data/site-data.json#sourceAnchors`, so the numbers are generated rather than maintained — sixteen of thirty-seven were pointing at unrelated code before this existed. A label that no longer resolves is reported and left as written: a declaration that changed file is an editorial call, not a substitution. The stamped href names the commit the line was resolved at rather than `main` — a line number against a branch is a line number on a moving target, and the unpinned sync can fall back to the artifact's generation commit.
+
+### `scripts/check.sh`
+Tiers 0-2 in one command: every `scripts/lib/*.test.mjs`, `validate-data.mjs`, `validate-traces.mjs` and `node --check` on every `assets/js/*.js`, discovered by glob so a new test or runtime file is covered without being listed. `ci.yml` and `sync-sele4n-data.yml` both run it — the sync job before it pushes.
 
 ### `scripts/validate-data.mjs`
 Schema/consistency gate for the site and map snapshots. Fails non-zero if either payload violates required invariants.
@@ -434,7 +439,7 @@ Node tests for parser and validation correctness:
 - `trace-analysis.test.mjs`: trace schema validation and fold-engine determinism (see `docs/TESTING.md`).
 - `run-runtime.test.mjs`: boots the real `assets/js/run.js` in a `vm` DOM shim and exercises the Simulator end-to-end (see `docs/TESTING.md`).
 - `csp-html.test.mjs`: asserts no inline `style="…"` attributes on any HTML page (the strict CSP would silently drop them).
-- `static-values.test.mjs`: pins the static-fallback rewriter mapping and asserts that the committed `index.html` *and* every locale bundle match `data/site-data.json`.
+- `static-values.test.mjs`: pins the static-fallback rewriter mapping and asserts that the committed `index.html`, every locale bundle and `sitemap.xml` match `data/site-data.json`, and that the API Surface table lists syscall IDs `0 … syscalls-1` exactly once each.
 - `i18n-locales.test.mjs`: locale key parity with `en.json` (plural forms compared as families), no empty values, and every `data-i18n*` key referenced by the pages resolves.
 - `i18n-runtime.test.mjs`: boots the real `i18n.js` in a `vm` shim and checks interpolation, plural-form selection for English and Ukrainian counts, and locale digit grouping.
 

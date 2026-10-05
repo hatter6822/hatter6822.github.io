@@ -10,7 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
-import { applyStaticValues, applyLocaleStaticValues } from './static-values.mjs';
+import { applyStaticValues, applyLocaleStaticValues, applySitemapValues } from './static-values.mjs';
 import { collectSourceAnchors, labelIdentifier } from './source-anchors.mjs';
 
 const SAMPLE = [
@@ -79,7 +79,7 @@ test('rewrites every version site: spans, JSON-LD, and time datetime', () => {
 test('leaves unmapped fallbacks and missing keys untouched', () => {
   const out = applyStaticValues(SAMPLE, { theorems: 9000 });
   assert.match(out, /data-live="theorems">9,000</);
-  assert.match(out, /data-live="commit-sha">main</); // never rewritten: JS-only value
+  assert.match(out, /data-live="commit-sha">main</); // key absent → untouched
   assert.match(out, /data-live="modules">3</); // key absent → untouched
   assert.match(out, /"version": "0\.0\.1"/);
 });
@@ -222,4 +222,52 @@ test('every anchored deep link on the real page names the resolved revision', as
   assert.ok(refs.size > 0, 'index.html carries anchored deep links');
   assert.deepEqual([...refs], [data.sourceAnchorRef],
     'anchored links all name data/site-data.json#sourceAnchorRef');
+});
+
+test('the API Surface table lists every syscall the snapshot counts, once each', async () => {
+  // The table stopped at ID 34 while the lead above it said "All 41":
+  // `syscalls` is counted from `SyscallId`, the rows were typed by hand. The
+  // rows are still hand-written (each names its implementing file), so this
+  // holds them to the counted surface: IDs 0 … syscalls-1, no gaps, no repeats.
+  const html = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
+  const data = JSON.parse(await readFile(new URL('../../data/site-data.json', import.meta.url), 'utf8'));
+
+  const table = /<table class="data-table api-table">([^]*?)<\/table>/.exec(html);
+  assert.ok(table, 'index.html has the API Surface table');
+  const ids = [...table[1].matchAll(/\(ID (\d+)\)/g)].map((match) => Number(match[1]));
+  const expected = Array.from({ length: data.syscalls }, (_, id) => id);
+
+  assert.deepEqual([...ids].sort((a, b) => a - b), expected,
+    `the API table must list syscall IDs 0–${data.syscalls - 1} exactly once each (data/site-data.json#syscalls)`);
+});
+
+test('stamps the commit and the visible date of the footer', () => {
+  // The no-JS footer read "Commit main · Updated live from repository" on a
+  // page whose CSP forbids contacting the repository.
+  const out = applyStaticValues(
+    'Commit <span data-live="commit-sha">main</span> &middot; Updated <time data-live="updated-at" datetime="x">live from repository</time>',
+    { commitSha: '96f442d', updatedAt: '2026-09-29T21:28:36.000Z' }
+  );
+  assert.match(out, /data-live="commit-sha">96f442d</);
+  assert.match(out, /datetime="2026-09-29T21:28:36.000Z">Sep 29, 2026</);
+});
+
+test('stamps the sitemap lastmod of the snapshot-rendered pages only', () => {
+  const xml = [
+    '<url><loc>https://sele4n.org/</loc><lastmod>2020-01-01</lastmod></url>',
+    '<url><loc>https://sele4n.org/map.html</loc>\n    <lastmod>2020-01-01</lastmod></url>',
+    '<url><loc>https://sele4n.org/run.html</loc><lastmod>2020-01-01</lastmod></url>'
+  ].join('\n');
+  const out = applySitemapValues(xml, { generatedAt: '2026-10-05T02:24:32.670Z' });
+  assert.equal((out.match(/2026-10-05/g) || []).length, 2);
+  assert.match(out, /run\.html<\/loc><lastmod>2020-01-01</);
+  assert.equal(applySitemapValues(out, { generatedAt: '2026-10-05T02:24:32.670Z' }), out);
+});
+
+test('the committed sitemap is in sync with data/site-data.json', async () => {
+  const root = new URL('../../', import.meta.url);
+  const xml = await readFile(new URL('sitemap.xml', root), 'utf8');
+  const data = JSON.parse(await readFile(new URL('data/site-data.json', root), 'utf8'));
+  assert.equal(applySitemapValues(xml, data), xml,
+    'sitemap.xml lastmod is out of sync with data/site-data.json — run: node scripts/apply-static-values.mjs');
 });

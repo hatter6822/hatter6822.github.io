@@ -23,6 +23,7 @@ function siteData(overrides = {}) {
     niCrossCore: 31,
     enforcementOps: 40,
     enforcementOpsPerCore: 55,
+    frozenSyscalls: 18,
     scripts: 17,
     docs: 97,
     admitted: 0,

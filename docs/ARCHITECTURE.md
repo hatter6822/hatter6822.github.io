@@ -374,6 +374,16 @@ The `wrapLabelLines()` function used a fixed 6.4px per-character estimate (match
 
 The upstream seLe4n codebase has undergone significant architectural changes now reflected in the website content:
 
+> **Historical snapshot (0.2x).** The module and theorem counts in this
+> section were written by hand when each change landed and are kept as
+> history, not as current figures: by kernel 0.36.41 the Architecture layer
+> is 41 files and 1,270 theorems (not 31 / 1,019), `SyscallArgDecode` holds
+> 65 theorems (not 59), IPC 69 files and 3,625 theorems (not 52 / 1,659) and
+> Capability 14 files and 315 theorems (not 12 / 244, with Authority 31 and
+> Defs 57). The current per-subsystem figures are `subsystems` in
+> `data/site-data.json`, projected by `scripts/sync-upstream.mjs` from the
+> canonical artifact and stamped onto the page; read them there.
+
 ### Robin Hood hash map subsystem
 
 A fully verified Robin Hood hash table implementation (`SeLe4n/Kernel/RobinHood/`) serves as the algebraic foundation for all kernel hash-based data structures. 8 modules, 186 theorems:
@@ -414,7 +424,9 @@ New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.l
 
 ## Rust syscall wrapper layer
 
-The upstream seLe4n repository includes a `rust/` workspace (v0.33.6 — tracking the kernel version, Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's 30-syscall ABI (27 of the 30 syscalls have typed safe wrappers in `sele4n-sys`; `TcbBindNotification`, `TcbUnbindNotification`, and `MintReplyCap` are modeled in `sele4n-types` but not yet wrapped). The website now documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.36.41 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (41 syscalls at 0.36.41, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+
+The crate descriptions below were written at 0.2x (30 syscalls, a 55-variant `KernelError`, eight `sele4n-sys` modules) and are kept as history; at 0.36.41 `SyscallId` has 41 variants, `KernelError` 59 (58 mirroring Lean plus a Rust-only sentinel), and `sele4n-sys` adds `audit.rs` and `declassify.rs` plus `cspace_revoke`, `mint_reply_cap`, `untyped_retype`/`untyped_reset`, `page_table_map`/`unmap`, `tcb_set_space`, `tcb_set_fault_handler` and the notification bind/unbind wrappers.
 
 ### Crate architecture
 
@@ -422,7 +434,7 @@ The workspace contains four crates. Three form a layered user-space dependency c
 
 1. **`sele4n-types`** — Zero-dependency foundation. 16 `#[repr(transparent)]` newtype identifiers mirroring `SeLe4n/Prelude.lean` (ObjId, ThreadId, CPtr, Slot, ASID, VAddr, PAddr, etc.), a 55-variant `KernelError` enum matching the Lean kernel model, bitmask-based `AccessRights` (Read/Write/Grant/GrantReply/Retype), and a 30-variant `SyscallId` enum with `#[repr(u64)]` discriminants. Enforces `#![deny(unsafe_code)]`.
 
-2. **`sele4n-abi`** — ARM64 register ABI layer. `MessageInfo` bitfield encoding/decoding, syscall request/response marshalling via `encode`/`decode` modules, IPC buffer overflow handling for messages exceeding the 4-register inline limit (x2–x5), and `TypeTag`/`PagePerms` enums. Contains exactly **one** `unsafe` block: the inline `svc #0` instruction in `trap.rs`. Non-AArch64 targets get a mock trap returning `InvalidSyscallNumber` for host-based testing.
+2. **`sele4n-abi`** — ARM64 register ABI layer. `MessageInfo` bitfield encoding/decoding, syscall request/response marshalling via `encode`/`decode` modules, IPC buffer overflow handling for messages exceeding the 4-register inline limit (x2–x5), and `TypeTag`/`PagePerms` enums. Contains exactly **one** `unsafe` operation: the inline `svc #0` instruction in `trap.rs` (the scanner counts two `unsafe fn` and two blocks, one per target `cfg`, around that single operation). Non-AArch64 targets get a mock trap returning `InvalidSyscallNumber` for host-based testing.
 
 3. **`sele4n-sys`** — Safe high-level wrappers. Organized into eight modules:
    - `ipc.rs` — `endpoint_send`, `endpoint_receive`, `endpoint_call`, `endpoint_reply`, `notification_signal`, `notification_wait`
@@ -445,7 +457,7 @@ The workspace contains four crates. Three form a layered user-space dependency c
 - Comparison table: "User-space bindings" row contrasting C headers vs safe Rust wrappers
 - Features grid: "Safe Rust Syscall Wrappers" feature card
 - Project structure tree: `rust/` directory with three crate entries
-- Getting Started: Step 5 with `cargo build && cargo test` instructions
+- Getting Started: Step 5 with upstream's two Rust lanes, `./scripts/test_rust.sh` (host) and `./scripts/test_aarch64_cross_build.sh` (the HAL's real target); it showed `cargo build && cargo test` until the host lane was found not to see the HAL's `aarch64`-only code
 - Roadmap: completed "Rust Syscall Wrappers" milestone entry
 - Meta tags: updated descriptions across both pages to mention Rust
 
@@ -526,6 +538,15 @@ documented rather than rediscovered.
   measured against the original composited over white, mean channel delta is
   0.75/255 with 92.7% of subpixels within 2/255 — no visible change at the 40px
   and 16-32px sizes it renders at.
+- **Hero logo ~2.9 MB -> ~30 KB, self-hosted** (later pass). Both hero `<img>`s
+  pulled upstream's 1024px PNGs (1.4-1.5 MB each) from
+  `raw.githubusercontent.com/main`, and a `display: none` image is still
+  fetched, so every first visit paid for both; the dark one was preloaded
+  too. They now load `assets/images/logo{,-dark}-{640,1024}.webp` by
+  `srcset` (the footer the 128px files), at `width`/`height` 640x640 — the
+  old 320x128 contradicted the 1:1 source and shifted the layout on load. The
+  preload, the preconnect and that host in `img-src` are gone, so the landing
+  page's CSP names no origin but its own.
 - **`data/map-data.json` 3,092 KB -> 1,646 KB** (255 KB -> 153 KB gzipped), which
   was 83% of map.html's transfer. `sync-upstream.mjs` writes it compact so
   refreshes stay minified (it now carries the declaration call graph too — see
@@ -835,12 +856,24 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
   the README badge and `rust/Cargo.toml`. Reading the mirror published a mirror
   of a mirror, so `readProjectVersion()` reads the declaration from the same
   pinned checkout and `canonicalCrossChecks` reports any disagreement.
-- **Four figures are counted off the digest-verified sources**, which the
+- **Five figures are counted off the digest-verified sources**, which the
   artifact's inventory cannot answer on its own: `syscalls` (constructors of
-  `inductive SyscallId`), `externs` (`@[extern …]` declarations), and the two
+  `inductive SyscallId`), `externs` (`@[extern …]` declarations), the two
   enforcement-boundary sizes, read from the `.length = N` statements the kernel
-  proves by `rfl`. Reading the theorem rather than a sentence about it is what
-  upstream's own docstring asks for.
+  proves by `rfl`, and `frozenSyscalls`, the length `frozenOpCoverage_count`
+  proves by `decide` (`provedLength()`). Reading the theorem rather than a
+  sentence about it is what upstream's own docstring asks for; the Execute-phase
+  paragraph said "20 of the kernel's syscalls" a release after upstream's
+  count had fallen to 18.
+- **A table that enumerates a counted surface is held to the count.** The API
+  Surface rows are hand-written (each names its implementing file), so
+  `static-values.test.mjs` requires them to list syscall IDs `0 … syscalls-1`
+  exactly once each. They stopped at ID 34 under a lead that said "All 41".
+- **The footer and the sitemap are stamped as well.** The no-JS footer read
+  "Commit main · Updated live from repository" on a page whose CSP forbids
+  contacting the repository; `apply-static-values.mjs` now writes the
+  snapshot's `commitSha` and its date (as `site.js` renders it in English), and
+  the `lastmod` of `/` and `/map.html` in `sitemap.xml` from `generatedAt`.
 - **`niSteps` is a coverage check, not a count.** The security card says every
   kernel step has its own non-interference proof, so `nonInterferenceCoverage()`
   pairs each constructor of `NonInterferenceStep` with a

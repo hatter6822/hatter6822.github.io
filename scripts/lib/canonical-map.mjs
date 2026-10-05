@@ -565,6 +565,20 @@ export function crossCoreNonInterferenceCount(codebaseMap) {
  * checked statement, which is as close to the truth as a published number gets.
  */
 export function enforcementBoundarySize(codebaseMap, sourceText, theoremName) {
+  return provedLength(codebaseMap, sourceText, theoremName);
+}
+
+/**
+ * The length a production theorem proves, from its `… .length = N` statement.
+ *
+ * The general form of `enforcementBoundarySize`: the kernel pins several of
+ * its surfaces this way, and a published figure is safest read off the
+ * machine-checked statement. `frozenSyscalls` comes from
+ * `frozenOpCoverage_count : (SyscallId.all.filter frozenOpCoverage).length = 18`
+ * — the landing page said "20 of the kernel's syscalls" for a release after
+ * upstream had moved two arms out of the count (`v0.36.38`).
+ */
+export function provedLength(codebaseMap, sourceText, theoremName) {
   if (typeof sourceText !== 'function') return undefined;
 
   for (const moduleInfo of productionModules(codebaseMap)) {
@@ -662,6 +676,12 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
 
     const enforcementOpsPerCore = enforcementBoundarySize(map, sourceText, 'enforcementBoundaryPerCore_count');
     if (enforcementOpsPerCore !== undefined) metrics.enforcementOpsPerCore = enforcementOpsPerCore;
+
+    // How many syscalls have a frozen-phase counterpart. The page quoted 20
+    // after upstream's count fell to 18; the kernel proves the figure by
+    // `decide` over the derived constructor list, so it is read from there.
+    const frozenSyscalls = provedLength(map, sourceText, 'frozenOpCoverage_count');
+    if (frozenSyscalls !== undefined) metrics.frozenSyscalls = frozenSyscalls;
   }
 
   return metrics;
@@ -695,6 +715,11 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
 export const SITE_SUBSYSTEMS = Object.freeze([
   { key: 'scheduler', namespace: 'SeLe4n.Kernel.Scheduler' },
   { key: 'capability', namespace: 'SeLe4n.Kernel.Capability' },
+  // The capability card splits its invariant proofs three ways. All three
+  // figures were typed into the prose (24, 62, 111) and all three had drifted.
+  { key: 'capability-authority', namespace: 'SeLe4n.Kernel.Capability.Invariant.Authority' },
+  { key: 'capability-defs', namespace: 'SeLe4n.Kernel.Capability.Invariant.Defs' },
+  { key: 'capability-preservation', namespace: 'SeLe4n.Kernel.Capability.Invariant.Preservation' },
   { key: 'ipc', namespace: 'SeLe4n.Kernel.IPC' },
   { key: 'lifecycle', namespace: 'SeLe4n.Kernel.Lifecycle' },
   { key: 'service', namespace: 'SeLe4n.Kernel.Service' },
@@ -714,6 +739,7 @@ export const SITE_SUBSYSTEMS = Object.freeze([
   { key: 'ipc-structural', namespace: 'SeLe4n.Kernel.IPC.Invariant.Structural' },
   { key: 'ipc-endpoint-preservation', namespace: 'SeLe4n.Kernel.IPC.Invariant.EndpointPreservation' },
   { key: 'ipc-cap-transfer', namespace: 'SeLe4n.Kernel.IPC.Operations.CapTransfer' },
+  { key: 'model', namespace: 'SeLe4n.Model' },
   { key: 'model-object', namespace: 'SeLe4n.Model.Object' },
   { key: 'model-state', namespace: 'SeLe4n.Model.State' },
   { key: 'model-object-state', namespaces: ['SeLe4n.Model.Object', 'SeLe4n.Model.State'] }

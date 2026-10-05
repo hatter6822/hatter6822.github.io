@@ -100,3 +100,19 @@ test('the shipped English bundle resolves a real key through t()', async () => {
   const i18n = await loadI18n('en', en);
   assert.equal(i18n.t('map.hero_title'), en.map.hero_title);
 });
+
+test('locale HTML is sanitized in an inert document, against a tag allowlist', async () => {
+  // A <div> from the live document fetches an <img src> and runs its onerror
+  // the moment innerHTML is assigned — before the allowlist walk can strip it.
+  // A <template>'s content belongs to an inert document, which does neither.
+  const source = await fs.readFile(path.join(repoRoot, 'assets/js/i18n.js'), 'utf8');
+  const body = /function sanitizeHTML\(raw\) \{([^]*?)\n {2}\}/.exec(source)?.[1] ?? '';
+  assert.match(body, /createElement\("template"\)/, 'sanitizeHTML parses into a <template>');
+  assert.doesNotMatch(body, /createElement\("div"\)/, 'sanitizeHTML must not parse into a live-document element');
+
+  const allow = /var SAFE_TAGS = \/\^\(([^)]*)\)\$\/i;/.exec(source)?.[1]?.split('|') ?? [];
+  assert.ok(allow.length > 0, 'SAFE_TAGS is an anchored alternation');
+  for (const tag of ['img', 'svg', 'script', 'iframe', 'object', 'style', 'template']) {
+    assert.ok(!allow.includes(tag), `SAFE_TAGS must not allow <${tag}>`);
+  }
+});

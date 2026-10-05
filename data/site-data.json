@@ -10,6 +10,7 @@
   "niCrossCore": 39,
   "enforcementOps": 52,
   "enforcementOpsPerCore": 67,
+  "frozenSyscalls": 18,
   "scripts": 73,
   "docs": 255,
   "admitted": 0,
@@ -21,6 +22,18 @@
     "capability": {
       "modules": 14,
       "theorems": 315
+    },
+    "capability-authority": {
+      "modules": 1,
+      "theorems": 31
+    },
+    "capability-defs": {
+      "modules": 1,
+      "theorems": 57
+    },
+    "capability-preservation": {
+      "modules": 7,
+      "theorems": 108
     },
     "ipc": {
       "modules": 69,
@@ -97,6 +110,10 @@
     "ipc-cap-transfer": {
       "modules": 1,
       "theorems": 31
+    },
+    "model": {
+      "modules": 14,
+      "theorems": 812
     },
     "model-object": {
       "modules": 7,
@@ -189,5 +206,5 @@
   "metricsScope": "production",
   "schemaVersion": "1.0.0",
   "sourceDigest": "1c9a786408c8c3b5ff2000951687a0bcbb38cafda220571d4aace09783f7c285",
-  "generatedAt": "2026-10-05T02:24:32.670Z"
+  "generatedAt": "2026-10-05T03:09:48.555Z"
 }
