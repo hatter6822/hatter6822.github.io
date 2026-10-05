@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateMapDataObject, validateSiteDataObject, validateCrossFile } from './data-validation.mjs';
+import { validateMapDataObject, validateSiteDataObject, validateCallGraphDataObject, validateCrossFile } from './data-validation.mjs';
 import { SITE_SUBSYSTEMS } from './canonical-map.mjs';
 
 /**
@@ -23,6 +23,7 @@ function siteData(overrides = {}) {
     niCrossCore: 31,
     enforcementOps: 40,
     enforcementOpsPerCore: 55,
+    frozenSyscalls: 18,
     scripts: 17,
     docs: 97,
     admitted: 0,
@@ -55,7 +56,6 @@ function mapData(overrides = {}) {
     modules: [],
     moduleMap: {},
     moduleMeta: {},
-    importsTo: {},
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: '',
@@ -79,13 +79,12 @@ test('validateSiteDataObject rejects invalid timestamps', () => {
   assert.ok(errors.some((msg) => msg.includes('updatedAt')));
 });
 
-test('validateMapDataObject checks edge symmetry and module coverage', () => {
+test('validateMapDataObject checks module coverage', () => {
   const errors = validateMapDataObject({
     files: [],
     modules: ['A.Core', 'A.Util'],
     moduleMap: { 'A.Core': 'A/Core.lean' },
-    moduleMeta: { 'A.Core': { symbols: { theorems: [], functions: [] } }, 'A.Util': { symbols: { theorems: [], functions: [] } } },
-    importsTo: { 'A.Util': [] },
+    moduleMeta: { 'A.Core': { symbols: {} }, 'A.Util': { symbols: {} } },
     importsFrom: { 'A.Core': ['A.Util'] },
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -93,7 +92,6 @@ test('validateMapDataObject checks edge symmetry and module coverage', () => {
   });
 
   assert.ok(errors.some((msg) => msg.includes('moduleMap missing entry for A.Util')));
-  assert.ok(errors.some((msg) => msg.includes('importsTo.A.Util missing reverse edge to A.Core')));
 });
 
 test('validateMapDataObject accepts minimal empty snapshot', () => {
@@ -120,8 +118,6 @@ test('validateMapDataObject validates symbols.byKind entries when present', () =
     moduleMeta: {
       'A.Core': {
         symbols: {
-          theorems: [],
-          functions: [],
           byKind: {
             theorem: [{ name: 'x', line: 2 }],
             macro: [{}]
@@ -129,7 +125,6 @@ test('validateMapDataObject validates symbols.byKind entries when present', () =
         }
       }
     },
-    importsTo: {},
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -176,8 +171,7 @@ test('validateMapDataObject rejects non-string entries in modules array', () => 
     files: [],
     modules: [123, null, 'A.Core'],
     moduleMap: { 'A.Core': 'A/Core.lean' },
-    moduleMeta: { 'A.Core': { symbols: { theorems: [], functions: [] } } },
-    importsTo: {},
+    moduleMeta: { 'A.Core': { symbols: {} } },
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -192,8 +186,7 @@ test('validateMapDataObject detects duplicate modules', () => {
     files: [],
     modules: ['A.Core', 'A.Core'],
     moduleMap: { 'A.Core': 'A/Core.lean' },
-    moduleMeta: { 'A.Core': { symbols: { theorems: [], functions: [] } } },
-    importsTo: {},
+    moduleMeta: { 'A.Core': { symbols: {} } },
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -209,10 +202,9 @@ test('validateMapDataObject detects orphaned moduleMeta entries', () => {
     modules: ['A.Core'],
     moduleMap: { 'A.Core': 'A/Core.lean' },
     moduleMeta: {
-      'A.Core': { symbols: { theorems: [], functions: [] } },
-      'A.Ghost': { symbols: { theorems: [], functions: [] } }
+      'A.Core': { symbols: {} },
+      'A.Ghost': { symbols: {} }
     },
-    importsTo: {},
     importsFrom: {},
     externalImportsFrom: {},
     commitSha: 'abc',
@@ -298,42 +290,65 @@ test('validateSiteDataObject rejects malformed provenance and metric formatting'
   assert.deepEqual(validateSiteDataObject(siteData({ lines: '999' })), []);
 });
 
-test('validateMapDataObject validates the declaration call graph', () => {
-  const withGraph = (callGraph, byKind = { theorem: [{ name: 'a', line: 1 }] }) => mapData({
-    modules: ['A'],
-    moduleMap: { A: 'A.lean' },
-    moduleMeta: { A: { symbols: { theorems: [], functions: [], byKind, callGraph } } },
-    importsFrom: { A: [] }
-  });
+/**
+ * The call graph ships in its own file, split from map-data in the same run.
+ * Its shape and provenance are checked alone; whether its callers are
+ * declarations of the snapshot is checked against map-data.
+ */
+function callGraphData(overrides = {}) {
+  return {
+    commitSha: 'dcbd1dd',
+    metricsSource: 'docs/codebase_map.json',
+    sourceDigest: 'a'.repeat(64),
+    generatedAt: '',
+    callGraph: { A: { a: ['x'] } },
+    ...overrides
+  };
+}
 
-  assert.deepEqual(validateMapDataObject(withGraph({ a: ['x', 'y'] })), []);
-
-  assert.ok(validateMapDataObject(withGraph({ a: [] }))
-    .some((m) => m.includes('must be a non-empty array')));
-  assert.ok(validateMapDataObject(withGraph({ a: ['ok', ''] }))
-    .some((m) => m.includes('non-empty declaration names')));
-  assert.ok(validateMapDataObject(withGraph('nope'))
-    .some((m) => m.includes('callGraph must be an object')));
-
-  // The invariant that matters: a caller the module's symbol lists do not
-  // carry means the two projections drifted, and every lookup through it dies.
-  assert.ok(validateMapDataObject(withGraph({ ghost: ['x'] }))
-    .some((m) => m.includes("is not a declaration in this module's symbol lists")));
+test('validateCallGraphDataObject checks provenance and shape', () => {
+  assert.deepEqual(validateCallGraphDataObject(callGraphData()), []);
+  assert.ok(validateCallGraphDataObject(callGraphData({ sourceDigest: 'short' })).some((m) => m.includes('sourceDigest')));
+  assert.ok(validateCallGraphDataObject(callGraphData({ commitSha: '' })).some((m) => m.includes('commitSha')));
+  assert.ok(validateCallGraphDataObject(callGraphData({ metricsSource: 'README.md' })).some((m) => m.includes('metricsSource')));
+  assert.ok(validateCallGraphDataObject(callGraphData({ callGraph: [] })).some((m) => m.includes('callGraph must be an object')));
+  // Without it the map still renders modules and imports, so the regression
+  // would only surface when someone opened a declaration.
+  assert.ok(validateCallGraphDataObject(callGraphData({ callGraph: {} })).some((m) => m.includes('declaration call graph is missing')));
 });
 
-test('validateMapDataObject rejects a snapshot with no call graph at all', () => {
+test('validateMapDataObject refuses an inline call graph', () => {
   const errors = validateMapDataObject(mapData({
     modules: ['A'],
     moduleMap: { A: 'A.lean' },
-    moduleMeta: { A: { symbols: { theorems: [], functions: [], byKind: {} } } },
+    moduleMeta: { A: { symbols: { byKind: { theorem: [{ name: 'a', line: 1 }] }, callGraph: { a: ['x'] } } } },
     importsFrom: { A: [] }
   }));
-  // Without it the map still renders modules and imports, so the regression
-  // would only surface when someone clicked a declaration.
-  assert.ok(errors.some((m) => m.includes('declaration call graph is missing')));
+  assert.ok(errors.some((m) => m.includes('symbols.callGraph belongs in map-callgraph.json')));
+});
 
-  // An empty snapshot has nothing to graph and must stay valid.
-  assert.deepEqual(validateMapDataObject(mapData()), []);
+test('validateCrossFile holds the call graph to the snapshot it was split from', () => {
+  const site = siteData({ commitSha: 'dcbd1dd', modules: 1, theorems: 1 });
+  const map = mapData({
+    commitSha: 'dcbd1dd',
+    modules: ['A'],
+    moduleMap: { A: 'A.lean' },
+    moduleMeta: { A: { theorems: 1, symbols: { byKind: { theorem: [{ name: 'a', line: 1 }] } } } },
+    importsFrom: { A: [] }
+  });
+  const graphErrors = (overrides) => validateCrossFile(site, map, callGraphData(overrides)).filter((m) => m.includes('callgraph') || m.includes('map-callgraph'));
+
+  assert.deepEqual(graphErrors({}), []);
+  assert.ok(graphErrors({ commitSha: 'abc1234' }).some((m) => m.includes('map-callgraph commitSha abc1234 does not match')));
+  assert.ok(graphErrors({ sourceDigest: 'b'.repeat(64) }).some((m) => m.includes('different canonical source digests')));
+  assert.ok(graphErrors({ callGraph: { Ghost: { a: ['x'] } } }).some((m) => m.includes('names module Ghost')));
+  assert.ok(graphErrors({ callGraph: { A: { a: [] } } }).some((m) => m.includes('must be a non-empty array')));
+  assert.ok(graphErrors({ callGraph: { A: { a: ['ok', ''] } } }).some((m) => m.includes('non-empty declaration names')));
+  assert.ok(graphErrors({ callGraph: { A: 'nope' } }).some((m) => m.includes('must be an object')));
+  // The invariant that matters: a caller the module's symbol lists do not
+  // carry means the two projections drifted, and every lookup through it dies.
+  assert.ok(graphErrors({ callGraph: { A: { ghost: ['x'] } } })
+    .some((m) => m.includes("callGraph.A.ghost is not a declaration in map-data.json's symbol lists for A")));
 });
 
 test('validateMapDataObject rejects modules outside the published production scope', () => {
@@ -345,7 +360,7 @@ test('validateMapDataObject rejects modules outside the published production sco
       'Tests.Smoke': 'tests/Smoke.lean'
     },
     moduleMeta: {
-      'SeLe4n.Kernel.API': { symbols: { theorems: [], functions: [], byKind: {}, callGraph: { a: ['b'] } } },
+      'SeLe4n.Kernel.API': { symbols: { byKind: {} } },
       'SeLe4n.Testing.Helpers': {},
       'Tests.Smoke': {}
     }
@@ -589,4 +604,17 @@ test('validateCrossFile does not read a sibling namespace as a member', () => {
   const errors = validateCrossFile(site, map);
   assert.ok(!errors.some((e) => e.includes('SeLe4n.Kernel.Scheduler')),
     `sibling namespace counted as a member: ${errors.join(' | ')}`);
+});
+
+test('validateMapDataObject rejects the derived indexes the bundle no longer ships', () => {
+  assert.ok(validateMapDataObject(mapData({ importsTo: {} })).some((msg) => msg.includes('importsTo is derived')));
+  const withShortcuts = mapData({
+    modules: ['A'],
+    moduleMap: { A: 'A.lean' },
+    moduleMeta: { A: { symbols: { theorems: [], functions: [], byKind: { def: [{ name: 'f', line: 1 }], lemma: [] } } } }
+  });
+  const errors = validateMapDataObject(withShortcuts);
+  assert.ok(errors.some((msg) => msg.includes('symbols.theorems duplicates byKind')));
+  assert.ok(errors.some((msg) => msg.includes('symbols.functions duplicates byKind')));
+  assert.ok(errors.some((msg) => msg.includes('symbols.byKind.lemma is empty')));
 });

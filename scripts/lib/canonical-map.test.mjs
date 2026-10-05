@@ -33,6 +33,7 @@ import {
   subsystemMetricsFromCodebaseMap,
   subsystemNamespaces,
   symbolsFromDeclarations,
+  splitCallGraph,
   theoremDeclarationCount,
 } from './canonical-map.mjs';
 
@@ -389,13 +390,13 @@ test('symbolsFromDeclarations buckets by kind and recovers names from source', (
     { kind: 'def', name: 'dispatch', line: 3 }
   ], source);
 
-  assert.deepEqual(symbols.theorems, [{ name: 'ofErrorLabel?_zero', line: 2 }]);
-  assert.deepEqual(symbols.functions, [{ name: 'dispatch', line: 3 }]);
+  assert.deepEqual(symbols.byKind.theorem, [{ name: 'ofErrorLabel?_zero', line: 2 }]);
+  assert.deepEqual(symbols.byKind.def, [{ name: 'dispatch', line: 3 }]);
   assert.deepEqual(symbols.byKind.namespace, [{ name: 'SeLe4n', line: 1 }]);
-  // Every interior kind the UI groups must exist, even when empty.
-  for (const kind of ['theorem', 'lemma', 'def', 'abbrev', 'opaque', 'instance', 'structure', 'section']) {
-    assert.ok(Array.isArray(symbols.byKind[kind]), `missing bucket for ${kind}`);
-  }
+  // Only the kinds the module declares are shipped; the runtime fills the
+  // rest. The theorem/function shortcuts were copies of these lists.
+  assert.deepEqual(Object.keys(symbols.byKind).sort(), ['def', 'namespace', 'theorem']);
+  assert.deepEqual(Object.keys(symbols).sort(), ['byKind', 'callGraph']);
 });
 
 test('symbolsFromDeclarations keeps distinct declarations that share a name', () => {
@@ -405,14 +406,14 @@ test('symbolsFromDeclarations keeps distinct declarations that share a name', ()
     { kind: 'theorem', name: 'ledger_head', line: 877 },
     { kind: 'theorem', name: 'ledger_head', line: 1792 }
   ], '');
-  assert.equal(symbols.theorems.length, 2);
-  assert.deepEqual(symbols.theorems.map((s) => s.line), [877, 1792]);
+  assert.equal(symbols.byKind.theorem.length, 2);
+  assert.deepEqual(symbols.byKind.theorem.map((s) => s.line), [877, 1792]);
 
   // A genuinely repeated (name, line) is still collapsed.
   assert.equal(symbolsFromDeclarations([
     { kind: 'theorem', name: 'a', line: 1 },
     { kind: 'theorem', name: 'a', line: 1 }
-  ], '').theorems.length, 1);
+  ], '').byKind.theorem.length, 1);
 });
 
 test('symbolsFromDeclarations builds the call graph under recovered names', () => {
@@ -431,7 +432,7 @@ test('symbolsFromDeclarations builds the call graph under recovered names', () =
   ], source);
 
   assert.deepEqual(plain(symbols.callGraph), { 'ofErrorLabel?_zero': ['trivial', 'True'] });
-  assert.equal(symbols.theorems[0].name, 'ofErrorLabel?_zero');
+  assert.equal(symbols.byKind.theorem[0].name, 'ofErrorLabel?_zero');
   // An empty or absent `called` produces no entry, matching what the map
   // runtime builds from the artifact directly.
   assert.equal('dispatch' in symbols.callGraph, false);
@@ -456,7 +457,7 @@ test('symbolsFromDeclarations collapses a name collision the way the runtime doe
   ], '');
   assert.deepEqual(plain(symbols.callGraph), { refl: ['second'] });
   // Both declarations still appear in the symbol lists, keyed by line.
-  assert.deepEqual(symbols.theorems.map((t) => t.line), [1605, 1846]);
+  assert.deepEqual(symbols.byKind.theorem.map((t) => t.line), [1605, 1846]);
 });
 
 test('symbolsFromDeclarations keeps a kind the interior UI does not group', () => {
@@ -466,8 +467,7 @@ test('symbolsFromDeclarations keeps a kind the interior UI does not group', () =
 
 test('symbolsFromDeclarations tolerates a missing inventory', () => {
   const symbols = symbolsFromDeclarations(undefined, undefined);
-  assert.deepEqual(symbols.theorems, []);
-  assert.deepEqual(symbols.functions, []);
+  assert.deepEqual(plain(symbols.byKind), {});
   assert.deepEqual(plain(symbols.callGraph), {});
 });
 
@@ -629,4 +629,25 @@ test('subsystemNamespaces reads both entry shapes', () => {
   assert.deepEqual(subsystemNamespaces({ namespace: 'A' }), ['A']);
   assert.deepEqual(subsystemNamespaces({}), []);
   assert.deepEqual(subsystemNamespaces(undefined), []);
+});
+
+test('splitCallGraph moves the call graph into a payload with the snapshot provenance', () => {
+  const mapData = {
+    modules: ['A', 'B'],
+    moduleMeta: {
+      A: { symbols: { byKind: { def: [{ name: 'f', line: 1 }] }, callGraph: { f: ['g'] } } },
+      B: { symbols: { byKind: { def: [{ name: 'h', line: 1 }] }, callGraph: {} } }
+    },
+    commitSha: 'c'.repeat(40),
+    metricsSource: 'docs/codebase_map.json',
+    sourceDigest: 'd'.repeat(64),
+    generatedAt: '2026-10-05T00:00:00.000Z'
+  };
+  const graph = splitCallGraph(mapData);
+  assert.deepEqual(plain(graph.callGraph), { A: { f: ['g'] } }, 'a module with no calls is left out');
+  assert.equal(graph.commitSha, mapData.commitSha);
+  assert.equal(graph.sourceDigest, mapData.sourceDigest);
+  assert.equal(graph.metricsSource, mapData.metricsSource);
+  assert.equal(graph.generatedAt, mapData.generatedAt);
+  assert.ok(!('callGraph' in mapData.moduleMeta.A.symbols) && !('callGraph' in mapData.moduleMeta.B.symbols), 'the snapshot keeps no copy');
 });

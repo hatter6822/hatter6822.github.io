@@ -18,6 +18,10 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 ### Required before every commit
 
+`bash scripts/check.sh` runs all of the below (tests found by glob, so a new
+`*.test.mjs` is covered the day it lands); CI and the sync workflow run the
+same script.
+
 ```bash
 # Parser and validation tests (all must pass, zero warnings)
 node scripts/lib/lean-analysis.test.mjs
@@ -72,15 +76,15 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~7,000 | Largest runtime; read in chunks of ≤500 lines |
-| `scripts/lib/map-runtime.test.mjs` | ~2,700 | Map runtime tests |
-| `assets/css/style.css` | ~2,020 | Global design system |
-| `assets/js/run.js` | ~1,939 | Simulator runtime (fold engine + SVG scenes) |
+| `assets/js/map.js` | ~6,900 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~3,300 | Map runtime tests |
+| `assets/css/style.css` | ~2,040 | Global design system |
+| `assets/js/run.js` | ~2,130 | Simulator runtime (fold engine, SVG scenes, kernel path, guarantees) |
 | `assets/css/map.css` | ~1,100 | Map-specific styles (hero, workspace, scope toggle, chart, sidebar) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
-| `scripts/lib/rust-analysis.mjs` | ~1,450 | Rust crate inventory scanner, TOML reader |
-| `scripts/lib/rust-analysis.test.mjs` | ~1,200 | Rust scanner tests |
-| `assets/js/site.js` | ~566 | Landing page runtime (renders the bundled snapshot; derives nothing) |
+| `scripts/lib/rust-analysis.mjs` | ~1,660 | Rust crate inventory scanner, TOML reader |
+| `scripts/lib/rust-analysis.test.mjs` | ~1,390 | Rust scanner tests |
+| `assets/js/site.js` | ~600 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
 - Never read an entire large file in one operation. Use offset/limit (≤500 lines per read).
@@ -89,31 +93,46 @@ Several files exceed 500 lines:
 
 ## Key Architectural Conventions
 
-### Runtime data strategy (local-first)
+### Runtime data strategy (bundle-only)
 
-1. Load bundled `data/*.json` immediately
-2. Hydrate from browser `localStorage` cache if newer
-3. Attempt live refresh from GitHub APIs (with cooldown + jitter)
-4. Fall back gracefully if network refresh fails
+Every page renders its bundled `data/*.json` and nothing else, and every
+page pins `connect-src 'self'`. There is no live refresh and no
+`localStorage` data cache anywhere. Each page once had one, and each time it
+became a second pipeline that disagreed with the first (see below for the
+landing page, the code map and the simulator in turn). The weekly sync
+workflow keeps the bundles current instead.
 
-**The landing page is exempt from steps 2-4 and must stay that way.** Its
-statistics come from `data/site-data.json` alone, which
+The landing page's statistics come from `data/site-data.json` alone, which
 `scripts/sync-upstream.mjs` projects offline from the kernel's canonical
-`docs/codebase_map.json`; `index.html` ships with those same values stamped into
-the markup, so a failed fetch degrades to the correct numbers. `connect-src` is
-`'self'` on that page to keep it that way.
+`docs/codebase_map.json`; `index.html` ships with those same values stamped
+into the markup, so a failed fetch degrades to the correct numbers.
 
-**`map.html` is bundle-first in practice.** The serialized map snapshot is past
-the ~5M-unit `localStorage` quota, so step 2 never has anything to hydrate:
-`setCache()` skips the write above `CACHE_MAX_CHARS` (4 MiB of UTF-16 units)
-and returns `false` instead of throwing into an empty `catch`. The cache code
-stays (it works for smaller snapshots and the unit tests cover it), but no
-feature may depend on the map cache persisting between visits.
+**`map.html` renders `data/map-data.json` and nothing else** — plus
+`data/map-callgraph.json`, the declaration call graph split from it in the same
+run, fetched the first time a declaration is shown (at boot when the URL
+carries `decl=`) and refused unless its `commitSha` is the snapshot's. Until it
+lands the declaration view says it is loading rather than claiming the
+declaration has no calls. Boot is one same-origin fetch, `normalizeMapData()`,
+a yield, render; a failed fetch shows
+`map.status_load_failed` in the status line, and success shows
+`map.status_ready_integrated` with the snapshot's commit. Through 0.32.0 the page
+also refreshed live on every boot, focus and reconnect: it downloaded the
+10 MB upstream artifact (which carries no import edges), replaced the bundled
+graph with it — Import Edges 1,139 → 0, from an older commit — and then fetched
+every Lean file to regex the edges back, silently dropping failures. That was a
+second data pipeline, which the next section forbids; the weekly
+`.github/workflows/sync-sele4n-data.yml` keeps the bundle current through the
+one pipeline instead. There is no `localStorage` copy of the snapshot (it never
+fit the quota) and no refresh loop; `purgeLegacyStorage()` removes the retired
+keys from returning visitors. `connect-src` is `'self'` on every page, and
+`csp-html.test.mjs` pins it; `map-runtime.test.mjs` pins that `map.js` fetches
+only named `data/*.json` endpoints, and `map-smoke.mjs` fails on any request
+that leaves the origin.
 
 ### One pipeline, one revision
 
 `scripts/sync-upstream.mjs` is the only thing that fetches upstream. It clones
-seLe4n once and writes all three `data/*.json` snapshots from that single
+seLe4n once and writes all four `data/*.json` snapshots from that single
 checkout, after verifying the canonical artifact's `source_sync.source_digest`
 over the Lean sources it ships with.
 
@@ -182,6 +201,7 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   | `externs` | `@[extern …]` declarations across production Lean | 17 | 73 |
   | `enforcementOps` | the length `enforcementBoundaryExtended_count` proves | 38 | 44 |
   | `enforcementOpsPerCore` | the length `enforcementBoundaryPerCore_count` proves | — | 59 |
+  | `frozenSyscalls` | the length `frozenOpCoverage_count` proves | — | 18 |
 
   The enforcement figures come off a machine-checked statement, which is as
   close to the truth as a published number gets — and upstream's own docstring
@@ -321,7 +341,7 @@ scope toggle. Production code is the subject in every scope.
   chooser fell back to the top-scored module,
   `SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership`. Never
   reintroduce the score heuristic as a default, and keep `Main.lean` in the
-  tree path (`isLeanModulePath`).
+  production scope (`isProductionModule`).
 - A lane with more modules than the detail budget groups them by
   `moduleSubsystem()` (the parent namespace, capped at three segments) and opens
   each group in place. The budget cut ("+38 more imports") is kept only for
@@ -343,6 +363,18 @@ scope toggle. Production code is the subject in every scope.
 - Imports the graph does not contain are labelled by what they are: `SeLe4n`
   is "in-repo · library root", `SeLe4n.Testing.*` is "in-repo · outside
   production scope", everything else "external dependency".
+- **A declaration lane is a bounded tree, never "show all".** `SystemState`
+  has 10,374 callers; drawing them built a 974,000px chart in one 3.4 s task.
+  `buildDeclarationLane` draws ≤ 12 matches flat, then groups by module (≤ 12
+  modules) or by subsystem, the selected declaration's own module hoisted
+  first; a group opens onto pages of `DECL_LANE_PAGE`, and no lane draws more
+  than `DECL_LANE_NODE_BUDGET` nodes — past it the lane says how many it left
+  out. The breadcrumb filter narrows before grouping. A grouped lane shares
+  one edge spine (`drawLaneSpine`). Never reintroduce an uncapped expansion;
+  `map-smoke.mjs` reads the budget from `map.js` and holds the page to it.
+- Caller lookups are memoized against the identity of the indexes they read
+  (`callerRefsDeps`). Replace an index object rather than mutating it in
+  place, or the memo keeps answering for the old one.
 - Re-selecting the current module must not repaint the declaration sidebar
   unless it shows another module: the search field's `change` fires on blur,
   and rebuilding the list under the pointer swallowed the click that caused it.
@@ -482,29 +514,21 @@ scope toggle. Production code is the subject in every scope.
   cfg(loom)"), dev-dependencies as "test-only", build dependencies as
   "build-time"; only unconditional tables are "external". A dependency is
   navigable when it names a workspace member, whichever table it came from.
-- A live refresh may carry no repository tree (the canonical artifact lists
-  only Lean modules) and never carries a Rust inventory. `retainInventory()`
-  keeps the previous tree and crates in that case and records the commit each
-  was taken at, so the Rust half does not empty out on a networked visit. A
-  tree refresh changes the Lean declarations, so `buildBridgeIndex()` must run
-  again with it — and **before** `buildPairs()`, which stamps the header's
-  Boundary Links from `state.bridge`. Rebuilding afterwards published a total
-  one refresh behind the bands drawn from it.
-- A canonical refresh names its revision as `repository.head.commit_sha`;
-  `normalizeCanonicalPayload` adopts it as `commitSha`. Rust nodes link at
-  `state.rustCommit` and Lean modules at `state.commitSha`
-  (`nodeSourceRef()`), because the two halves can be a commit apart. When they
-  are, `renderInventoryProvenance()` says so under the "Generated" stamp
-  (`#map-inventory-note`, `map.inventory_retained`) — the header publishes Rust
-  Modules and Boundary Links beside one timestamp, which otherwise reads as a
-  single coherent snapshot. The note is hidden when the two agree.
+- Both halves come from one snapshot and so from one commit: every source
+  link, Lean or Rust, names `state.commitSha` (`nodeSourceRef()`), never
+  `main`, and the header's figures all describe the revision beside the
+  "Generated" stamp. The retained-inventory machinery that let the Rust half
+  sit a commit behind a live-refreshed Lean graph (`retainInventory()`,
+  `#map-inventory-note`) went with the live refresh.
 - `node scripts/map-smoke.mjs` renders the page in headless Chromium and
   asserts the guarantees above (chart at 1:1 at 1200–1920 in **both** scopes,
   sidebar placement, the pinned sidebar at 720p, no sideways overflow, clean
-  console, both themes, a Spanish deep link, a locale held back until after the
+  console and no request that leaves the origin, the status line naming the
+  snapshot's commit, both themes, a Spanish deep link, a locale held back until after the
   snapshot paints, the scope toggle end to end, the boundary band's direction,
   crossing into the other language, a Rust deep link, tappable scope options on
-  a phone, and nothing clipped in the sidebar). `.github/workflows/ci.yml` runs
+  a phone, nothing clipped in the sidebar, and `SystemState`'s 10,374 callers
+  staying inside the declaration lanes' node budget). `.github/workflows/ci.yml` runs
   it with the runner's Chrome on every push. A layout guarantee the docs make
   gets a probe assertion.
 
@@ -653,17 +677,88 @@ statistic**; the landing page stays canonical-or-absent.
   counter by counter, and rejects a crate file the snapshot's `files[]` does
   not list.
 
+### Simulator (`run.html`)
+
+The simulator shows, for every step of a scenario, what the kernel did (the
+state change), how it got there (the checked syscall path, stage by stage) and
+why that is safe (the security properties the step relies on and the
+invariants it preserves). Its data is `data/execution-traces.json`, schema
+**v2**, validated by `scripts/lib/trace-analysis.mjs`.
+
+- **The scenarios are hand-written; their names are not.** The kernel exports
+  no JSON traces yet (`source: "fixture"`). Every `{ name, module }` the trace
+  cites — a property's theorems, an invariant's predicate, preservation
+  theorems and runtime check, a step's source refs and each path stage — is
+  resolved by `scripts/lib/trace-anchors.mjs` in the same digest-verified
+  checkout the map is generated from, and stamped with `path` and `line`;
+  `sourceRef` records the commit. `checkTraceKernelFacts` also checks what a
+  step restates about the interface: the syscall is a `SyscallId`
+  constructor, its `requiredRight` is the `syscallRequiredRight` arm, every
+  error is a `KernelError`. `sync-upstream.mjs` refuses to write the traces
+  when any of this fails, and `validate-traces.mjs` cross-checks every
+  stamped line against `map-data.json` at the same commit. The 0.33.6 fixture
+  is why: by 0.36.41 fifteen of its names were off the executed path, two
+  required rights and one syscall were wrong, and nothing noticed. A name that
+  stops resolving is an editorial call — rewrite the step, do not repoint it.
+- **A refused step changes nothing.** A kernel transition is
+  `σ → Except ε (α × σ)`: an error carries no state. The validator rejects a
+  step with `outcome.status: "error"` whose ops are anything but event ops
+  (`flowCheck`, `vspaceReject`, `message`, `note`), and the runtime's adoption
+  gate refuses the whole document. A syscall `path` has exactly one `fail`
+  stage, matching `outcome.error`, and every later stage is `skip`.
+- **Ops follow the kernel, not a story about it.** `cdtRevoke` removes a
+  capability's derivations and keeps the capability (`cspaceRevoke`);
+  `untypedReset` needs its children revoked first; declassification is
+  `auditAppend` — it never edits the flow policy. `untypedRevoke`,
+  `ifPolicyAdd/Remove`, `servicePatch` and the services scene are gone because
+  the kernel has no such paths.
+- **Runtime checks are tests.** An invariant's `runtimeCheck` names the test
+  harness's executable mirror (`SeLe4n.Testing.InvariantChecks`); the page
+  labels it so, and the proof is the `preservedBy` theorem.
+- **Links are built from stamped fields only.** `sourceHref()` takes the
+  40-hex `sourceRef`, a whitelisted `.lean` path and an integer line; an
+  unstamped reference is shown as text. Code-map links are offered only for
+  production modules.
+- **Bundle-only**, like the landing page: `run.js` fetches
+  `data/execution-traces.json` and nothing else, keeps no trace cache, and
+  `run.html`'s `connect-src` is `'self'`. A remote document could not have been
+  grounded against the revision the bundle was.
+- On a phone the stage SVG is drawn at 1:1 and scrolls inside its shell;
+  scaled to fit, a two-column scene set its labels at about six pixels.
+- `run-runtime.test.mjs` boots the real `run.js` in a DOM shim; the shim must
+  implement every DOM call the runtime makes (it lacked `createTextNode`, and
+  boot failed silently into "Could not load trace data").
+
 ### Map data normalization
 
 - `modules[]` array is the canonical source of graph nodes
 - Legacy top-level maps (`moduleMap`, `importsFrom`, `moduleMeta`) are fallbacks only
 - Branch-ref metadata keys (e.g. `main`) are excluded from module inventories
 - Declaration-centric payloads (`modules[].declarations`) are projected into symbol buckets
-- `moduleMeta[].symbols.callGraph` ships in the bundled snapshot; every key must
-  also appear in that module's `byKind` lists (`validate-data.mjs` asserts it),
-  because the runtime resolves a declaration through one and its calls through
-  the other
+- The call graph ships in `data/map-callgraph.json` (`{ commitSha,
+  sourceDigest, metricsSource, generatedAt, callGraph: { module: { decl:
+  [targets] } } }`), split off by `splitCallGraph()`; `map-data.json` carries
+  none (`validate-data.mjs` rejects an inline copy). `validateCrossFile` fails
+  when the two files disagree on `commitSha` or `sourceDigest`, names a module
+  the snapshot does not graph, or carries a caller that module's `byKind` lists
+  do not — the runtime resolves a declaration through one and its calls
+  through the other
+- No derived copies are shipped: `symbols.theorems`/`functions`, `importsTo`
+  and empty `byKind` arrays are rebuilt by the runtime and rejected by
+  `validate-data.mjs`
 - Reverse import edges (`importsTo`) are always rebuilt from `importsFrom`
+- **A declaration is its module and its name.** The artifact records short
+  names, and 171 of them are declared in more than one module (`leaves` in
+  both `BarrierComposition` and `TlbCacheComposition`). The name-keyed
+  indexes (`declarationGraph`, `declarationIndex`, `declarationReverseGraph`)
+  stay for callers that know no module; everything that does — the URL's
+  `module=` beside `decl=`, a sidebar row, a lane node — asks the module-aware
+  lookups (`declarationEntryIn`, `declarationCalls(name, module)`,
+  `declarationCallerRefs`, `declarationCalleeRefs`). A bare call target is
+  placed by `resolveDeclarationModule()`: the calling module's own
+  declaration, then one in a module it imports, then the first declarer. A
+  deep link to a colliding name once switched the chart to the other module
+  and quoted the first module's line for it.
 
 ### CSS override weight (media queries add no specificity)
 
@@ -711,6 +806,11 @@ the bullet everywhere it spoke.
 - Generated content contributes nothing to `scrollHeight`, so an overflow
   check over the row will not see it. A probe for a chip has to measure the
   chip (`getComputedStyle(el, '::before')`) — `map-smoke.mjs` now does.
+- Sidebar rows carry `content-visibility: auto`, so a row scrolled out of the
+  list is not laid out and can never measure as clipped. A probe over the rows
+  sets `content-visibility: visible` on them (through CSSOM — the CSP refuses
+  an injected `<style>`) for the duration of the reading, as `map-smoke.mjs`
+  does.
 
 ### A winning declaration can still do nothing (inline boxes)
 
@@ -754,6 +854,8 @@ Both HTML pages enforce:
 - `referrer` policy (`strict-origin-when-cross-origin`)
 - `X-Content-Type-Options: nosniff`
 - All external links hardened with `rel="noopener noreferrer"`
+- No third-party origin on the landing page: the hero logo is self-hosted
+  (`assets/images/logo{,-dark}-{128,640,1024}.webp`), so `img-src` is `'self'`
 
 ### Operations/Invariant split (upstream seLe4n convention)
 
@@ -785,6 +887,8 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Global styles | `assets/css/style.css` |
 | Simulator (kernel-in-action) | `run.html`, `assets/js/run.js`, `assets/css/run.css` |
 | Trace data + fold engine | `data/execution-traces.json`, `scripts/lib/trace-analysis.mjs` |
+| Trace grounding (names → kernel lines) | `scripts/lib/trace-anchors.mjs` |
+| Tiers 0-2 gate | `scripts/check.sh` |
 
 ## Documentation Sync Requirements
 

@@ -16,13 +16,15 @@ The repository is a static website with two pages and a data pipeline:
 - `data/*.json` stores local snapshots consumed by the browser.
 - `scripts/*.mjs` regenerates and validates those snapshots.
 
-The runtime is intentionally **local-first**:
+The runtime renders bundled snapshots first:
 
 1. Render from bundled `data/*.json` immediately.
-2. Reuse cached payloads when they are newer.
-3. On `map.html` / `run.html` only, try a live refresh from GitHub. The landing
-   page does not: its statistics come from `data/site-data.json` alone.
-4. Keep rendering stable if network refresh fails.
+2. Never refresh from the network. The landing page, the code map and the
+   Simulator render `data/site-data.json`, `data/map-data.json` (plus the lazily
+   fetched `data/map-callgraph.json`) and `data/execution-traces.json` alone,
+   and all three pin `connect-src 'self'`. The Simulator's source links point
+   at the commit its snapshot was grounded at, so a remote document could not
+   be shown honestly either.
 
 ## 2) Top-level files
 
@@ -55,6 +57,8 @@ Owns:
   2. `i18n.js` (early, in `<head>`) for locale detection and DOM translation.
   3. `header-nav.js`, `site.js` (deferred in body).
 
+The hero and footer logos are self-hosted WebP files (`assets/images/logo{,-dark}-{128,640,1024}.webp`, resized from upstream's `assets/logo{,_dark}.png`), so the page's CSP names no origin but its own. Refresh them by hand if upstream changes its logo; they are not part of the data sync.
+
 The landing page includes documentation of the upstream seLe4n Rust syscall wrapper crates (`sele4n-types`, `sele4n-abi`, `sele4n-sys`, `sele4n-hal`) in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap sections.
 
 Edit this file when adding/removing a section, changing metadata defaults, or wiring new live data placeholders.
@@ -76,8 +80,10 @@ Edit this file when adding map controls or changing semantic structure of map UI
 ### `run.html` (Simulator page)
 Owns:
 
-- Simulator hero, transport bar (play/step/scrub), scene tabs, SVG stage, invariant rail, inspector, and sandbox toggle shells.
-- fixture-provenance disclaimer copy (the bundled traces are a hand-authored reference fixture until the upstream kernel emits `docs/execution-traces.json`).
+- Simulator hero ("What the kernel does, how it checks, and why it is safe"), source badge, grounding-commit provenance line and status line.
+- fixture note (the scenarios are hand-written until the upstream kernel emits `docs/execution-traces.json`; every name they cite is the kernel's own).
+- shells for the scenario bar (selector, summary, "Demonstrates" chips), transport bar (play/step/scrub, sandbox toggle), scene tabs, SVG stage, inspector, the **Security guarantees** band (`#guarantees`), the **Kernel invariants** `<details>` (`#invariant-details`), the sandbox panel and the steps log.
+- the page's CSP: `connect-src 'self'` and `img-src 'self' data:` — the page fetches its bundled snapshot and nothing else, so there is no GitHub origin and no `api.github.com` dns-prefetch.
 - script load order mirrors `map.html`, with `run.js` deferred last.
 
 Edit this file when adding scenes/controls or changing semantic structure of Simulator UI regions. The full design is in `docs/SIMULATOR_SPEC.md`.
@@ -101,7 +107,7 @@ Internationalization runtime for multi-language support. Responsibilities:
 
 - detects preferred locale from URL param (`?lang=`), `localStorage`, or browser `navigator.languages`.
 - fetches the appropriate locale JSON bundle from `/locales/<code>.json`.
-- walks the DOM translating elements with `data-i18n`, `data-i18n-placeholder`, `data-i18n-aria-label`, `data-i18n-title`, and `data-i18n-content` attributes.
+- walks the DOM translating elements with `data-i18n`, `data-i18n-html`, `data-i18n-placeholder`, `data-i18n-aria-label`, `data-i18n-title`, and `data-i18n-content` attributes. `data-i18n-html` values pass through `sanitizeHTML`, which parses them into a `<template>` (an inert document: no image is fetched and no handler runs while it is inspected) and keeps only the `SAFE_TAGS` allowlist (`a`, `br`, `code`, `em`, `span`, `strong`) and a few attributes.
 - exposes `window.sele4nI18n` API for JS-side translations: `t(key, vars)`, `setLocale(locale)`, `locale()`, `formatNumber(n)`, `pluralCategory(n)`, `onReady(cb)`, `translateDOM()`.
 - supports interpolation via `{{variable}}` placeholders in locale strings; a numeric value is grouped by the active locale (`Intl.NumberFormat`).
 - resolves plural families: when `vars.count` is a number and the bundle carries `key_one` / `key_few` / `key_many` / `key_other`, `t()` picks the CLDR category for the count (`Intl.PluralRules`) and falls back to `key_other`, then to `key`. `i18n-locales.test.mjs` compares families across locales; `i18n-runtime.test.mjs` exercises the resolution.
@@ -137,33 +143,31 @@ Use this file when changing same-page hash behavior or accessibility semantics o
 ### `assets/js/map.js`
 Largest runtime module; owns map page data and rendering behavior. Responsibilities:
 
-- hydrates graph state from `data/map-data.json` and optional live sync.
+- hydrates graph state from `data/map-data.json` and nothing else: boot is one same-origin fetch (`fetchBundledMapData`), `normalizeMapData`, `applyData`, render. The status line reports the snapshot's commit or the load failure (`paintLoadStatus`, repainted with the locale); `purgeLegacyStorage` removes the retired cache keys.
 - normalizes legacy/new payload shapes for compatibility.
-- preserves declaration call-graph relationships (`called` field) into a merged `declarationGraph` and precomputed `declarationReverseGraph` for O(1) caller lookups during declaration context navigation. Also builds a `declarationIndex` mapping every declaration name to `{module, kind, line}` for O(1) metadata lookups.
+- preserves declaration call-graph relationships (`called` field) into a merged `declarationGraph` and precomputed `declarationReverseGraph` for O(1) caller lookups during declaration context navigation. Also builds a `declarationIndex` mapping every declaration name to `{module, kind, line}` for O(1) metadata lookups, and `declarationsByModule` / `declarationModulesByName` so a name two modules declare resolves per module: every lookup takes an optional module (`declarationEntryIn`, `declarationCallerRefs`, `declarationCalleeRefs`, `resolveDeclarationModule`).
 - resolves declaration module ownership via `declarationGraph` first, then falls back to `declarationIndex` for O(1) lookup (replacing the previous O(n*m) `moduleMeta` symbol scan).
 - computes filtered graph neighborhood based on selected module and detail mode.
 - renders module-context node/edge flowchart and legend semantics.
 - renders declaration-context call-graph flowchart with breadcrumb navigation (`<nav>` element with `aria-label`) for bidirectional module/declaration context switching, including informative empty-state hints for declarations with zero relationships. Declaration flowchart preserves scroll position across re-renders.
 - both flowchart renderers share six extracted helpers (`createFlowSvg`, `createFlowLegend`, `flowLaneLabel`, `applyFlowScrollTarget`, `computeFlowLayout`, `buildFlowNodeGroup`) to eliminate SVG setup, legend, layout, scroll-target, and node construction duplication. Node heights for proof and external sections are pre-computed during layout to avoid redundant recalculation. `buildFlowNodeGroup` clips all text content to the node rect via SVG `<clipPath>` to prevent overflow on mobile viewports.
-- sorts large declaration lanes by module relevance (same-module first) before collapsing to keep contextually relevant declarations visible; collapsed "+N more" nodes are interactive expand buttons that fully reveal all declarations, with "Return to Compact" buttons to collapse back.
+- builds each declaration lane as a bounded tree (`buildDeclarationLane`): flat up to 12 matches, then grouped by module or by subsystem, opened a page of 20 at a time, never more than 150 nodes per lane, narrowed by the breadcrumb filter; grouped lanes share one edge spine (`drawLaneSpine`) and caller lookups are memoized.
 - declaration flow-node `flow-meta` line numbers now render as clickable links to the exact upstream source line in `hatter6822/seLe4n` (using current `commitSha` when available, else fallback ref), opening in a new tab with keyboard-accessible focus behavior.
 - builds interior declaration panels (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration in declaration context with a visual accent indicator.
-- handles keyboard navigation, search, reset, and URL-state synchronization (including `decl` parameter for declaration context persistence). The generalized context search bar is context-aware: in declaration context it displays `Module.Declaration` in dot-append format with the label "Context search — declaration"; in module context it shows the module name with the label "Context search — module". The `flowchart-wrap` `aria-label` updates dynamically per context. The Reset button returns from declaration context to module context. Supports dot-append declaration search (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`) via two complementary strategies: (1) `declarationSearchMatch()` progressively tries shorter dot-separated module prefixes and matches the remaining suffix against interior symbols via `searchDeclarationsInModule()`; (2) when no exact module prefix matches, a global search across all declarations uses a pre-built `declarationSearchList` index (constructed by `buildDeclarationSearchIndex()` during data load). `declarationSearchMatches()` returns multiple ranked results for dropdown suggestions. Exact matches navigate immediately; partial matches appear as styled suggestions with `data-declaration` attributes. The search flow integrates `tryDeclarationSearch` as a fallback when no module match is found.
+- handles keyboard navigation, search, reset, and URL-state synchronization (including `decl` parameter for declaration context persistence). The generalized context search bar is context-aware: in declaration context it displays `Module.Declaration` in dot-append format with the label "Context search — declaration"; in module context it shows the module name with the label "Context search — module". The `flowchart-wrap` `aria-label` updates dynamically per context. The Reset button returns from declaration context to module context. Supports dot-append declaration search (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`) via two complementary strategies: (1) `declarationSearchMatch()` progressively tries shorter dot-separated module prefixes and matches the remaining suffix against interior symbols via `searchDeclarationsInModule()`; (2) when no exact module prefix matches, a global search across all declarations uses a pre-built `declarationSearchList` index (constructed by `buildDeclarationSearchIndex()` during data load). `declarationSearchMatches()` returns multiple ranked results for dropdown suggestions. In-module lookups read `declarationSearchByModule`, the same entries grouped by module. Typing selects nothing: an exact match is taken on change, Enter or blur; partial matches appear as styled suggestions with `data-declaration` attributes. The search flow integrates `tryDeclarationSearch` as a fallback when no module match is found.
 - caches frequently queried DOM elements (`flowchartWrap`, `moduleSearch`, `moduleSearchOptions`, `moduleSearchFeedback`, `moduleSearchLabel`, `flowNodeInteriorMenu`, `mapStatus`, `mainContent`, `moduleResults`) once at boot in a `DOM` namespace object via `cacheDomElements()` to avoid repeated `getElementById` calls during render cycles. All DOM-accessing functions use `DOM.xxx || document.getElementById(...)` fallback pattern.
 - uses batch eviction (120 entries per cycle via `LABEL_WRAP_CACHE_EVICT_BATCH`) for the label-wrap cache to amortize eviction cost and prevent single-entry churn on cache-full renders.
-- manages map status messaging and sync lifecycle feedback.
 - builds the tabbed declaration sidebar (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration; remembers the active tab across module changes.
-- opens on `DEFAULT_MODULE` (`SeLe4n.Kernel.API`) when the URL names no module (`defaultModuleName()`), on load, after a tree rebuild, and on Reset.
+- opens on `DEFAULT_MODULE` (`SeLe4n.Kernel.API`) when the URL names no module (`defaultModuleName()`), on load and on Reset.
 - groups over-budget lanes by subsystem (`moduleSubsystem`, `groupLaneModules`, `buildLaneEntries`, `toggleLaneGroup`, `drawLaneGuide`) and opens groups in place.
 - lays the flow chart out at `max(minimumFlowWidth(), column width)`; from 900px up the minimum is 900, and the CSS never scales the SVG below 1:1, so a wider layout scrolls inside its frame rather than shrinking its text.
-- scopes live payloads and the tree-rebuild path the way the bundle is scoped (`isOutsideProductionScope`, `isLeanModulePath`: nothing under `tests/` or `SeLe4n/Testing/`, plus `Main.lean`), and labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
-- writes the `localStorage` cache only when the serialized snapshot is under `CACHE_MAX_CHARS`; `setCache()` returns whether it wrote. The bundled map is past the quota, so the page is bundle-first in practice.
+- labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
 - formats every count for the active locale (`formatCount` → `Intl.NumberFormat(document.documentElement.lang)`) and builds count labels from plural families (`fileCountLabel`, `moduleCountLabel`, `theoremCountLabel`, `crateCountLabel`, `pluralEn` for the English fallback).
-- projects `state.rust` into the Rust module graph (`buildRustGraph`, `rustNodeName`, `rustTargetName`, `rustSiblings`) and matches it against the Lean declarations to build the boundary index (`buildBridgeIndex`, `toBridgeKey`, `bridgeRelation`), once per data load and again whenever a tree refresh changes the Lean side.
+- projects `state.rust` into the Rust module graph (`buildRustGraph`, `rustNodeName`, `rustTargetName`, `rustSiblings`) and matches it against the Lean declarations to build the boundary index (`buildBridgeIndex`, `toBridgeKey`, `bridgeRelation`), once per data load.
 - draws the Rust chart (`renderRustFlowchart`) and the boundary band under either chart (`bridgeBandRows`, `layoutBridgeBands`, `drawBridgeBands`), reusing `computeFlowLayout` and `createFlowSvg` so the 1:1 guarantee holds for both.
 - owns the scope (`setScope`, `renderScopeToggle`, `setupScopeToggle`) and the scope-aware node accessors every renderer asks through (`nodeExists`, `nodePath`, `nodeSourceRef`, `scopeNodes`, `defaultNodeName`, `nodeSortScore`).
 - reads a crate's `unsafe` (production) and `testUnsafe` (test code) counters apart (`rustUnsafeSummary`, `rustUnsafeDetail`), states target-scoped dependency tables under their cfg and dev-dependencies as test-only, and lists Rust test items only behind each card's toggle (`state.rustShowTests`, `visibleRustItems`, `rerenderRustCrateCard`).
-- keeps the file tree and Rust inventory across live refreshes that carry neither (`retainInventory`, `normalizeRustInventory`, `seedBundledInventory`), tracking `inventoryCommit` / `rustCommit`.
+- links every source file, Lean or Rust, at the snapshot's `commitSha` (`nodeSourceRef`), since both halves come from one snapshot.
 
 If the map visualization, interactions, or data compatibility changes, this is the primary file.
 
@@ -195,7 +199,7 @@ Map-page-only styles:
 - map-specific responsive/mobile tuning.
 
 ### `assets/css/run.css`
-Simulator-page-only styles: stage/scene layout, transport bar, invariant rail states, inspector, and sandbox banner.
+Simulator-page-only styles: scenario bar, transport bar, stage/scene layout, the inspector (outcome badge, kernel-path stage strip with pass/fail/skip, state-change rows), the guarantee cards and their highlight, the invariant catalogue's preserved/holds/violated states, the sandbox banner and the steps log. Under 40rem the scene SVG keeps its 1:1 size and the stage scrolls horizontally instead of shrinking the diagram.
 
 Rule of thumb: shared primitive in `style.css`; map-only styling in `map.css`; Simulator-only styling in `run.css`.
 
@@ -230,14 +234,11 @@ Bundled graph snapshot used by map runtime. Includes:
 
 - `modules` inventory.
 - `moduleMap` module -> file path.
-- `importsFrom` and `importsTo` dependency edges.
+- `importsFrom` dependency edges (the runtime rebuilds `importsTo`; it is not shipped).
 - `externalImportsFrom` external dependencies per module.
-- `moduleMeta` theorem/symbol metadata by module, including
-  `symbols.callGraph` — each declaration mapped to the identifiers it
-  references. This is what drives the declaration-context flowchart (outgoing
-  calls, and incoming callers via the reverse index the runtime builds from
-  it). Before it was bundled, that view was empty until a live GitHub fetch
-  completed, and empty forever offline.
+- `moduleMeta` theorem/symbol metadata by module (`byKind`, only the kinds a
+  module declares). The call graph is not here; see `data/map-callgraph.json`
+  below.
 - `rust` — the production crate inventory from the same checkout, built by
   `scripts/lib/rust-analysis.mjs`: crates in workspace order with manifest
   facts (description, edition, dependencies split into internal, external,
@@ -252,20 +253,32 @@ Bundled graph snapshot used by map runtime. Includes:
   this is the one place that figure is quoted.
 - `commitSha`, `generatedAt` provenance.
 
-Written **compact** (no indentation): at ~4.6 MB (459 KB gzipped) it is the
-dominant payload on map.html, and indenting it costs roughly 100 KB of gzipped
+Written **compact** (no indentation), as is `map-callgraph.json`: at 96f442d
+they are 1.8 MB (274 KB gzipped) and 3.7 MB (379 KB gzipped), the dominant
+payloads on map.html, and indenting it costs roughly 100 KB of gzipped
 transfer for a generated file no one reads as text. `site-data.json` and
 `execution-traces.json` stay indented.
 
-The call graph is ~262 KB of that gzipped total, and it is stored inline rather
+The call graph is stored as plain per-module objects rather
 than in an interned string table. Measured on the real corpus — 119,506 edges
 over ~10,000 distinct targets — interning halves the raw file but saves only
 23 KB gzipped, because gzip already captures the repetition; dropping the
-derived `symbols.theorems`/`functions` arrays saves another 21 KB. Neither is
-worth a bespoke format and a decoder in the runtime, and `symbols.callGraph` is
-a shape `assets/js/map.js` already reads in three places.
+derived `symbols.theorems`/`functions` arrays saves another 21 KB. Interning is
+not worth a bespoke format and a decoder in the runtime. The derived copies
+(`symbols.theorems`/`functions`, `importsTo`, empty `byKind` arrays) are no
+longer shipped, and `validate-data.mjs` rejects them.
 
 Generated by `scripts/sync-upstream.mjs`; validated by `scripts/validate-data.mjs`.
+
+### `data/map-callgraph.json`
+The declaration call graph, split from `map-data.json` by `splitCallGraph()` in
+the same run: `callGraph[module][declaration]` lists the identifiers it
+references, and it drives the declaration-context flowchart (outgoing calls,
+and incoming callers via the reverse index the runtime builds from it). It
+records the snapshot's `commitSha`, `sourceDigest`, `metricsSource` and
+`generatedAt`. `map.js` fetches it on the first declaration view (at boot for a
+`decl=` URL) through `ensureCallGraph()`, merges it into `moduleMeta` and
+rebuilds the call indexes; a payload naming another commit is refused.
 
 Graphs the same production corpus `site-data.json` counts, from the same
 checkout: `modules` mirrors the canonical artifact's production module list, and
@@ -275,9 +288,9 @@ the import edges are missing from the artifact. `commitSha` and `sourceDigest`
 match `site-data.json`, which `validateCrossFile` requires.
 
 ### `data/execution-traces.json`
-Bundled Simulator trace snapshot (schema-versioned; `source: "fixture"` until the upstream kernel emits the artifact). Contains the invariant catalog and per-scenario step sequences consumed by `assets/js/run.js`'s fold engine. Schema and fold semantics are specified in `docs/SIMULATOR_SPEC.md`.
+Bundled Simulator trace snapshot, schema v2 (`source: "fixture"` until the upstream kernel emits the artifact). Contains the `propertyCatalog` (9 security properties), the `invariantCatalog` (16 invariants, each with its predicate, preservation theorems and optional runtime check) and 9 scenarios whose steps carry an outcome, the checked syscall path and a delta folded by `assets/js/run.js`. Every declaration it names is a `{ name, module }` reference carrying the `path` and `line` the sync stamped, and `sourceRef` records the seLe4n commit those lines belong to. Schema and fold semantics are specified in `docs/SIMULATOR_SPEC.md`.
 
-Synced by `scripts/sync-upstream.mjs`; validated by `scripts/validate-traces.mjs`.
+Never hand-edit a stamped `path`, `line` or `sourceRef`: written by `scripts/sync-upstream.mjs` (which validates and grounds it, and refuses to write on any issue); checked by `scripts/validate-traces.mjs`, which fails when `sourceRef` is not `map-data.json`'s commit or a stamped line is not where the code map has that declaration.
 
 ## 7) Data-generation scripts (`scripts/`)
 
@@ -314,6 +327,14 @@ the artifact's truncated declaration names. The repository's non-Lean inventory
 and `map-data.json` graphs exactly the production corpus `site-data.json`
 counts. `validate-data.mjs` fails when they disagree.
 
+**Traces.** `writeTraces()` adopts `docs/execution-traces.json` from the same
+checkout if the kernel ships one, and otherwise keeps the bundled fixture.
+Either way it validates the document, grounds it in the checkout
+(`trace-anchors.mjs`: every declaration reference stamped with its file and line,
+every syscall, required right and error checked against the kernel's own
+definitions) and records the commit as `sourceRef` — so the trace snapshot
+carries map-data's `commitSha` too. Any issue aborts the write, naming it.
+
 Network shape: one shallow clone, plus one commit fetch on the rare path where
 upstream has committed Lean changes without regenerating the artifact. No REST
 calls, so no anonymous rate limit and no token.
@@ -321,16 +342,19 @@ calls, so no anonymous rate limit and no token.
 Run when any upstream data needs refreshing.
 
 ### `scripts/apply-static-values.mjs`
-Rewrites the static fallback values in `index.html` (mapped `data-live` spans, JSON-LD version, snapshot `<time>` stamp) **and in every `locales/*.json` bundle** from `data/site-data.json` via `scripts/lib/static-values.mjs`. Locales need stamping because `data-i18n-html` replaces an element's innerHTML wholesale, so each translation carries its own copy of the spans — they once said "546 build jobs" while `index.html` said 574. Idempotent; run after `sync-upstream.mjs`. The committed tree must stay in sync — `static-values.test.mjs` fails otherwise.
+Rewrites the static fallback values in `index.html` (mapped `data-live` spans including the footer's `commit-sha`, JSON-LD version, the snapshot `<time>`'s `datetime` and visible date) and the `lastmod` of `/` and `/map.html` in `sitemap.xml`, **and in every `locales/*.json` bundle** from `data/site-data.json` via `scripts/lib/static-values.mjs`. Locales need stamping because `data-i18n-html` replaces an element's innerHTML wholesale, so each translation carries its own copy of the spans — they once said "546 build jobs" while `index.html` said 574. Idempotent; run after `sync-upstream.mjs`. The committed tree must stay in sync — `static-values.test.mjs` fails otherwise.
 
 ### `scripts/lib/source-anchors.mjs`
 Keeps the page's deep links into the kernel tree pointing at the right line. `collectSourceAnchors` finds every `…/blob/main/<path>#L<n>` link with a `<code>` label, on either surface (index.html's bare quotes and a locale file's escaped ones); `resolveSourceAnchors` looks each label's declaration up in the pinned checkout; `applySourceAnchors` stamps the result back. The sync records the resolution in `data/site-data.json#sourceAnchors`, so the numbers are generated rather than maintained — sixteen of thirty-seven were pointing at unrelated code before this existed. A label that no longer resolves is reported and left as written: a declaration that changed file is an editorial call, not a substitution. The stamped href names the commit the line was resolved at rather than `main` — a line number against a branch is a line number on a moving target, and the unpinned sync can fall back to the artifact's generation commit.
+
+### `scripts/check.sh`
+Tiers 0-2 in one command: every `scripts/lib/*.test.mjs`, `validate-data.mjs`, `validate-traces.mjs` and `node --check` on every `assets/js/*.js`, discovered by glob so a new test or runtime file is covered without being listed. `ci.yml` and `sync-sele4n-data.yml` both run it — the sync job before it pushes.
 
 ### `scripts/validate-data.mjs`
 Schema/consistency gate for the site and map snapshots. Fails non-zero if either payload violates required invariants.
 
 ### `scripts/validate-traces.mjs`
-Schema gate plus fold dry-run for `data/execution-traces.json`; warns when the bundled traces are fixtures rather than a kernel export.
+Gate for `data/execution-traces.json`: the schema-v2 validator, then `validateGrounding` — `sourceRef` must equal `map-data.json`'s `commitSha`, every declaration reference must carry its stamped `path`/`line`, and a reference into a module the code map covers must name one of that module's declarations at the stamped line (`moduleMeta[].symbols.byKind`; `SeLe4n.Testing` and `SeLe4n.Prelude` are outside the map and skipped) — then a fold dry-run. Warns when the bundled traces are fixtures rather than a kernel export.
 
 ### `scripts/nav-stability-smoke.py`
 Optional Playwright smoke probe for nav-hash stability and active-link determinism across browsers.
@@ -418,7 +442,10 @@ surface the way a rustdoc sidebar does, one item header per line.
 Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal to per-file sums for items, test items, lines and both `unsafe` counters, target-scoped dependency tables, and the file-level facts the code map draws on — `reachable`, `testOnly` never narrower than the role, and a `targetName` only on a file that is a Cargo target).
 
 ### `scripts/lib/trace-analysis.mjs`
-Trace schema validation and the deterministic fold engine (`reconstructState`/`scenarioStates`) shared by `validate-traces.mjs`, `sync-upstream.mjs`, and the Simulator tests.
+Trace schema v2 and the deterministic fold engine (`reconstructState`/`scenarioStates`) shared by `validate-traces.mjs`, `sync-upstream.mjs`, and the Simulator tests. It is the one place that defines `SCHEMA_VERSION`, the op allow-list `ALLOWED_OPS`, the state-free `EVENT_OPS` (the only ops a refused step may carry, because a kernel error returns no successor state), `PATH_STAGES`, `PATH_RESULTS` and `ACCESS_RIGHTS`. `validateTraceDataObject` checks the property and invariant catalogues, every declaration reference's shape, step outcomes, the path rules (stages in order, exactly one `fail` matching the outcome's error on a refusal, `skip` after it) and folds every scenario through the structural checks. `assets/js/run.js` carries a faithful copy of the fold engine; the tests pin the two together.
+
+### `scripts/lib/trace-anchors.mjs`
+Grounds every name the Simulator shows in the pinned kernel checkout. `collectTraceRefs` finds every `{ name, module }` reference (property theorems, invariant predicate/preservedBy/runtimeCheck, step `sourceRefs`, `path[].ref`); `anchorTraceRefs` resolves each in its module's own file — qualified name first, then the last segment, comments stripped — and stamps `path` and `line`, returning what it could not place rather than guessing; `checkTraceKernelFacts` checks each `syscall.id` against `inductive SyscallId` (`SeLe4n/Model/Object/Types.lean`), each `requiredRight` against the `syscallRequiredRight` arm (`SeLe4n/Kernel/API.lean`) and each error against `KernelError` (`SeLe4n/Model/KernelError.lean`); `groundTrace` runs both and records `sourceRef`, `kernelCommit` and `kernelVersion`. Called by `sync-upstream.mjs`'s `writeTraces`, which refuses to write the snapshot on any issue. Reuses `declarationLine` from `source-anchors.mjs`, so a trace reference and a landing-page deep link resolve by the same rule.
 
 ### `scripts/lib/static-values.mjs`
 The `data/site-data.json` → `index.html` + `locales/*.json` static-fallback mapping used by `scripts/apply-static-values.mjs` and the weekly sync workflow. Single source of truth for which spans are rewritten, and for how a value renders: counts are comma-grouped here exactly as `assets/js/site.js` groups them on hydration, so the figure does not visibly rewrite itself on load.
@@ -431,10 +458,10 @@ Node tests for parser and validation correctness:
 - `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection, non-string module array entries.
 - `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none), the default module rule, `moduleSubsystem`, subsystem-grouped lane entries, inventory retention across canonical and tree refreshes, `rust` block pass-through, the production/test `unsafe` summary and detail line, plural fallbacks, tab selection, locale digit grouping — and the 0.31.0 model: the Rust graph (one node per production file, test targets excluded, node addressing per role, parent/child and sibling edges), the boundary index (key normalisation, the four relations, the FFI seam in the bundled snapshot, band symmetry and direction), and the scope (node membership, defaults, URL whitelisting, selection fallback on a narrowing switch).
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.
-- `trace-analysis.test.mjs`: trace schema validation and fold-engine determinism (see `docs/TESTING.md`).
+- `trace-analysis.test.mjs`: trace schema v2 validation, the fold engine, and grounding (`trace-anchors.mjs`) (see `docs/TESTING.md`).
 - `run-runtime.test.mjs`: boots the real `assets/js/run.js` in a `vm` DOM shim and exercises the Simulator end-to-end (see `docs/TESTING.md`).
 - `csp-html.test.mjs`: asserts no inline `style="…"` attributes on any HTML page (the strict CSP would silently drop them).
-- `static-values.test.mjs`: pins the static-fallback rewriter mapping and asserts that the committed `index.html` *and* every locale bundle match `data/site-data.json`.
+- `static-values.test.mjs`: pins the static-fallback rewriter mapping and asserts that the committed `index.html`, every locale bundle and `sitemap.xml` match `data/site-data.json`, and that the API Surface table lists syscall IDs `0 … syscalls-1` exactly once each.
 - `i18n-locales.test.mjs`: locale key parity with `en.json` (plural forms compared as families), no empty values, and every `data-i18n*` key referenced by the pages resolves.
 - `i18n-runtime.test.mjs`: boots the real `i18n.js` in a `vm` shim and checks interpolation, plural-form selection for English and Ukrainian counts, and locale digit grouping.
 

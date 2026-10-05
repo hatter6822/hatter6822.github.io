@@ -286,8 +286,8 @@ export function resolveDeclarationName(declaration, sourceLine) {
 
 /**
  * Project a module's declarations into the shape the code map renders: one
- * array per interior kind, the theorem and function shortcuts, and the
- * declaration call graph.
+ * array per interior kind the module declares, and the declaration call
+ * graph.
  *
  * `sourceText` is the module's own Lean source, used only to recover truncated
  * identifiers; the declaration set itself always comes from the artifact.
@@ -355,10 +355,44 @@ export function symbolsFromDeclarations(declarations, sourceText) {
     if (called.length) callGraph[name] = called;
   }
 
+  // Only the kinds a module actually declares are shipped. An empty bucket
+  // for each of the ~40 interior kinds was 12,198 empty arrays in the bundle;
+  // the runtime fills every kind it groups whether or not the key is present.
+  for (const kind of Object.keys(byKind)) {
+    if (!byKind[kind].length) delete byKind[kind];
+  }
+
+  // No `theorems` / `functions` shortcuts: they were exact, ordered copies of
+  // byKind.theorem+lemma and byKind.def+abbrev+opaque+instance (about 1 MB of
+  // the bundle), and the runtime derives the same lists from byKind.
+  return { byKind, callGraph };
+}
+
+/**
+ * Move the declaration call graph out of a built map snapshot into a payload
+ * of its own, `data/map-callgraph.json`.
+ *
+ * The graph is about half the snapshot and only the declaration view reads it,
+ * so map.html fetches it on first use instead of with every visit. The payload
+ * records the snapshot's own `commitSha`, `sourceDigest`, `metricsSource` and
+ * `generatedAt`: `validateCrossFile` fails when the two files disagree, and
+ * the runtime refuses a graph that names another commit. Modules with no
+ * calls are left out of `callGraph`. `mapData` is changed in place: each
+ * module's `symbols.callGraph` is removed.
+ */
+export function splitCallGraph(mapData) {
+  const callGraph = Object.create(null);
+  for (const name of mapData.modules) {
+    const symbols = mapData.moduleMeta?.[name]?.symbols;
+    if (!symbols || !symbols.callGraph) continue;
+    if (Object.keys(symbols.callGraph).length) callGraph[name] = symbols.callGraph;
+    delete symbols.callGraph;
+  }
   return {
-    byKind,
-    theorems: [...byKind.theorem, ...byKind.lemma],
-    functions: [...byKind.def, ...byKind.abbrev, ...byKind.opaque, ...byKind.instance],
+    commitSha: mapData.commitSha,
+    metricsSource: mapData.metricsSource,
+    sourceDigest: mapData.sourceDigest,
+    generatedAt: mapData.generatedAt,
     callGraph
   };
 }
@@ -565,6 +599,20 @@ export function crossCoreNonInterferenceCount(codebaseMap) {
  * checked statement, which is as close to the truth as a published number gets.
  */
 export function enforcementBoundarySize(codebaseMap, sourceText, theoremName) {
+  return provedLength(codebaseMap, sourceText, theoremName);
+}
+
+/**
+ * The length a production theorem proves, from its `… .length = N` statement.
+ *
+ * The general form of `enforcementBoundarySize`: the kernel pins several of
+ * its surfaces this way, and a published figure is safest read off the
+ * machine-checked statement. `frozenSyscalls` comes from
+ * `frozenOpCoverage_count : (SyscallId.all.filter frozenOpCoverage).length = 18`
+ * — the landing page said "20 of the kernel's syscalls" for a release after
+ * upstream had moved two arms out of the count (`v0.36.38`).
+ */
+export function provedLength(codebaseMap, sourceText, theoremName) {
   if (typeof sourceText !== 'function') return undefined;
 
   for (const moduleInfo of productionModules(codebaseMap)) {
@@ -662,6 +710,12 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
 
     const enforcementOpsPerCore = enforcementBoundarySize(map, sourceText, 'enforcementBoundaryPerCore_count');
     if (enforcementOpsPerCore !== undefined) metrics.enforcementOpsPerCore = enforcementOpsPerCore;
+
+    // How many syscalls have a frozen-phase counterpart. The page quoted 20
+    // after upstream's count fell to 18; the kernel proves the figure by
+    // `decide` over the derived constructor list, so it is read from there.
+    const frozenSyscalls = provedLength(map, sourceText, 'frozenOpCoverage_count');
+    if (frozenSyscalls !== undefined) metrics.frozenSyscalls = frozenSyscalls;
   }
 
   return metrics;
@@ -695,6 +749,11 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
 export const SITE_SUBSYSTEMS = Object.freeze([
   { key: 'scheduler', namespace: 'SeLe4n.Kernel.Scheduler' },
   { key: 'capability', namespace: 'SeLe4n.Kernel.Capability' },
+  // The capability card splits its invariant proofs three ways. All three
+  // figures were typed into the prose (24, 62, 111) and all three had drifted.
+  { key: 'capability-authority', namespace: 'SeLe4n.Kernel.Capability.Invariant.Authority' },
+  { key: 'capability-defs', namespace: 'SeLe4n.Kernel.Capability.Invariant.Defs' },
+  { key: 'capability-preservation', namespace: 'SeLe4n.Kernel.Capability.Invariant.Preservation' },
   { key: 'ipc', namespace: 'SeLe4n.Kernel.IPC' },
   { key: 'lifecycle', namespace: 'SeLe4n.Kernel.Lifecycle' },
   { key: 'service', namespace: 'SeLe4n.Kernel.Service' },
@@ -714,6 +773,7 @@ export const SITE_SUBSYSTEMS = Object.freeze([
   { key: 'ipc-structural', namespace: 'SeLe4n.Kernel.IPC.Invariant.Structural' },
   { key: 'ipc-endpoint-preservation', namespace: 'SeLe4n.Kernel.IPC.Invariant.EndpointPreservation' },
   { key: 'ipc-cap-transfer', namespace: 'SeLe4n.Kernel.IPC.Operations.CapTransfer' },
+  { key: 'model', namespace: 'SeLe4n.Model' },
   { key: 'model-object', namespace: 'SeLe4n.Model.Object' },
   { key: 'model-state', namespace: 'SeLe4n.Model.State' },
   { key: 'model-object-state', namespaces: ['SeLe4n.Model.Object', 'SeLe4n.Model.State'] }

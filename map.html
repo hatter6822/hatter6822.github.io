@@ -19,12 +19,11 @@
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 
   <link rel="canonical" href="https://sele4n.org/map.html">
   <link rel="icon" type="image/png" href="assets/images/favicon.png">
   <link rel="apple-touch-icon" href="assets/images/favicon.png">
-  <link rel="dns-prefetch" href="https://api.github.com">
 
   <link rel="stylesheet" href="assets/css/style.css">
   <link rel="stylesheet" href="assets/css/map.css">
@@ -95,11 +94,6 @@
           <p id="map-status" class="map-status" data-i18n="map.loading">Loading codebase map…</p>
           <p id="module-results" class="results-note" data-i18n="map.modules_shown_zero">0 modules shown</p>
           <p class="snapshot-note"><span data-i18n="map.stat_generated">Generated</span> <span data-map="generatedAt">-</span></p>
-          <!-- A live canonical refresh carries no Rust inventory, so the Rust
-               half can sit a commit behind the Lean graph. When it does, the
-               Rust Modules and Boundary Links figures above are not from the
-               revision beside them, and this says so. Hidden otherwise. -->
-          <p id="map-inventory-note" class="snapshot-note snapshot-note-retained" hidden></p>
         </div>
         <div class="map-stats-row">
           <dl class="map-stats" aria-live="polite">

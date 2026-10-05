@@ -4,7 +4,8 @@
  * There is no browser (and no jsdom dependency) in this repo's tooling, so this
  * test stands up a minimal DOM shim and executes the real run.js IIFE inside a
  * `vm` context. It is a regression guard for the end-to-end pipeline:
- *   data load → SVG stage render → invariant rail → transport stepping →
+ *   data load → SVG stage render → kernel path, guarantees and invariants →
+ *   transport stepping →
  *   sandbox perturbation breaking a client-side structural check.
  *
  * Assertions are intentionally about stable contracts (counts > 0, the step
@@ -61,6 +62,7 @@ function makeDom() {
   const document = {
     documentElement: makeEl('html'), body: makeEl('body'), readyState: 'complete', _h: {},
     createElement: (t) => makeEl(t), createElementNS: (ns, t) => makeEl(t, ns),
+    createTextNode: (text) => { const n = makeEl('#text'); n._text = String(text); return n; },
     getElementById: (id) => byId[id] || (byId[id] = makeEl('div')),
     querySelector: () => null, querySelectorAll: () => [],
     addEventListener(t, fn) { (this._h[t] = this._h[t] || []).push(fn); },
@@ -120,30 +122,70 @@ async function bootRunJs(search, mutate) {
   return { byId, traceData };
 }
 
-test('run.js renders the stage, rail, inspector, and log after loading bundled data', async () => {
+test('run.js renders the stage, inspector, guarantees, invariants and log after loading bundled data', async () => {
   const { byId, traceData } = await bootRunJs('?scenario=ipc-call-reply&step=0');
   assert.ok(byId['theater-stage'].childNodes.length >= 1, 'stage has an SVG root');
   assert.ok(countClass(byId['theater-stage'], 'theater-chip') > 0, 'stage renders thread chips');
   assert.ok(countClass(byId['theater-stage'], 'theater-box') > 0, 'stage renders boxes');
-  assert.equal(countClass(byId['invariant-rail'], 'rail-item'), traceData.invariantCatalog.length, 'rail lists the full catalog (grouped by subsystem)');
-  // One subsystem group per distinct subsystem in the catalog.
+  assert.equal(countClass(byId['guarantee-grid'], 'prop-card'), traceData.propertyCatalog.length, 'one card per security property');
+  assert.equal(countClass(byId['invariant-list'], 'inv-item'), traceData.invariantCatalog.length, 'the invariant list carries the whole catalogue');
   const subsystems = new Set(traceData.invariantCatalog.map((i) => i.subsystem || 'other'));
-  assert.equal(countClass(byId['invariant-rail'], 'rail-group'), subsystems.size, 'rail renders one group per subsystem');
+  assert.equal(countClass(byId['invariant-list'], 'inv-group'), subsystems.size, 'one group per subsystem');
   assert.equal(byId['theater-log'].childNodes.length, traceData.scenarios[0].steps.length, 'log lists every step');
   assert.ok(byId['theater-inspector'].childNodes.length > 0, 'inspector is populated');
+  assert.equal(countClass(byId['scenario-properties'], 'scenario-prop'), traceData.scenarios[0].properties.length, 'the scenario names the properties it demonstrates');
 });
 
-test('run.js rail emphasises exactly the invariants checked at the current step', async () => {
-  const { byId, traceData } = await bootRunJs('?scenario=vspace-wx&step=2');
-  const checked = traceData.scenarios.find((s) => s.id === 'vspace-wx').steps[2].invariants.checked.length;
-  assert.ok(checked > 0, 'the chosen step checks at least one invariant');
-  assert.equal(countStatus(byId['invariant-rail'], 'verified'), checked, 'each checked-at-this-step invariant is marked verified, the rest hold');
+test('run.js highlights exactly the guarantees and invariants the current step names', async () => {
+  const { byId, traceData } = await bootRunJs('?scenario=vspace-wx&step=1');
+  const step = traceData.scenarios.find((s) => s.id === 'vspace-wx').steps[1];
+  assert.ok(step.guarantees.length > 0 && step.invariants.preserved.length > 0);
+  const active = [];
+  (function walk(n) { if (klass(n).split(/\s+/).includes('prop-card') && n.dataset.active === 'true') active.push(n.attrs.id); (n.childNodes || []).forEach(walk); })(byId['guarantee-grid']);
+  assert.deepEqual(active.sort(), step.guarantees.map((id) => 'property-' + id).sort(), 'the active cards are the step\'s guarantees');
+  assert.equal(countStatus(byId['invariant-list'], 'preserved'), step.invariants.preserved.length, 'each preserved invariant is marked, the rest hold');
+});
+
+test('run.js draws the kernel path and names the stage that refused a call', async () => {
+  const { byId, traceData } = await bootRunJs('?scenario=capability-gate&step=1');
+  const step = traceData.scenarios.find((s) => s.id === 'capability-gate').steps[1];
+  assert.equal(countClass(byId['theater-inspector'], 'path-stage'), step.path.length, 'one row per stage');
+  assert.equal(countStatus(byId['theater-inspector'], 'fail'), 0, 'stage results are carried as data-result, not data-status');
+  const results = [];
+  (function walk(n) { if (klass(n).split(/\s+/).includes('path-stage')) results.push(n.dataset.result); (n.childNodes || []).forEach(walk); })(byId['theater-inspector']);
+  assert.deepEqual(results, step.path.map((p) => p.result), 'each stage shows its own result');
+  assert.equal(byId['guarantee-summary'].dataset.tone, 'refused', 'the summary says the call was refused');
+  assert.ok(byId['guarantee-summary'].textContent.includes(step.outcome.error), 'and names the KernelError');
+  assert.equal(countClass(byId['theater-inspector'], 'insp-diff'), 0, 'a refused step shows no state change');
+  assert.ok(countClass(byId['theater-inspector'], 'insp-nochange') >= 1, 'it says so instead');
+});
+
+test('run.js links every grounded name to its line at the bundle\'s commit, and nothing else', async () => {
+  const { byId, traceData } = await bootRunJs('?scenario=capability-gate&step=1');
+  const hrefs = [];
+  (function walk(n) { if (n.tagName === 'A' && /^https:/.test(n.attrs.href || '')) hrefs.push(n.attrs); (n.childNodes || []).forEach(walk); })(byId['theater-inspector']);
+  assert.ok(hrefs.length > 0, 'the inspector links into the kernel');
+  const prefix = `https://github.com/hatter6822/seLe4n/blob/${traceData.sourceRef}/`;
+  for (const a of hrefs) {
+    assert.ok(a.href.startsWith(prefix), `${a.href} is pinned to sourceRef`);
+    assert.match(a.href, /\.lean#L\d+$/);
+    assert.equal(a.rel, 'noopener noreferrer');
+  }
+  // A reference the sync did not stamp is shown, not linked.
+  const unstamped = await bootRunJs('?scenario=capability-gate&step=1', (data) => {
+    const st = data.scenarios.find((s) => s.id === 'capability-gate').steps[1];
+    st.sourceRefs = [{ name: 'evil', module: 'SeLe4n.Kernel.API', path: '../x.lean', line: 1 }];
+    st.path = st.path.map(({ ref, ...rest }) => rest);
+  });
+  const links = [];
+  (function walk(n) { if (n.tagName === 'A' && /^https:/.test(n.attrs.href || '')) links.push(n.attrs.href); (n.childNodes || []).forEach(walk); })(unstamped.byId['theater-inspector']);
+  assert.ok(!links.some((h) => h.includes('x.lean')), 'a path outside the whitelist never becomes a link');
 });
 
 test('run.js transport advances the step counter', async () => {
   const { byId } = await bootRunJs('?scenario=ipc-call-reply&step=0');
   for (let i = 0; i < 3; i++) byId['theater-next']._fire('click');
-  assert.equal(byId['theater-step-label'].textContent, '4 / 7');
+  assert.equal(byId['theater-step-label'].textContent, '4 / 6');
 });
 
 test('run.js inspector shows a state-diff for a transition step but not for boot', async () => {
@@ -158,14 +200,14 @@ test('run.js sandbox perturbation breaks a client-side structural check', async 
   byId['sandbox-toggle']._fire('click'); // enable sandbox
   const evt = { type: 'click', target: { closest: (sel) => sel === '[data-perturb]' ? { getAttribute: () => 'dup-runqueue' } : null }, preventDefault() {}, stopPropagation() {} };
   byId['sandbox-panel']._fire('click', evt);
-  assert.ok(countStatus(byId['invariant-rail'], 'violated') > 0, 'a rail invariant is shown violated');
-  assert.equal(byId['rail-summary'].dataset.tone, 'bad', 'rail summary tone reflects the violation');
+  assert.ok(countStatus(byId['invariant-list'], 'violated') > 0, 'an invariant is shown violated');
+  assert.equal(byId['invariant-summary'].dataset.tone, 'bad', 'the summary tone reflects the violation');
 });
 
 test('run.js restores deep-link state (scenario + step) from the URL', async () => {
   const { byId } = await bootRunJs('?scenario=notification-signal&step=2');
   assert.equal(byId['scenario-select'].value, 'notification-signal');
-  assert.equal(byId['theater-step-label'].textContent, '3 / 4');
+  assert.equal(byId['theater-step-label'].textContent, '3 / 5');
 });
 
 test('run.js renders the Scheduler scene with CBS budget bars', async () => {
@@ -191,15 +233,15 @@ test('run.js scene tabs switch the rendered scene', async () => {
 });
 
 test('run.js renders the Capability scene CDT (nodes + edges)', async () => {
-  const { byId } = await bootRunJs('?scenario=capability-mint-revoke&step=3');
-  assert.equal(countClass(byId['theater-stage'], 'cdt-node'), 4, 'four capability nodes before revoke');
+  const { byId } = await bootRunJs('?scenario=capability-mint-revoke&step=4');
+  assert.equal(countClass(byId['theater-stage'], 'cdt-node'), 4, 'four capabilities before revocation');
   assert.equal(countClass(byId['theater-stage'], 'cdt-edge'), 3, 'three derivation edges');
 });
 
-test('run.js capability revocation prunes the subtree in the rendered scene', async () => {
-  const { byId } = await bootRunJs('?scenario=capability-mint-revoke&step=4');
-  assert.equal(countClass(byId['theater-stage'], 'cdt-node'), 2, 'root + logger remain after revoke');
-  assert.equal(countClass(byId['theater-stage'], 'cdt-edge'), 1, 'one derivation edge remains');
+test('run.js revocation removes the derivations and keeps the revoked capability', async () => {
+  const { byId } = await bootRunJs('?scenario=capability-mint-revoke&step=6');
+  assert.equal(countClass(byId['theater-stage'], 'cdt-node'), 3, 'app′ is gone; app itself survives cspaceRevoke');
+  assert.equal(countClass(byId['theater-stage'], 'cdt-edge'), 2);
 });
 
 test('run.js shows the Capability tab only for scenarios with a CDT', async () => {
@@ -212,19 +254,21 @@ test('run.js shows the Capability tab only for scenarios with a CDT', async () =
 });
 
 test('run.js renders the Memory scene (watermark bar + carved objects)', async () => {
-  const { byId } = await bootRunJs('?scenario=untyped-retype&step=3');
+  const { byId } = await bootRunJs('?scenario=untyped-lifecycle&step=2');
   assert.ok(countClass(byId['theater-stage'], 'mem-region') >= 1, 'an untyped region renders');
-  assert.equal(countClass(byId['theater-stage'], 'mem-child'), 3, 'three carved objects before revoke');
+  assert.equal(countClass(byId['theater-stage'], 'mem-child'), 2, 'two carved objects');
   assert.ok(countClass(byId['theater-stage'], 'mem-watermark') >= 1, 'a watermark marker renders');
 });
 
-test('run.js memory revoke reclaims the region', async () => {
-  const { byId } = await bootRunJs('?scenario=untyped-retype&step=4');
-  assert.equal(countClass(byId['theater-stage'], 'mem-child'), 0, 'no carved objects after revoke');
+test('run.js untypedReset reclaims the region only after the children are revoked', async () => {
+  const refused = await bootRunJs('?scenario=untyped-lifecycle&step=4');
+  assert.equal(countClass(refused.byId['theater-stage'], 'mem-child'), 2, 'the refused reset leaves the region as it was');
+  const reset = await bootRunJs('?scenario=untyped-lifecycle&step=6');
+  assert.equal(countClass(reset.byId['theater-stage'], 'mem-child'), 0, 'no carved objects after the reset');
 });
 
 test('run.js shows the Memory tab only for scenarios with untyped memory', async () => {
-  const mem = await bootRunJs('?scenario=untyped-retype&step=0');
+  const mem = await bootRunJs('?scenario=untyped-lifecycle&step=0');
   const memTabs = mem.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
   assert.ok(memTabs.includes('memory'), 'untyped scenario shows the Memory tab');
   const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
@@ -233,16 +277,18 @@ test('run.js shows the Memory tab only for scenarios with untyped memory', async
 });
 
 test('run.js renders the Information-flow scene with a blocked flow', async () => {
-  const { byId } = await bootRunJs('?scenario=infoflow-noninterference&step=2');
+  const { byId } = await bootRunJs('?scenario=infoflow-noninterference&step=1');
   assert.equal(countClass(byId['theater-stage'], 'if-domain'), 3, 'three security domains');
   assert.equal(countClass(byId['theater-stage'], 'if-policy'), 3, 'three allowed-flow policy arcs');
   assert.ok(countClass(byId['theater-stage'], 'if-flow-block') >= 1, 'the secret→public flow is shown blocked');
 });
 
-test('run.js declassification permits the previously-blocked flow', async () => {
-  const { byId } = await bootRunJs('?scenario=infoflow-noninterference&step=4');
-  assert.equal(countClass(byId['theater-stage'], 'if-policy'), 4, 'the declassification edge was added to the policy');
-  assert.ok(countClass(byId['theater-stage'], 'if-flow-allow') >= 1, 'the same flow is now allowed');
+test('run.js declassification is an audited release: the policy never changes', async () => {
+  const before = await bootRunJs('?scenario=infoflow-noninterference&step=4');
+  assert.equal(countClass(before.byId['theater-stage'], 'audit-row'), 0, 'the audit log starts empty');
+  const { byId } = await bootRunJs('?scenario=infoflow-noninterference&step=5');
+  assert.equal(countClass(byId['theater-stage'], 'if-policy'), 3, 'declassify adds no policy edge');
+  assert.equal(countClass(byId['theater-stage'], 'audit-row'), 1, 'it appends one audit entry');
 });
 
 test('run.js shows the Information-flow tab only for scenarios with a flow policy', async () => {
@@ -252,21 +298,6 @@ test('run.js shows the Information-flow tab only for scenarios with a flow polic
   const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
   const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
   assert.ok(!ipcTabs.includes('infoflow'), 'ipc scenario hides the infoflow tab');
-});
-
-test('run.js renders the Services scene (nodes + dependency edges)', async () => {
-  const { byId } = await bootRunJs('?scenario=service-lifecycle&step=3');
-  assert.equal(countClass(byId['theater-stage'], 'svc-node'), 4, 'four services');
-  assert.equal(countClass(byId['theater-stage'], 'svc-edge'), 3, 'three dependency edges (db→store, api→db, api→cache)');
-});
-
-test('run.js shows the Services tab only for scenarios with a service graph', async () => {
-  const svc = await bootRunJs('?scenario=service-lifecycle&step=0');
-  const svcTabs = svc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
-  assert.ok(svcTabs.includes('services'), 'service scenario shows the Services tab');
-  const ipc = await bootRunJs('?scenario=ipc-call-reply&step=0');
-  const ipcTabs = ipc.byId['theater-scenes'].childNodes.map((t) => t.dataset && t.dataset.scene);
-  assert.ok(!ipcTabs.includes('services'), 'ipc scenario hides the Services tab');
 });
 
 test('run.js renders the VSpace scene with mappings + W^X status', async () => {
@@ -295,7 +326,7 @@ test('run.js VSpace scene renders a TLB row that caches mapped pages', async () 
   const { byId } = await bootRunJs('?scenario=vspace-wx&step=2');
   assert.ok(countClass(byId['theater-stage'], 'vs-tlb') >= 1, 'a TLB row renders for the address space');
   const tlb = firstClassText(byId['theater-stage'], 'vs-tlb');
-  assert.ok(/0x1000/.test(tlb) && /0x2000/.test(tlb), 'both mapped pages are cached in the TLB after two maps');
+  assert.ok(/0x400000/.test(tlb) && /0x600000/.test(tlb), 'both mapped pages are cached in the TLB after two maps');
   assert.equal(countClass(byId['theater-stage'], 'vs-shootdown'), 0, 'no shootdown annotation on a pure map step');
 });
 
@@ -303,35 +334,33 @@ test('run.js VSpace unmap triggers a TLB shootdown (stale entry evicted)', async
   const { byId } = await bootRunJs('?scenario=vspace-wx&step=4');
   assert.ok(countClass(byId['theater-stage'], 'vs-shootdown') >= 1, 'an unmap shows a shootdown annotation');
   const sd = firstClassText(byId['theater-stage'], 'vs-shootdown');
-  assert.ok(/0x2000/.test(sd), 'the shootdown names the unmapped page');
+  assert.ok(/0x600000/.test(sd), 'the shootdown names the unmapped page');
   const tlb = firstClassText(byId['theater-stage'], 'vs-tlb');
-  assert.ok(/0x1000/.test(tlb) && !/0x2000/.test(tlb), 'the unmapped page is evicted from the TLB, the survivor remains');
+  assert.ok(/0x400000/.test(tlb) && !/0x600000/.test(tlb), 'the unmapped page is evicted from the TLB, the survivor remains');
 });
 
 test('run.js Scheduler scene renders one CPU column per core (SMP)', async () => {
-  const smp = await bootRunJs('?scenario=smp-schedule&scene=scheduler&step=0');
+  const smp = await bootRunJs('?scenario=smp-affinity&scene=scheduler&step=0');
   assert.equal(countCpuBoxes(smp.byId['theater-stage']), 2, 'two CPU columns for two cores');
   const single = await bootRunJs('?scenario=edf-budget-preempt&scene=scheduler&step=0');
   assert.equal(countCpuBoxes(single.byId['theater-stage']), 1, 'single-core scenario → one CPU box');
 });
 
 test('run.js System scene is SMP-aware (one CPU box per core)', async () => {
-  const smp = await bootRunJs('?scenario=smp-schedule&scene=system&step=0');
+  const smp = await bootRunJs('?scenario=smp-affinity&scene=system&step=0');
   assert.equal(countCpuBoxes(smp.byId['theater-stage']), 2, 'two CPU boxes in the System scene too');
   const ipc = await bootRunJs('?scenario=ipc-call-reply&scene=system&step=0');
   assert.equal(countCpuBoxes(ipc.byId['theater-stage']), 1, 'single-core System scene → one CPU box');
 });
 
-test('run.js rail surfaces a recorded invariant failure as violated, not green', async () => {
-  // A step that reports allHold:false with a failed id must go red — outside
-  // sandbox the rail previously only read `checked` and always claimed all hold.
+test('run.js surfaces a recorded invariant failure as violated, not green', async () => {
   const { byId } = await bootRunJs('?scenario=ipc-call-reply&step=1', (data) => {
     const sc = data.scenarios.find((s) => s.id === 'ipc-call-reply');
     const inv0 = data.invariantCatalog[0].id;
-    sc.steps[1].invariants = { allHold: false, checked: [inv0], failed: [inv0] };
+    sc.steps[1].invariants = { preserved: [], failed: [inv0] };
   });
-  assert.ok(countStatus(byId['invariant-rail'], 'violated') >= 1, 'the failed invariant is shown violated');
-  assert.equal(byId['rail-summary'].dataset.tone, 'bad', 'rail summary tone reflects the failure');
+  assert.ok(countStatus(byId['invariant-list'], 'violated') >= 1, 'the failed invariant is shown violated');
+  assert.equal(byId['invariant-summary'].dataset.tone, 'bad', 'the summary tone reflects the failure');
 });
 
 test('run.js preserves a deep-linked selected object on initial load', async () => {
@@ -344,12 +373,29 @@ test('run.js preserves a deep-linked selected object on initial load', async () 
 });
 
 test('run.js strict adoption rejects a trace with a dangling op reference', async () => {
-  // The lenient render fold would silently ignore this op; the adoption gate must
-  // reject the whole payload so a corrupt export is never cached/shown as kernel data.
   const { byId } = await bootRunJs('?scenario=ipc-call-reply&step=0', (data) => {
     const sc = data.scenarios.find((s) => s.id === 'ipc-call-reply');
     sc.steps[1].delta.ops.push({ op: 'threadPatch', id: 'th.ghost', set: { priority: 1 } });
   });
   assert.equal(countClass(byId['theater-stage'], 'theater-chip'), 0, 'malformed trace is not adopted/rendered');
   assert.ok(/invalid/i.test(byId['theater-status'].textContent || ''), 'an invalid-data status is shown');
+});
+
+test('run.js refuses a trace whose refused step changes state', async () => {
+  // A refused transition returns no successor state; drawing a change there
+  // would publish a failure atomicity the kernel does not have.
+  const { byId } = await bootRunJs('?scenario=capability-gate&step=0', (data) => {
+    const st = data.scenarios.find((s) => s.id === 'capability-gate').steps[1];
+    st.delta.ops.push({ op: 'threadPatch', id: st.actor, set: { priority: 1 } });
+  });
+  assert.equal(countClass(byId['theater-stage'], 'theater-chip'), 0);
+  assert.ok(/invalid/i.test(byId['theater-status'].textContent || ''));
+});
+
+test('run.js is bundle-only: it fetches the bundled snapshot and nothing else', async () => {
+  const code = await readFile(new URL('../../assets/js/run.js', import.meta.url), 'utf8');
+  assert.ok(!/raw\.githubusercontent|api\.github\.com/.test(code), 'no remote data endpoint');
+  assert.ok(!/localStorage\.(get|set)Item\(\s*["']sele4n-exec/.test(code), 'no trace cache');
+  const html = await readFile(new URL('../../run.html', import.meta.url), 'utf8');
+  assert.match(html, /connect-src 'self';/, 'the CSP allows same-origin fetches only');
 });

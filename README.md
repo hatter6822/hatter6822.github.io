@@ -11,7 +11,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 - `index.html`: main marketing page
 - `map.html`: interactive codebase map
-- `run.html`: Simulator — replay the kernel in action with the proven invariants
+- `run.html`: Simulator — step through scenarios: what the kernel does, how it checks, and why it is safe
 - `404.html`: not-found page served by GitHub Pages
 - `robots.txt` / `sitemap.xml`: crawler policy and page inventory
 - `assets/css/`: shared and page-specific styles
@@ -30,14 +30,17 @@ node scripts/apply-static-values.mjs
 ```
 
 `sync-upstream.mjs` is the whole data pipeline: one shallow clone of seLe4n at
-one revision produces all three bundled snapshots.
+one revision produces all four bundled snapshots.
 
 ```
 git clone --depth 1 seLe4n@main
   └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
      Lean sources            ─┤   data/map-data.json           (code map)
-     rust/ workspace         ─┘     └─ #rust: crate inventory
-     docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
+     rust/ workspace         ─┘     ├─ #rust: crate inventory
+                                    └─ data/map-callgraph.json (declaration view)
+     docs/execution-traces.json ─→ data/execution-traces.json  (simulator; the bundled
+                                   fixture until upstream ships one — validated and
+                                   grounded in this checkout either way)
 ```
 
 Every published statistic is projected from the canonical
@@ -80,10 +83,12 @@ between production and test code. It is descriptive and feeds no landing-page
 statistic.
 
 `apply-static-values.mjs` then stamps those values into `index.html` (the
-`data-live` spans, JSON-LD version, snapshot timestamp) and into every
+`data-live` spans, JSON-LD version, the footer's commit and date) and into every
 `locales/*.json` bundle, whose translated HTML carries its own copy of the same
-spans. The weekly `sync-sele4n-data.yml` workflow runs this same pipeline. It
-uses the git protocol only, so no `GITHUB_TOKEN` and no REST rate limit.
+spans, and stamps the `lastmod` of the snapshot-rendered pages in
+`sitemap.xml`. The weekly `sync-sele4n-data.yml` workflow runs this same
+pipeline, then `./scripts/check.sh` and both browser probes, before it pushes.
+It uses the git protocol only, so no `GITHUB_TOKEN` and no REST rate limit.
 
 ### 2) Validate snapshots
 
@@ -110,6 +115,10 @@ node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
 ```
 
+`./scripts/check.sh` runs steps 2 and 3 plus `node --check` on every
+`assets/js/*.js` in one go, discovering tests by glob; CI and the sync
+workflow both call it.
+
 ## Runtime data strategy
 
 The site is intentionally local-first: pages render bundled snapshots from
@@ -130,8 +139,15 @@ upstream source asserts and cached it for thirty days. The projection now
 happens once, offline, in `scripts/sync-upstream.mjs`, where it is reviewed,
 tested and validated in CI.
 
-`map.html` and `run.html` still refresh their larger payloads from GitHub, with
-the bundled snapshot as the fallback.
+`map.html` follows the same rule: it renders `data/map-data.json` and nothing
+else, with `connect-src 'self'`. It used to refresh from GitHub on every visit
+and focus — downloading the 10 MB upstream artifact, which carries no import
+edges, replacing the bundled graph with it, then fetching every Lean file to
+regex the edges back — a second pipeline that left networked visitors with an
+edgeless graph from an older commit. The weekly sync workflow keeps the bundle
+current instead. `run.html` is bundle-only too: it fetches
+`data/execution-traces.json` and nothing else, because every source link it
+draws points at the commit that snapshot was grounded at.
 
 ## Code map layout (0.31.0)
 
@@ -227,35 +243,47 @@ The code map interior panel supports declaration-first navigation:
 - Normalizes legacy symbol payload variants (`byKind`/`by_kind`, `constant`/`constants`) so flow-chart selection updates the interior declaration panels reliably
 - Supports declaration-centric canonical payloads (`modules[].declarations`) and derives theorem totals/import graphs when explicit aggregates are omitted
 - Preserves declaration-level `called` relationships from upstream `docs/codebase_map.json` into a merged call graph with precomputed reverse index and `declarationIndex` for O(1) caller and metadata lookups
-- Clicking any declaration in the interior panel switches the flowchart to declaration context, showing outgoing calls and incoming callers with kind-colored nodes and chaining navigation; declarations with zero relationships display a centered node with an informative empty-state hint; lanes with more than 12 entries are sorted by module relevance (same-module first) before collapsing to show the first 10 with an interactive "+N more" expand button that fully expands the lane, with a "Return to Compact" button to collapse back; the currently selected declaration is highlighted in the interior menu
+- Clicking any declaration in the interior panel switches the flowchart to declaration context, showing outgoing calls and incoming callers with kind-colored nodes and chaining navigation; declarations with zero relationships display a centered node with an informative empty-state hint; lanes with more than 12 entries become a bounded tree (grouped by module or subsystem, opened a page at a time, capped at 150 nodes per lane) with a filter, so hub declarations with thousands of callers stay fast; the currently selected declaration is highlighted in the interior menu
 - Breadcrumb navigation (semantic `<nav>` with `aria-label`) allows free bidirectional traversal between module and declaration contexts, with URL persistence via `decl` parameter and robust module resolution on data load; the generalized context search bar displays `Module.Declaration` in dot-append format with dynamic label updates ("Context search — module" / "Context search — declaration") per context; `flowchart-wrap` `aria-label` updates dynamically per context; declaration flowchart preserves scroll position across re-renders; the Reset button returns from declaration context to module context
 - The unified context search bar supports both module and declaration search using a dot-append approach (e.g., `SeLe4n.Kernel.API.apiInvariantBundle` resolves to `SeLe4n.Kernel.API`'s internal `apiInvariantBundle` declaration) via two complementary strategies: (1) progressive module-prefix resolution with declaration suffix matching, and (2) global cross-module search via a pre-built `declarationSearchList` index when no exact module prefix matches; when a declaration is selected via the context search, the flowchart automatically syncs to declaration context; results are ranked by exact/prefix/substring scoring and multiple suggestions appear as styled dropdown entries selectable via keyboard or mouse
 - Derives theorem totals from declaration/symbol payloads in `docs/codebase_map.json`, using top-level aggregates only as a last-resort fallback; deduplicates modules appearing in both `modules[]` and `moduleMeta` to prevent double-counting. The landing page does not use this scan — it publishes the artifact's own `readme_sync.proved_theorem_lemma_decls`, which upstream computes over production files only
 
 ## Simulator (kernel in action)
 
-`run.html` is a proof-aware execution visualizer. Because every seLe4n transition is a
-deterministic pure function with machine-checked invariants, the page can **replay**
-real kernel execution traces step by step and show the proven invariants holding at
-every transition. It offers seven switchable **scenes** — **System** (CPU, run queue,
-IPC wait queues), **Scheduler** (per-core SMP columns, priority buckets, EDF deadlines, CBS budget bars),
-**Capabilities** (the capability derivation tree, where minting derives children and a
-strict revoke prunes a whole subtree), **Memory** (untyped regions with a watermark,
-carving typed objects out of memory and reclaiming them on revoke), **VSpace** (page
-mappings with W^X status, where a writable-and-executable map is rejected and a TLB row
-shows cached translations being shot down on unmap), **Information
-flow** (the security-domain lattice, where the kernel blocks a leak from secret to
-public until an audited declassification authorizes it), and **Services** (the
-dependency DAG with dependency-ordered start, fault, and restart). A transport bar
-(play/step/scrub) drives the
-timeline; an invariant rail links each machine-checked invariant back to its proof
-module on `map.html`; and an opt-in, clearly-labeled **sandbox** lets you perturb the
-state and watch a structural check break — illustrating exactly what the Lean proofs
-forbid.
+`run.html` shows **what the kernel does, how it checks, and why it is safe**. You
+step through a scenario, and for every step the page shows the state change, the
+checked syscall path that allowed or refused it (entry → decode → lookup → rights →
+flow → operation, with the refusing stage and the `KernelError` it returned), and the
+security properties and invariants the step relies on — each linked to the Lean
+declaration that states or proves it.
 
-Trace data lives in `data/execution-traces.json` (a schema-versioned snapshot; the
-bundled sample is a reference fixture until the upstream kernel emits the artifact
-directly). The full design — schema, scenes, pipeline, and roadmap — is in
+It offers six switchable **scenes** — **System** (CPU, run queue, IPC wait queues),
+**Scheduler** (per-core SMP columns, priority buckets, EDF deadlines, CBS budget bars),
+**Capabilities** (the capability derivation tree: minting derives children, a revoke
+destroys a capability's derivations and keeps the capability), **Memory** (untyped
+regions with a watermark, carving typed objects and resetting the region once the
+children are revoked), **VSpace** (page mappings with W^X status, where a
+writable-and-executable request is refused and a TLB row shows translations shot down
+on unmap) and **Information flow** (the security-domain lattice, a blocked flow from
+secret to public, and the declassification audit log — a declassification is an
+audited release, never an edit to the policy). Beside the stage, an inspector explains
+the step; below it, a **security guarantees** band (nine properties, each with its
+statement, scope caveat and theorems, the step's own highlighted) and a **kernel
+invariants** catalogue (sixteen invariants, each with its predicate, preservation
+theorems and — labelled as a test, not a proof — the harness's runtime check). An
+opt-in, clearly-labeled **sandbox** lets you perturb the state and watch a structural
+check break — illustrating exactly what the Lean proofs forbid.
+
+The nine scenarios in `data/execution-traces.json` (trace schema v2) are written by
+hand: the kernel does not export traces yet, so they illustrate behaviour rather than
+replay a run, and the page says so. What is the kernel's own is every name they cite.
+`scripts/sync-upstream.mjs` resolves each function, theorem and predicate in the pinned
+seLe4n checkout and stamps its file and line, checks every syscall, required right and
+`KernelError` against the kernel's definitions, and refuses to write the snapshot if
+anything is missing; `scripts/validate-traces.mjs` cross-checks every stamped line
+against the code map's snapshot of the same commit. A refused step changes nothing,
+because a kernel transition that returns an error returns no state — the validator
+enforces that too. The full design — schema, scenes, pipeline, and roadmap — is in
 [docs/SIMULATOR_SPEC.md](docs/SIMULATOR_SPEC.md).
 
 ## Documentation index

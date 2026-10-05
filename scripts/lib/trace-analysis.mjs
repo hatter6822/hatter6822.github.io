@@ -13,7 +13,17 @@
  * applies the already-decided effects that a trace records.
  */
 
-export const SCHEMA_VERSION = 1;
+/*
+ * Schema v2 (0.36.41) grounds the trace in the kernel. Each step records its
+ * outcome and, for a syscall, the path it took through the checked entry
+ * (entry → decode → capability lookup → rights → flow gate → operation),
+ * naming the stage that refused it and the KernelError it returned. The
+ * invariant catalog names each invariant's Lean predicate and the theorems
+ * that preserve it, and a property catalog states the security guarantees the
+ * kernel proves. Every declaration a trace names is a `{ name, module }`
+ * reference that the sync resolves in the pinned checkout (trace-anchors.mjs).
+ */
+export const SCHEMA_VERSION = 2;
 
 export const ALLOWED_SOURCES = ['kernel', 'fixture'];
 
@@ -29,19 +39,34 @@ export const ALLOWED_OPS = [
   'notifPatch',
   'cdtInsert',
   'cdtRemove',
+  'cdtRevoke',
   'cdtPatch',
   'untypedRetype',
-  'untypedRevoke',
+  'untypedReset',
   'flowCheck',
-  'ifPolicyAdd',
-  'ifPolicyRemove',
-  'servicePatch',
+  'auditAppend',
   'vspaceMap',
   'vspaceUnmap',
   'vspaceReject',
   'message',
   'note'
 ];
+
+/**
+ * Ops that record an event without changing state. A refused step may carry
+ * only these: a kernel transition that returns an error returns no successor
+ * state (`KernelM σ ε α := σ → Except ε (α × σ)`), so a trace that shows a
+ * refusal changing anything contradicts the type of the kernel.
+ */
+export const EVENT_OPS = ['flowCheck', 'vspaceReject', 'message', 'note'];
+
+/** The stages of the checked syscall path, in the order the kernel runs them. */
+export const PATH_STAGES = ['entry', 'decode', 'lookup', 'rights', 'flow', 'operation'];
+
+export const PATH_RESULTS = ['pass', 'fail', 'skip'];
+
+/** The access rights a syscall can require (`AccessRight`). */
+export const ACCESS_RIGHTS = ['read', 'write', 'grant', 'grantReply', 'retype'];
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const QUEUE_NAMES = ['sendQ', 'receiveQ'];
@@ -81,10 +106,6 @@ function cdtDescendants(cdt, rootId) {
 
 function findUntyped(state, id) {
   return (state.untyped || []).find((u) => u.id === id) || null;
-}
-
-function findService(state, id) {
-  return (state.services || []).find((s) => s.id === id) || null;
 }
 
 function findVspace(state, id) {
@@ -189,6 +210,15 @@ export function applyOp(state, op) {
       state.cdt.edges = (state.cdt.edges || []).filter((e) => !doomed.has(e[0]) && !doomed.has(e[1]));
       return state;
     }
+    case 'cdtRevoke': {
+      // Revocation destroys the node's derivations and keeps the node itself.
+      if (!state.cdt) return state;
+      if (!findCdtNode(state, op.node)) throw new Error(`cdtRevoke: unknown node ${op.node}`);
+      const revoked = cdtDescendants(state.cdt, op.node);
+      state.cdt.nodes = (state.cdt.nodes || []).filter((n) => !revoked.has(n.id));
+      state.cdt.edges = (state.cdt.edges || []).filter((e) => !revoked.has(e[0]) && !revoked.has(e[1]));
+      return state;
+    }
     case 'cdtPatch': {
       const cn = findCdtNode(state, op.id);
       if (!cn) throw new Error(`cdtPatch: unknown cdt node ${op.id}`);
@@ -205,32 +235,22 @@ export function applyOp(state, op) {
       ut.watermark = (Number(ut.watermark) || 0) + (Number(child.size) || 0);
       return state;
     }
-    case 'untypedRevoke': {
+    case 'untypedReset': {
       const utr = findUntyped(state, op.untyped);
-      if (!utr) throw new Error(`untypedRevoke: unknown untyped ${op.untyped}`);
+      if (!utr) throw new Error(`untypedReset: unknown untyped ${op.untyped}`);
       utr.children = [];
       utr.watermark = 0;
       return state;
     }
-    case 'ifPolicyAdd': {
-      if (!state.infoflow) throw new Error('ifPolicyAdd: no infoflow state');
+    case 'auditAppend': {
+      if (!state.infoflow) throw new Error('auditAppend: no infoflow state');
+      const entry = op.entry;
       const dom = new Set((state.infoflow.domains || []).map((d) => d.id));
-      if (!dom.has(op.from)) throw new Error(`ifPolicyAdd: unknown domain ${op.from}`);
-      if (!dom.has(op.to)) throw new Error(`ifPolicyAdd: unknown domain ${op.to}`);
-      if (!Array.isArray(state.infoflow.policy)) state.infoflow.policy = [];
-      if (!state.infoflow.policy.some((e) => e[0] === op.from && e[1] === op.to)) state.infoflow.policy.push([op.from, op.to]);
-      return state;
-    }
-    case 'ifPolicyRemove': {
-      if (state.infoflow && Array.isArray(state.infoflow.policy)) {
-        state.infoflow.policy = state.infoflow.policy.filter((e) => !(e[0] === op.from && e[1] === op.to));
+      if (!entry || !dom.has(entry.from) || !dom.has(entry.to)) {
+        throw new Error(`auditAppend: entry must name two known domains (${entry && entry.from} → ${entry && entry.to})`);
       }
-      return state;
-    }
-    case 'servicePatch': {
-      const sv = findService(state, op.id);
-      if (!sv) throw new Error(`servicePatch: unknown service ${op.id}`);
-      Object.assign(sv, op.set || {});
+      if (!Array.isArray(state.infoflow.audit)) state.infoflow.audit = [];
+      state.infoflow.audit.push(entry);
       return state;
     }
     case 'vspaceMap': {
@@ -294,7 +314,6 @@ export function touchedEntities(delta) {
   const notifications = new Set();
   const cdt = new Set();
   const untyped = new Set();
-  const services = new Set();
   const vspace = new Set();
   const ops = (delta && Array.isArray(delta.ops)) ? delta.ops : [];
   for (const op of ops) {
@@ -307,11 +326,11 @@ export function touchedEntities(delta) {
       case 'rqRemove': if (op.thread) threads.add(op.thread); break;
       case 'notifPatch': if (op.id) notifications.add(op.id); break;
       case 'cdtInsert': if (op.node && op.node.id) cdt.add(op.node.id); if (op.parent) cdt.add(op.parent); break;
-      case 'cdtRemove': if (op.node) cdt.add(op.node); break;
+      case 'cdtRemove':
+      case 'cdtRevoke': if (op.node) cdt.add(op.node); break;
       case 'cdtPatch': if (op.id) cdt.add(op.id); break;
       case 'untypedRetype':
-      case 'untypedRevoke': if (op.untyped) untyped.add(op.untyped); break;
-      case 'servicePatch': if (op.id) services.add(op.id); break;
+      case 'untypedReset': if (op.untyped) untyped.add(op.untyped); break;
       case 'vspaceMap':
       case 'vspaceUnmap':
       case 'vspaceReject': if (op.vspace) vspace.add(op.vspace); break;
@@ -319,7 +338,7 @@ export function touchedEntities(delta) {
       default: break;
     }
   }
-  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications], cdt: [...cdt], untyped: [...untyped], services: [...services], vspace: [...vspace] };
+  return { threads: [...threads], endpoints: [...endpoints], notifications: [...notifications], cdt: [...cdt], untyped: [...untyped], vspace: [...vspace] };
 }
 
 /* ── Validation ─────────────────────────────────────────────── */
@@ -327,6 +346,24 @@ export function touchedEntities(delta) {
 function isObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
 function isString(v) { return typeof v === 'string'; }
 function isNonNegInt(v) { return Number.isInteger(v) && v >= 0; }
+
+/**
+ * A declaration reference: `{ name, module }`, plus the `path` and `line` the
+ * sync stamps once it has found the declaration in the checkout.
+ */
+function checkRef(ref, path, errors) {
+  if (!isObject(ref)) { errors.push(`${path} must be a { name, module } reference`); return; }
+  if (!isString(ref.name) || !ref.name) errors.push(`${path}.name must be a non-empty string`);
+  if (!isString(ref.module) || !/^[A-Z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/.test(ref.module)) errors.push(`${path}.module must be a Lean module name`);
+  if (ref.path !== undefined && !isString(ref.path)) errors.push(`${path}.path must be a string when present`);
+  if (ref.line !== undefined && !(Number.isInteger(ref.line) && ref.line > 0)) errors.push(`${path}.line must be a positive integer when present`);
+}
+
+function checkRefList(list, path, errors, min) {
+  if (!Array.isArray(list)) { errors.push(`${path} must be an array`); return; }
+  if (list.length < min) errors.push(`${path} must name at least ${min} declaration(s)`);
+  list.forEach((ref, i) => checkRef(ref, `${path}[${i}]`, errors));
+}
 
 function validateState(state, path, errors) {
   if (!isObject(state)) { errors.push(`${path} must be an object`); return; }
@@ -366,7 +403,6 @@ function validateState(state, path, errors) {
       if (state.infoflow.policy !== undefined && !Array.isArray(state.infoflow.policy)) errors.push(`${path}.infoflow.policy must be an array`);
     }
   }
-  if (state.services !== undefined && !Array.isArray(state.services)) errors.push(`${path}.services must be an array`);
   if (state.vspace !== undefined && !Array.isArray(state.vspace)) errors.push(`${path}.vspace must be an array`);
 }
 
@@ -391,27 +427,6 @@ function checkVspace(state, path, errors) {
       if (!mapped.has(va)) errors.push(`${path}: vspace[${i}] TLB entry ${va} has no mapping — stale (missing shootdown)`);
     });
   });
-}
-
-/** Service dependencies must reference existing services and the graph must be acyclic. */
-function checkServices(state, path, errors) {
-  const svcs = state.services;
-  if (!Array.isArray(svcs)) return;
-  const ids = new Set(svcs.map((s) => s.id));
-  svcs.forEach((s, i) => {
-    (s.deps || []).forEach((d) => { if (!ids.has(d)) errors.push(`${path}: service[${i}] (${s.id}) depends on unknown ${d}`); });
-  });
-  const color = {}; // 0 white, 1 gray, 2 black
-  const depMap = {};
-  svcs.forEach((s) => { color[s.id] = 0; depMap[s.id] = (s.deps || []).filter((d) => ids.has(d)); });
-  let cyclic = false;
-  function dfs(u) {
-    color[u] = 1;
-    for (const v of depMap[u] || []) { if (color[v] === 1) { cyclic = true; return; } if (color[v] === 0) dfs(v); }
-    color[u] = 2;
-  }
-  svcs.forEach((s) => { if (color[s.id] === 0) dfs(s.id); });
-  if (cyclic) errors.push(`${path}: service dependency graph has a cycle`);
 }
 
 /** Every information-flow policy edge must reference existing security domains. */
@@ -496,13 +511,38 @@ export function validateTraceDataObject(data) {
     errors.push('invariantCatalog must be a non-empty array');
   } else {
     data.invariantCatalog.forEach((inv, i) => {
-      if (!isObject(inv)) { errors.push(`invariantCatalog[${i}] must be an object`); return; }
-      for (const field of ['id', 'label', 'check', 'module', 'mapModule']) {
-        if (!isString(inv[field]) || !inv[field]) errors.push(`invariantCatalog[${i}].${field} must be a non-empty string`);
+      const ip = `invariantCatalog[${i}]`;
+      if (!isObject(inv)) { errors.push(`${ip} must be an object`); return; }
+      for (const field of ['id', 'label', 'subsystem', 'meaning']) {
+        if (!isString(inv[field]) || !inv[field]) errors.push(`${ip}.${field} must be a non-empty string`);
       }
+      checkRef(inv.predicate, `${ip}.predicate`, errors);
+      checkRefList(inv.preservedBy, `${ip}.preservedBy`, errors, 1);
+      if (inv.runtimeCheck !== undefined) checkRef(inv.runtimeCheck, `${ip}.runtimeCheck`, errors);
       if (isString(inv.id)) {
         if (catalogIds.has(inv.id)) errors.push(`invariantCatalog: duplicate id ${inv.id}`);
         catalogIds.add(inv.id);
+      }
+    });
+  }
+
+  const propertyIds = new Set();
+  if (!Array.isArray(data.propertyCatalog) || data.propertyCatalog.length === 0) {
+    errors.push('propertyCatalog must be a non-empty array');
+  } else {
+    data.propertyCatalog.forEach((prop, i) => {
+      const pp = `propertyCatalog[${i}]`;
+      if (!isObject(prop)) { errors.push(`${pp} must be an object`); return; }
+      for (const field of ['id', 'label', 'statement']) {
+        if (!isString(prop[field]) || !prop[field]) errors.push(`${pp}.${field} must be a non-empty string`);
+      }
+      if (prop.caveat !== undefined && (!isString(prop.caveat) || !prop.caveat)) errors.push(`${pp}.caveat must be a non-empty string when present`);
+      checkRefList(prop.theorems, `${pp}.theorems`, errors, 1);
+      if (!Array.isArray(prop.invariants)) errors.push(`${pp}.invariants must be an array`);
+      else prop.invariants.forEach((id) => { if (!catalogIds.has(id)) errors.push(`${pp}.invariants references unknown invariant ${id}`); });
+      if (isString(prop.id)) {
+        if (propertyIds.has(prop.id)) errors.push(`propertyCatalog: duplicate id ${prop.id}`);
+        propertyIds.add(prop.id);
       }
     });
   }
@@ -521,6 +561,8 @@ export function validateTraceDataObject(data) {
     else scenarioIds.add(sc.id);
     if (!isString(sc.title) || !sc.title) errors.push(`${sp}.title must be a non-empty string`);
     if (!isString(sc.summary) || !sc.summary) errors.push(`${sp}.summary must be a non-empty string`);
+    if (!Array.isArray(sc.properties) || sc.properties.length === 0) errors.push(`${sp}.properties must be a non-empty array`);
+    else sc.properties.forEach((id) => { if (!propertyIds.has(id)) errors.push(`${sp}.properties references unknown property ${id}`); });
 
     validateState(sc.initialState, `${sp}.initialState`, errors);
 
@@ -537,19 +579,78 @@ export function validateTraceDataObject(data) {
       if (ALLOWED_STEP_KINDS.indexOf(step.kind) === -1) errors.push(`${stp}.kind must be one of ${ALLOWED_STEP_KINDS.join(', ')}`);
       if (!isString(step.title) || !step.title) errors.push(`${stp}.title must be a non-empty string`);
       if (!isString(step.traceTag) || !step.traceTag) errors.push(`${stp}.traceTag must be a non-empty string`);
-      if (!isObject(step.delta) || !Array.isArray(step.delta.ops)) errors.push(`${stp}.delta.ops must be an array`);
-      else step.delta.ops.forEach((op, oi) => {
+      const ops = isObject(step.delta) && Array.isArray(step.delta.ops) ? step.delta.ops : null;
+      if (!ops) errors.push(`${stp}.delta.ops must be an array`);
+      else ops.forEach((op, oi) => {
         if (!isObject(op) || ALLOWED_OPS.indexOf(op.op) === -1) errors.push(`${stp}.delta.ops[${oi}].op must be one of ${ALLOWED_OPS.join(', ')}`);
       });
+
+      const outcome = step.outcome;
+      const refusedWith = isObject(outcome) && outcome.status === 'error' ? outcome.error : null;
+      if (!isObject(outcome) || (outcome.status !== 'ok' && outcome.status !== 'error')) {
+        errors.push(`${stp}.outcome.status must be "ok" or "error"`);
+      } else if (outcome.status === 'error') {
+        if (!isString(outcome.error) || !outcome.error) errors.push(`${stp}.outcome.error must name the KernelError`);
+        if (ops) ops.forEach((op, oi) => {
+          if (isObject(op) && EVENT_OPS.indexOf(op.op) === -1) {
+            errors.push(`${stp}.delta.ops[${oi}] (${op.op}) changes state, but the step was refused — an error returns no successor state`);
+          }
+        });
+      } else if (outcome.error !== undefined) {
+        errors.push(`${stp}.outcome.error is only meaningful when status is "error"`);
+      }
+
+      if (step.syscall !== undefined) {
+        if (!isObject(step.syscall) || !isString(step.syscall.id) || !step.syscall.id) errors.push(`${stp}.syscall.id must be a non-empty string`);
+        else if (ACCESS_RIGHTS.indexOf(step.syscall.requiredRight) === -1) errors.push(`${stp}.syscall.requiredRight must be one of ${ACCESS_RIGHTS.join(', ')}`);
+      }
+
+      if (step.path !== undefined) {
+        if (!Array.isArray(step.path) || step.path.length === 0) errors.push(`${stp}.path must be a non-empty array when present`);
+        else {
+          let lastStage = -1;
+          let failures = 0;
+          let afterFail = false;
+          step.path.forEach((stage, pi) => {
+            const pth = `${stp}.path[${pi}]`;
+            if (!isObject(stage)) { errors.push(`${pth} must be an object`); return; }
+            const order = PATH_STAGES.indexOf(stage.stage);
+            if (order === -1) errors.push(`${pth}.stage must be one of ${PATH_STAGES.join(', ')}`);
+            else if (order <= lastStage) errors.push(`${pth}.stage ${stage.stage} is out of order`);
+            else lastStage = order;
+            if (!isString(stage.label) || !stage.label) errors.push(`${pth}.label must be a non-empty string`);
+            if (stage.ref !== undefined) checkRef(stage.ref, `${pth}.ref`, errors);
+            if (PATH_RESULTS.indexOf(stage.result) === -1) errors.push(`${pth}.result must be one of ${PATH_RESULTS.join(', ')}`);
+            if (afterFail && stage.result !== 'skip') errors.push(`${pth} follows the refusing stage, so it must be "skip"`);
+            if (!afterFail && stage.result === 'skip') errors.push(`${pth} is skipped although no earlier stage refused`);
+            if (stage.result === 'fail') {
+              failures += 1;
+              afterFail = true;
+              if (stage.error !== refusedWith) errors.push(`${pth}.error must match the step's outcome error (${refusedWith})`);
+            } else if (stage.error !== undefined) {
+              errors.push(`${pth}.error is only meaningful on the refusing stage`);
+            }
+          });
+          if (refusedWith && failures !== 1) errors.push(`${stp}.path must name exactly one refusing stage for a refused step`);
+          if (!refusedWith && failures !== 0) errors.push(`${stp}.path names a refusing stage, but the step succeeded`);
+        }
+      }
+
+      checkRefList(step.sourceRefs, `${stp}.sourceRefs`, errors, 0);
+      if (!Array.isArray(step.guarantees)) errors.push(`${stp}.guarantees must be an array`);
+      else step.guarantees.forEach((id) => { if (!propertyIds.has(id)) errors.push(`${stp}.guarantees references unknown property ${id}`); });
+
       if (!isObject(step.invariants)) errors.push(`${stp}.invariants must be an object`);
       else {
-        if (typeof step.invariants.allHold !== 'boolean') errors.push(`${stp}.invariants.allHold must be a boolean`);
-        if (!Array.isArray(step.invariants.checked)) errors.push(`${stp}.invariants.checked must be an array`);
-        else step.invariants.checked.forEach((id) => {
-          if (catalogIds.size && !catalogIds.has(id)) errors.push(`${stp}.invariants.checked references unknown invariant ${id}`);
+        if (!Array.isArray(step.invariants.preserved)) errors.push(`${stp}.invariants.preserved must be an array`);
+        else step.invariants.preserved.forEach((id) => {
+          if (!catalogIds.has(id)) errors.push(`${stp}.invariants.preserved references unknown invariant ${id}`);
         });
-        if (step.invariants.allHold === true && Array.isArray(step.invariants.failed) && step.invariants.failed.length > 0) {
-          errors.push(`${stp}.invariants: allHold is true but failed is non-empty`);
+        if (step.invariants.failed !== undefined) {
+          if (!Array.isArray(step.invariants.failed)) errors.push(`${stp}.invariants.failed must be an array when present`);
+          else step.invariants.failed.forEach((id) => {
+            if (!catalogIds.has(id)) errors.push(`${stp}.invariants.failed references unknown invariant ${id}`);
+          });
         }
       }
     });
@@ -561,7 +662,6 @@ export function validateTraceDataObject(data) {
       checkCdtRefs(state, `${sp}.initialState`, errors);
       checkUntyped(state, `${sp}.initialState`, errors);
       checkInfoflow(state, `${sp}.initialState`, errors);
-      checkServices(state, `${sp}.initialState`, errors);
       checkVspace(state, `${sp}.initialState`, errors);
       sc.steps.forEach((step, idx) => {
         try {
@@ -573,7 +673,6 @@ export function validateTraceDataObject(data) {
         checkCdtRefs(state, `${sp}.steps[${idx}]`, errors);
         checkUntyped(state, `${sp}.steps[${idx}]`, errors);
         checkInfoflow(state, `${sp}.steps[${idx}]`, errors);
-        checkServices(state, `${sp}.steps[${idx}]`, errors);
         checkVspace(state, `${sp}.steps[${idx}]`, errors);
       });
     } catch (e) {

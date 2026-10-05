@@ -6,7 +6,7 @@
 
 ### Strengths
 - Strict CSP/referrer/permissions policies are present on both pages.
-- Data hydration already supports bundled snapshots plus live refresh (the landing page deliberately opts out — see "Landing-page statistics have one source").
+- Every page renders its bundled snapshot and nothing else (see "Landing-page statistics have one source", "The code map renders its bundle and nothing else" and "The Simulator is grounded and bundle-only").
 - The code map is feature rich and includes keyboard navigation, URL state sync, and caching.
 
 ### Primary growth constraints identified
@@ -53,9 +53,11 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 
 ### Runtime refresh strategy
 1. Load bundled snapshot.
-2. Optionally hydrate from local cache.
-3. Reconcile with live GitHub API data under rate/timeout policies.
+2. On `run.html` only: optionally hydrate from local cache.
+3. On `run.html` only: reconcile with live GitHub API data under rate/timeout policies.
 4. Preserve snapshot fallback on network failure.
+
+The landing page and the code map stop after step 1.
 
 ## Code map optimization changes
 
@@ -107,7 +109,7 @@ HTML references were updated in `index.html` and `map.html` with no runtime beha
 - Navigable declaration nodes in the flowchart are interactive—clicking them chains into a new declaration context for that declaration's call graph. Node navigability now checks both forward (`declarationGraph`) and reverse (`declarationReverseGraph`) indices, so declarations that are only called by others (but don't call anything themselves) are also chainable.
 - A breadcrumb navigation bar (semantic `<nav>` element with `aria-label="Declaration breadcrumb"`) at the top of the declaration flowchart provides a module-name return button for free bidirectional traversal between module and declaration contexts.
 - Declaration context is persisted in the URL via a `decl` query parameter. Selecting a module via context search automatically returns to module context. On data load, the `decl` parameter is resolved against both the declaration graph and module metadata to determine the correct module, falling back gracefully if the declaration is no longer present.
-- When a lane (calls or callers) exceeds 12 entries, declarations are sorted by module relevance (same-module declarations first, then alphabetically) before the first 10 are rendered with a "+N more" expand button, ensuring the most contextually relevant declarations are always visible. The "+N more" node is an interactive button that fully expands the lane to show all declarations. A "Return to Compact" button appears after expansion to collapse back to the truncated view. Expansion state (`declarationLanesExpanded`) is transient and resets on navigation to a new declaration or return to module context.
+- When a lane (calls or callers) exceeds 12 entries, declarations are sorted by module relevance (same-module declarations first, then alphabetically) before the first 10 are rendered with a "+N more" expand button, ensuring the most contextually relevant declarations are always visible. The "+N more" node is an interactive button that fully expands the lane to show all declarations. A "Return to Compact" button appears after expansion to collapse back to the truncated view. Expansion state (`declarationLanesExpanded`) is transient and resets on navigation to a new declaration or return to module context. *(Superseded: see "Dense declaration lanes" below — expanding to "show all" is gone.)*
 - The interior menu highlights the currently selected declaration in declaration context with an accent-colored border and background, providing clear visual feedback about which declaration is being inspected.
 - Interior menu items display a clickable name button that enters declaration context for every declaration, keeping panel interactions focused on flow exploration.
 - CSS for the declaration context (breadcrumb, navigable items, active declaration highlight) is contained in `assets/css/map.css`.
@@ -374,6 +376,16 @@ The `wrapLabelLines()` function used a fixed 6.4px per-character estimate (match
 
 The upstream seLe4n codebase has undergone significant architectural changes now reflected in the website content:
 
+> **Historical snapshot (0.2x).** The module and theorem counts in this
+> section were written by hand when each change landed and are kept as
+> history, not as current figures: by kernel 0.36.41 the Architecture layer
+> is 41 files and 1,270 theorems (not 31 / 1,019), `SyscallArgDecode` holds
+> 65 theorems (not 59), IPC 69 files and 3,625 theorems (not 52 / 1,659) and
+> Capability 14 files and 315 theorems (not 12 / 244, with Authority 31 and
+> Defs 57). The current per-subsystem figures are `subsystems` in
+> `data/site-data.json`, projected by `scripts/sync-upstream.mjs` from the
+> canonical artifact and stamped onto the page; read them there.
+
 ### Robin Hood hash map subsystem
 
 A fully verified Robin Hood hash table implementation (`SeLe4n/Kernel/RobinHood/`) serves as the algebraic foundation for all kernel hash-based data structures. 8 modules, 186 theorems:
@@ -414,7 +426,9 @@ New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.l
 
 ## Rust syscall wrapper layer
 
-The upstream seLe4n repository includes a `rust/` workspace (v0.33.6 — tracking the kernel version, Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's 30-syscall ABI (27 of the 30 syscalls have typed safe wrappers in `sele4n-sys`; `TcbBindNotification`, `TcbUnbindNotification`, and `MintReplyCap` are modeled in `sele4n-types` but not yet wrapped). The website now documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.36.41 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (41 syscalls at 0.36.41, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+
+The crate descriptions below were written at 0.2x (30 syscalls, a 55-variant `KernelError`, eight `sele4n-sys` modules) and are kept as history; at 0.36.41 `SyscallId` has 41 variants, `KernelError` 59 (58 mirroring Lean plus a Rust-only sentinel), and `sele4n-sys` adds `audit.rs` and `declassify.rs` plus `cspace_revoke`, `mint_reply_cap`, `untyped_retype`/`untyped_reset`, `page_table_map`/`unmap`, `tcb_set_space`, `tcb_set_fault_handler` and the notification bind/unbind wrappers.
 
 ### Crate architecture
 
@@ -422,7 +436,7 @@ The workspace contains four crates. Three form a layered user-space dependency c
 
 1. **`sele4n-types`** — Zero-dependency foundation. 16 `#[repr(transparent)]` newtype identifiers mirroring `SeLe4n/Prelude.lean` (ObjId, ThreadId, CPtr, Slot, ASID, VAddr, PAddr, etc.), a 55-variant `KernelError` enum matching the Lean kernel model, bitmask-based `AccessRights` (Read/Write/Grant/GrantReply/Retype), and a 30-variant `SyscallId` enum with `#[repr(u64)]` discriminants. Enforces `#![deny(unsafe_code)]`.
 
-2. **`sele4n-abi`** — ARM64 register ABI layer. `MessageInfo` bitfield encoding/decoding, syscall request/response marshalling via `encode`/`decode` modules, IPC buffer overflow handling for messages exceeding the 4-register inline limit (x2–x5), and `TypeTag`/`PagePerms` enums. Contains exactly **one** `unsafe` block: the inline `svc #0` instruction in `trap.rs`. Non-AArch64 targets get a mock trap returning `InvalidSyscallNumber` for host-based testing.
+2. **`sele4n-abi`** — ARM64 register ABI layer. `MessageInfo` bitfield encoding/decoding, syscall request/response marshalling via `encode`/`decode` modules, IPC buffer overflow handling for messages exceeding the 4-register inline limit (x2–x5), and `TypeTag`/`PagePerms` enums. Contains exactly **one** `unsafe` operation: the inline `svc #0` instruction in `trap.rs` (the scanner counts two `unsafe fn` and two blocks, one per target `cfg`, around that single operation). Non-AArch64 targets get a mock trap returning `InvalidSyscallNumber` for host-based testing.
 
 3. **`sele4n-sys`** — Safe high-level wrappers. Organized into eight modules:
    - `ipc.rs` — `endpoint_send`, `endpoint_receive`, `endpoint_call`, `endpoint_reply`, `notification_signal`, `notification_wait`
@@ -445,7 +459,7 @@ The workspace contains four crates. Three form a layered user-space dependency c
 - Comparison table: "User-space bindings" row contrasting C headers vs safe Rust wrappers
 - Features grid: "Safe Rust Syscall Wrappers" feature card
 - Project structure tree: `rust/` directory with three crate entries
-- Getting Started: Step 5 with `cargo build && cargo test` instructions
+- Getting Started: Step 5 with upstream's two Rust lanes, `./scripts/test_rust.sh` (host) and `./scripts/test_aarch64_cross_build.sh` (the HAL's real target); it showed `cargo build && cargo test` until the host lane was found not to see the HAL's `aarch64`-only code
 - Roadmap: completed "Rust Syscall Wrappers" milestone entry
 - Meta tags: updated descriptions across both pages to mention Rust
 
@@ -526,6 +540,15 @@ documented rather than rediscovered.
   measured against the original composited over white, mean channel delta is
   0.75/255 with 92.7% of subpixels within 2/255 — no visible change at the 40px
   and 16-32px sizes it renders at.
+- **Hero logo ~2.9 MB -> ~30 KB, self-hosted** (later pass). Both hero `<img>`s
+  pulled upstream's 1024px PNGs (1.4-1.5 MB each) from
+  `raw.githubusercontent.com/main`, and a `display: none` image is still
+  fetched, so every first visit paid for both; the dark one was preloaded
+  too. They now load `assets/images/logo{,-dark}-{640,1024}.webp` by
+  `srcset` (the footer the 128px files), at `width`/`height` 640x640 — the
+  old 320x128 contradicted the 1:1 source and shifted the layout on load. The
+  preload, the preconnect and that host in `img-src` are gone, so the landing
+  page's CSP names no origin but its own.
 - **`data/map-data.json` 3,092 KB -> 1,646 KB** (255 KB -> 153 KB gzipped), which
   was 83% of map.html's transfer. `sync-upstream.mjs` writes it compact so
   refreshes stay minified (it now carries the declaration call graph too — see
@@ -835,12 +858,24 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
   the README badge and `rust/Cargo.toml`. Reading the mirror published a mirror
   of a mirror, so `readProjectVersion()` reads the declaration from the same
   pinned checkout and `canonicalCrossChecks` reports any disagreement.
-- **Four figures are counted off the digest-verified sources**, which the
+- **Five figures are counted off the digest-verified sources**, which the
   artifact's inventory cannot answer on its own: `syscalls` (constructors of
-  `inductive SyscallId`), `externs` (`@[extern …]` declarations), and the two
+  `inductive SyscallId`), `externs` (`@[extern …]` declarations), the two
   enforcement-boundary sizes, read from the `.length = N` statements the kernel
-  proves by `rfl`. Reading the theorem rather than a sentence about it is what
-  upstream's own docstring asks for.
+  proves by `rfl`, and `frozenSyscalls`, the length `frozenOpCoverage_count`
+  proves by `decide` (`provedLength()`). Reading the theorem rather than a
+  sentence about it is what upstream's own docstring asks for; the Execute-phase
+  paragraph said "20 of the kernel's syscalls" a release after upstream's
+  count had fallen to 18.
+- **A table that enumerates a counted surface is held to the count.** The API
+  Surface rows are hand-written (each names its implementing file), so
+  `static-values.test.mjs` requires them to list syscall IDs `0 … syscalls-1`
+  exactly once each. They stopped at ID 34 under a lead that said "All 41".
+- **The footer and the sitemap are stamped as well.** The no-JS footer read
+  "Commit main · Updated live from repository" on a page whose CSP forbids
+  contacting the repository; `apply-static-values.mjs` now writes the
+  snapshot's `commitSha` and its date (as `site.js` renders it in English), and
+  the `lastmod` of `/` and `/map.html` in `sitemap.xml` from `generatedAt`.
 - **`niSteps` is a coverage check, not a count.** The security card says every
   kernel step has its own non-interference proof, so `nonInterferenceCoverage()`
   pairs each constructor of `NonInterferenceStep` with a
@@ -942,6 +977,50 @@ git clone --depth 1 seLe4n@main
   disagreed with `index.html` while an offline one did not.
   `normalizeCanonicalPayload` now applies the same production scope the
   pipeline does, before it scores candidate payloads.
+- **The trace snapshot joins the same revision.** `execution-traces.json` records
+  the checkout's commit as `sourceRef`, and `validate-traces.mjs` fails when it
+  is not map-data's `commitSha` — see "The Simulator is grounded and
+  bundle-only".
+
+### The Simulator is grounded and bundle-only (trace schema v2)
+
+The Simulator's scenarios are hand-written: the kernel exports no traces yet.
+The 0.33.6 fixture had nonetheless been presented as kernel behaviour, and by
+kernel 0.36.41 it had rotted with nothing to notice — fifteen cited functions
+were off the executed syscall path, one was retired, `cspaceCopy` was said to
+need write (it needs grant) and `reply` grantReply (it needs write), a
+`declassifyStore` syscall did not exist, declassification was drawn as editing
+the flow policy (it appends an audit entry), and the services scenario had no
+reachable kernel path.
+
+Schema v2 makes the claims checkable instead of better-worded:
+
+- **Every name is a reference, and the sync grounds it.** Properties,
+  invariants, step sources and path stages name declarations as
+  `{ name, module }`. `trace-anchors.mjs` resolves each in the pinned checkout
+  and stamps `path` and `line`, and checks every syscall, required right and
+  `KernelError` against the kernel's own definitions; an unresolved name fails
+  the sync. `validate-traces.mjs` cross-checks each stamped line against the
+  code map's declarations at the same commit.
+- **The page cites proofs, and labels tests as tests.** Each invariant names
+  its predicate and preservation theorems; the harness's executable check is
+  shown as "test harness, not a proof". Each security property names the
+  theorems that state it and, where the theorem is narrower than the slogan,
+  says so in a caveat.
+- **A refusal is shown as what the type says it is.** A transition is
+  `σ → Except ε (α × σ)`, so an error carries no state; a refused step may carry
+  event ops only, and the validator and the browser both reject one that would
+  change state.
+- **Bundle-only.** `run.html` fetches `data/execution-traces.json` and nothing
+  else (`connect-src 'self'`): its v1 `localStorage` cache and
+  `raw.githubusercontent.com` live refresh are gone. A refreshed document would
+  be grounded at a different revision from the links and the narrative written
+  against the bundle, and none exists upstream anyway. Source links are built
+  only from the stamped fields, through a whitelist (40-hex commit, `.lean`
+  path, positive line), so a malformed document cannot place an arbitrary URL.
+
+The design is specified in `docs/SIMULATOR_SPEC.md`; the kernel-side contract
+in `docs/UPSTREAM_TRACE_EXPORT.md`.
 
 ### Two upstream defects this surfaced
 
@@ -1026,6 +1105,30 @@ Set against what it replaces, the trade is favourable: 262 KB gzipped bundled,
 versus a 574 KB gzipped live fetch that only arrived after page load and not at
 all offline.
 
+### Derived copies are no longer shipped
+
+The snapshot used to carry three things the runtime can derive and in every
+case did derive: `symbols.theorems` and `symbols.functions` (exact, ordered
+copies of `byKind.theorem`+`lemma` and `byKind.def`+`abbrev`+`opaque`+`instance`),
+`importsTo` (the runtime rebuilds reverse edges from `importsFrom`), and an
+empty `byKind` array for each of ~40 interior kinds a module does not declare
+(12,198 of them). `symbolsFromDeclarations` no longer emits them, and
+`validate-data.mjs` rejects each so they cannot come back. At 96f442d the
+bundle went from 6,759,050 to 5,458,509 bytes raw and from 679 KB to 632 KB
+gzipped (level 6), with the remaining content byte-for-byte equivalent.
+
+### The call graph moved to its own file
+
+After the derived copies went, the call graph was two thirds of the bundle, and
+only the declaration view reads it. `splitCallGraph()` now writes it to
+`data/map-callgraph.json` with the snapshot's provenance, and the runtime
+fetches it on the first declaration view (at boot, beside the snapshot, for a
+`decl=` deep link). At 96f442d: `map-data.json` 1,801,920 bytes raw / 274 KB
+gzipped, `map-callgraph.json` 3,667,073 / 379 KB. A module-view visit now
+downloads 274 KB instead of 679 KB; a declaration visit downloads 653 KB in two
+requests. The "inline, not interned" measurement above still holds for the
+graph's own encoding.
+
 ### Two details the data forced
 
 - **The graph is keyed by the recovered names.** Call-graph keys and symbol-list
@@ -1041,6 +1144,15 @@ all offline.
   path assigns last-wins too, so bundled and live agree. Qualifying the names is
   not available: the `called` targets are recorded unqualified as well, and
   every lookup would miss.
+  *Later:* collisions **across** modules no longer collapse. A deep link to
+  `leaves` in `BarrierComposition` showed `TlbCacheComposition`'s declaration
+  with the first one's line and both modules' callers, because the forward
+  graph kept the last module, the index the first, and the reverse graph
+  merged them. The runtime now indexes declarations per module
+  (`declarationsByModule`), records each caller's module beside it in the
+  reverse graph, and resolves a bare call target from the calling module (own
+  declaration, then a direct import, then the first declarer). Collisions
+  inside one module still collapse, as the data records them.
 
 ## Production scope narrowed to the kernel (0.30.0)
 
@@ -1363,6 +1475,8 @@ tests. `setCache()` now returns `false` above `CACHE_MAX_CHARS` (4 MiB of
 UTF-16 units) without attempting the write. The cache code stays — it is
 correct for smaller snapshots — but the documentation and the design no longer
 lean on it: every visit renders the bundled snapshot and then refreshes live.
+(Superseded: the cache and the live refresh were both removed later — see
+"The code map renders its bundle and nothing else".)
 
 ### Plural forms and digit grouping
 
@@ -1618,6 +1732,8 @@ dependency tables keep their cfg. What is gone is the file inventory: 866 paths
 grouped six ways, with `classifyRepositoryPath()`, `buildRepositoryInventory()`
 and `crateSupportFiles()` deleted along with it. `retainInventory()` stays,
 because the Rust inventory must still survive a live refresh that carries none.
+(It went with the live refresh itself; see "The code map renders its bundle
+and nothing else".)
 
 The sidebar's listing count and the snapshot's `productionItems` are two
 different quantities — an `impl` block is listed but never counted — so they
@@ -1735,3 +1851,89 @@ pixel diff, since PNG encoding alone is not byte-stable between runs). The
 browser parses one rule and 38 declarations fewer from `map.css` and exactly as
 many from `style.css` — the removed duplicate and the four inert declarations,
 and nothing else lost to a typo.
+
+## The code map renders its bundle and nothing else
+
+`map.html` boots on one same-origin request: `data/map-data.json`, normalized
+and rendered. Through 0.32.0 it then refreshed live — on boot (forced, past
+the cooldown), on every `focus`, `visibilitychange` and `online`, and on a
+90-second poll — and every one of those refreshes did harm:
+
+- It downloaded the upstream `docs/codebase_map.json` (10.2 MB raw, 722 KB
+  gzip) with a cache-busting query, so the HTTP cache never helped.
+- The bundle's `commitSha` (the checkout) never equals the artifact's
+  `repository.head.commit_sha` (the commit that generated it), so the
+  "already synced" check always failed and the artifact was applied: Import
+  Edges 1,139 → 0, Linked Pairs 1 → 0, and source links moved to the older
+  commit.
+- The artifact carries no import edges, so `enrichSparseMapData` then fetched
+  every Lean file (345 requests) from `main` HEAD — another revision again —
+  and regex-derived the imports, swallowing each failure. Offline, or with the
+  CSP blocking GitHub, the status line instead reported "Refresh failed;
+  showing cached data" in the error style over a perfectly good bundle, after
+  also trying the commits and tree APIs.
+- The `localStorage` snapshot cache never fit the quota; persisting it cost a
+  ~150 ms `JSON.stringify` per refresh that was then discarded.
+
+That was a second data pipeline, which "One pipeline, one revision" forbids,
+and the weekly `sync-sele4n-data.yml` workflow already keeps the bundle
+current through the real one. So the canonical fetch, the tree/blob/compare
+rebuilds, the polling and its triggers, the cooldown metadata, the cache, and
+the retained-inventory provenance (which existed only because a refresh could
+leave the Rust half a commit behind) are gone. Both halves now always share
+`state.commitSha`, and `nodeSourceRef()` links at it.
+
+Guards: `connect-src 'self'` on `map.html`, pinned with `index.html`'s by
+`csp-html.test.mjs`; `map-runtime.test.mjs` asserts `map.js` names no GitHub
+API host, calls `fetch()` once (in `safeFetch`, `mode: "same-origin"`) and only
+with named `data/*.json` endpoints; `map-smoke.mjs` fails on any request that
+leaves the origin. The status line names the snapshot's commit
+(`map.status_snapshot_commit`) or says the snapshot did not load
+(`map.status_load_failed`), and is repainted when a late locale lands.
+`purgeLegacyStorage()` removes the two retired storage keys from returning
+visitors.
+
+## Dense declaration lanes
+
+A hub declaration has more neighbours than a chart can hold. `SystemState`
+is called by 10,374 declarations in 221 modules (`st` by 9,728, `ThreadId`
+by 5,683), and the declaration view's "+N more → expand to show all"
+control drew every one of them: 10,413 nodes, 160,823 DOM elements and an
+SVG 974,159px tall, built in one 3.4 s task. Every caller lookup also
+re-resolved the whole reverse list, once per lane node, for the node's own
+`←N` count.
+
+A lane is now a bounded tree (`buildDeclarationLane`):
+
+- up to `DECL_LANE_FLAT_LIMIT` (12) matches, every declaration, flat;
+- up to `DECL_LANE_GROUP_LIMIT` (12) modules, one group per module;
+- otherwise one group per subsystem (`moduleSubsystem`), each opening onto
+  its modules; the selected declaration's own module is hoisted out in front.
+
+A group opens in place onto a page of `DECL_LANE_PAGE` (20) members and a
+"+N more · show the next 20" control. Nothing draws more than
+`DECL_LANE_NODE_BUDGET` (150) nodes in one lane; past it the lane ends in a
+note saying how many declarations it did not draw and how to reach them
+(close a group, or filter). The filter in the breadcrumb narrows both lanes
+by declaration or module name before the tree is built, so every group count
+describes what matched, and the lane labels carry `matched / total`. The
+filter input is one element kept across redraws, so the caret survives the
+debounced re-render; Escape clears it.
+
+A grouped lane draws one spine (`drawLaneSpine`) instead of a curve per
+top-level entry: once a group is open the remaining entries sit thousands of
+pixels below, and a curve to each crossed every node stacked in between. The
+arrowheads keep their meaning — onto each callee, onto the selected node
+from the callers. The selected node is centred on its lanes only while they
+are short; it stays within the first screen of a tall lane.
+
+`declarationCallerRefs` is memoized per index identity (the reverse graph,
+the module indexes and the import map), so a new snapshot or call-graph load
+starts it afresh, and it returns copies so no caller can corrupt it.
+
+Measured at 1440px: the closed `SystemState` view draws 27 nodes in a 1,315px
+chart; opening the largest subsystem, its largest module and every page there
+is stops at 161 nodes with no task over ~110 ms. `map-runtime.test.mjs` pins
+the tree's shape, paging, budget accounting and filter; `map-smoke.mjs`
+drives the real page through the same steps and reads the budget from
+`map.js` rather than restating it.

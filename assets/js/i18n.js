@@ -161,8 +161,14 @@
    * and <span>/<code> (class, data-live, data-i18n). All others are removed.
    */
   function sanitizeHTML(raw) {
-    var tmp = document.createElement("div");
-    tmp.innerHTML = raw;
+    // Parse into a <template>, whose content belongs to an inert document: an
+    // <img onerror> or <svg onload> in a locale string is neither fetched nor
+    // run while it is being inspected. A <div> from the live document would
+    // start both the moment innerHTML is assigned, before the walk below can
+    // strip anything.
+    var tpl = document.createElement("template");
+    tpl.innerHTML = raw;
+    var tmp = tpl.content;
     var walk = document.createTreeWalker(tmp, NodeFilter.SHOW_ELEMENT);
     var toRemove = [];
     while (walk.nextNode()) {
@@ -194,7 +200,7 @@
         parent.removeChild(toRemove[r]);
       }
     }
-    return tmp.innerHTML;
+    return tpl.innerHTML;
   }
 
   function applyTranslation(el, key, setter) {
