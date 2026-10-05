@@ -406,6 +406,8 @@
     "assurance_none": "Aucun (pas de couverture de preuves)",
     "assurance_partial": "Partiel (paire incomplète/déconnectée)",
     "breadcrumb_to_module": "Utilisez le fil d'Ariane ci-dessus pour revenir au contexte du module.",
+    "callgraph_loading": "Chargement du graphe d’appels des déclarations…",
+    "callgraph_failed": "Impossible de charger le graphe d’appels des déclarations.",
     "bridge_called_from_rust": "Appelé depuis l'espace utilisateur Rust",
     "bridge_declared_in_lean": "Déclaré en Lean · implémenté ici",
     "bridge_implemented_in_rust": "Déclaré ici · implémenté en Rust",

@@ -406,6 +406,8 @@
     "assurance_none": "None (no proof coverage)",
     "assurance_partial": "Partial (pair incomplete/disconnected)",
     "breadcrumb_to_module": "Use the breadcrumb above to return to module context.",
+    "callgraph_loading": "Loading the declaration call graph…",
+    "callgraph_failed": "The declaration call graph could not be loaded.",
     "bridge_called_from_rust": "Called from Rust user space",
     "bridge_declared_in_lean": "Declared in Lean · implemented here",
     "bridge_implemented_in_rust": "Declared here · implemented in Rust",

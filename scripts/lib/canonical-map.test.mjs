@@ -33,6 +33,7 @@ import {
   subsystemMetricsFromCodebaseMap,
   subsystemNamespaces,
   symbolsFromDeclarations,
+  splitCallGraph,
   theoremDeclarationCount,
 } from './canonical-map.mjs';
 
@@ -628,4 +629,25 @@ test('subsystemNamespaces reads both entry shapes', () => {
   assert.deepEqual(subsystemNamespaces({ namespace: 'A' }), ['A']);
   assert.deepEqual(subsystemNamespaces({}), []);
   assert.deepEqual(subsystemNamespaces(undefined), []);
+});
+
+test('splitCallGraph moves the call graph into a payload with the snapshot provenance', () => {
+  const mapData = {
+    modules: ['A', 'B'],
+    moduleMeta: {
+      A: { symbols: { byKind: { def: [{ name: 'f', line: 1 }] }, callGraph: { f: ['g'] } } },
+      B: { symbols: { byKind: { def: [{ name: 'h', line: 1 }] }, callGraph: {} } }
+    },
+    commitSha: 'c'.repeat(40),
+    metricsSource: 'docs/codebase_map.json',
+    sourceDigest: 'd'.repeat(64),
+    generatedAt: '2026-10-05T00:00:00.000Z'
+  };
+  const graph = splitCallGraph(mapData);
+  assert.deepEqual(plain(graph.callGraph), { A: { f: ['g'] } }, 'a module with no calls is left out');
+  assert.equal(graph.commitSha, mapData.commitSha);
+  assert.equal(graph.sourceDigest, mapData.sourceDigest);
+  assert.equal(graph.metricsSource, mapData.metricsSource);
+  assert.equal(graph.generatedAt, mapData.generatedAt);
+  assert.ok(!('callGraph' in mapData.moduleMeta.A.symbols) && !('callGraph' in mapData.moduleMeta.B.symbols), 'the snapshot keeps no copy');
 });

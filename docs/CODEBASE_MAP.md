@@ -107,13 +107,19 @@ tracks nested block-comment depth and strips string literals. Only the import
 edges are read from the Lean sources, because only the import edges are missing
 from the artifact.
 
-The snapshot also carries the declaration call graph
-(`moduleMeta[].symbols.callGraph`), so the declaration-context flowchart works
-from bundled data on first paint and offline.
+The declaration call graph ships beside it in `data/map-callgraph.json`, from
+the same run. Only the declaration view reads it and it is about two thirds of
+the combined size, so the runtime fetches it the first time a declaration is
+shown, or at boot (in parallel with the snapshot) when the URL carries `decl=`.
+It is refused unless it names the snapshot's commit; while it loads, or if it
+fails, the declaration view says so instead of claiming the declaration has no
+calls.
 
-`site-data.json` and `map-data.json` record the same `commitSha` and
-`sourceDigest`; `validate-data.mjs` fails when they disagree, when their module
-or theorem totals do, or when the call graph is missing entirely. See
+`site-data.json`, `map-data.json` and `map-callgraph.json` record the same
+`commitSha` and `sourceDigest`; `validate-data.mjs` fails when they disagree,
+when the first two disagree on module or theorem totals, when the call graph is
+missing entirely, or when a call-graph caller is not a declaration of its
+module in `map-data.json`. See
 `docs/ARCHITECTURE.md` §"One pipeline, one revision".
 
 The steps below describe the **runtime** in `assets/js/map.js`, which renders

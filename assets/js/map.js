@@ -25,6 +25,12 @@
   var REPO = "hatter6822/seLe4n";
   var REF = "main";
   var DATA_ENDPOINT = "data/map-data.json";
+  /* The declaration call graph, from the same pipeline run, in a file of its
+     own: only the declaration view reads it, and it is about half the
+     snapshot. It is fetched the first time a declaration is shown (at boot
+     when the URL names one) and refused unless it names the snapshot's
+     commit. */
+  var CALLGRAPH_ENDPOINT = "data/map-callgraph.json";
 
   /* Same-origin only, through the ordinary HTTP cache: the snapshot changes
      when the site is redeployed, and the server's validators decide whether a
@@ -297,6 +303,11 @@
     declarationGraph: Object.create(null),
     declarationReverseGraph: Object.create(null),
     declarationReverseModules: Object.create(null),
+    /* "ready" once the call graph is in moduleMeta (inline in the snapshot,
+       or merged from CALLGRAPH_ENDPOINT); "idle", "loading" or "failed"
+       otherwise. */
+    callGraphStatus: "idle",
+    callGraphError: "",
     declarationIndex: Object.create(null),
     declarationsByModule: Object.create(null),
     declarationModulesByName: Object.create(null),
@@ -3653,6 +3664,13 @@
       var hintMsg = kind
         ? "This " + kind + " has no detected internal call relationships."
         : "No internal call relationships detected for this declaration.";
+      /* Until the call graph is in, an empty lane says nothing about the
+         declaration; say what is actually the case. */
+      if (state.callGraphStatus === "loading" || state.callGraphStatus === "idle") {
+        hintMsg = t("map.callgraph_loading") || "Loading the declaration call graph…";
+      } else if (state.callGraphStatus === "failed") {
+        hintMsg = t("map.callgraph_failed") || "The declaration call graph could not be loaded.";
+      }
       emptyHint.textContent = hintMsg;
       labelLayer.appendChild(emptyHint);
       var returnHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 46, fill: "#6e7a91", "font-size": "11", "class": "flow-lane-label" });
@@ -4633,6 +4651,7 @@
   }
 
   function renderAll() {
+    if (state.flowContext === "declaration" && state.selectedDeclaration) ensureCallGraph();
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     /* Read before the first write below, so the one layout this costs is the
        render's only forced one until a scroll target is applied. */
@@ -5226,6 +5245,70 @@
   /* The bundled snapshot is the page's only data source. A failure rejects
      with the reason, so boot can say the map did not load rather than paint
      an empty workspace. */
+  function moduleMetaHasCallGraph(moduleMeta) {
+    for (var name in moduleMeta) {
+      if (!Object.prototype.hasOwnProperty.call(moduleMeta, name)) continue;
+      var graph = moduleMeta[name] && moduleMeta[name].symbols && moduleMeta[name].symbols.callGraph;
+      if (graph && Object.keys(graph).length) return true;
+    }
+    return false;
+  }
+
+  /* One request per page: the promise is kept, so a deep link that starts it
+     at boot and the first render that needs it share the download. */
+  var callGraphRequest = null;
+  function fetchCallGraph() {
+    if (!callGraphRequest) {
+      try {
+        callGraphRequest = safeFetch(CALLGRAPH_ENDPOINT, false);
+      } catch (error) {
+        callGraphRequest = Promise.reject(error);
+      }
+    }
+    return callGraphRequest;
+  }
+
+  /* Merges a call-graph payload into moduleMeta and rebuilds the indexes the
+     declaration view reads. Returns an error message, or "" when applied. A
+     graph from another commit is refused: its names would be matched against
+     declarations it was not computed from. */
+  function applyCallGraphPayload(payload) {
+    if (!payload || typeof payload !== "object" || !payload.callGraph || typeof payload.callGraph !== "object") return "call graph has no callGraph";
+    if (!state.commitSha || payload.commitSha !== state.commitSha) {
+      return "call graph is from commit " + String(payload.commitSha || "?").slice(0, 7) + ", the snapshot from " + String(state.commitSha || "?").slice(0, 7);
+    }
+    for (var i = 0; i < state.modules.length; i++) {
+      var name = state.modules[i];
+      var meta = state.moduleMeta[name];
+      if (!meta) continue;
+      if (!meta.symbols) meta.symbols = makeEmptyInteriorSymbols();
+      var graph = payload.callGraph[name];
+      meta.symbols.callGraph = graph && typeof graph === "object" && !Array.isArray(graph) ? graph : Object.create(null);
+    }
+    var indexes = buildCallGraphIndexes(state.moduleMeta, state.modules);
+    state.declarationGraph = indexes.declarationGraph;
+    state.declarationReverseGraph = indexes.declarationReverseGraph;
+    state.declarationReverseModules = indexes.declarationReverseModules;
+    return "";
+  }
+
+  /* Starts loading the call graph if nothing has, and repaints the
+     declaration view when it lands (or when it fails, to say so). */
+  function ensureCallGraph() {
+    if (state.callGraphStatus !== "idle") return;
+    state.callGraphStatus = "loading";
+    fetchCallGraph().then(function (payload) {
+      var problem = applyCallGraphPayload(payload);
+      if (problem) throw new Error(problem);
+      state.callGraphStatus = "ready";
+    }).catch(function (error) {
+      state.callGraphStatus = "failed";
+      state.callGraphError = error && error.message ? error.message : "";
+    }).then(function () {
+      if (state.flowContext === "declaration") scheduleRender();
+    });
+  }
+
   /* Resolves with `value` from a fresh task, so the work on either side of it
      is two tasks rather than one long one. */
   function yieldToBrowser(value) {
@@ -5256,6 +5339,7 @@
     state.declarationIndex = data.declarationIndex || Object.create(null);
     state.declarationsByModule = data.declarationsByModule || Object.create(null);
     state.declarationModulesByName = data.declarationModulesByName || Object.create(null);
+    state.callGraphStatus = moduleMetaHasCallGraph(state.moduleMeta) ? "ready" : "idle";
     invalidateDerivedCaches();
     state.contextList = [];
     state.commitSha = data.commitSha || "";
@@ -6271,8 +6355,12 @@
     hydrateFilterControls();
     purgeLegacyStorage();
 
-    /* One request, one revision: the bundled snapshot is fetched, normalized
-       and rendered, and nothing replaces it afterwards. */
+    /* A deep link to a declaration needs the call graph for its first paint,
+       so its download starts beside the snapshot's rather than after it. */
+    if (state.selectedDeclaration) fetchCallGraph().catch(function () {});
+
+    /* One request per file, one revision: the bundled snapshot is fetched,
+       normalized and rendered, and nothing replaces it afterwards. */
     fetchBundledMapData().then(yieldToBrowser).then(function (data) {
       applyData(data);
       hardenExternalLinks();
@@ -6395,6 +6483,11 @@
       translate: t,
       handleLocaleReady: handleLocaleReady,
       localePaintState: function () { return { ready: localeReady, painted: paintedBeforeLocale }; },
+      applyCallGraphPayload: applyCallGraphPayload,
+      moduleMetaHasCallGraph: moduleMetaHasCallGraph,
+      ensureCallGraph: ensureCallGraph,
+      callGraphStatus: function () { return state.callGraphStatus; },
+      callGraphError: function () { return state.callGraphError; },
       applyTestState: function (patch) {
         if (patch.declarationGraph) state.declarationGraph = patch.declarationGraph;
         if (patch.declarationReverseGraph) {
@@ -6428,6 +6521,8 @@
         }
         if (typeof patch.scope === "string") state.scope = patch.scope;
         if (typeof patch.commitSha === "string") state.commitSha = patch.commitSha;
+        /* A hand-built state is complete unless it says otherwise. */
+        state.callGraphStatus = typeof patch.callGraphStatus === "string" ? patch.callGraphStatus : "ready";
         if (patch.buildBridge) buildBridgeIndex();
         // Rebuild the declaration indexes from moduleMeta when moduleMeta is patched
         if (patch.moduleMeta && !patch.declarationIndex) {

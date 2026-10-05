@@ -406,6 +406,8 @@
     "assurance_none": "无（无证明覆盖）",
     "assurance_partial": "部分（配对不完整/未连接）",
     "breadcrumb_to_module": "使用上方的面包屑导航返回模块上下文。",
+    "callgraph_loading": "正在加载声明调用图…",
+    "callgraph_failed": "无法加载声明调用图。",
     "bridge_called_from_rust": "由 Rust 用户空间调用",
     "bridge_declared_in_lean": "在 Lean 中声明 · 在此实现",
     "bridge_implemented_in_rust": "在此声明 · 在 Rust 中实现",

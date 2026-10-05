@@ -22,16 +22,15 @@ function isIsoDateString(value) {
  * built from the same declaration in the same pass, which is what makes this
  * checkable rather than merely hoped for.
  */
-function validateCallGraph(moduleName, symbols) {
+function validateCallGraph(moduleName, byKind, graph) {
   const errors = [];
-  const graph = symbols.callGraph;
-  const where = `map-data.json: moduleMeta.${moduleName}.symbols.callGraph`;
+  const where = `map-callgraph.json: callGraph.${moduleName}`;
 
   if (!isObject(graph)) return [`${where} must be an object`];
 
   const declared = new Set();
-  if (isObject(symbols.byKind)) {
-    for (const entries of Object.values(symbols.byKind)) {
+  if (isObject(byKind)) {
+    for (const entries of Object.values(byKind)) {
       if (!Array.isArray(entries)) continue;
       for (const entry of entries) {
         const name = typeof entry === 'string' ? entry : entry?.name;
@@ -48,8 +47,8 @@ function validateCallGraph(moduleName, symbols) {
     if (calls.some((target) => typeof target !== 'string' || !target.trim())) {
       errors.push(`${where}.${caller} must contain non-empty declaration names`);
     }
-    if (declared.size && !declared.has(caller)) {
-      errors.push(`${where}.${caller} is not a declaration in this module's symbol lists`);
+    if (!declared.has(caller)) {
+      errors.push(`${where}.${caller} is not a declaration in map-data.json's symbol lists for ${moduleName}`);
     }
   }
 
@@ -488,8 +487,6 @@ export function validateMapDataObject(data) {
   }
 
   if (isObject(data.moduleMeta)) {
-    let modulesWithCallGraph = 0;
-
     for (const moduleName of data.modules) {
       const meta = data.moduleMeta[moduleName];
       if (!isObject(meta)) {
@@ -530,18 +527,11 @@ export function validateMapDataObject(data) {
         }
       }
 
+      // The call graph lives in map-callgraph.json, which the declaration
+      // view loads on first use; a copy here would be downloaded twice.
       if (meta.symbols.callGraph !== undefined) {
-        errors.push(...validateCallGraph(moduleName, meta.symbols));
-        if (Object.keys(meta.symbols.callGraph || {}).length) modulesWithCallGraph += 1;
+        errors.push(`map-data.json: moduleMeta.${moduleName}.symbols.callGraph belongs in map-callgraph.json`);
       }
-    }
-
-    // The declaration flowchart is driven entirely by these graphs. Without
-    // them the map still renders modules and imports, so a regression that
-    // dropped the field would be invisible until someone clicked a
-    // declaration and got an empty lane.
-    if (data.modules.length && !modulesWithCallGraph) {
-      errors.push('map-data.json: no module carries symbols.callGraph — the declaration call graph is missing');
     }
   }
 
@@ -559,6 +549,67 @@ export function validateMapDataObject(data) {
 }
 
 /**
+ * Validate data/map-callgraph.json on its own: provenance and shape. Whether
+ * its callers are declarations of the snapshot is a cross-file question
+ * (validateCrossFile), because the symbol lists live in map-data.json.
+ */
+export function validateCallGraphDataObject(data) {
+  const errors = [];
+  if (!isObject(data)) return ['map-callgraph.json: root must be an object'];
+  if (typeof data.commitSha !== 'string' || !/^[0-9a-f]{7,40}$/.test(data.commitSha)) {
+    errors.push('map-callgraph.json: commitSha must be a hexadecimal commit id');
+  }
+  if (data.metricsSource !== REQUIRED_PROVENANCE.metricsSource) {
+    errors.push(`map-callgraph.json: metricsSource must be ${JSON.stringify(REQUIRED_PROVENANCE.metricsSource)}, got ${JSON.stringify(data.metricsSource)}`);
+  }
+  if (typeof data.sourceDigest !== 'string' || !/^[0-9a-f]{64}$/.test(data.sourceDigest)) {
+    errors.push('map-callgraph.json: sourceDigest must be the canonical artifact\'s sha256 source digest');
+  }
+  if (typeof data.generatedAt !== 'string' || (data.generatedAt && !isIsoDateString(data.generatedAt))) {
+    errors.push('map-callgraph.json: generatedAt must be empty or an ISO-8601 UTC timestamp');
+  }
+  if (!isObject(data.callGraph)) {
+    errors.push('map-callgraph.json: callGraph must be an object');
+    return errors;
+  }
+  // The declaration flowchart is driven entirely by this graph. Without it
+  // the map still renders modules and imports, so a regression that emptied
+  // it would be invisible until someone opened a declaration.
+  if (!Object.keys(data.callGraph).length) {
+    errors.push('map-callgraph.json: callGraph is empty — the declaration call graph is missing');
+  }
+  return errors;
+}
+
+/**
+ * The call graph against the snapshot it was split from: one revision, one
+ * digest, only modules the snapshot graphs, and every caller a declaration
+ * that module's byKind lists carry (the runtime resolves a declaration
+ * through one and its calls through the other).
+ */
+function callGraphCrossFileErrors(mapData, callGraphData) {
+  const errors = [];
+  if (!isObject(callGraphData)) return errors;
+  if (callGraphData.commitSha !== mapData.commitSha) {
+    errors.push(`cross-file: map-callgraph commitSha ${String(callGraphData.commitSha).slice(0, 7)} does not match map-data ${String(mapData.commitSha).slice(0, 7)} — re-run scripts/sync-upstream.mjs`);
+  }
+  if (callGraphData.sourceDigest !== mapData.sourceDigest) {
+    errors.push('cross-file: map-data and map-callgraph record different canonical source digests — they were not built from one checkout');
+  }
+  if (!isObject(callGraphData.callGraph)) return errors;
+  const modules = new Set(Array.isArray(mapData.modules) ? mapData.modules : []);
+  for (const [moduleName, graph] of Object.entries(callGraphData.callGraph)) {
+    if (!modules.has(moduleName)) {
+      errors.push(`cross-file: map-callgraph names module ${moduleName}, which map-data does not graph`);
+      continue;
+    }
+    const byKind = mapData.moduleMeta?.[moduleName]?.symbols?.byKind;
+    errors.push(...validateCallGraph(moduleName, byKind, graph));
+  }
+  return errors;
+}
+
+/**
  * Assert the bundled snapshots came out of one pipeline run.
  *
  * They used to be produced by separate scripts fetching upstream
@@ -568,7 +619,7 @@ export function validateMapDataObject(data) {
  * revision and the canonical source digest they were built from, which makes
  * "one pipeline" a property CI can check rather than a convention.
  */
-export function validateCrossFile(siteData, mapData) {
+export function validateCrossFile(siteData, mapData, callGraphData) {
   const errors = [];
   if (!isObject(siteData) || !isObject(mapData)) return errors;
 
@@ -603,6 +654,7 @@ export function validateCrossFile(siteData, mapData) {
   }
 
   errors.push(...subsystemCrossFileErrors(siteData.subsystems, mapData));
+  if (callGraphData !== undefined) errors.push(...callGraphCrossFileErrors(mapData, callGraphData));
 
   return errors;
 }

@@ -406,6 +406,8 @@
     "assurance_none": "なし (証明カバレッジなし)",
     "assurance_partial": "部分的 (ペア不完全/未接続)",
     "breadcrumb_to_module": "上のパンくずリストを使用してモジュールコンテキストに戻ってください。",
+    "callgraph_loading": "宣言の呼び出しグラフを読み込んでいます…",
+    "callgraph_failed": "宣言の呼び出しグラフを読み込めませんでした。",
     "bridge_called_from_rust": "Rust ユーザー空間から呼ばれる",
     "bridge_declared_in_lean": "Lean で宣言・ここで実装",
     "bridge_implemented_in_rust": "ここで宣言・Rust で実装",

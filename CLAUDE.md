@@ -104,8 +104,13 @@ alone, which `scripts/sync-upstream.mjs` projects offline from the kernel's
 canonical `docs/codebase_map.json`; `index.html` ships with those same values
 stamped into the markup, so a failed fetch degrades to the correct numbers.
 
-**`map.html` renders `data/map-data.json` and nothing else.** Boot is one
-same-origin fetch, `normalizeMapData()`, render; a failed fetch shows
+**`map.html` renders `data/map-data.json` and nothing else** — plus
+`data/map-callgraph.json`, the declaration call graph split from it in the same
+run, fetched the first time a declaration is shown (at boot when the URL
+carries `decl=`) and refused unless its `commitSha` is the snapshot's. Until it
+lands the declaration view says it is loading rather than claiming the
+declaration has no calls. Boot is one same-origin fetch, `normalizeMapData()`,
+a yield, render; a failed fetch shows
 `map.status_load_failed` in the status line, and success shows
 `map.status_ready_integrated` with the snapshot's commit. Through 0.32.0 the page
 also refreshed live on every boot, focus and reconnect: it downloaded the
@@ -124,7 +129,7 @@ that leaves the origin.
 ### One pipeline, one revision
 
 `scripts/sync-upstream.mjs` is the only thing that fetches upstream. It clones
-seLe4n once and writes all three `data/*.json` snapshots from that single
+seLe4n once and writes all four `data/*.json` snapshots from that single
 checkout, after verifying the canonical artifact's `source_sync.source_digest`
 over the Lean sources it ships with.
 
@@ -661,10 +666,17 @@ statistic**; the landing page stays canonical-or-absent.
 - Legacy top-level maps (`moduleMap`, `importsFrom`, `moduleMeta`) are fallbacks only
 - Branch-ref metadata keys (e.g. `main`) are excluded from module inventories
 - Declaration-centric payloads (`modules[].declarations`) are projected into symbol buckets
-- `moduleMeta[].symbols.callGraph` ships in the bundled snapshot; every key must
-  also appear in that module's `byKind` lists (`validate-data.mjs` asserts it),
-  because the runtime resolves a declaration through one and its calls through
-  the other
+- The call graph ships in `data/map-callgraph.json` (`{ commitSha,
+  sourceDigest, metricsSource, generatedAt, callGraph: { module: { decl:
+  [targets] } } }`), split off by `splitCallGraph()`; `map-data.json` carries
+  none (`validate-data.mjs` rejects an inline copy). `validateCrossFile` fails
+  when the two files disagree on `commitSha` or `sourceDigest`, names a module
+  the snapshot does not graph, or carries a caller that module's `byKind` lists
+  do not — the runtime resolves a declaration through one and its calls
+  through the other
+- No derived copies are shipped: `symbols.theorems`/`functions`, `importsTo`
+  and empty `byKind` arrays are rebuilt by the runtime and rejected by
+  `validate-data.mjs`
 - Reverse import edges (`importsTo`) are always rebuilt from `importsFrom`
 - **A declaration is its module and its name.** The artifact records short
   names, and 171 of them are declared in more than one module (`leaves` in

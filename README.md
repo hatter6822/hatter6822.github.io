@@ -30,13 +30,14 @@ node scripts/apply-static-values.mjs
 ```
 
 `sync-upstream.mjs` is the whole data pipeline: one shallow clone of seLe4n at
-one revision produces all three bundled snapshots.
+one revision produces all four bundled snapshots.
 
 ```
 git clone --depth 1 seLe4n@main
   └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
      Lean sources            ─┤   data/map-data.json           (code map)
-     rust/ workspace         ─┘     └─ #rust: crate inventory
+     rust/ workspace         ─┘     ├─ #rust: crate inventory
+                                    └─ data/map-callgraph.json (declaration view)
      docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
 ```
 

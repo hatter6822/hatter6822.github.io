@@ -1040,6 +1040,18 @@ empty `byKind` array for each of ~40 interior kinds a module does not declare
 bundle went from 6,759,050 to 5,458,509 bytes raw and from 679 KB to 632 KB
 gzipped (level 6), with the remaining content byte-for-byte equivalent.
 
+### The call graph moved to its own file
+
+After the derived copies went, the call graph was two thirds of the bundle, and
+only the declaration view reads it. `splitCallGraph()` now writes it to
+`data/map-callgraph.json` with the snapshot's provenance, and the runtime
+fetches it on the first declaration view (at boot, beside the snapshot, for a
+`decl=` deep link). At 96f442d: `map-data.json` 1,801,920 bytes raw / 274 KB
+gzipped, `map-callgraph.json` 3,667,073 / 379 KB. A module-view visit now
+downloads 274 KB instead of 679 KB; a declaration visit downloads 653 KB in two
+requests. The "inline, not interned" measurement above still holds for the
+graph's own encoding.
+
 ### Two details the data forced
 
 - **The graph is keyed by the recovered names.** Call-graph keys and symbol-list

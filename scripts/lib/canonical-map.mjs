@@ -369,6 +369,35 @@ export function symbolsFromDeclarations(declarations, sourceText) {
 }
 
 /**
+ * Move the declaration call graph out of a built map snapshot into a payload
+ * of its own, `data/map-callgraph.json`.
+ *
+ * The graph is about half the snapshot and only the declaration view reads it,
+ * so map.html fetches it on first use instead of with every visit. The payload
+ * records the snapshot's own `commitSha`, `sourceDigest`, `metricsSource` and
+ * `generatedAt`: `validateCrossFile` fails when the two files disagree, and
+ * the runtime refuses a graph that names another commit. Modules with no
+ * calls are left out of `callGraph`. `mapData` is changed in place: each
+ * module's `symbols.callGraph` is removed.
+ */
+export function splitCallGraph(mapData) {
+  const callGraph = Object.create(null);
+  for (const name of mapData.modules) {
+    const symbols = mapData.moduleMeta?.[name]?.symbols;
+    if (!symbols || !symbols.callGraph) continue;
+    if (Object.keys(symbols.callGraph).length) callGraph[name] = symbols.callGraph;
+    delete symbols.callGraph;
+  }
+  return {
+    commitSha: mapData.commitSha,
+    metricsSource: mapData.metricsSource,
+    sourceDigest: mapData.sourceDigest,
+    generatedAt: mapData.generatedAt,
+    callGraph
+  };
+}
+
+/**
  * Count admitted proofs recorded by the artifact.
  *
  * Two declaration shapes qualify: an `axiom` (a proposition asserted rather

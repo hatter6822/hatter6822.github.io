@@ -11,7 +11,17 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../..');
 const mapScriptPath = path.join(repoRoot, 'assets/js/map.js');
 
-async function loadMapTestHooks({ search = '' } = {}) {
+/* The bundled snapshot with its call graph merged back inline — the shape the
+   runtime holds once map-callgraph.json has loaded, and one normalizeMapData
+   accepts directly. */
+async function readBundledSnapshot() {
+  const raw = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
+  const graph = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-callgraph.json'), 'utf8'));
+  for (const [name, calls] of Object.entries(graph.callGraph)) raw.moduleMeta[name].symbols.callGraph = calls;
+  return raw;
+}
+
+async function loadMapTestHooks({ search = '', fetch = null } = {}) {
   const source = await fs.readFile(mapScriptPath, 'utf8');
   const context = {
     console,
@@ -34,7 +44,7 @@ async function loadMapTestHooks({ search = '' } = {}) {
     encodeURIComponent,
     decodeURIComponent,
     escape,
-    fetch: () => { throw new Error('unexpected fetch during test'); },
+    fetch: fetch || (() => { throw new Error('unexpected fetch during test'); }),
     localStorage: {
       getItem: () => null,
       setItem: () => {},
@@ -403,7 +413,7 @@ test('interiorItemsForSelection sorts aggregated results case-insensitively', as
    be exactly the one the per-call localeCompare produced. */
 test('the memoized sidebar sort orders exactly as localeCompare and filters without re-sorting', async () => {
   const hooks = await loadMapTestHooks();
-  const raw = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
+  const raw = await readBundledSnapshot();
   const data = hooks.normalizeMapData(raw);
   hooks.applyTestState({ moduleMeta: data.moduleMeta, moduleMap: data.moduleMap, modules: data.modules });
   const largest = 'SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership';
@@ -2295,7 +2305,7 @@ function productionRustFiles(raw) {
 
 async function loadBundledState() {
   const hooks = await loadMapTestHooks();
-  const raw = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
+  const raw = await readBundledSnapshot();
   const data = hooks.normalizeMapData(raw);
   hooks.applyTestState({
     modules: data.modules,
@@ -2767,7 +2777,7 @@ test('narrowing the scope centres the fallback node instead of keeping the old s
 test('a declaration deep link to a name two modules declare stays on the module it names', async () => {
   const BARRIER = 'SeLe4n.Kernel.Architecture.BarrierComposition';
   const TLB = 'SeLe4n.Kernel.Architecture.TlbCacheComposition';
-  const raw = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
+  const raw = await readBundledSnapshot();
   const lineIn = (moduleName) => {
     for (const items of Object.values(raw.moduleMeta[moduleName].symbols.byKind)) {
       const hit = items.find((item) => item.name === 'leaves');
@@ -3183,4 +3193,52 @@ test('boot yields to the browser between normalizing the snapshot and applying i
   const mapSource = await fs.readFile(mapScriptPath, 'utf8');
   assert.match(mapSource, /fetchBundledMapData\(\)\.then\(yieldToBrowser\)\.then\(function \(data\) \{\s*applyData\(data\);/);
   assert.match(mapSource, /function yieldToBrowser\(value\) \{[\s\S]*?window\.setTimeout\(function \(\) \{ resolve\(value\); \}, 0\);/);
+});
+
+/* The call graph ships in data/map-callgraph.json and is fetched the first
+   time a declaration is shown, or at boot for a decl= deep link. A graph from
+   another commit is refused rather than matched against declarations it was
+   not computed from. */
+test('the call graph loads lazily, once, and only for the snapshot commit', async () => {
+  const raw = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
+  const graph = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-callgraph.json'), 'utf8'));
+  const requests = [];
+  const respond = (body) => (url) => { requests.push(url); return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(JSON.stringify(body))) }); };
+
+  const hooks = await loadMapTestHooks({ fetch: respond(graph) });
+  hooks.applyData(hooks.normalizeMapData(raw));
+  assert.equal(hooks.callGraphStatus(), 'idle', 'the module view needs no call graph');
+  assert.equal(requests.length, 0, 'nothing is fetched until a declaration is shown');
+
+  const module = 'SeLe4n.Kernel.API';
+  const caller = Object.keys(graph.callGraph[module])[0];
+  hooks.ensureCallGraph();
+  hooks.ensureCallGraph();
+  assert.equal(hooks.callGraphStatus(), 'loading');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(requests, ['data/map-callgraph.json'], 'one request, same origin, relative');
+  assert.equal(hooks.callGraphStatus(), 'ready');
+  assert.deepEqual(Array.from(hooks.declarationCalls(caller, module)), graph.callGraph[module][caller]);
+
+  const stale = await loadMapTestHooks({ fetch: respond({ ...graph, commitSha: 'f'.repeat(40) }) });
+  stale.applyData(stale.normalizeMapData(raw));
+  stale.ensureCallGraph();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(stale.callGraphStatus(), 'failed', 'a graph from another commit is refused');
+  assert.match(stale.callGraphError(), /from commit fffffff/);
+  assert.equal(stale.declarationCalls(caller, module).length, 0, 'and nothing of it is merged');
+
+  const broken = await loadMapTestHooks({ fetch: () => Promise.resolve({ ok: false, status: 404 }) });
+  broken.applyData(broken.normalizeMapData(raw));
+  broken.ensureCallGraph();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(broken.callGraphStatus(), 'failed');
+  assert.equal(broken.callGraphError(), 'HTTP 404');
+});
+
+test('the declaration view says the call graph is loading or missing instead of claiming no calls', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  assert.match(mapSource, /callGraphStatus === "loading" \|\| state\.callGraphStatus === "idle"\) \{\s*hintMsg = t\("map\.callgraph_loading"\)/);
+  assert.match(mapSource, /callGraphStatus === "failed"\) \{\s*hintMsg = t\("map\.callgraph_failed"\)/);
+  assert.match(mapSource, /if \(state\.selectedDeclaration\) fetchCallGraph\(\)/, 'a decl= deep link starts the download at boot');
 });

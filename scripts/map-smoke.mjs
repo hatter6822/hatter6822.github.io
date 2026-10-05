@@ -92,6 +92,8 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en', 
     });
   }
   const errors = [];
+  /* The declaration call graph is its own file, fetched on first use. */
+  const callGraphRequests = [];
   page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
   page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
   /* The page renders the bundled snapshot and nothing else: any request that
@@ -102,6 +104,7 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en', 
     const url = req.url();
     if (/^(data|blob):/.test(url)) return;
     if (new URL(url).origin !== origin) errors.push(`cross-origin request: ${url}`);
+    if (/\/data\/map-callgraph\.json(\?.*)?$/.test(url)) callGraphRequests.push(url);
   });
   await page.goto(`${BASE}/map.html${query}`, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => {
@@ -109,7 +112,7 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en', 
     return status && !/Loading codebase map/.test(status.textContent);
   }, null, { timeout: 30000 });
   await page.waitForTimeout(400);
-  return { context, page, errors };
+  return { context, page, errors, callGraphRequests };
 }
 
 function metrics(page) {
@@ -212,9 +215,10 @@ async function shot(page, name) {
 
 {
   console.log('\n[desktop 1440x900 dark]');
-  const { context, page, errors } = await open(1440, 900);
+  const { context, page, errors, callGraphRequests } = await open(1440, 900);
   const m = await metrics(page);
   check(m.search === 'SeLe4n.Kernel.API', 'workspace opens on SeLe4n.Kernel.API');
+  check(callGraphRequests.length === 0, `the module view fetches no call graph (${callGraphRequests.length} request(s))`);
   const status = await page.textContent('#map-status');
   const statusError = await page.evaluate(() => document.getElementById('map-status').classList.contains('error'));
   check(!statusError && status.includes(`Snapshot of commit ${MAP_DATA.commitSha.slice(0, 7)}`), `the status line names the bundled snapshot's commit (${JSON.stringify(status)})`);
@@ -283,6 +287,7 @@ async function shot(page, name) {
     url: location.search
   }));
   check(decl.breadcrumb && decl.active === 1 && /decl=/.test(decl.url), 'a sidebar declaration click enters declaration context right after a search');
+  check(callGraphRequests.length === 1, `the first declaration fetches the call graph, once (${callGraphRequests.length} request(s))`);
 
   await page.click('#reset-view');
   await page.waitForTimeout(400);
@@ -444,8 +449,11 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   console.log('\n[deep link, colliding declaration name]');
   const BARRIER = 'SeLe4n.Kernel.Architecture.BarrierComposition';
   const barrierLine = Object.values(MAP_DATA.moduleMeta[BARRIER].symbols.byKind).flat().find((item) => item.name === 'leaves')?.line;
-  const { context, page, errors } = await open(1440, 900, { query: `?module=${BARRIER}&decl=leaves` });
+  const { context, page, errors, callGraphRequests } = await open(1440, 900, { query: `?module=${BARRIER}&decl=leaves` });
   const m = await metrics(page);
+  check(callGraphRequests.length === 1, `a declaration deep link fetches the call graph at boot (${callGraphRequests.length} request(s))`);
+  check(m.laneLabels.some((label) => /Called by/.test(label)) && !m.laneLabels.some((label) => /Loading|could not be loaded/.test(label)),
+    `the deep link draws its callers from the loaded call graph (${JSON.stringify(m.laneLabels)})`);
   check(m.search === `${BARRIER}.leaves` && /module=SeLe4n\.Kernel\.Architecture\.BarrierComposition/.test(m.url), `the deep link stays on BarrierComposition (${m.search}, ${m.url})`);
   const center = await page.evaluate(() => (document.querySelector('.flow-node.active') || {}).textContent || '');
   check(center.includes(`L${barrierLine}`) && !/TlbCacheComposition/.test(center), `the selected node quotes BarrierComposition's own line, L${barrierLine} (${JSON.stringify(center.slice(0, 160))})`);
