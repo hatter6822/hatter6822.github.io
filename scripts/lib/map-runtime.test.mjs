@@ -2761,8 +2761,11 @@ test('a declaration deep link to a name two modules declare stays on the module 
   assert.ok(!tlbCallers.some((ref) => ref.module === BARRIER), 'no BarrierComposition caller is listed under TlbCacheComposition');
 
   /* The sidebar path passes the module it lists, and the selection keeps it. */
-  hooks.selectDeclaration('leaves', TLB);
+  assert.equal(hooks.selectDeclaration('leaves', TLB), true, 'selectDeclaration reports that it took the selection');
   assert.equal(hooks.selectionState().module, TLB);
+  assert.equal(hooks.selectDeclaration('leaves', TLB), true, 'reselecting the shown declaration still reports it as taken');
+  assert.equal(hooks.selectDeclaration('leaves', 'SeLe4n.No.Such.Module'), false, 'a module that cannot be shown is refused');
+  assert.equal(hooks.selectionState().module, TLB, 'a refused selection changes nothing');
   assert.equal(hooks.selectionState().declarationModule, TLB);
 
   /* A callee written in a module that declares the name is that module's. */
