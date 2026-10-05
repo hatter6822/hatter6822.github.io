@@ -398,6 +398,30 @@ test('interiorItemsForSelection sorts aggregated results case-insensitively', as
   assert.deepEqual(Array.from(ordered, (item) => item.__kind), ['def', 'def', 'def']);
 });
 
+/* The sidebar sort uses one cached collator and memoizes the sorted list per
+   (interior, group, kind); a filter keystroke only filters it. The order must
+   be exactly the one the per-call localeCompare produced. */
+test('the memoized sidebar sort orders exactly as localeCompare and filters without re-sorting', async () => {
+  const hooks = await loadMapTestHooks();
+  const raw = JSON.parse(await fs.readFile(path.join(repoRoot, 'data/map-data.json'), 'utf8'));
+  const data = hooks.normalizeMapData(raw);
+  hooks.applyTestState({ moduleMeta: data.moduleMeta, moduleMap: data.moduleMap, modules: data.modules });
+  const largest = 'SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership';
+  const interior = hooks.interiorForNode(largest);
+  const kinds = Object.keys(interior.byKind);
+  const expected = [];
+  for (const kind of kinds) for (const item of interior.byKind[kind]) expected.push({ name: item.name, line: item.line });
+  expected.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.line - b.line);
+
+  const first = hooks.interiorItemsForSelection(interior, kinds, '__all__', '');
+  assert.ok(first.length > 400, `the largest module lists its declarations (${first.length})`);
+  assert.deepEqual(Array.from(first, (item) => `${item.name}@${item.line}`), expected.map((item) => `${item.name}@${item.line}`));
+  assert.equal(hooks.interiorItemsForSelection(interior, kinds, '__all__', ''), first, 'a second request reuses the sorted list');
+  const filtered = hooks.interiorItemsForSelection(interior, kinds, '__all__', 'Preserves');
+  assert.ok(filtered.length > 0 && filtered.every((item) => item.name.toLowerCase().includes('preserves')));
+  assert.deepEqual(Array.from(filtered, (item) => item.name), Array.from(first).filter((item) => item.name.toLowerCase().includes('preserves')).map((item) => item.name));
+});
+
 test('flowLaneLabelVisibility hides context labels for empty lanes', async () => {
   const hooks = await loadMapTestHooks();
 

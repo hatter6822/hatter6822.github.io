@@ -467,13 +467,7 @@
     var date = new Date(value);
     if (isNaN(date.getTime())) return "-";
     try {
-      return new Intl.DateTimeFormat(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit"
-      }).format(date);
+      return dateFormatFor(undefined).format(date);
     } catch (e) {
       return date.toISOString().replace("T", " ").slice(0, 16) + " UTC";
     }
@@ -628,13 +622,54 @@
   function formatCount(value) {
     if (typeof value !== "number" || !isFinite(value)) return String(value === null || value === undefined ? "" : value);
     var rounded = Math.round(value);
-    try { return new Intl.NumberFormat(documentLocale()).format(rounded); } catch (e) {}
+    try { return numberFormatFor(documentLocale()).format(rounded); } catch (e) {}
     return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
 
   function documentLocale() {
     var root = typeof document !== "undefined" && document ? document.documentElement : null;
     return (root && root.lang) || "en";
+  }
+
+  /* Comparison and formatting objects are built once and reused. Constructing
+     an Intl object is the expensive part of a comparison: `localeCompare`
+     with options builds a collator per call, which made sorting a 509-item
+     sidebar 37x slower than one cached collator. A collator built with the
+     same (default) locale and options orders exactly as localeCompare does. */
+  function makeComparer(options) {
+    try {
+      var collator = new Intl.Collator(undefined, options);
+      return function (a, b) { return collator.compare(a, b); };
+    } catch (e) {
+      return function (a, b) { return String(a).localeCompare(String(b)); };
+    }
+  }
+  /* a.localeCompare(b) */
+  var compareText = makeComparer(undefined);
+  /* a.localeCompare(b, undefined, { sensitivity: "base" }) */
+  var compareTextBase = makeComparer({ sensitivity: "base" });
+
+  /* Number and date formatters per locale: the locale can change at runtime
+     (the language switcher), so the cache is keyed by it rather than built
+     once. */
+  var NUMBER_FORMATS = Object.create(null);
+  var DATE_FORMATS = Object.create(null);
+  function numberFormatFor(locale) {
+    if (!NUMBER_FORMATS[locale]) NUMBER_FORMATS[locale] = new Intl.NumberFormat(locale);
+    return NUMBER_FORMATS[locale];
+  }
+  function dateFormatFor(locale) {
+    var key = locale || "";
+    if (!DATE_FORMATS[key]) {
+      DATE_FORMATS[key] = new Intl.DateTimeFormat(locale, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+    return DATE_FORMATS[key];
   }
 
   function normalizeSymbolName(name) {
@@ -718,41 +753,49 @@
     return INTERIOR_KIND_ALL_VALUE;
   }
 
+  function compareByNameThenLine(a, b) {
+    var byName = compareTextBase(String((a && a.name) || ""), String((b && b.name) || ""));
+    if (byName !== 0) return byName;
+    return ((a && a.line) || 0) - ((b && b.line) || 0);
+  }
+
+  /* The sorted list for one (group, kind) selection is memoized on the
+     interior object it was built from — interiors are themselves cached per
+     module, and replaced when the module's symbols are — so a keystroke in
+     the sidebar filter only filters, and re-selecting a module re-sorts
+     nothing. Callers read the result and never mutate it. */
+  function sortedInteriorItems(interior, groupKinds, selectedKind) {
+    var key = selectedKind + "\u0000" + groupKinds.join(",");
+    var memo = interior.__sortedItems;
+    if (!memo || memo.byKind !== interior.byKind) {
+      memo = { byKind: interior.byKind, lists: Object.create(null) };
+      try { Object.defineProperty(interior, "__sortedItems", { value: memo, writable: true, configurable: true, enumerable: false }); } catch (e) { interior.__sortedItems = memo; }
+    }
+    if (memo.lists[key]) return memo.lists[key];
+
+    var byKind = interior.byKind || {};
+    var out = [];
+    var kinds = selectedKind === INTERIOR_KIND_ALL_VALUE ? groupKinds : [selectedKind];
+    for (var i = 0; i < kinds.length; i++) {
+      var kindItems = byKind[kinds[i]] || [];
+      for (var j = 0; j < kindItems.length; j++) {
+        out.push(Object.assign({}, kindItems[j], { __kind: kinds[i] }));
+      }
+    }
+    out.sort(compareByNameThenLine);
+    memo.lists[key] = out;
+    return out;
+  }
+
   function interiorItemsForSelection(interior, groupKinds, selectedKind, query) {
     var q = String(query || "").trim().toLowerCase();
-
-    function byNameThenLine(a, b) {
-      var left = String((a && a.name) || "");
-      var right = String((b && b.name) || "");
-      var byName = left.localeCompare(right, undefined, { sensitivity: "base" });
-      if (byName !== 0) return byName;
-      return ((a && a.line) || 0) - ((b && b.line) || 0);
-    }
-
-    function filterByQuery(list) {
-      if (!q) return list;
-      return list.filter(function (entry) {
-        return String((entry && entry.name) || "").toLowerCase().indexOf(q) !== -1;
-      });
-    }
-
-    if (selectedKind === INTERIOR_KIND_ALL_VALUE) {
-      var aggregated = [];
-      for (var i = 0; i < groupKinds.length; i++) {
-        var kindItems = ((interior.byKind || {})[groupKinds[i]] || []).slice();
-        for (var j = 0; j < kindItems.length; j++) {
-          aggregated.push(Object.assign({}, kindItems[j], { __kind: groupKinds[i] }));
-        }
-      }
-      aggregated.sort(byNameThenLine);
-      return filterByQuery(aggregated);
-    }
-
-    var selectedItems = ((interior.byKind || {})[selectedKind] || []).slice().sort(byNameThenLine).map(function (entry) {
-      return Object.assign({}, entry, { __kind: selectedKind });
+    var sorted = sortedInteriorItems(interior || {}, groupKinds, selectedKind);
+    if (!q) return sorted;
+    return sorted.filter(function (entry) {
+      return String((entry && entry.name) || "").toLowerCase().indexOf(q) !== -1;
     });
-    return filterByQuery(selectedItems);
   }
+
 
   function parseHexColor(hex) {
     var h = String(hex || "").replace(/^#/, "");
@@ -1342,7 +1385,7 @@
   }
 
   function sortByScoreThenName(a, b) {
-    return moduleDegree(b).score - moduleDegree(a).score || a.localeCompare(b);
+    return moduleDegree(b).score - moduleDegree(a).score || compareText(a, b);
   }
 
   function uniqueModules(list, excluded) {
@@ -1403,7 +1446,7 @@
   function sortModules(list) {
     list.sort(function (a, b) {
       var scoreDiff = nodeSortScore(b) - nodeSortScore(a);
-      return scoreDiff || a.localeCompare(b);
+      return scoreDiff || compareText(a, b);
     });
   }
 
@@ -3438,7 +3481,7 @@
         var sameA = a.module === referenceModule ? 0 : 1;
         var sameB = b.module === referenceModule ? 0 : 1;
         if (sameA !== sameB) return sameA - sameB;
-        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+        return compareText(a.name.toLowerCase(), b.name.toLowerCase());
       });
     }
 
@@ -3668,7 +3711,7 @@
       groups.push({ key: order[j], label: order[j], members: buckets[order[j]].slice() });
     }
     /* Largest subsystems first; the input order (by score) is kept inside each group. */
-    groups.sort(function (a, b) { return b.members.length - a.members.length || a.key.localeCompare(b.key); });
+    groups.sort(function (a, b) { return b.members.length - a.members.length || compareText(a.key, b.key); });
     return groups;
   }
 
@@ -4088,10 +4131,10 @@
         var byRelation = relationRank[a.relation] - relationRank[b.relation];
         if (byRelation) return byRelation;
         var byLinks = b.links.length - a.links.length;
-        return byLinks || labelOf(a).localeCompare(labelOf(b));
+        return byLinks || compareText(labelOf(a), labelOf(b));
       });
       for (var s = 0; s < list.length; s++) {
-        list[s].links.sort(function (a, b) { return a.rustName.localeCompare(b.rustName); });
+        list[s].links.sort(function (a, b) { return compareText(a.rustName, b.rustName); });
       }
     }
     for (var rustKey in byRust) {
@@ -4487,7 +4530,7 @@
 
     pairs.sort(function (a, b) {
       var diff = (b.operationsTheorems + b.invariantTheorems) - (a.operationsTheorems + a.invariantTheorems);
-      return diff || a.base.localeCompare(b.base);
+      return diff || compareText(a.base, b.base);
     });
 
     for (var j = 0; j < pairs.length; j++) if (pairs[j].invariantImportsOperations) totals.linked += 1;
@@ -4914,7 +4957,7 @@
         });
       }
 
-      records.sort(function (a, b) { return a.name.localeCompare(b.name); });
+      records.sort(function (a, b) { return compareText(a.name, b.name); });
       return records;
     }
 
@@ -5397,7 +5440,7 @@
 
     scored.sort(function (a, b) {
       if (b.score !== a.score) return b.score - a.score;
-      return a.declaration.localeCompare(b.declaration);
+      return compareText(a.declaration, b.declaration);
     });
 
     // Deduplicate by module+declaration
@@ -5462,7 +5505,7 @@
 
     scored.sort(function (a, b) {
       if (b.score !== a.score) return b.score - a.score;
-      return a.name.localeCompare(b.name);
+      return compareText(a.name, b.name);
     });
 
     var out = [];
