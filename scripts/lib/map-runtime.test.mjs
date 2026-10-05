@@ -3120,3 +3120,18 @@ test('an exactly-typed module outside the scope is not accepted', async () => {
 
   hooks.setScope('both');
 });
+
+/* One forced layout per render: the frame's geometry is read once, before
+   renderAll writes anything, and the renderers and the scroll helpers take it
+   from there instead of reading the live element after clearing or appending
+   the chart (which forced two or three synchronous layouts per render). */
+test('a render reads the chart frame once, before its first write', async () => {
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  const renderAll = mapSource.match(/function renderAll\(\) \{[\s\S]*?\n  \}/)[0];
+  assert.ok(renderAll.indexOf('flowFrame = readFlowFrame(wrap)') !== -1 && renderAll.indexOf('flowFrame = readFlowFrame(wrap)') < renderAll.indexOf('renderAllInFrame'), 'renderAll reads the frame before rendering');
+  assert.match(renderAll, /finally \{\s*flowFrame = null;/, 'the cached frame never outlives the render');
+  for (const fn of ['renderFlowchart', 'renderRustFlowchart', 'renderDeclarationFlowchart', 'applyFlowScrollTarget', 'computeFlowLayout']) {
+    const body = mapSource.match(new RegExp(`function ${fn}\\([^)]*\\) \\{[\\s\\S]*?\\n  \\}`))[0];
+    assert.ok(!/wrap\.(scrollLeft|scrollTop|clientWidth|clientHeight|scrollWidth|scrollHeight)\b(?!\s*=)/.test(body), `${fn} reads no live frame geometry`);
+  }
+});

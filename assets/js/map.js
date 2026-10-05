@@ -2319,19 +2319,47 @@
     labelLayer.appendChild(label);
   }
 
+  /* The frame's geometry, read once per render before anything is written
+     (see renderAll). Reading `clientWidth` or `scrollLeft` after the chart
+     has been cleared or appended forces a synchronous layout, and a render
+     used to force two or three. The frame keeps `scrollbar-gutter: stable`,
+     so its client size does not depend on the content about to replace it. */
+  var flowFrame = null;
+  function readFlowFrame(wrap) {
+    if (!wrap) return null;
+    return { clientWidth: wrap.clientWidth, clientHeight: wrap.clientHeight, scrollLeft: wrap.scrollLeft, scrollTop: wrap.scrollTop };
+  }
+  function flowFrameValue(wrap, key) {
+    if (flowFrame) return flowFrame[key];
+    return wrap ? wrap[key] : 0;
+  }
+
+  /* Scroll offsets are written without reading the scroll extent first: an
+     assignment past the end is clamped by the browser, which is what the
+     explicit Math.min did at the cost of a forced layout. */
+  function setFlowScroll(wrap, left, top) {
+    wrap.style.scrollBehavior = "auto";
+    wrap.scrollLeft = left;
+    wrap.scrollTop = top;
+    wrap.style.removeProperty("scroll-behavior");
+  }
+
   function applyFlowScrollTarget(wrap, targetName, centerX, centerY, centerW, centerH) {
     if (state.flowScrollTarget !== targetName) return false;
-    var targetScrollLeft = Math.max(0, centerX + centerW / 2 - wrap.clientWidth / 2);
-    var targetScrollTop = Math.max(0, centerY + centerH / 2 - wrap.clientHeight / 2);
-    var maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
-    var maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-    // Temporarily disable smooth scrolling for instant programmatic positioning
-    wrap.style.scrollBehavior = "auto";
-    wrap.scrollLeft = Math.min(maxScrollLeft, targetScrollLeft);
-    wrap.scrollTop = Math.min(maxScrollTop, targetScrollTop);
-    wrap.style.removeProperty("scroll-behavior");
+    var targetScrollLeft = Math.max(0, centerX + centerW / 2 - flowFrameValue(wrap, "clientWidth") / 2);
+    var targetScrollTop = Math.max(0, centerY + centerH / 2 - flowFrameValue(wrap, "clientHeight") / 2);
+    setFlowScroll(wrap, targetScrollLeft, targetScrollTop);
     state.flowScrollTarget = "";
     return true;
+  }
+
+  /* Puts back the scroll position a re-render should keep. The chart was
+     replaced without a layout in between, so the frame still holds its old
+     offset; when that is the one to keep there is nothing to write, and
+     nothing to lay out synchronously. */
+  function restoreFlowScroll(wrap, left, top) {
+    if (flowFrame && flowFrame.scrollLeft === left && flowFrame.scrollTop === top) return;
+    setFlowScroll(wrap, left, top);
   }
 
   var flowClipIdCounter = 0;
@@ -2462,7 +2490,7 @@
 
   function computeFlowLayout() {
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
-    var wrapWidth = Math.max(0, ((wrap && wrap.clientWidth) || 0) - 8);
+    var wrapWidth = Math.max(0, (flowFrameValue(wrap, "clientWidth") || 0) - 8);
     var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
     var compact = prefersCompactViewport();
     /* Scale padding and gaps for smaller canvases so more area is
@@ -2500,8 +2528,8 @@
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (!wrap) return;
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
-    var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
-    var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
+    var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
+    var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
     wrap.innerHTML = "";
     flowClipIdCounter = 0;
 
@@ -2976,10 +3004,7 @@
     renderFlowNodeInteriorMenu(selected);
 
     if (!applyFlowScrollTarget(wrap, selected, center.x, center.y, center.w, center.h)) {
-      wrap.style.scrollBehavior = "auto";
-      wrap.scrollLeft = previousScrollLeft;
-      wrap.scrollTop = previousScrollTop;
-      wrap.style.removeProperty("scroll-behavior");
+      restoreFlowScroll(wrap, previousScrollLeft, previousScrollTop);
     }
   }
 
@@ -3140,8 +3165,8 @@
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (!wrap) return;
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
-    var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
-    var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
+    var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
+    var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
     wrap.innerHTML = "";
     flowClipIdCounter = 0;
 
@@ -3354,10 +3379,7 @@
     renderFlowNodeInteriorMenu(selected);
 
     if (!applyFlowScrollTarget(wrap, selected, center.x, center.y, center.w, center.h)) {
-      wrap.style.scrollBehavior = "auto";
-      wrap.scrollLeft = previousScrollLeft;
-      wrap.scrollTop = previousScrollTop;
-      wrap.style.removeProperty("scroll-behavior");
+      restoreFlowScroll(wrap, previousScrollLeft, previousScrollTop);
     }
   }
 
@@ -3365,8 +3387,8 @@
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (!wrap) return;
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
-    var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
-    var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
+    var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
+    var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
     wrap.innerHTML = "";
     flowClipIdCounter = 0;
 
@@ -3686,10 +3708,7 @@
     renderFlowNodeInteriorMenu(moduleName);
 
     if (!applyFlowScrollTarget(wrap, declName, center.x, center.y, center.w, center.h)) {
-      wrap.style.scrollBehavior = "auto";
-      wrap.scrollLeft = previousScrollLeft;
-      wrap.scrollTop = previousScrollTop;
-      wrap.style.removeProperty("scroll-behavior");
+      restoreFlowScroll(wrap, previousScrollLeft, previousScrollTop);
     }
   }
 
@@ -4590,9 +4609,20 @@
   }
 
   function renderAll() {
+    var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
+    /* Read before the first write below, so the one layout this costs is the
+       render's only forced one until a scroll target is applied. */
+    flowFrame = readFlowFrame(wrap);
+    try {
+      renderAllInFrame(wrap);
+    } finally {
+      flowFrame = null;
+    }
+  }
+
+  function renderAllInFrame(wrap) {
     renderScopeToggle();
     renderContextChooser();
-    var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (state.flowContext === "declaration" && state.selectedDeclaration) {
       if (wrap) wrap.setAttribute("aria-label", "Declaration call graph for " + state.selectedDeclaration);
       renderDeclarationFlowchart();
