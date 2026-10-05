@@ -66,6 +66,7 @@ import { collectSourceAnchors, resolveSourceAnchors } from './lib/source-anchors
 import { extractImportTokens, inductiveConstructors } from './lib/lean-analysis.mjs';
 import { buildRustInventory, stripRustCommentsAndStrings } from './lib/rust-analysis.mjs';
 import { validateTraceDataObject, scenarioStates } from './lib/trace-analysis.mjs';
+import { groundTrace } from './lib/trace-anchors.mjs';
 
 const REPO = 'hatter6822/seLe4n';
 const SOURCE_REF = 'main';
@@ -531,24 +532,39 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
   };
 }
 
-/** Adopt the upstream trace export once it exists; keep the fixture until then. */
-async function writeTraces(work) {
+/**
+ * Adopt the upstream trace export once it exists; keep the fixture until then.
+ *
+ * Either way the trace is grounded in this checkout before it is written: every
+ * declaration it names is resolved to a file and line here, and every syscall,
+ * right and error it restates is checked against the kernel's own definitions
+ * (trace-anchors.mjs). A name that no longer resolves fails the sync rather
+ * than shipping a simulator that cites code the kernel no longer has.
+ */
+async function writeTraces(work, head, version) {
   const path = join(work, TRACES_PATH);
-  if (!existsSync(path)) {
-    console.warn(`⚠️  ${REPO} has no ${TRACES_PATH} yet — keeping the bundled reference fixture.`);
-    return;
-  }
+  const upstream = existsSync(path);
+  if (!upstream) console.warn(`⚠️  ${REPO} has no ${TRACES_PATH} yet — keeping the bundled reference fixture.`);
+  const traces = JSON.parse(readFileSync(upstream ? path : TRACE_FILE, 'utf8'));
+  const label = upstream ? `upstream ${TRACES_PATH}` : 'the bundled trace fixture';
 
-  const upstream = JSON.parse(readFileSync(path, 'utf8'));
-  const errors = validateTraceDataObject(upstream);
+  const errors = validateTraceDataObject(traces);
   if (errors.length) {
-    throw new Error(`upstream ${TRACES_PATH} failed validation; refusing to overwrite the bundled snapshot:\n  ${errors.join('\n  ')}`);
+    throw new Error(`${label} failed validation; refusing to write the snapshot:\n  ${errors.join('\n  ')}`);
+  }
+  const issues = groundTrace(traces, {
+    readSource: (file) => (existsSync(join(work, file)) ? readFileSync(join(work, file), 'utf8') : undefined),
+    commitSha: head.commitSha,
+    version
+  });
+  if (issues.length) {
+    throw new Error(`${label} names kernel facts this checkout does not have:\n  ${issues.join('\n  ')}`);
   }
 
   let steps = 0;
-  for (const scenario of upstream.scenarios) steps += scenarioStates(scenario).length; // fold dry-run must not throw
-  await writeFile(TRACE_FILE, JSON.stringify(upstream, null, 2) + '\n', 'utf8');
-  console.log(`   traces      ${upstream.scenarios.length} scenario(s), ${steps} step(s), source=${upstream.source}`);
+  for (const scenario of traces.scenarios) steps += scenarioStates(scenario).length; // fold dry-run must not throw
+  await writeFile(TRACE_FILE, JSON.stringify(traces, null, 2) + '\n', 'utf8');
+  console.log(`   traces      ${traces.scenarios.length} scenario(s), ${steps} step(s), source=${traces.source}, grounded at ${head.commitSha.slice(0, 7)}`);
 }
 
 // ── Run ────────────────────────────────────────────────────────────────────
@@ -573,7 +589,7 @@ try {
   // no one reads as text. site-data.json and execution-traces.json stay
   // indented; they are small and people do read them.
   await writeFile(MAP_FILE, JSON.stringify(mapData) + '\n');
-  await writeTraces(work);
+  await writeTraces(work, head, siteData.version);
 
   const edges = Object.values(mapData.importsFrom).reduce((total, deps) => total + deps.length, 0);
   console.log(`Synced ${REPO}@${head.commitSha.slice(0, 7)}${PINNED_COMMIT ? ' (SELE4N_REF)' : currentWithRef ? ` (${REF})` : ' (pinned to the artifact\'s commit)'}`);

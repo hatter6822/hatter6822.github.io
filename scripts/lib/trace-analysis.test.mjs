@@ -12,12 +12,16 @@ import {
   cloneState,
   SCHEMA_VERSION
 } from './trace-analysis.mjs';
+import { anchorTraceRefs, checkTraceKernelFacts, collectTraceRefs, requiredRightTable } from './trace-anchors.mjs';
+
+const ref = (name, module = 'SeLe4n.Kernel.Demo') => ({ name, module });
 
 function minimalScenario() {
   return {
     id: 'demo',
     title: 'Demo',
     summary: 'A minimal scenario.',
+    properties: ['p1'],
     initialState: {
       current: { thread: 'a', core: 0 },
       threads: [
@@ -29,15 +33,25 @@ function minimalScenario() {
       runQueue: { 0: [] }
     },
     steps: [
-      { index: 0, kind: 'boot', title: 'boot', traceTag: 'T0', delta: { ops: [] }, invariants: { allHold: true, checked: [], failed: [] } },
+      { index: 0, kind: 'boot', title: 'boot', traceTag: 'T0', outcome: { status: 'ok' }, sourceRefs: [], guarantees: [], delta: { ops: [] }, invariants: { preserved: [] } },
       {
         index: 1, kind: 'syscall', title: 'send', traceTag: 'T1',
+        syscall: { id: 'send', requiredRight: 'write' },
+        path: [
+          { stage: 'entry', label: 'entry', ref: ref('entry'), result: 'pass' },
+          { stage: 'lookup', label: 'lookup', ref: ref('lookup'), result: 'pass' },
+          { stage: 'rights', label: 'rights', result: 'pass' },
+          { stage: 'operation', label: 'send', ref: ref('send'), result: 'pass' }
+        ],
+        outcome: { status: 'ok' },
+        sourceRefs: [ref('send')],
+        guarantees: ['p1'],
         delta: { ops: [
           { op: 'epDequeue', endpoint: 'ep', queue: 'receiveQ', thread: 'b' },
           { op: 'threadPatch', id: 'b', set: { ipcState: 'ready', threadState: 'Ready' } },
           { op: 'rqInsert', core: 0, thread: 'b' }
         ] },
-        invariants: { allHold: true, checked: [], failed: [] }
+        invariants: { preserved: ['inv1'] }
       }
     ]
   };
@@ -48,8 +62,11 @@ function minimalData(overrides = {}) {
     schemaVersion: SCHEMA_VERSION,
     source: 'fixture',
     generatedAt: '2026-06-22T00:00:00Z',
+    propertyCatalog: [
+      { id: 'p1', label: 'Prop one', statement: 'Holds.', theorems: [ref('p1_thm')], invariants: ['inv1'] }
+    ],
     invariantCatalog: [
-      { id: 'inv1', label: 'Inv one', check: 'inv1B', module: 'M', mapModule: 'M' }
+      { id: 'inv1', label: 'Inv one', subsystem: 'ipc', meaning: 'Means.', predicate: ref('inv1'), preservedBy: [ref('send_preserves_inv1')] }
     ],
     scenarios: [minimalScenario()],
     ...overrides
@@ -82,18 +99,56 @@ test('validateTraceDataObject flags dangling op references', () => {
   assert.ok(errors.some((m) => m.includes('unknown thread ghost')));
 });
 
-test('validateTraceDataObject flags unknown invariant ids in checked', () => {
+test('validateTraceDataObject flags unknown invariant and property ids', () => {
   const data = minimalData();
-  data.scenarios[0].steps[0].invariants.checked = ['nope'];
+  data.scenarios[0].steps[0].invariants.preserved = ['nope'];
+  data.scenarios[0].steps[1].guarantees = ['ghost'];
+  data.scenarios[0].properties = ['missing'];
+  data.propertyCatalog[0].invariants = ['absent'];
   const errors = validateTraceDataObject(data);
   assert.ok(errors.some((m) => m.includes('unknown invariant nope')));
+  assert.ok(errors.some((m) => m.includes('unknown property ghost')));
+  assert.ok(errors.some((m) => m.includes('unknown property missing')));
+  assert.ok(errors.some((m) => m.includes('unknown invariant absent')));
 });
 
-test('validateTraceDataObject flags allHold/failed contradiction', () => {
+test('validateTraceDataObject requires every invariant to name its predicate and a preserving theorem', () => {
   const data = minimalData();
-  data.scenarios[0].steps[0].invariants.failed = ['inv1'];
+  data.invariantCatalog[0].preservedBy = [];
+  delete data.invariantCatalog[0].predicate;
   const errors = validateTraceDataObject(data);
-  assert.ok(errors.some((m) => m.includes('allHold is true but failed is non-empty')));
+  assert.ok(errors.some((m) => m.includes('preservedBy must name at least 1')));
+  assert.ok(errors.some((m) => m.includes('predicate must be a { name, module } reference')));
+});
+
+test('a refused step may not change state: an error returns no successor state', () => {
+  const data = minimalData();
+  const step = data.scenarios[0].steps[1];
+  step.outcome = { status: 'error', error: 'illegalAuthority' };
+  step.path[2] = { ...step.path[2], result: 'fail', error: 'illegalAuthority' };
+  step.path[3] = { ...step.path[3], result: 'skip' };
+  const errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('changes state, but the step was refused')), errors.join('\n'));
+  step.delta.ops = [{ op: 'note', text: 'refused' }];
+  assert.deepEqual(validateTraceDataObject(data), []);
+});
+
+test('a syscall path names exactly the stage that refused, and skips the rest', () => {
+  const data = minimalData();
+  const step = data.scenarios[0].steps[1];
+  step.delta.ops = [];
+  step.outcome = { status: 'error', error: 'illegalAuthority' };
+  let errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('exactly one refusing stage')));
+  step.path[2] = { ...step.path[2], result: 'fail', error: 'invalidCapability' };
+  errors = validateTraceDataObject(data);
+  assert.ok(errors.some((m) => m.includes('must match the step\'s outcome error')));
+  assert.ok(errors.some((m) => m.includes('must be "skip"')));
+  step.path[2].error = 'illegalAuthority';
+  step.path[3].result = 'skip';
+  assert.deepEqual(validateTraceDataObject(data), []);
+  step.path.reverse();
+  assert.ok(validateTraceDataObject(data).some((m) => m.includes('out of order')));
 });
 
 test('validateTraceDataObject detects duplicate run-queue entries', () => {
@@ -250,15 +305,16 @@ test('touchedEntities collects CDT node ids', () => {
 
 /* ── Untyped memory ops ─────────────────────────────────────── */
 
-test('untypedRetype advances the watermark and untypedRevoke reclaims it', () => {
+test('untypedRetype advances the watermark and untypedReset reclaims it', () => {
   const state = { untyped: [{ id: 'ut', label: 'RAM', regionBase: 0, regionSize: 1024, watermark: 0, children: [] }] };
   applyOp(state, { op: 'untypedRetype', untyped: 'ut', child: { id: 'o1', type: 'TCB', size: 256 } });
   applyOp(state, { op: 'untypedRetype', untyped: 'ut', child: { id: 'o2', type: 'CNode', size: 128 } });
   assert.equal(state.untyped[0].watermark, 384);
   assert.equal(state.untyped[0].children.length, 2);
-  applyOp(state, { op: 'untypedRevoke', untyped: 'ut' });
+  applyOp(state, { op: 'untypedReset', untyped: 'ut' });
   assert.equal(state.untyped[0].watermark, 0);
   assert.deepEqual(state.untyped[0].children, []);
+  assert.throws(() => applyOp(state, { op: 'untypedReset', untyped: 'ghost' }), /unknown untyped ghost/);
 });
 
 test('untypedRetype throws on an unknown region', () => {
@@ -273,42 +329,108 @@ test('validateTraceDataObject flags an untyped watermark exceeding its region', 
   assert.ok(errors.some((m) => m.includes('watermark 200 exceeds region size 100')));
 });
 
-/* ── Information-flow ops ───────────────────────────────────── */
-
-test('ifPolicyAdd/Remove mutate the flow policy; flowCheck is event-only', () => {
-  const state = { infoflow: { domains: [{ id: 'lo' }, { id: 'hi' }], policy: [['lo', 'hi']] } };
-  applyOp(state, { op: 'flowCheck', from: 'hi', to: 'lo', allowed: false });
-  assert.deepEqual(state.infoflow.policy, [['lo', 'hi']]); // unchanged by a check
-  applyOp(state, { op: 'ifPolicyAdd', from: 'hi', to: 'lo' });
-  assert.deepEqual(state.infoflow.policy, [['lo', 'hi'], ['hi', 'lo']]);
-  applyOp(state, { op: 'ifPolicyRemove', from: 'hi', to: 'lo' });
-  assert.deepEqual(state.infoflow.policy, [['lo', 'hi']]);
+test('the retired ops are rejected: the kernel has no untypedRevoke, policy edits or services', () => {
+  for (const op of ['untypedRevoke', 'ifPolicyAdd', 'ifPolicyRemove', 'servicePatch']) {
+    const data = minimalData();
+    data.scenarios[0].steps[1].delta.ops.push({ op });
+    assert.ok(validateTraceDataObject(data).some((m) => m.includes(op)), op);
+  }
 });
 
-test('ifPolicyAdd throws on an unknown domain; validator flags dangling policy edges', () => {
-  assert.throws(() => applyOp({ infoflow: { domains: [{ id: 'lo' }], policy: [] } }, { op: 'ifPolicyAdd', from: 'ghost', to: 'lo' }), /unknown domain ghost/);
+/* ── Capability revocation ──────────────────────────────────── */
+
+test('cdtRevoke destroys the derivations and keeps the revoked capability', () => {
+  const state = {
+    cdt: {
+      nodes: [{ id: 'root' }, { id: 'mid' }, { id: 'leaf' }, { id: 'other' }],
+      edges: [['root', 'mid'], ['mid', 'leaf'], ['root', 'other']]
+    }
+  };
+  applyOp(state, { op: 'cdtRevoke', node: 'mid' });
+  assert.deepEqual(state.cdt.nodes.map((n) => n.id), ['root', 'mid', 'other']);
+  assert.deepEqual(state.cdt.edges, [['root', 'mid'], ['root', 'other']]);
+  assert.throws(() => applyOp(state, { op: 'cdtRevoke', node: 'ghost' }), /unknown node ghost/);
+});
+
+/* ── Information-flow ops ───────────────────────────────────── */
+
+test('auditAppend records a declassification; flowCheck is event-only; the policy never changes', () => {
+  const state = { infoflow: { domains: [{ id: 'lo' }, { id: 'hi' }], policy: [['lo', 'hi']] } };
+  applyOp(state, { op: 'flowCheck', from: 'hi', to: 'lo', allowed: false });
+  applyOp(state, { op: 'auditAppend', entry: { from: 'hi', to: 'lo', label: 'release' } });
+  assert.deepEqual(state.infoflow.policy, [['lo', 'hi']]);
+  assert.deepEqual(state.infoflow.audit, [{ from: 'hi', to: 'lo', label: 'release' }]);
+});
+
+test('auditAppend throws on an unknown domain; validator flags dangling policy edges', () => {
+  assert.throws(() => applyOp({ infoflow: { domains: [{ id: 'lo' }], policy: [] } }, { op: 'auditAppend', entry: { from: 'ghost', to: 'lo' } }), /two known domains/);
+  assert.throws(() => applyOp({}, { op: 'auditAppend', entry: { from: 'a', to: 'b' } }), /no infoflow state/);
   const data = minimalData();
   data.scenarios[0].initialState.infoflow = { domains: [{ id: 'lo' }], policy: [['lo', 'ghost']] };
   const errors = validateTraceDataObject(data);
   assert.ok(errors.some((m) => m.includes('infoflow policy[0] to ghost is not a domain')));
 });
 
-/* ── Service orchestration ops ──────────────────────────────── */
+/* ── Grounding (trace-anchors) ──────────────────────────────── */
 
-test('servicePatch updates a service and throws on an unknown id', () => {
-  const state = { services: [{ id: 'a', status: 'stopped', deps: ['b'] }, { id: 'b', status: 'stopped', deps: [] }] };
-  applyOp(state, { op: 'servicePatch', id: 'b', set: { status: 'running' } });
-  assert.equal(state.services[1].status, 'running');
-  assert.throws(() => applyOp(state, { op: 'servicePatch', id: 'ghost', set: {} }), /unknown service ghost/);
+const DEMO_SOURCES = {
+  'SeLe4n/Kernel/Demo.lean': [
+    '/-- `def send` in a doc comment is not a declaration. -/',
+    'namespace Demo',
+    'def entry : Nat := 0',
+    '',
+    'def lookup : Nat := 1',
+    'theorem p1_thm : True := trivial',
+    'def inv1 : Prop := True',
+    'theorem send_preserves_inv1 : True := trivial',
+    'def send : Nat := 2',
+    'end Demo'
+  ].join('\n'),
+  'SeLe4n/Model/Object/Types.lean': 'inductive SyscallId where\n  | send\n  | receive\n  deriving Repr\n',
+  'SeLe4n/Model/KernelError.lean': 'inductive KernelError where\n  | illegalAuthority\n  | invalidCapability\n  deriving Repr\n',
+  'SeLe4n/Kernel/API.lean': 'def syscallRequiredRight : SyscallId → AccessRight\n  | .send => .write\n  | .receive => .read\n\ndef other := 0\n'
+};
+const readDemo = (path) => DEMO_SOURCES[path];
+
+test('collectTraceRefs finds every reference: catalog theorems, predicates, step refs and path stages', () => {
+  const names = collectTraceRefs(minimalData()).map(({ ref }) => ref.name).sort();
+  assert.deepEqual(names, ['entry', 'inv1', 'lookup', 'p1_thm', 'send', 'send', 'send_preserves_inv1'].sort());
 });
 
-test('validateTraceDataObject detects a service dependency cycle and dangling deps', () => {
+test('anchorTraceRefs stamps path and line, skips comments, and reports what it cannot place', () => {
   const data = minimalData();
-  data.scenarios[0].initialState.services = [{ id: 'a', deps: ['b'] }, { id: 'b', deps: ['a'] }];
-  assert.ok(validateTraceDataObject(data).some((m) => m.includes('cycle')));
-  data.scenarios[0].initialState.services = [{ id: 'a', deps: ['ghost'] }];
-  assert.ok(validateTraceDataObject(data).some((m) => m.includes('depends on unknown ghost')));
+  assert.deepEqual(anchorTraceRefs(data, readDemo), []);
+  const send = data.scenarios[0].steps[1].sourceRefs[0];
+  assert.equal(send.path, 'SeLe4n/Kernel/Demo.lean');
+  assert.equal(send.line, 9);
+  assert.equal(data.propertyCatalog[0].theorems[0].line, 6);
+
+  const missing = minimalData();
+  missing.scenarios[0].steps[1].sourceRefs = [ref('gone'), ref('x', 'SeLe4n.Nowhere')];
+  const unresolved = anchorTraceRefs(missing, readDemo);
+  assert.equal(unresolved.length, 2);
+  assert.match(unresolved[0], /gone in SeLe4n\.Kernel\.Demo/);
+  assert.match(unresolved[1], /no such file/);
+  assert.equal(missing.scenarios[0].steps[1].sourceRefs[0].line, undefined);
 });
+
+test('requiredRightTable reads syscallRequiredRight arms and stops at the next declaration', () => {
+  assert.deepEqual(requiredRightTable(DEMO_SOURCES['SeLe4n/Kernel/API.lean']), { send: 'write', receive: 'read' });
+  assert.equal(requiredRightTable('def unrelated := 0'), undefined);
+});
+
+test('checkTraceKernelFacts rejects an unknown syscall, a wrong required right and an unknown error', () => {
+  assert.deepEqual(checkTraceKernelFacts(minimalData(), readDemo), []);
+  const data = minimalData();
+  data.scenarios[0].steps[1].syscall.requiredRight = 'grant';
+  data.scenarios[0].steps.push({ index: 2, kind: 'syscall', syscall: { id: 'declassifyStore', requiredRight: 'write' }, outcome: { status: 'error', error: 'noSuchError' } });
+  const issues = checkTraceKernelFacts(data, readDemo);
+  assert.ok(issues.some((m) => m.includes('send requires "write"')));
+  assert.ok(issues.some((m) => m.includes('"declassifyStore" is not a SyscallId constructor')));
+  assert.ok(issues.some((m) => m.includes('"noSuchError" is not a KernelError constructor')));
+  assert.ok(checkTraceKernelFacts(minimalData(), () => undefined).length >= 3);
+});
+
 
 /* ── VSpace / W^X ops ───────────────────────────────────────── */
 
