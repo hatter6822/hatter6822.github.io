@@ -4008,6 +4008,18 @@
       .toLowerCase();
   }
 
+  /* A cheap necessary condition for two names to share a bridge key:
+     toBridgeKey only lowercases and inserts underscores, so equal keys mean
+     equal names once case and underscores are dropped. Lean has ~20k
+     declaration names and the Rust side ~4k exported items; screening with
+     this first runs the three-regex key on the few hundred Lean names that
+     can match instead of on all of them. */
+  function bridgeScreenKey(name) {
+    var raw = String(name || "").replace(/^r#/, "");
+    if (!raw || raw.charAt(0) === "<") return "";
+    return raw.toLowerCase().replace(/_/g, "");
+  }
+
   function bridgeRelation(rustKind, leanKind, crateName) {
     if (rustKind !== "fn") return "shares";
     if (BRIDGE_FOREIGN_LEAN_KINDS[leanKind]) return "implements";
@@ -4019,8 +4031,10 @@
 
   /* Lean declarations by normalised name. A name declared several times keeps
      every declaration: the same type can be named in a structure and restated
-     in an abbreviation, and both are real. */
-  function leanDeclarationsByBridgeKey() {
+     in an abbreviation, and both are real. `screen`, when given, is the set of
+     bridgeScreenKey values that can match at all; other names are skipped
+     before their key is computed. */
+  function leanDeclarationsByBridgeKey(screen) {
     var index = Object.create(null);
     for (var i = 0; i < state.modules.length; i++) {
       var moduleName = state.modules[i];
@@ -4035,6 +4049,7 @@
         for (var j = 0; j < list.length; j++) {
           var entry = list[j];
           var declName = entry && typeof entry === "object" ? entry.name : entry;
+          if (screen && !screen[bridgeScreenKey(declName)]) continue;
           var key = toBridgeKey(declName);
           if (!key) continue;
           if (!index[key]) index[key] = [];
@@ -4058,7 +4073,6 @@
       return state.bridge;
     }
 
-    var leanIndex = leanDeclarationsByBridgeKey();
     var byRust = Object.create(null);
     var byLean = Object.create(null);
     var edges = Object.create(null);
@@ -4076,6 +4090,10 @@
       }
     }
 
+    /* The Rust side first: the items that may cross the boundary, and the
+       screen their names give the Lean index. */
+    var candidates = [];
+    var screen = Object.create(null);
     for (var i = 0; i < state.rustGraph.nodes.length; i++) {
       var nodeName = state.rustGraph.nodes[i];
       var node = state.rustGraph.byName[nodeName];
@@ -4092,35 +4110,46 @@
            emptying the boundary (see carriesExportFlag). */
         if (!(carriesExportFlag ? item.exported === true : item.visibility === "pub")) continue;
         if (!BRIDGE_RUST_KINDS[item.kind]) continue;
-        var matches = leanIndex[toBridgeKey(item.name)];
-        if (!matches) continue;
-        for (var m = 0; m < matches.length; m++) {
-          var lean = matches[m];
-          var relation = bridgeRelation(item.kind, lean.kind, node.crateName);
-          var edgeKey = nodeName + "\u0000" + lean.module + "\u0000" + relation;
-          var edge = edges[edgeKey];
-          if (!edge) {
-            edge = edges[edgeKey] = {
-              rustNode: nodeName,
-              leanModule: lean.module,
-              relation: relation,
-              links: []
-            };
-            if (!byRust[nodeName]) byRust[nodeName] = [];
-            if (!byLean[lean.module]) byLean[lean.module] = [];
-            byRust[nodeName].push(edge);
-            byLean[lean.module].push(edge);
-          }
-          edge.links.push({
-            leanName: lean.name,
-            leanKind: lean.kind,
-            leanLine: lean.line,
-            rustName: String(item.name),
-            rustKind: String(item.kind),
-            rustLine: item.line || 0
-          });
-          links += 1;
+        var screenKey = bridgeScreenKey(item.name);
+        if (!screenKey) continue;
+        screen[screenKey] = true;
+        candidates.push({ nodeName: nodeName, node: node, item: item });
+      }
+    }
+
+    var leanIndex = leanDeclarationsByBridgeKey(screen);
+    for (var c = 0; c < candidates.length; c++) {
+      nodeName = candidates[c].nodeName;
+      node = candidates[c].node;
+      item = candidates[c].item;
+      var matches = leanIndex[toBridgeKey(item.name)];
+      if (!matches) continue;
+      for (var m = 0; m < matches.length; m++) {
+        var lean = matches[m];
+        var relation = bridgeRelation(item.kind, lean.kind, node.crateName);
+        var edgeKey = nodeName + "\u0000" + lean.module + "\u0000" + relation;
+        var edge = edges[edgeKey];
+        if (!edge) {
+          edge = edges[edgeKey] = {
+            rustNode: nodeName,
+            leanModule: lean.module,
+            relation: relation,
+            links: []
+          };
+          if (!byRust[nodeName]) byRust[nodeName] = [];
+          if (!byLean[lean.module]) byLean[lean.module] = [];
+          byRust[nodeName].push(edge);
+          byLean[lean.module].push(edge);
         }
+        edge.links.push({
+          leanName: lean.name,
+          leanKind: lean.kind,
+          leanLine: lean.line,
+          rustName: String(item.name),
+          rustKind: String(item.kind),
+          rustLine: item.line || 0
+        });
+        links += 1;
       }
     }
 
@@ -6260,6 +6289,7 @@
       rustFlowLegendItems: rustFlowLegendItems,
       bridgeLegendItems: bridgeLegendItems,
       toBridgeKey: toBridgeKey,
+      bridgeScreenKey: bridgeScreenKey,
       bridgeRelation: bridgeRelation,
       buildBridgeIndex: buildBridgeIndex,
       bridgeIndex: function () { return state.bridge; },

@@ -2377,6 +2377,23 @@ test('a module hangs off the module that declares it, up to its target root', as
   assert.ok(topLevelHalModules > 20, `expected the HAL to carry a real module tree, got ${topLevelHalModules}`);
 });
 
+/* buildBridgeIndex screens Lean names with bridgeScreenKey before computing
+   their bridge key. The screen is sound only if equal keys imply equal
+   screens, i.e. the screen is the key with its underscores dropped — checked
+   here over every declaration name and Rust item in the bundle. */
+test('the bridge screen never drops a name the bridge key would match', async () => {
+  const { hooks, raw } = await loadBundledState();
+  const names = [];
+  for (const meta of Object.values(raw.moduleMeta)) for (const items of Object.values(meta.symbols.byKind)) for (const item of items) names.push(item.name);
+  for (const crate of raw.rust.crates) for (const file of crate.files) for (const item of file.items || []) names.push(item.name);
+  names.push('r#match', 'HTTPServer', 'ffi_gic_acknowledge', 'MAX_LABEL', '<anonymous:instance:1>', '');
+  for (const name of names) {
+    assert.equal(hooks.bridgeScreenKey(name), hooks.toBridgeKey(name).replace(/_/g, ''), `screen of ${JSON.stringify(name)}`);
+  }
+  hooks.buildBridgeIndex();
+  assert.ok(hooks.bridgeIndex().links > 100, 'the screened index still finds the boundary');
+});
+
 test('two declarations are the same declaration once case convention is normalised away', async () => {
   const hooks = await loadMapTestHooks();
   assert.equal(hooks.toBridgeKey('ffiGicAcknowledge'), 'ffi_gic_acknowledge');
