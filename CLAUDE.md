@@ -93,32 +93,46 @@ Several files exceed 500 lines:
 
 ## Key Architectural Conventions
 
-### Runtime data strategy (local-first)
+### Runtime data strategy (bundle-only)
 
-1. Load bundled `data/*.json` immediately
-2. Hydrate from browser `localStorage` cache if newer
-3. Attempt live refresh from GitHub APIs (with cooldown + jitter)
-4. Fall back gracefully if network refresh fails
+Every page renders its bundled `data/*.json` and nothing else, and every
+page pins `connect-src 'self'`. There is no live refresh and no
+`localStorage` data cache anywhere. Each page once had one, and each time it
+became a second pipeline that disagreed with the first (see below for the
+landing page, the code map and the simulator in turn). The weekly sync
+workflow keeps the bundles current instead.
 
-**The landing page and the simulator are exempt from steps 2-4 and must stay
-that way** (the simulator's reasons are under "Simulator" below). Its
-statistics come from `data/site-data.json` alone, which
+The landing page's statistics come from `data/site-data.json` alone, which
 `scripts/sync-upstream.mjs` projects offline from the kernel's canonical
-`docs/codebase_map.json`; `index.html` ships with those same values stamped into
-the markup, so a failed fetch degrades to the correct numbers. `connect-src` is
-`'self'` on that page to keep it that way.
+`docs/codebase_map.json`; `index.html` ships with those same values stamped
+into the markup, so a failed fetch degrades to the correct numbers.
 
-**`map.html` is bundle-first in practice.** The serialized map snapshot is past
-the ~5M-unit `localStorage` quota, so step 2 never has anything to hydrate:
-`setCache()` skips the write above `CACHE_MAX_CHARS` (4 MiB of UTF-16 units)
-and returns `false` instead of throwing into an empty `catch`. The cache code
-stays (it works for smaller snapshots and the unit tests cover it), but no
-feature may depend on the map cache persisting between visits.
+**`map.html` renders `data/map-data.json` and nothing else** — plus
+`data/map-callgraph.json`, the declaration call graph split from it in the same
+run, fetched the first time a declaration is shown (at boot when the URL
+carries `decl=`) and refused unless its `commitSha` is the snapshot's. Until it
+lands the declaration view says it is loading rather than claiming the
+declaration has no calls. Boot is one same-origin fetch, `normalizeMapData()`,
+a yield, render; a failed fetch shows
+`map.status_load_failed` in the status line, and success shows
+`map.status_ready_integrated` with the snapshot's commit. Through 0.32.0 the page
+also refreshed live on every boot, focus and reconnect: it downloaded the
+10 MB upstream artifact (which carries no import edges), replaced the bundled
+graph with it — Import Edges 1,139 → 0, from an older commit — and then fetched
+every Lean file to regex the edges back, silently dropping failures. That was a
+second data pipeline, which the next section forbids; the weekly
+`.github/workflows/sync-sele4n-data.yml` keeps the bundle current through the
+one pipeline instead. There is no `localStorage` copy of the snapshot (it never
+fit the quota) and no refresh loop; `purgeLegacyStorage()` removes the retired
+keys from returning visitors. `connect-src` is `'self'` on every page, and
+`csp-html.test.mjs` pins it; `map-runtime.test.mjs` pins that `map.js` fetches
+only named `data/*.json` endpoints, and `map-smoke.mjs` fails on any request
+that leaves the origin.
 
 ### One pipeline, one revision
 
 `scripts/sync-upstream.mjs` is the only thing that fetches upstream. It clones
-seLe4n once and writes all three `data/*.json` snapshots from that single
+seLe4n once and writes all four `data/*.json` snapshots from that single
 checkout, after verifying the canonical artifact's `source_sync.source_digest`
 over the Lean sources it ships with.
 
@@ -327,7 +341,7 @@ scope toggle. Production code is the subject in every scope.
   chooser fell back to the top-scored module,
   `SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership`. Never
   reintroduce the score heuristic as a default, and keep `Main.lean` in the
-  tree path (`isLeanModulePath`).
+  production scope (`isProductionModule`).
 - A lane with more modules than the detail budget groups them by
   `moduleSubsystem()` (the parent namespace, capped at three segments) and opens
   each group in place. The budget cut ("+38 more imports") is kept only for
@@ -488,26 +502,17 @@ scope toggle. Production code is the subject in every scope.
   cfg(loom)"), dev-dependencies as "test-only", build dependencies as
   "build-time"; only unconditional tables are "external". A dependency is
   navigable when it names a workspace member, whichever table it came from.
-- A live refresh may carry no repository tree (the canonical artifact lists
-  only Lean modules) and never carries a Rust inventory. `retainInventory()`
-  keeps the previous tree and crates in that case and records the commit each
-  was taken at, so the Rust half does not empty out on a networked visit. A
-  tree refresh changes the Lean declarations, so `buildBridgeIndex()` must run
-  again with it — and **before** `buildPairs()`, which stamps the header's
-  Boundary Links from `state.bridge`. Rebuilding afterwards published a total
-  one refresh behind the bands drawn from it.
-- A canonical refresh names its revision as `repository.head.commit_sha`;
-  `normalizeCanonicalPayload` adopts it as `commitSha`. Rust nodes link at
-  `state.rustCommit` and Lean modules at `state.commitSha`
-  (`nodeSourceRef()`), because the two halves can be a commit apart. When they
-  are, `renderInventoryProvenance()` says so under the "Generated" stamp
-  (`#map-inventory-note`, `map.inventory_retained`) — the header publishes Rust
-  Modules and Boundary Links beside one timestamp, which otherwise reads as a
-  single coherent snapshot. The note is hidden when the two agree.
+- Both halves come from one snapshot and so from one commit: every source
+  link, Lean or Rust, names `state.commitSha` (`nodeSourceRef()`), never
+  `main`, and the header's figures all describe the revision beside the
+  "Generated" stamp. The retained-inventory machinery that let the Rust half
+  sit a commit behind a live-refreshed Lean graph (`retainInventory()`,
+  `#map-inventory-note`) went with the live refresh.
 - `node scripts/map-smoke.mjs` renders the page in headless Chromium and
   asserts the guarantees above (chart at 1:1 at 1200–1920 in **both** scopes,
   sidebar placement, the pinned sidebar at 720p, no sideways overflow, clean
-  console, both themes, a Spanish deep link, a locale held back until after the
+  console and no request that leaves the origin, the status line naming the
+  snapshot's commit, both themes, a Spanish deep link, a locale held back until after the
   snapshot paints, the scope toggle end to end, the boundary band's direction,
   crossing into the other language, a Rust deep link, tappable scope options on
   a phone, and nothing clipped in the sidebar). `.github/workflows/ci.yml` runs
@@ -717,11 +722,30 @@ invariants it preserves). Its data is `data/execution-traces.json`, schema
 - Legacy top-level maps (`moduleMap`, `importsFrom`, `moduleMeta`) are fallbacks only
 - Branch-ref metadata keys (e.g. `main`) are excluded from module inventories
 - Declaration-centric payloads (`modules[].declarations`) are projected into symbol buckets
-- `moduleMeta[].symbols.callGraph` ships in the bundled snapshot; every key must
-  also appear in that module's `byKind` lists (`validate-data.mjs` asserts it),
-  because the runtime resolves a declaration through one and its calls through
-  the other
+- The call graph ships in `data/map-callgraph.json` (`{ commitSha,
+  sourceDigest, metricsSource, generatedAt, callGraph: { module: { decl:
+  [targets] } } }`), split off by `splitCallGraph()`; `map-data.json` carries
+  none (`validate-data.mjs` rejects an inline copy). `validateCrossFile` fails
+  when the two files disagree on `commitSha` or `sourceDigest`, names a module
+  the snapshot does not graph, or carries a caller that module's `byKind` lists
+  do not — the runtime resolves a declaration through one and its calls
+  through the other
+- No derived copies are shipped: `symbols.theorems`/`functions`, `importsTo`
+  and empty `byKind` arrays are rebuilt by the runtime and rejected by
+  `validate-data.mjs`
 - Reverse import edges (`importsTo`) are always rebuilt from `importsFrom`
+- **A declaration is its module and its name.** The artifact records short
+  names, and 171 of them are declared in more than one module (`leaves` in
+  both `BarrierComposition` and `TlbCacheComposition`). The name-keyed
+  indexes (`declarationGraph`, `declarationIndex`, `declarationReverseGraph`)
+  stay for callers that know no module; everything that does — the URL's
+  `module=` beside `decl=`, a sidebar row, a lane node — asks the module-aware
+  lookups (`declarationEntryIn`, `declarationCalls(name, module)`,
+  `declarationCallerRefs`, `declarationCalleeRefs`). A bare call target is
+  placed by `resolveDeclarationModule()`: the calling module's own
+  declaration, then one in a module it imports, then the first declarer. A
+  deep link to a colliding name once switched the chart to the other module
+  and quoted the first module's line for it.
 
 ### CSS override weight (media queries add no specificity)
 
@@ -769,6 +793,11 @@ the bullet everywhere it spoke.
 - Generated content contributes nothing to `scrollHeight`, so an overflow
   check over the row will not see it. A probe for a chip has to measure the
   chip (`getComputedStyle(el, '::before')`) — `map-smoke.mjs` now does.
+- Sidebar rows carry `content-visibility: auto`, so a row scrolled out of the
+  list is not laid out and can never measure as clipped. A probe over the rows
+  sets `content-visibility: visible` on them (through CSSOM — the CSP refuses
+  an injected `<style>`) for the duration of the reading, as `map-smoke.mjs`
+  does.
 
 ### A winning declaration can still do nothing (inline boxes)
 

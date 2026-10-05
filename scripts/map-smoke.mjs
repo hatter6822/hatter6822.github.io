@@ -17,8 +17,9 @@
  * appear in the combined scope and vanish in the single-language ones, and a
  * boundary node has to carry the reader across into the other language.
  *
- * Live GitHub refreshes are blocked inside the page so the run is deterministic
- * and equivalent to an offline visit.
+ * The page renders the bundled snapshot and nothing else, so the run is
+ * deterministic; any request that leaves the server's origin is recorded as an
+ * error and fails the "no console errors" checks.
  *
  * Requirements (not repository dependencies):
  *   npm install --no-save playwright-core       # or any directory on NODE_PATH
@@ -81,11 +82,6 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en', 
   await context.addInitScript(([t, l]) => {
     try { localStorage.setItem('sele4n-theme', t); } catch (e) {}
     try { localStorage.setItem('sele4n-locale-v1', l); } catch (e) {}
-    const origFetch = window.fetch;
-    window.fetch = function (url, opts) {
-      if (typeof url === 'string' && /github/.test(url)) return Promise.reject(new Error('blocked by map-smoke'));
-      return origFetch.call(this, url, opts);
-    };
   }, [theme, locale]);
   const page = await context.newPage();
   // Hold the locale JSON back so it lands after the snapshot has painted.
@@ -96,15 +92,27 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en', 
     });
   }
   const errors = [];
+  /* The declaration call graph is its own file, fetched on first use. */
+  const callGraphRequests = [];
   page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
   page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
+  /* The page renders the bundled snapshot and nothing else: any request that
+     leaves the origin is a second data source creeping back, so it fails
+     every "no console errors" check below. */
+  const origin = new URL(BASE).origin;
+  page.on('request', (req) => {
+    const url = req.url();
+    if (/^(data|blob):/.test(url)) return;
+    if (new URL(url).origin !== origin) errors.push(`cross-origin request: ${url}`);
+    if (/\/data\/map-callgraph\.json(\?.*)?$/.test(url)) callGraphRequests.push(url);
+  });
   await page.goto(`${BASE}/map.html${query}`, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => {
     const status = document.getElementById('map-status');
     return status && !/Loading codebase map/.test(status.textContent);
   }, null, { timeout: 30000 });
   await page.waitForTimeout(400);
-  return { context, page, errors };
+  return { context, page, errors, callGraphRequests };
 }
 
 function metrics(page) {
@@ -117,6 +125,15 @@ function metrics(page) {
     };
     const svg = document.querySelector('.flowchart-svg');
     const wrap = document.getElementById('flowchart-wrap');
+    /* Sidebar rows carry `content-visibility: auto`, and a row scrolled out
+       of the list is not laid out, so it could never read as clipped. The
+       row checks lay every row out for the duration of the reading. */
+    const everyRowRendered = (read) => {
+      /* Through CSSOM: the page's CSP refuses an injected <style>. */
+      const rows = Array.from(document.querySelectorAll('.interior-menu-item'));
+      rows.forEach((li) => { li.style.contentVisibility = 'visible'; });
+      try { return read(); } finally { rows.forEach((li) => { li.style.removeProperty('content-visibility'); }); }
+    };
     return {
       url: location.search,
       search: document.getElementById('module-search').value,
@@ -136,14 +153,14 @@ function metrics(page) {
       tabs: Array.from(document.querySelectorAll('.interior-menu-tab')).map((t) => t.getAttribute('aria-selected')),
       tabLabels: Array.from(document.querySelectorAll('.interior-menu-tab')).map((t) => t.textContent.trim()),
       declarationItems: document.querySelectorAll('.interior-menu-item').length,
-      clippedItems: Array.from(document.querySelectorAll('.interior-menu-item')).filter((li) => li.scrollHeight > li.clientHeight + 1).length,
+      clippedItems: everyRowRendered(() => Array.from(document.querySelectorAll('.interior-menu-item')).filter((li) => li.scrollHeight > li.clientHeight + 1).length),
       /* The `pub` chip is generated content, so it contributes nothing to
          scrollHeight: the clipped reading above stayed green through a release
          in which the chip was an absolutely positioned 6px box — the card's
          prose bullet reaching this list — with the word painted across the
          row's corner. So measure the chip itself: in flow, sized by its own
          text, and the name starting clear of it. */
-      pubChips: (function () {
+      pubChips: everyRowRendered(function () {
         const rows = Array.from(document.querySelectorAll('.interior-menu-item[data-visibility="pub"]'));
         const broken = rows.filter((li) => {
           const chip = window.getComputedStyle(li, '::before');
@@ -161,7 +178,7 @@ function metrics(page) {
           return label.left - row.left < width && label.top - row.top < height;
         });
         return { total: rows.length, broken: broken.length };
-      })(),
+      }),
       stats: Array.from(document.querySelectorAll('[data-map]')).map((el) => `${el.getAttribute('data-map')}=${el.textContent}`),
       scope: (document.querySelector('.map-scope-option.is-active') || {}).dataset?.scope || '',
       scopeOptions: Array.from(document.querySelectorAll('.map-scope-option')).map((b) => `${b.dataset.scope}:${b.textContent.trim()}`),
@@ -198,9 +215,13 @@ async function shot(page, name) {
 
 {
   console.log('\n[desktop 1440x900 dark]');
-  const { context, page, errors } = await open(1440, 900);
+  const { context, page, errors, callGraphRequests } = await open(1440, 900);
   const m = await metrics(page);
   check(m.search === 'SeLe4n.Kernel.API', 'workspace opens on SeLe4n.Kernel.API');
+  check(callGraphRequests.length === 0, `the module view fetches no call graph (${callGraphRequests.length} request(s))`);
+  const status = await page.textContent('#map-status');
+  const statusError = await page.evaluate(() => document.getElementById('map-status').classList.contains('error'));
+  check(!statusError && status.includes(`Snapshot of commit ${MAP_DATA.commitSha.slice(0, 7)}`), `the status line names the bundled snapshot's commit (${JSON.stringify(status)})`);
   check(m.url === '' || /module=SeLe4n\.Kernel\.API/.test(m.url), 'first-load URL is clean or names the default module');
   check(m.laneGroups >= 5, `over-budget lanes are grouped by subsystem (${m.laneGroups} groups)`);
   check(m.tabs.length === 3 && m.tabs[0] === 'true', 'declaration sidebar shows three tabs with Objects selected');
@@ -253,6 +274,9 @@ async function shot(page, name) {
   }));
   check(listbox.length > 0 && listbox.every((row) => row.marker === 'none' && row.padLeft <= row.padRight + 1),
     `the search listbox rows are the listbox's own (${listbox.length} option(s), first ${JSON.stringify(listbox[0] || null)})`);
+  const typed = await page.evaluate(() => ({ url: location.search, first: (document.querySelector('.module-search-option') || {}).textContent || '' }));
+  check(!/module=SeLe4n\.Kernel\.API(&|$)/.test(typed.url), `typing alone selects nothing (${typed.url})`);
+  check(/^SeLe4n\.Kernel\.API\b/.test(typed.first.trim()), `the exactly typed module leads the suggestions (${typed.first.trim().slice(0, 60)})`);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(400);
   await page.click('.interior-menu-item-btn');
@@ -263,6 +287,7 @@ async function shot(page, name) {
     url: location.search
   }));
   check(decl.breadcrumb && decl.active === 1 && /decl=/.test(decl.url), 'a sidebar declaration click enters declaration context right after a search');
+  check(callGraphRequests.length === 1, `the first declaration fetches the call graph, once (${callGraphRequests.length} request(s))`);
 
   await page.click('#reset-view');
   await page.waitForTimeout(400);
@@ -418,6 +443,25 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
 }
 
 {
+  /* A name two modules declare: the deep link has to stay on the module it
+     names and quote that module's line, not whichever module a name-keyed
+     index happened to keep. */
+  console.log('\n[deep link, colliding declaration name]');
+  const BARRIER = 'SeLe4n.Kernel.Architecture.BarrierComposition';
+  const barrierLine = Object.values(MAP_DATA.moduleMeta[BARRIER].symbols.byKind).flat().find((item) => item.name === 'leaves')?.line;
+  const { context, page, errors, callGraphRequests } = await open(1440, 900, { query: `?module=${BARRIER}&decl=leaves` });
+  const m = await metrics(page);
+  check(callGraphRequests.length === 1, `a declaration deep link fetches the call graph at boot (${callGraphRequests.length} request(s))`);
+  check(m.laneLabels.some((label) => /Called by/.test(label)) && !m.laneLabels.some((label) => /Loading|could not be loaded/.test(label)),
+    `the deep link draws its callers from the loaded call graph (${JSON.stringify(m.laneLabels)})`);
+  check(m.search === `${BARRIER}.leaves` && /module=SeLe4n\.Kernel\.Architecture\.BarrierComposition/.test(m.url), `the deep link stays on BarrierComposition (${m.search}, ${m.url})`);
+  const center = await page.evaluate(() => (document.querySelector('.flow-node.active') || {}).textContent || '');
+  check(center.includes(`L${barrierLine}`) && !/TlbCacheComposition/.test(center), `the selected node quotes BarrierComposition's own line, L${barrierLine} (${JSON.stringify(center.slice(0, 160))})`);
+  check(errors.length === 0, `no console errors (colliding deep link) ${JSON.stringify(errors)}`);
+  await context.close();
+}
+
+{
   console.log('\n[deep link, es]');
   const { context, page, errors } = await open(1440, 900, { query: '?module=SeLe4n.Model.State&decl=SystemState', locale: 'es' });
   const m = await metrics(page);
@@ -441,6 +485,8 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
     `chart lane labels repainted into the late locale (${JSON.stringify(m.laneLabels)})`);
   check(m.legend.some((item) => /Importaciones \(dependencias\)|Importaciones/.test(item)), `the legend repainted too (${JSON.stringify(m.legend.slice(0, 3))})`);
   check(m.h2s.some((h) => /Espacio de trabajo/.test(h)), 'static headings translated by the late locale');
+  const lateStatus = await page.textContent('#map-status');
+  check(/^Mapa listo\./.test(lateStatus) && lateStatus.includes(MAP_DATA.commitSha.slice(0, 7)), `the status line repainted into the late locale (${JSON.stringify(lateStatus)})`);
   check(errors.length === 0, 'no console errors (late locale)');
   await context.close();
 }

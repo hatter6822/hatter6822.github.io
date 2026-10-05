@@ -19,6 +19,28 @@ const ROOT = new URL('../../', import.meta.url);
 // `data-style`, `style-src` (CSP directive), or a CSS file reference.
 const INLINE_STYLE_ATTR = /\sstyle\s*=\s*["']/g;
 
+/* The landing page and the code map render bundled snapshots only (see
+   "Runtime data strategy" in CLAUDE.md). connect-src 'self' is what keeps a
+   second data source from creeping back: the code map used to download the
+   upstream artifact and hundreds of Lean files on every visit, and replaced
+   the bundled graph with an edgeless one from another commit. */
+const SELF_ONLY_CONNECT = ['index.html', 'map.html'];
+
+function cspOf(html) {
+  const match = html.match(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"/i);
+  return match ? match[1] : '';
+}
+
+for (const page of SELF_ONLY_CONNECT) {
+  test(`${page} pins connect-src to 'self'`, async () => {
+    const html = await readFile(new URL(page, ROOT), 'utf8');
+    const csp = cspOf(html);
+    assert.ok(csp, `${page} should carry a Content-Security-Policy meta tag`);
+    const directive = csp.split(';').map((part) => part.trim()).find((part) => part.startsWith('connect-src'));
+    assert.equal(directive, "connect-src 'self'", `${page} connect-src should be exactly 'self', got: ${directive}`);
+  });
+}
+
 for (const page of PAGES) {
   test(`${page} has no inline style attributes (CSP style-src 'self')`, async () => {
     const html = await readFile(new URL(page, ROOT), 'utf8');

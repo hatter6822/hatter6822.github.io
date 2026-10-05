@@ -33,7 +33,7 @@ keeps the selected node when it survives the switch and falls back to that
 scope's own default when it does not. The section heading's badge names the
 active scope (`production · Lean 4 + Rust`).
 
-The hero above it is one compact block: title, lead, live status, the snapshot
+The hero above it is one compact block: title, lead, the load status (naming the snapshot's commit), the snapshot
 timestamp and a one-line stats strip (`Lean modules`, `Theorems`,
 `Import edges`, `Ops/Inv pairs`, `Linked pairs`, `Rust crates`,
 `Rust modules`, `Boundary links`). Every count is grouped by the active locale
@@ -54,8 +54,9 @@ the first. Its live tree rebuild then dropped `Main.lean` (the path filter only
 admitted `SeLe4n/**`), the selection became invalid, and the chooser fell back
 to the first entry of the score-sorted list,
 `SeLe4n.Kernel.IPC.Invariant.Structural.DualQueueMembership` — so a networked
-visitor saw one module for a few seconds and another afterwards. The tree path
-now keeps `Main.lean` (`isLeanModulePath`).
+visitor saw one module for a few seconds and another afterwards. The live
+tree rebuild has since been removed with the rest of the live refresh: the page
+renders the bundled snapshot alone.
 
 ### Subsystem-grouped lanes
 
@@ -106,18 +107,23 @@ tracks nested block-comment depth and strips string literals. Only the import
 edges are read from the Lean sources, because only the import edges are missing
 from the artifact.
 
-The snapshot also carries the declaration call graph
-(`moduleMeta[].symbols.callGraph`), so the declaration-context flowchart works
-from bundled data on first paint and offline.
+The declaration call graph ships beside it in `data/map-callgraph.json`, from
+the same run. Only the declaration view reads it and it is about two thirds of
+the combined size, so the runtime fetches it the first time a declaration is
+shown, or at boot (in parallel with the snapshot) when the URL carries `decl=`.
+It is refused unless it names the snapshot's commit; while it loads, or if it
+fails, the declaration view says so instead of claiming the declaration has no
+calls.
 
-`site-data.json` and `map-data.json` record the same `commitSha` and
-`sourceDigest`; `validate-data.mjs` fails when they disagree, when their module
-or theorem totals do, or when the call graph is missing entirely. See
+`site-data.json`, `map-data.json` and `map-callgraph.json` record the same
+`commitSha` and `sourceDigest`; `validate-data.mjs` fails when they disagree,
+when the first two disagree on module or theorem totals, when the call graph is
+missing entirely, or when a call-graph caller is not a declaration of its
+module in `map-data.json`. See
 `docs/ARCHITECTURE.md` §"One pipeline, one revision".
 
-The steps below describe the **runtime** in `assets/js/map.js`, which still
-refreshes its larger payload from GitHub with the bundled snapshot as its
-fallback.
+The steps below describe the **runtime** in `assets/js/map.js`, which renders
+the bundled snapshot and nothing else (`connect-src 'self'`).
 
 ## End-to-end pipeline
 
@@ -125,20 +131,13 @@ fallback.
    - Reads URL state (module/layer/detail/toggles).
    - Sets up theme/nav/filter/keyboard handlers.
 
-2. **Local-first load**
-   - Attempts cache + bundled `data/map-data.json`.
-   - Chooses freshest local dataset by generated timestamp.
+2. **Bundled load**
+   - Fetches `data/map-data.json` (same origin, through the HTTP cache) and nothing else. There is no `localStorage` copy and no refresh loop; the weekly sync workflow keeps the bundle current through `scripts/sync-upstream.mjs`.
+   - On failure the status line says the snapshot could not be loaded (`map.status_load_failed`); on success it names the snapshot's commit (`map.status_ready_integrated` + `map.status_snapshot_commit`).
+   - Until 0.32.0 the page also refreshed live on boot, focus, visibility and reconnect: it downloaded the 10 MB upstream artifact, which carries no import edges, replaced the bundled graph with it (Import Edges 1,139 → 0, from an older commit), and then fetched every Lean file to regex the edges back with failures swallowed. That was a second data pipeline and has been removed.
 
-3. **Live sync policy**
-   - Applies cooldown + jitter guardrails to reduce excess sync traffic.
-   - Fetches latest commit SHA and repo tree when policy allows.
-   - Uses incremental GitHub compare sync to re-parse only changed `SeLe4n/**/*.lean` modules when possible (with automatic full rebuild fallback when compare payloads are truncated/unreliable).
-   - Runs continuous polling (plus visibility/focus/online triggers) for near real-time sync without overwhelming API quotas.
-
-4. **Lean module analysis**
-   - Derives module paths from `SeLe4n/**/*.lean`.
-   - Parses imports and interior declarations across all Lean code kinds (object, extension, and context/init groups) with line anchors, while preserving theorem/function rollups for backward compatibility.
-   - Normalizes imports against the current module inventory and rebuilds reverse import edges for consistency.
+3. **Graph derivation**
+   - Normalizes imports against the module inventory and rebuilds reverse import edges (`importsTo`) for consistency.
    - Computes module degree, pair linkage, and assurance labels with theorem-density tracking. Each assurance result includes `theoremDensity` for quantitative coverage information alongside the qualitative level. Linked pairs with zero theorems are distinguished as "structural only" links. The flow legend displays all four assurance levels individually (linked, partial, local, none) with their respective colors from the `ASSURANCE_COLORS` constant.
 
 4.1 **Modules-array normalization (runtime)**
@@ -146,11 +145,8 @@ fallback.
    - Module entries can be either strings or structured objects (`name/module/id`, `path/file/modulePath`, plus optional `imports`, `externalImports`, and `meta`).
    - Legacy top-level maps (`moduleMap`, `importsFrom`, `externalImportsFrom`, `moduleMeta`) are read only as per-module fallbacks for modules already declared in `modules[]`; they can never create additional nodes.
    - Branch-ref metadata keys (for example `main` URL strings) are therefore excluded from module inventories, flow-chart nodes, and map stats. Runtime filtering now rejects pseudo-module names like `main` and URL/non-`.lean` module paths.
-   - Canonical payload extraction now selects the object (top-level or one nested level) with the strongest `modules[]` payload, then normalizes from that branch payload only.
    - Symbol normalization still accepts legacy buckets (`symbols.by_kind`) and declaration aliases (`constant`/`constants`), and `symbolsLoaded` is computed from normalized symbol entries.
-  - Runtime normalization now supports declaration-centric canonical payloads (`modules[].declarations`) by projecting declaration entries into interior symbol buckets, preserving per-declaration `called` relationships into a merged declaration call graph with a precomputed reverse index for O(1) caller lookups, and deriving theorem totals when explicit counts are missing.
-  - When canonical payloads omit import edges, runtime performs a bounded raw-source import reconstruction pass so map stats and the flow chart remain operational instead of collapsing to zero-edge graphs.
-  - Sparse import reconstruction is only triggered when a new canonical commit is detected, preventing repeated per-module source fetches during no-op polling cycles.
+  - Runtime normalization also supports declaration-centric payloads (`modules[].declarations`) by projecting declaration entries into interior symbol buckets, preserving per-declaration `called` relationships into a merged declaration call graph with a precomputed reverse index for O(1) caller lookups, and deriving theorem totals when explicit counts are missing.
 
 5. **Rendering lifecycle**
    - Updates stat cards and status text.
@@ -161,7 +157,7 @@ fallback.
 ## Interaction model
 
 - **Context search:** the unified context search bar accepts both module names and dot-appended declaration queries (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`). The label updates dynamically ("Context search — module" / "Context search — declaration") to indicate the current context. Selecting a declaration via the search bar automatically syncs the flowchart to declaration context.
-- **Dot-append declaration search:** type `Module.Name.declarationName` in the context search bar to navigate directly to a declaration within a module. The search progressively tries shorter module prefixes, then matches the remaining suffix against declarations in that module. Exact matches select immediately; partial/prefix matches appear as suggestions with distinct italic styling and a left border accent. Declaration suggestions are also selectable via keyboard (Arrow keys + Enter) and mouse click.
+- **Dot-append declaration search:** type `Module.Name.declarationName` in the context search bar to navigate directly to a declaration within a module. The search progressively tries shorter module prefixes, then matches the remaining suffix against declarations in that module. Typing only refreshes the suggestions (debounced); nothing is selected or rendered until the pick is committed by change, Enter, blur or a clicked suggestion, and an exactly typed module leads the list so Enter takes it. Enter pressed before the debounce resolves the field's current value, never a stale highlight. Partial/prefix matches appear as suggestions with distinct italic styling and a left border accent. Declaration suggestions are also selectable via keyboard (Arrow keys + Enter) and mouse click.
 - **Scope toggle:** the three options are a radiogroup, so the active one is the only tab stop and the arrow keys move the choice rather than just the focus; Home/End jump to the first and last. The toggle is offered even when a scope would be empty, and says why by disabling the option rather than hiding it.
 - **Keyboard walk:** `j` and `k` outside input controls.
 - **Detail levels:** compact/balanced/expanded (Arrow keys cycle; Home/End jump to first/last preset).

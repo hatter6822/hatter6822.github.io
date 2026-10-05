@@ -16,16 +16,15 @@ The repository is a static website with two pages and a data pipeline:
 - `data/*.json` stores local snapshots consumed by the browser.
 - `scripts/*.mjs` regenerates and validates those snapshots.
 
-The runtime is intentionally **local-first**:
+The runtime renders bundled snapshots first:
 
 1. Render from bundled `data/*.json` immediately.
-2. Reuse cached payloads when they are newer.
-3. On `map.html` only, try a live refresh from GitHub. The landing page and
-   `run.html` do not: the landing page's statistics come from
-   `data/site-data.json` alone, and the Simulator renders
-   `data/execution-traces.json` alone, because its source links point at the
-   commit that snapshot was grounded at.
-4. Keep rendering stable if network refresh fails.
+2. Never refresh from the network. The landing page, the code map and the
+   Simulator render `data/site-data.json`, `data/map-data.json` (plus the lazily
+   fetched `data/map-callgraph.json`) and `data/execution-traces.json` alone,
+   and all three pin `connect-src 'self'`. The Simulator's source links point
+   at the commit its snapshot was grounded at, so a remote document could not
+   be shown honestly either.
 
 ## 2) Top-level files
 
@@ -144,9 +143,9 @@ Use this file when changing same-page hash behavior or accessibility semantics o
 ### `assets/js/map.js`
 Largest runtime module; owns map page data and rendering behavior. Responsibilities:
 
-- hydrates graph state from `data/map-data.json` and optional live sync.
+- hydrates graph state from `data/map-data.json` and nothing else: boot is one same-origin fetch (`fetchBundledMapData`), `normalizeMapData`, `applyData`, render. The status line reports the snapshot's commit or the load failure (`paintLoadStatus`, repainted with the locale); `purgeLegacyStorage` removes the retired cache keys.
 - normalizes legacy/new payload shapes for compatibility.
-- preserves declaration call-graph relationships (`called` field) into a merged `declarationGraph` and precomputed `declarationReverseGraph` for O(1) caller lookups during declaration context navigation. Also builds a `declarationIndex` mapping every declaration name to `{module, kind, line}` for O(1) metadata lookups.
+- preserves declaration call-graph relationships (`called` field) into a merged `declarationGraph` and precomputed `declarationReverseGraph` for O(1) caller lookups during declaration context navigation. Also builds a `declarationIndex` mapping every declaration name to `{module, kind, line}` for O(1) metadata lookups, and `declarationsByModule` / `declarationModulesByName` so a name two modules declare resolves per module: every lookup takes an optional module (`declarationEntryIn`, `declarationCallerRefs`, `declarationCalleeRefs`, `resolveDeclarationModule`).
 - resolves declaration module ownership via `declarationGraph` first, then falls back to `declarationIndex` for O(1) lookup (replacing the previous O(n*m) `moduleMeta` symbol scan).
 - computes filtered graph neighborhood based on selected module and detail mode.
 - renders module-context node/edge flowchart and legend semantics.
@@ -155,22 +154,20 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 - sorts large declaration lanes by module relevance (same-module first) before collapsing to keep contextually relevant declarations visible; collapsed "+N more" nodes are interactive expand buttons that fully reveal all declarations, with "Return to Compact" buttons to collapse back.
 - declaration flow-node `flow-meta` line numbers now render as clickable links to the exact upstream source line in `hatter6822/seLe4n` (using current `commitSha` when available, else fallback ref), opening in a new tab with keyboard-accessible focus behavior.
 - builds interior declaration panels (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration in declaration context with a visual accent indicator.
-- handles keyboard navigation, search, reset, and URL-state synchronization (including `decl` parameter for declaration context persistence). The generalized context search bar is context-aware: in declaration context it displays `Module.Declaration` in dot-append format with the label "Context search — declaration"; in module context it shows the module name with the label "Context search — module". The `flowchart-wrap` `aria-label` updates dynamically per context. The Reset button returns from declaration context to module context. Supports dot-append declaration search (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`) via two complementary strategies: (1) `declarationSearchMatch()` progressively tries shorter dot-separated module prefixes and matches the remaining suffix against interior symbols via `searchDeclarationsInModule()`; (2) when no exact module prefix matches, a global search across all declarations uses a pre-built `declarationSearchList` index (constructed by `buildDeclarationSearchIndex()` during data load). `declarationSearchMatches()` returns multiple ranked results for dropdown suggestions. Exact matches navigate immediately; partial matches appear as styled suggestions with `data-declaration` attributes. The search flow integrates `tryDeclarationSearch` as a fallback when no module match is found.
+- handles keyboard navigation, search, reset, and URL-state synchronization (including `decl` parameter for declaration context persistence). The generalized context search bar is context-aware: in declaration context it displays `Module.Declaration` in dot-append format with the label "Context search — declaration"; in module context it shows the module name with the label "Context search — module". The `flowchart-wrap` `aria-label` updates dynamically per context. The Reset button returns from declaration context to module context. Supports dot-append declaration search (e.g., `SeLe4n.Kernel.API.apiInvariantBundle`) via two complementary strategies: (1) `declarationSearchMatch()` progressively tries shorter dot-separated module prefixes and matches the remaining suffix against interior symbols via `searchDeclarationsInModule()`; (2) when no exact module prefix matches, a global search across all declarations uses a pre-built `declarationSearchList` index (constructed by `buildDeclarationSearchIndex()` during data load). `declarationSearchMatches()` returns multiple ranked results for dropdown suggestions. In-module lookups read `declarationSearchByModule`, the same entries grouped by module. Typing selects nothing: an exact match is taken on change, Enter or blur; partial matches appear as styled suggestions with `data-declaration` attributes. The search flow integrates `tryDeclarationSearch` as a fallback when no module match is found.
 - caches frequently queried DOM elements (`flowchartWrap`, `moduleSearch`, `moduleSearchOptions`, `moduleSearchFeedback`, `moduleSearchLabel`, `flowNodeInteriorMenu`, `mapStatus`, `mainContent`, `moduleResults`) once at boot in a `DOM` namespace object via `cacheDomElements()` to avoid repeated `getElementById` calls during render cycles. All DOM-accessing functions use `DOM.xxx || document.getElementById(...)` fallback pattern.
 - uses batch eviction (120 entries per cycle via `LABEL_WRAP_CACHE_EVICT_BATCH`) for the label-wrap cache to amortize eviction cost and prevent single-entry churn on cache-full renders.
-- manages map status messaging and sync lifecycle feedback.
 - builds the tabbed declaration sidebar (Objects, Contexts/Inits, Extensions) with all declarations navigable to declaration context; highlights the currently selected declaration; remembers the active tab across module changes.
-- opens on `DEFAULT_MODULE` (`SeLe4n.Kernel.API`) when the URL names no module (`defaultModuleName()`), on load, after a tree rebuild, and on Reset.
+- opens on `DEFAULT_MODULE` (`SeLe4n.Kernel.API`) when the URL names no module (`defaultModuleName()`), on load and on Reset.
 - groups over-budget lanes by subsystem (`moduleSubsystem`, `groupLaneModules`, `buildLaneEntries`, `toggleLaneGroup`, `drawLaneGuide`) and opens groups in place.
 - lays the flow chart out at `max(minimumFlowWidth(), column width)`; from 900px up the minimum is 900, and the CSS never scales the SVG below 1:1, so a wider layout scrolls inside its frame rather than shrinking its text.
-- scopes live payloads and the tree-rebuild path the way the bundle is scoped (`isOutsideProductionScope`, `isLeanModulePath`: nothing under `tests/` or `SeLe4n/Testing/`, plus `Main.lean`), and labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
-- writes the `localStorage` cache only when the serialized snapshot is under `CACHE_MAX_CHARS`; `setCache()` returns whether it wrote. The bundled map is past the quota, so the page is bundle-first in practice.
+- labels imports the graph lacks by what they are (`isInRepoOutsideScope`, `isLibraryRoot`, `externalImportSubtitle`).
 - formats every count for the active locale (`formatCount` → `Intl.NumberFormat(document.documentElement.lang)`) and builds count labels from plural families (`fileCountLabel`, `moduleCountLabel`, `theoremCountLabel`, `crateCountLabel`, `pluralEn` for the English fallback).
-- projects `state.rust` into the Rust module graph (`buildRustGraph`, `rustNodeName`, `rustTargetName`, `rustSiblings`) and matches it against the Lean declarations to build the boundary index (`buildBridgeIndex`, `toBridgeKey`, `bridgeRelation`), once per data load and again whenever a tree refresh changes the Lean side.
+- projects `state.rust` into the Rust module graph (`buildRustGraph`, `rustNodeName`, `rustTargetName`, `rustSiblings`) and matches it against the Lean declarations to build the boundary index (`buildBridgeIndex`, `toBridgeKey`, `bridgeRelation`), once per data load.
 - draws the Rust chart (`renderRustFlowchart`) and the boundary band under either chart (`bridgeBandRows`, `layoutBridgeBands`, `drawBridgeBands`), reusing `computeFlowLayout` and `createFlowSvg` so the 1:1 guarantee holds for both.
 - owns the scope (`setScope`, `renderScopeToggle`, `setupScopeToggle`) and the scope-aware node accessors every renderer asks through (`nodeExists`, `nodePath`, `nodeSourceRef`, `scopeNodes`, `defaultNodeName`, `nodeSortScore`).
 - reads a crate's `unsafe` (production) and `testUnsafe` (test code) counters apart (`rustUnsafeSummary`, `rustUnsafeDetail`), states target-scoped dependency tables under their cfg and dev-dependencies as test-only, and lists Rust test items only behind each card's toggle (`state.rustShowTests`, `visibleRustItems`, `rerenderRustCrateCard`).
-- keeps the file tree and Rust inventory across live refreshes that carry neither (`retainInventory`, `normalizeRustInventory`, `seedBundledInventory`), tracking `inventoryCommit` / `rustCommit`.
+- links every source file, Lean or Rust, at the snapshot's `commitSha` (`nodeSourceRef`), since both halves come from one snapshot.
 
 If the map visualization, interactions, or data compatibility changes, this is the primary file.
 
@@ -237,14 +234,11 @@ Bundled graph snapshot used by map runtime. Includes:
 
 - `modules` inventory.
 - `moduleMap` module -> file path.
-- `importsFrom` and `importsTo` dependency edges.
+- `importsFrom` dependency edges (the runtime rebuilds `importsTo`; it is not shipped).
 - `externalImportsFrom` external dependencies per module.
-- `moduleMeta` theorem/symbol metadata by module, including
-  `symbols.callGraph` — each declaration mapped to the identifiers it
-  references. This is what drives the declaration-context flowchart (outgoing
-  calls, and incoming callers via the reverse index the runtime builds from
-  it). Before it was bundled, that view was empty until a live GitHub fetch
-  completed, and empty forever offline.
+- `moduleMeta` theorem/symbol metadata by module (`byKind`, only the kinds a
+  module declares). The call graph is not here; see `data/map-callgraph.json`
+  below.
 - `rust` — the production crate inventory from the same checkout, built by
   `scripts/lib/rust-analysis.mjs`: crates in workspace order with manifest
   facts (description, edition, dependencies split into internal, external,
@@ -259,20 +253,32 @@ Bundled graph snapshot used by map runtime. Includes:
   this is the one place that figure is quoted.
 - `commitSha`, `generatedAt` provenance.
 
-Written **compact** (no indentation): at ~4.6 MB (459 KB gzipped) it is the
-dominant payload on map.html, and indenting it costs roughly 100 KB of gzipped
+Written **compact** (no indentation), as is `map-callgraph.json`: at 96f442d
+they are 1.8 MB (274 KB gzipped) and 3.7 MB (379 KB gzipped), the dominant
+payloads on map.html, and indenting it costs roughly 100 KB of gzipped
 transfer for a generated file no one reads as text. `site-data.json` and
 `execution-traces.json` stay indented.
 
-The call graph is ~262 KB of that gzipped total, and it is stored inline rather
+The call graph is stored as plain per-module objects rather
 than in an interned string table. Measured on the real corpus — 119,506 edges
 over ~10,000 distinct targets — interning halves the raw file but saves only
 23 KB gzipped, because gzip already captures the repetition; dropping the
-derived `symbols.theorems`/`functions` arrays saves another 21 KB. Neither is
-worth a bespoke format and a decoder in the runtime, and `symbols.callGraph` is
-a shape `assets/js/map.js` already reads in three places.
+derived `symbols.theorems`/`functions` arrays saves another 21 KB. Interning is
+not worth a bespoke format and a decoder in the runtime. The derived copies
+(`symbols.theorems`/`functions`, `importsTo`, empty `byKind` arrays) are no
+longer shipped, and `validate-data.mjs` rejects them.
 
 Generated by `scripts/sync-upstream.mjs`; validated by `scripts/validate-data.mjs`.
+
+### `data/map-callgraph.json`
+The declaration call graph, split from `map-data.json` by `splitCallGraph()` in
+the same run: `callGraph[module][declaration]` lists the identifiers it
+references, and it drives the declaration-context flowchart (outgoing calls,
+and incoming callers via the reverse index the runtime builds from it). It
+records the snapshot's `commitSha`, `sourceDigest`, `metricsSource` and
+`generatedAt`. `map.js` fetches it on the first declaration view (at boot for a
+`decl=` URL) through `ensureCallGraph()`, merges it into `moduleMeta` and
+rebuilds the call indexes; a payload naming another commit is refused.
 
 Graphs the same production corpus `site-data.json` counts, from the same
 checkout: `modules` mirrors the canonical artifact's production module list, and

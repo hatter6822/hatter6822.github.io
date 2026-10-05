@@ -17,41 +17,40 @@
     return ""; // callers use: t("key") || "English fallback"
   }
 
+  /* Source links point into the kernel repository at the snapshot's commit.
+     Nothing is fetched from it: the page renders the bundled snapshot and
+     nothing else (see "Runtime data strategy" in CLAUDE.md), and map.html's
+     CSP holds connect-src at 'self' so that stays true. The snapshot is kept
+     current by the weekly sync workflow, which runs the one pipeline. */
   var REPO = "hatter6822/seLe4n";
   var REF = "main";
-  var API = "https://api.github.com/repos/" + REPO;
-  var CODEBASE_MAP_PATH = "docs/codebase_map.json";
-  var CODEBASE_MAP_API = API + "/contents/" + CODEBASE_MAP_PATH;
-  var CODEBASE_MAP_RAW = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/" + CODEBASE_MAP_PATH;
   var DATA_ENDPOINT = "data/map-data.json";
+  /* The declaration call graph, from the same pipeline run, in a file of its
+     own: only the declaration view reads it, and it is about half the
+     snapshot. It is fetched the first time a declaration is shown (at boot
+     when the URL names one) and refused unless it names the snapshot's
+     commit. */
+  var CALLGRAPH_ENDPOINT = "data/map-callgraph.json";
 
+  /* Same-origin only, through the ordinary HTTP cache: the snapshot changes
+     when the site is redeployed, and the server's validators decide whether a
+     revisit downloads it again. */
   var FETCH_OPTIONS = {
-    credentials: "omit",
-    cache: "no-store",
-    mode: "cors",
+    credentials: "same-origin",
+    mode: "same-origin",
     redirect: "error",
     referrerPolicy: "no-referrer"
   };
 
-  var CACHE_KEY = "sele4n-code-map-v9";
-  /* localStorage holds about 5M UTF-16 units per origin. The serialized map
-     snapshot is past that, so the write below would throw and be swallowed,
-     and map.html is bundle-first in practice: every visit renders the bundled
-     snapshot and then refreshes live. The ceiling makes that explicit and
-     skips the attempt instead of paying for it; setCache() reports whether it
-     wrote so the behaviour is observable (see the "Runtime data strategy"
-     note in CLAUDE.md). */
-  var CACHE_MAX_CHARS = 4 * 1024 * 1024;
-  var CACHE_SCHEMA_VERSION = 4;
-  var CACHE_TTL_MS = 60 * 60 * 1000;
-  var CACHE_MAX_STALE_MS = 30 * 24 * 60 * 60 * 1000;
-  var LIVE_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000;
-  var LIVE_SYNC_JITTER_MAX_MS = 45 * 1000;
-  var LIVE_SYNC_POLL_INTERVAL_MS = 90 * 1000;
-  var COMPARE_FILES_TRUNCATION_LIMIT = 300;
-  var LIVE_SYNC_META_KEY = "sele4n-code-map-live-sync-meta-v1";
-  var FETCH_CONCURRENCY = 8;
-  var FETCH_TIMEOUT_MS = 9000;
+  /* Bounds the wait for response headers only; the body is not timed, so a
+     slow link still finishes the download. */
+  var FETCH_TIMEOUT_MS = 20000;
+
+  /* Storage keys of the retired live-refresh layer: the snapshot cache (which
+     never fit the quota) and the sync cooldown. Nothing reads them now; they
+     are purged on load so a returning visitor stops carrying them, as
+     site.js does for the landing page's retired cache. */
+  var LEGACY_STORAGE_KEYS = ["sele4n-code-map-v9", "sele4n-code-map-live-sync-meta-v1"];
   var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
   var NODE_CACHE = Object.create(null);
   var LABEL_WRAP_CACHE = new Map();
@@ -187,8 +186,7 @@
     mainContent: null,
     moduleResults: null,
     scopeToggle: null,
-    workspaceBadge: null,
-    inventoryNote: null
+    workspaceBadge: null
   };
 
   function cacheDomElements() {
@@ -203,7 +201,6 @@
     DOM.moduleResults = document.getElementById("module-results");
     DOM.scopeToggle = document.getElementById("map-scope-toggle");
     DOM.workspaceBadge = document.getElementById("workspace-scope-badge");
-    DOM.inventoryNote = document.getElementById("map-inventory-note");
   }
 
   var DETAIL_PRESETS = {
@@ -277,10 +274,10 @@
     }
     return out;
   })();
-  var BUSY_STATUS_RE = /loading|refreshing|checking|analyzing|syncing/i;
+  var BUSY_STATUS_RE = /loading/i;
 
   var state = {
-    files: [], modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
+    modules: [], moduleMap: Object.create(null), moduleMeta: Object.create(null),
     importsTo: Object.create(null), importsFrom: Object.create(null), externalImportsFrom: Object.create(null),
     theoremPairs: [], proofPairMap: Object.create(null), degreeMap: Object.create(null),
     selectedModule: null, activeLayerFilter: "all",
@@ -291,6 +288,7 @@
     searchActiveOption: -1,
     searchDeclSuggestions: [],
     declarationSearchList: [],
+    declarationSearchByModule: Object.create(null),
     filteredModulesKey: "", filteredModulesList: [], filteredModulesValid: false,
     contextListValid: false,
     interiorMenuModule: "",
@@ -304,13 +302,19 @@
     selectedDeclarationModule: "",
     declarationGraph: Object.create(null),
     declarationReverseGraph: Object.create(null),
+    declarationReverseModules: Object.create(null),
+    /* "ready" once the call graph is in moduleMeta (inline in the snapshot,
+       or merged from CALLGRAPH_ENDPOINT); "idle", "loading" or "failed"
+       otherwise. */
+    callGraphStatus: "idle",
+    callGraphError: "",
     declarationIndex: Object.create(null),
+    declarationsByModule: Object.create(null),
+    declarationModulesByName: Object.create(null),
     declarationLanesExpanded: false,
-    /* The repository tree plus the Rust crate inventory. Both can outlive a
-       live refresh that carries neither (see retainInventory). */
+    /* The Rust crate inventory, from the same snapshot (and so the same
+       commit) as the Lean graph. */
     rust: null,
-    inventoryCommit: "",
-    rustCommit: "",
     /* Which languages the workspace is read in, and the two models projected
        from the Rust inventory: the module graph the chart draws, and the
        declaration-level boundary between the two languages. */
@@ -439,6 +443,27 @@
     if (main) main.setAttribute("aria-busy", BUSY_STATUS_RE.test(text) ? "true" : "false");
   }
 
+  /* The status line after boot says one of two things: the snapshot is shown
+     (and at which commit), or it could not be loaded. It is remembered so a
+     locale that lands later repaints it with the chart. */
+  var loadStatus = { kind: "", detail: "" };
+  function loadStatusText(kind, detail) {
+    if (kind === "error") {
+      var failed = t("map.status_load_failed") || "Unable to load the codebase map snapshot.";
+      return detail ? failed + " (" + detail + ")" : failed;
+    }
+    var ready = t("map.status_ready_integrated") || "Map ready. Integrated dependency/proof flow graph loaded.";
+    var commit = String(state.commitSha || "").slice(0, 7);
+    if (!commit) return ready;
+    return ready + " " + (t("map.status_snapshot_commit", { commit: commit }) || ("Snapshot of commit " + commit + "."));
+  }
+
+  function paintLoadStatus(kind, detail) {
+    if (kind) loadStatus = { kind: kind, detail: detail || "" };
+    if (!loadStatus.kind) return;
+    setStatus(loadStatusText(loadStatus.kind, loadStatus.detail), loadStatus.kind === "error");
+  }
+
   function updateMetric(key, value) {
     var els = NODE_CACHE[key];
     if (!els) {
@@ -454,13 +479,7 @@
     var date = new Date(value);
     if (isNaN(date.getTime())) return "-";
     try {
-      return new Intl.DateTimeFormat(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit"
-      }).format(date);
+      return dateFormatFor(undefined).format(date);
     } catch (e) {
       return date.toISOString().replace("T", " ").slice(0, 16) + " UTC";
     }
@@ -474,43 +493,12 @@
 
     return fetch(url, opts).then(function (res) {
       if (timer) clearTimeout(timer);
-      if (!res.ok) {
-        var errMsg = "HTTP " + res.status;
-        /* Surface rate-limit info so status messages are actionable */
-        if (res.status === 403 || res.status === 429) {
-          var retryAfter = res.headers && res.headers.get ? res.headers.get("retry-after") : "";
-          if (retryAfter) errMsg += " (retry after " + retryAfter + "s)";
-          else errMsg += " (rate limited)";
-        }
-        throw new Error(errMsg);
-      }
+      if (!res.ok) throw new Error("HTTP " + res.status);
       return asText ? res.text() : res.json();
     }).catch(function (error) {
       if (timer) clearTimeout(timer);
       throw error;
     });
-  }
-
-  function decodeBlobBase64(content) {
-    var normalized = String(content || "").replace(/\n/g, "");
-    var binary = window.atob(normalized);
-    var len = binary.length;
-    var bytes = new Uint8Array(len);
-    for (var i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-
-    if (typeof TextDecoder === "function") {
-      try {
-        return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-      } catch (e) {}
-    }
-
-    var out = "";
-    for (var j = 0; j < bytes.length; j++) out += String.fromCharCode(bytes[j]);
-    try {
-      return decodeURIComponent(escape(out));
-    } catch (err) {
-      return out;
-    }
   }
 
   /* Node names come off the URL, so the whitelist is tight: Lean modules are
@@ -561,22 +549,57 @@
     buildDeclarationSearchIndex();
   }
 
+  /* One entry per (module, name): a name two modules declare is findable in
+     both. Falls back to the name-keyed index when no per-module index exists
+     (a hand-built test state). */
   function buildDeclarationSearchIndex() {
     var declIndex = [];
-    for (var declName in state.declarationIndex) {
-      if (!Object.prototype.hasOwnProperty.call(state.declarationIndex, declName)) continue;
-      var entry = state.declarationIndex[declName];
-      if (!entry || !entry.module) continue;
-      var qualifiedName = entry.module + "." + declName;
-      declIndex.push({
+    /* The same entries grouped by module, so a search scoped to one module
+       reads that module's few hundred entries rather than all ~24k. */
+    var byModuleEntries = Object.create(null);
+    function push(declName, moduleName) {
+      var qualifiedName = moduleName + "." + declName;
+      var entry = {
         name: declName,
         nameLower: declName.toLowerCase(),
-        module: entry.module,
+        module: moduleName,
         qualifiedName: qualifiedName,
         qualifiedLower: qualifiedName.toLowerCase()
-      });
+      };
+      declIndex.push(entry);
+      (byModuleEntries[moduleName] || (byModuleEntries[moduleName] = [])).push(entry);
+    }
+    var byModule = state.declarationsByModule;
+    var hasByModule = false;
+    if (byModule) {
+      for (var moduleName in byModule) {
+        if (!Object.prototype.hasOwnProperty.call(byModule, moduleName)) continue;
+        hasByModule = true;
+        for (var name in byModule[moduleName]) {
+          if (Object.prototype.hasOwnProperty.call(byModule[moduleName], name)) push(name, moduleName);
+        }
+      }
+    }
+    if (!hasByModule) {
+      for (var declName in state.declarationIndex) {
+        if (!Object.prototype.hasOwnProperty.call(state.declarationIndex, declName)) continue;
+        var entry = state.declarationIndex[declName];
+        if (entry && entry.module) push(declName, entry.module);
+      }
     }
     state.declarationSearchList = declIndex;
+    state.declarationSearchByModule = byModuleEntries;
+  }
+
+  function declarationSearchEntriesIn(moduleName) {
+    var byModule = state.declarationSearchByModule;
+    if (byModule) return byModule[moduleName] || [];
+    var all = state.declarationSearchList || [];
+    var out = [];
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].module === moduleName) out.push(all[i]);
+    }
+    return out;
   }
 
   function setSearchFeedback(message, isError) {
@@ -628,7 +651,7 @@
   function formatCount(value) {
     if (typeof value !== "number" || !isFinite(value)) return String(value === null || value === undefined ? "" : value);
     var rounded = Math.round(value);
-    try { return new Intl.NumberFormat(documentLocale()).format(rounded); } catch (e) {}
+    try { return numberFormatFor(documentLocale()).format(rounded); } catch (e) {}
     return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
 
@@ -637,9 +660,45 @@
     return (root && root.lang) || "en";
   }
 
-  function theoremCount(text) {
-    var matches = text.match(/^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:theorem|lemma)\s+[\w'.`]+/gm);
-    return matches ? matches.length : 0;
+  /* Comparison and formatting objects are built once and reused. Constructing
+     an Intl object is the expensive part of a comparison: `localeCompare`
+     with options builds a collator per call, which made sorting a 509-item
+     sidebar 37x slower than one cached collator. A collator built with the
+     same (default) locale and options orders exactly as localeCompare does. */
+  function makeComparer(options) {
+    try {
+      var collator = new Intl.Collator(undefined, options);
+      return function (a, b) { return collator.compare(a, b); };
+    } catch (e) {
+      return function (a, b) { return String(a).localeCompare(String(b)); };
+    }
+  }
+  /* a.localeCompare(b) */
+  var compareText = makeComparer(undefined);
+  /* a.localeCompare(b, undefined, { sensitivity: "base" }) */
+  var compareTextBase = makeComparer({ sensitivity: "base" });
+
+  /* Number and date formatters per locale: the locale can change at runtime
+     (the language switcher), so the cache is keyed by it rather than built
+     once. */
+  var NUMBER_FORMATS = Object.create(null);
+  var DATE_FORMATS = Object.create(null);
+  function numberFormatFor(locale) {
+    if (!NUMBER_FORMATS[locale]) NUMBER_FORMATS[locale] = new Intl.NumberFormat(locale);
+    return NUMBER_FORMATS[locale];
+  }
+  function dateFormatFor(locale) {
+    var key = locale || "";
+    if (!DATE_FORMATS[key]) {
+      DATE_FORMATS[key] = new Intl.DateTimeFormat(locale, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+    return DATE_FORMATS[key];
   }
 
   function normalizeSymbolName(name) {
@@ -651,30 +710,6 @@
     if (!normalized) return "";
     if (normalized === "constants") return "constant";
     return normalized;
-  }
-
-  function createLineLocator(text) {
-    var source = String(text || "");
-    var lineStarts = [0];
-
-    for (var i = 0; i < source.length; i++) {
-      if (source.charCodeAt(i) !== 10) continue;
-      lineStarts.push(i + 1);
-    }
-
-    return function lineNumberForIndex(index) {
-      var target = Math.max(0, Number(index) || 0);
-      var low = 0;
-      var high = lineStarts.length - 1;
-
-      while (low <= high) {
-        var mid = Math.floor((low + high) / 2);
-        if (lineStarts[mid] <= target) low = mid + 1;
-        else high = mid - 1;
-      }
-
-      return Math.max(1, high + 1);
-    };
   }
 
   function normalizeSymbolEntry(entry) {
@@ -747,41 +782,49 @@
     return INTERIOR_KIND_ALL_VALUE;
   }
 
+  function compareByNameThenLine(a, b) {
+    var byName = compareTextBase(String((a && a.name) || ""), String((b && b.name) || ""));
+    if (byName !== 0) return byName;
+    return ((a && a.line) || 0) - ((b && b.line) || 0);
+  }
+
+  /* The sorted list for one (group, kind) selection is memoized on the
+     interior object it was built from — interiors are themselves cached per
+     module, and replaced when the module's symbols are — so a keystroke in
+     the sidebar filter only filters, and re-selecting a module re-sorts
+     nothing. Callers read the result and never mutate it. */
+  function sortedInteriorItems(interior, groupKinds, selectedKind) {
+    var key = selectedKind + "\u0000" + groupKinds.join(",");
+    var memo = interior.__sortedItems;
+    if (!memo || memo.byKind !== interior.byKind) {
+      memo = { byKind: interior.byKind, lists: Object.create(null) };
+      try { Object.defineProperty(interior, "__sortedItems", { value: memo, writable: true, configurable: true, enumerable: false }); } catch (e) { interior.__sortedItems = memo; }
+    }
+    if (memo.lists[key]) return memo.lists[key];
+
+    var byKind = interior.byKind || {};
+    var out = [];
+    var kinds = selectedKind === INTERIOR_KIND_ALL_VALUE ? groupKinds : [selectedKind];
+    for (var i = 0; i < kinds.length; i++) {
+      var kindItems = byKind[kinds[i]] || [];
+      for (var j = 0; j < kindItems.length; j++) {
+        out.push(Object.assign({}, kindItems[j], { __kind: kinds[i] }));
+      }
+    }
+    out.sort(compareByNameThenLine);
+    memo.lists[key] = out;
+    return out;
+  }
+
   function interiorItemsForSelection(interior, groupKinds, selectedKind, query) {
     var q = String(query || "").trim().toLowerCase();
-
-    function byNameThenLine(a, b) {
-      var left = String((a && a.name) || "");
-      var right = String((b && b.name) || "");
-      var byName = left.localeCompare(right, undefined, { sensitivity: "base" });
-      if (byName !== 0) return byName;
-      return ((a && a.line) || 0) - ((b && b.line) || 0);
-    }
-
-    function filterByQuery(list) {
-      if (!q) return list;
-      return list.filter(function (entry) {
-        return String((entry && entry.name) || "").toLowerCase().indexOf(q) !== -1;
-      });
-    }
-
-    if (selectedKind === INTERIOR_KIND_ALL_VALUE) {
-      var aggregated = [];
-      for (var i = 0; i < groupKinds.length; i++) {
-        var kindItems = ((interior.byKind || {})[groupKinds[i]] || []).slice();
-        for (var j = 0; j < kindItems.length; j++) {
-          aggregated.push(Object.assign({}, kindItems[j], { __kind: groupKinds[i] }));
-        }
-      }
-      aggregated.sort(byNameThenLine);
-      return filterByQuery(aggregated);
-    }
-
-    var selectedItems = ((interior.byKind || {})[selectedKind] || []).slice().sort(byNameThenLine).map(function (entry) {
-      return Object.assign({}, entry, { __kind: selectedKind });
+    var sorted = sortedInteriorItems(interior || {}, groupKinds, selectedKind);
+    if (!q) return sorted;
+    return sorted.filter(function (entry) {
+      return String((entry && entry.name) || "").toLowerCase().indexOf(q) !== -1;
     });
-    return filterByQuery(selectedItems);
   }
+
 
   function parseHexColor(hex) {
     var h = String(hex || "").replace(/^#/, "");
@@ -851,50 +894,6 @@
     return true;
   }
 
-  function declarationLineFromMatch(match, lineNumberForIndex) {
-    var whole = String(match && match[0] || "");
-    var leading = (whole.match(/^\s*/) || [""])[0].length;
-    return lineNumberForIndex((match && typeof match.index === "number" ? match.index : 0) + leading);
-  }
-
-  function extractInteriorCodeItems(sourceText) {
-    var lineNumberForIndex = createLineLocator(sourceText);
-    var declarationPattern = /^\s*(?:@\[[^\]]+\]\s+|@[\w.]+\s+)*(?:private\s+|protected\s+)?(?:noncomputable\s+)?(inductive|structure|class|def|theorem|lemma|example|instance|opaque|abbrev|axiom|constants?|declare_syntax_cat|syntax_cat|syntax|macro_rules|macro|notation|infixl|infixr|infix|prefix|postfix|elab_rules|term_elab|command_elab|elab|tactic|universes?|variables?|parameters?|section|namespace|end|initialize)\b[ \t]*([^:\s\n(\[{:=\-]*)/gm;
-    var kinds = allInteriorKinds();
-    var seenByKind = Object.create(null);
-    var byKind = Object.create(null);
-    var anonCounters = Object.create(null);
-
-    for (var i = 0; i < kinds.length; i++) {
-      seenByKind[kinds[i]] = Object.create(null);
-      byKind[kinds[i]] = [];
-      anonCounters[kinds[i]] = 0;
-    }
-
-    var match;
-    while ((match = declarationPattern.exec(sourceText)) !== null) {
-      var kind = String(match[1] || "").trim();
-      if (!kind || !Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
-      var line = declarationLineFromMatch(match, lineNumberForIndex);
-      var rawName = normalizeSymbolName(match[2]);
-      var name = rawName || "<" + kind + "@L" + line + ">";
-      if (seenByKind[kind][name]) {
-        /* Disambiguate collisions from unnamed declarations at the same line */
-        anonCounters[kind] += 1;
-        name = "<" + kind + "@L" + line + "#" + anonCounters[kind] + ">";
-        if (seenByKind[kind][name]) continue;
-      }
-      seenByKind[kind][name] = true;
-      byKind[kind].push({ name: name, line: line });
-    }
-
-    return {
-      byKind: byKind,
-      theorems: (byKind.theorem || []).concat(byKind.lemma || []),
-      functions: (byKind.def || []).concat(byKind.abbrev || [], byKind.opaque || [], byKind.instance || [])
-    };
-  }
-
   function interiorCodeForModule(name) {
     var meta = state.moduleMeta[name] || {};
     if (meta.__interiorCache && meta.__interiorCacheSource === meta.symbols) return meta.__interiorCache;
@@ -922,93 +921,6 @@
     meta.__interiorCacheSource = meta.symbols;
     meta.__interiorCache = normalized;
     return normalized;
-  }
-
-  function isLikelyModuleToken(token) {
-    return /^[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*$/.test(token || "");
-  }
-
-  function tokenizeImportSegment(segment) {
-    var out = [];
-    var raw = (segment || "").split(/[\s,]+/);
-    for (var i = 0; i < raw.length; i++) {
-      var candidate = (raw[i] || "").replace(/^[()]+|[()]+$/g, "").trim();
-      if (!candidate || !isLikelyModuleToken(candidate)) continue;
-      out.push(candidate);
-    }
-    return out;
-  }
-
-  function extractImportTokens(sourceText) {
-    var tokens = [];
-    var lines = sourceText.split(/\r?\n/);
-
-    for (var i = 0; i < lines.length; i++) {
-      var raw = lines[i] || "";
-      var withoutComment = raw.split("--")[0] || "";
-      var trimmed = withoutComment.trim();
-      if (!/^import(?:\s|$)/.test(trimmed)) continue;
-
-      var inline = trimmed.replace(/^import\s*/, "");
-      var headTokens = tokenizeImportSegment(inline);
-      for (var j = 0; j < headTokens.length; j++) tokens.push(headTokens[j]);
-
-      var cursor = i + 1;
-      while (cursor < lines.length) {
-        var continuationRaw = lines[cursor] || "";
-        if (!/^\s/.test(continuationRaw)) break;
-
-        var continuation = (continuationRaw.split("--")[0] || "").trim();
-        if (!continuation) {
-          cursor += 1;
-          continue;
-        }
-
-        var contTokens = tokenizeImportSegment(continuation);
-        if (!contTokens.length) break;
-        for (var k = 0; k < contTokens.length; k++) tokens.push(contTokens[k]);
-        cursor += 1;
-      }
-
-      i = cursor - 1;
-    }
-
-    return tokens;
-  }
-
-  function parseModule(name, sourceText) {
-    var seenInternal = Object.create(null);
-    var seenExternal = Object.create(null);
-    var imports = [];
-    var external = [];
-
-    var deps = extractImportTokens(sourceText);
-    for (var i = 0; i < deps.length; i++) {
-      var dep = sanitizeModuleName(deps[i]);
-      if (!dep) continue;
-      if (Object.prototype.hasOwnProperty.call(state.moduleMap, dep)) {
-        if (!seenInternal[dep]) {
-          seenInternal[dep] = true;
-          imports.push(dep);
-        }
-      } else if (!seenExternal[dep]) {
-        seenExternal[dep] = true;
-        external.push(dep);
-      }
-    }
-
-    state.importsFrom[name] = imports;
-    state.externalImportsFrom[name] = external;
-
-    var interior = extractInteriorCodeItems(sourceText);
-    state.moduleMeta[name] = {
-      layer: classifyLayer(name),
-      kind: moduleKind(name),
-      base: moduleBase(name),
-      theorems: theoremCount(sourceText),
-      symbols: interior,
-      symbolsLoaded: hasCompleteSymbolLines(interior)
-    };
   }
 
   function normalizeImportsFromIndex() {
@@ -1273,17 +1185,92 @@
     return result;
   }
 
-  function declarationCalls(declName) {
+  /* Every declaration lookup takes an optional module. Without one it answers
+     by name alone, as the name-keyed indexes always have; with one it answers
+     for that module's declaration of the name, which is what a deep link, a
+     sidebar row or a lane node actually means. */
+
+  /* The entry for `declName` as declared in `moduleName`, or null. */
+  function declarationEntryIn(declName, moduleName) {
+    if (!moduleName) return null;
+    var perModule = state.declarationsByModule && state.declarationsByModule[moduleName];
+    if (perModule) return perModule[declName] || null;
+    var indexed = state.declarationIndex[declName];
+    return indexed && indexed.module === moduleName ? indexed : null;
+  }
+
+  function declarationExistsIn(declName, moduleName) {
+    if (declarationEntryIn(declName, moduleName)) return true;
+    var entry = state.declarationGraph[declName];
+    return Boolean(entry && entry.module === moduleName);
+  }
+
+  /* The module a bare name refers to when written in `contextModule`: its own
+     declaration first, then one in a module it imports directly, then the
+     first module that declares the name. A call target is recorded
+     unqualified, so this is how a callee is placed and how a caller is
+     attributed to the right declaration. */
+  function resolveDeclarationModule(declName, contextModule) {
+    if (contextModule && declarationExistsIn(declName, contextModule)) return contextModule;
+    var candidates = state.declarationModulesByName ? state.declarationModulesByName[declName] : null;
+    if (candidates && candidates.length > 1 && contextModule) {
+      var imports = state.importsFrom[contextModule] || [];
+      for (var i = 0; i < candidates.length; i++) {
+        if (imports.indexOf(candidates[i]) !== -1) return candidates[i];
+      }
+    }
+    if (candidates && candidates.length) return candidates[0];
+    return declarationModuleOf(declName);
+  }
+
+  function declarationCalls(declName, moduleName) {
+    if (moduleName) {
+      var meta = state.moduleMeta[moduleName];
+      var callGraph = meta && meta.symbols && meta.symbols.callGraph;
+      if (callGraph && Array.isArray(callGraph[declName])) return callGraph[declName].slice();
+      var owned = state.declarationGraph[declName];
+      return owned && owned.module === moduleName && Array.isArray(owned.calls) ? owned.calls.slice() : [];
+    }
     var entry = state.declarationGraph[declName];
     return entry && Array.isArray(entry.calls) ? entry.calls.slice() : [];
   }
 
-  function declarationCalledBy(declName) {
+  /* The callers of `declName`, as { name, module } pairs. With a module, only
+     the callers whose bare reference resolves to that module's declaration. */
+  function declarationCallerRefs(declName, moduleName) {
     var reverse = state.declarationReverseGraph[declName];
-    return Array.isArray(reverse) ? reverse.slice() : [];
+    if (!Array.isArray(reverse)) return [];
+    var modules = state.declarationReverseModules ? state.declarationReverseModules[declName] : null;
+    var out = [];
+    for (var i = 0; i < reverse.length; i++) {
+      var callerModule = modules && modules[i] ? modules[i] : declarationModuleOf(reverse[i]);
+      if (moduleName && resolveDeclarationModule(declName, callerModule) !== moduleName) continue;
+      out.push({ name: reverse[i], module: callerModule });
+    }
+    return out;
   }
 
-  function declarationModuleOf(declName) {
+  /* The callees of `declName` in `moduleName`, each placed by the module the
+     bare reference resolves to from there. */
+  function declarationCalleeRefs(declName, moduleName) {
+    var calls = declarationCalls(declName, moduleName);
+    var out = [];
+    for (var i = 0; i < calls.length; i++) {
+      out.push({ name: calls[i], module: resolveDeclarationModule(calls[i], moduleName) });
+    }
+    return out;
+  }
+
+  function declarationCalledBy(declName, moduleName) {
+    if (!moduleName) {
+      var reverse = state.declarationReverseGraph[declName];
+      return Array.isArray(reverse) ? reverse.slice() : [];
+    }
+    return declarationCallerRefs(declName, moduleName).map(function (ref) { return ref.name; });
+  }
+
+  function declarationModuleOf(declName, moduleName) {
+    if (moduleName && declarationExistsIn(declName, moduleName)) return moduleName;
     var entry = state.declarationGraph[declName];
     if (entry) return entry.module;
     var indexed = state.declarationIndex[declName];
@@ -1291,25 +1278,25 @@
     return "";
   }
 
-  function declarationKindOf(declName) {
-    var indexed = state.declarationIndex[declName];
+  function declarationKindOf(declName, moduleName) {
+    var indexed = declarationEntryIn(declName, moduleName) || state.declarationIndex[declName];
     if (indexed) return indexed.kind;
     return "";
   }
 
-  function declarationLineOf(declName) {
-    var indexed = state.declarationIndex[declName];
+  function declarationLineOf(declName, moduleName) {
+    var indexed = declarationEntryIn(declName, moduleName) || state.declarationIndex[declName];
     if (indexed) return indexed.line || 0;
     return 0;
   }
 
-  function declarationSourceHref(declName) {
-    var moduleName = declarationModuleOf(declName);
+  function declarationSourceHref(declName, moduleHint) {
+    var moduleName = declarationModuleOf(declName, moduleHint);
     if (!moduleName || !state.moduleMap[moduleName]) return "";
     var ref = state.commitSha || REF;
     var path = state.moduleMap[moduleName];
     var encodedPath = path.split("/").map(encodeURIComponent).join("/");
-    var line = declarationLineOf(declName);
+    var line = declarationLineOf(declName, moduleName);
     var lineAnchor = line > 0 ? "#L" + line : "";
     return "https://github.com/" + REPO + "/blob/" + encodeURIComponent(ref) + "/" + encodedPath + lineAnchor;
   }
@@ -1353,6 +1340,7 @@
     }
     syncUrlState();
     scheduleRender();
+    return true;
   }
 
   function returnToModuleContext() {
@@ -1426,7 +1414,7 @@
   }
 
   function sortByScoreThenName(a, b) {
-    return moduleDegree(b).score - moduleDegree(a).score || a.localeCompare(b);
+    return moduleDegree(b).score - moduleDegree(a).score || compareText(a, b);
   }
 
   function uniqueModules(list, excluded) {
@@ -1487,7 +1475,7 @@
   function sortModules(list) {
     list.sort(function (a, b) {
       var scoreDiff = nodeSortScore(b) - nodeSortScore(a);
-      return scoreDiff || a.localeCompare(b);
+      return scoreDiff || compareText(a, b);
     });
   }
 
@@ -1631,33 +1619,6 @@
 
   /* The boundary entries only appear in the scope that draws the boundary, so
      the Lean-only and Rust-only readings keep their original legends. */
-  /* Say so when the Rust half is a commit behind the Lean graph.
-   *
-   * A live canonical refresh advances the Lean modules and carries no Rust
-   * inventory at all, so `retainInventory()` keeps the bundled crates and the
-   * commit they were taken at. That is the designed behaviour — the Rust half
-   * must not empty out on a networked visit — but the header publishes Rust
-   * Modules and Boundary Links beside one "Generated" stamp, which reads as a
-   * single coherent snapshot. Through 0.30.0 the crate cards carried this
-   * note; removing those sections took the only disclosure with them.
-   *
-   * Painted from the same data as the stats and hidden when the two halves
-   * agree, so the ordinary case stays quiet. */
-  function renderInventoryProvenance() {
-    var note = DOM.inventoryNote || document.getElementById("map-inventory-note");
-    if (!note) return;
-
-    var graphCommit = String(state.commitSha || "").slice(0, 7);
-    var rustCommit = String(state.rustCommit || "").slice(0, 7);
-    var behind = Boolean(state.rust) && rustCommit && graphCommit && rustCommit !== graphCommit;
-
-    note.hidden = !behind;
-    note.textContent = behind
-      ? (t("map.inventory_retained", { rust: rustCommit, graph: graphCommit })
-        || ("Rust inventory from commit " + rustCommit + "; the Lean graph is synced to " + graphCommit + "."))
-      : "";
-  }
-
   function bridgeLegendItems() {
     if (state.scope !== "both") return [];
     return [
@@ -1814,8 +1775,8 @@
   function renderFlowNodeInteriorMenu(selected) {
     var menu = DOM.flowNodeInteriorMenu || document.getElementById("flow-node-interior-menu");
     if (!menu) return;
-    /* Preserve focus/caret across externally-triggered re-renders (live-sync
-       refresh, window resize) that destroy the filter input mid-typing. */
+    /* Preserve focus/caret across externally-triggered re-renders (locale
+       repaint, window resize) that destroy the filter input mid-typing. */
     var prevInput = document.getElementById("interior-symbol-filter");
     var hadFocus = Boolean(prevInput && document.activeElement === prevInput);
     var savedCaret = hadFocus ? normalizeCaretRange(prevInput.value, prevInput.selectionStart, prevInput.selectionEnd) : null;
@@ -1994,6 +1955,15 @@
 
     var list = document.createElement("ul");
     list.className = "interior-menu-items";
+    /* One listener for every row's button rather than a closure per row: the
+       largest module lists ~500 declarations and a filter keystroke repaints
+       them all. */
+    list.addEventListener("click", function (event) {
+      var btn = event.target && event.target.closest ? event.target.closest(".interior-menu-item-btn") : null;
+      if (!btn || !list.contains(btn)) return;
+      var declName = btn.getAttribute("data-decl");
+      if (declName) selectDeclaration(declName, selected);
+    });
 
     var emptyNote = null;
 
@@ -2051,9 +2021,6 @@
           btn.textContent = items[j].name;
           btn.title = "View declaration call graph for " + items[j].name;
           btn.dataset.decl = items[j].name;
-          btn.addEventListener("click", (function (itemName) {
-            return function () { selectDeclaration(itemName, selected); };
-          })(items[j].name));
           li.appendChild(btn);
         } else {
           var linkHref = symbolSourceHref(selected, items[j]);
@@ -2387,19 +2354,47 @@
     labelLayer.appendChild(label);
   }
 
+  /* The frame's geometry, read once per render before anything is written
+     (see renderAll). Reading `clientWidth` or `scrollLeft` after the chart
+     has been cleared or appended forces a synchronous layout, and a render
+     used to force two or three. The frame keeps `scrollbar-gutter: stable`,
+     so its client size does not depend on the content about to replace it. */
+  var flowFrame = null;
+  function readFlowFrame(wrap) {
+    if (!wrap) return null;
+    return { clientWidth: wrap.clientWidth, clientHeight: wrap.clientHeight, scrollLeft: wrap.scrollLeft, scrollTop: wrap.scrollTop };
+  }
+  function flowFrameValue(wrap, key) {
+    if (flowFrame) return flowFrame[key];
+    return wrap ? wrap[key] : 0;
+  }
+
+  /* Scroll offsets are written without reading the scroll extent first: an
+     assignment past the end is clamped by the browser, which is what the
+     explicit Math.min did at the cost of a forced layout. */
+  function setFlowScroll(wrap, left, top) {
+    wrap.style.scrollBehavior = "auto";
+    wrap.scrollLeft = left;
+    wrap.scrollTop = top;
+    wrap.style.removeProperty("scroll-behavior");
+  }
+
   function applyFlowScrollTarget(wrap, targetName, centerX, centerY, centerW, centerH) {
     if (state.flowScrollTarget !== targetName) return false;
-    var targetScrollLeft = Math.max(0, centerX + centerW / 2 - wrap.clientWidth / 2);
-    var targetScrollTop = Math.max(0, centerY + centerH / 2 - wrap.clientHeight / 2);
-    var maxScrollLeft = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
-    var maxScrollTop = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
-    // Temporarily disable smooth scrolling for instant programmatic positioning
-    wrap.style.scrollBehavior = "auto";
-    wrap.scrollLeft = Math.min(maxScrollLeft, targetScrollLeft);
-    wrap.scrollTop = Math.min(maxScrollTop, targetScrollTop);
-    wrap.style.removeProperty("scroll-behavior");
+    var targetScrollLeft = Math.max(0, centerX + centerW / 2 - flowFrameValue(wrap, "clientWidth") / 2);
+    var targetScrollTop = Math.max(0, centerY + centerH / 2 - flowFrameValue(wrap, "clientHeight") / 2);
+    setFlowScroll(wrap, targetScrollLeft, targetScrollTop);
     state.flowScrollTarget = "";
     return true;
+  }
+
+  /* Puts back the scroll position a re-render should keep. The chart was
+     replaced without a layout in between, so the frame still holds its old
+     offset; when that is the one to keep there is nothing to write, and
+     nothing to lay out synchronously. */
+  function restoreFlowScroll(wrap, left, top) {
+    if (flowFrame && flowFrame.scrollLeft === left && flowFrame.scrollTop === top) return;
+    setFlowScroll(wrap, left, top);
   }
 
   var flowClipIdCounter = 0;
@@ -2530,7 +2525,7 @@
 
   function computeFlowLayout() {
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
-    var wrapWidth = Math.max(0, ((wrap && wrap.clientWidth) || 0) - 8);
+    var wrapWidth = Math.max(0, (flowFrameValue(wrap, "clientWidth") || 0) - 8);
     var flowWidth = Math.max(minimumFlowWidth(), wrapWidth || 0);
     var compact = prefersCompactViewport();
     /* Scale padding and gaps for smaller canvases so more area is
@@ -2568,8 +2563,8 @@
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (!wrap) return;
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
-    var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
-    var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
+    var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
+    var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
     wrap.innerHTML = "";
     flowClipIdCounter = 0;
 
@@ -3044,10 +3039,7 @@
     renderFlowNodeInteriorMenu(selected);
 
     if (!applyFlowScrollTarget(wrap, selected, center.x, center.y, center.w, center.h)) {
-      wrap.style.scrollBehavior = "auto";
-      wrap.scrollLeft = previousScrollLeft;
-      wrap.scrollTop = previousScrollTop;
-      wrap.style.removeProperty("scroll-behavior");
+      restoreFlowScroll(wrap, previousScrollLeft, previousScrollTop);
     }
   }
 
@@ -3208,8 +3200,8 @@
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (!wrap) return;
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
-    var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
-    var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
+    var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
+    var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
     wrap.innerHTML = "";
     flowClipIdCounter = 0;
 
@@ -3422,10 +3414,7 @@
     renderFlowNodeInteriorMenu(selected);
 
     if (!applyFlowScrollTarget(wrap, selected, center.x, center.y, center.w, center.h)) {
-      wrap.style.scrollBehavior = "auto";
-      wrap.scrollLeft = previousScrollLeft;
-      wrap.scrollTop = previousScrollTop;
-      wrap.style.removeProperty("scroll-behavior");
+      restoreFlowScroll(wrap, previousScrollLeft, previousScrollTop);
     }
   }
 
@@ -3433,8 +3422,8 @@
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (!wrap) return;
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
-    var previousScrollLeft = shouldPreserveScroll ? wrap.scrollLeft : 0;
-    var previousScrollTop = shouldPreserveScroll ? wrap.scrollTop : 0;
+    var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
+    var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
     wrap.innerHTML = "";
     flowClipIdCounter = 0;
 
@@ -3445,8 +3434,12 @@
       return;
     }
 
-    var calls = declarationCalls(declName);
-    var calledBy = declarationCalledBy(declName);
+    /* Lanes hold { name, module } pairs: a name alone is ambiguous when two
+       modules declare it, and a lane node must say, link and navigate to the
+       declaration it actually is. */
+    var centerRef = { name: declName, module: moduleName };
+    var calls = declarationCalleeRefs(declName, moduleName);
+    var calledBy = declarationCallerRefs(declName, moduleName);
 
     var breadcrumb = document.createElement("nav");
     breadcrumb.className = "declaration-context-breadcrumb";
@@ -3480,10 +3473,10 @@
     var laneYStart = layout.laneYStart;
     var laneGapY = layout.laneGapY;
 
-    function declSummary(name) {
-      var kind = declarationKindOf(name);
-      var mod = declarationModuleOf(name);
-      var line = declarationLineOf(name);
+    function declSummary(ref) {
+      var mod = ref.module;
+      var kind = declarationKindOf(ref.name, mod);
+      var line = declarationLineOf(ref.name, mod);
       var parts = [];
       if (kind) parts.push(symbolKindLabel(kind));
       if (mod) {
@@ -3491,8 +3484,8 @@
         parts.push((isCrossModule ? "\u2192 " : "in ") + mod);
       }
       if (line > 0) parts.push("L" + line);
-      var outgoing = declarationCalls(name).length;
-      var incoming = declarationCalledBy(name).length;
+      var outgoing = declarationCalls(ref.name, mod).length;
+      var incoming = mod ? declarationCallerRefs(ref.name, mod).length : 0;
       if (outgoing > 0 || incoming > 0) {
         parts.push("\u2190" + incoming + " \u2192" + outgoing);
       }
@@ -3508,10 +3501,11 @@
       return parts.join(" \u00B7 ") || "declaration";
     }
 
-    function declMetaLink(name) {
-      var line = declarationLineOf(name);
+    function declMetaLink(ref) {
+      if (!ref.module) return null;
+      var line = declarationLineOf(ref.name, ref.module);
       if (!(line > 0)) return null;
-      var href = declarationSourceHref(name);
+      var href = declarationSourceHref(ref.name, ref.module);
       if (!href) return null;
       return {
         href: href,
@@ -3520,34 +3514,31 @@
       };
     }
 
-    function declTooltip(name, roleLabel) {
-      var kind = declarationKindOf(name);
-      var mod = declarationModuleOf(name);
-      var line = declarationLineOf(name);
-      var callsList = declarationCalls(name);
-      return roleLabel + "\n" + name + (kind ? "\nkind: " + kind : "") + (mod ? "\nmodule: " + mod : "") + (line > 0 ? "\nline: " + line : "") + "\ncalls: " + (callsList.length || "none");
+    function declTooltip(ref, roleLabel) {
+      var mod = ref.module;
+      var kind = declarationKindOf(ref.name, mod);
+      var line = declarationLineOf(ref.name, mod);
+      var callsList = declarationCalls(ref.name, mod);
+      return roleLabel + "\n" + ref.name + (kind ? "\nkind: " + kind : "") + (mod ? "\nmodule: " + mod : "") + (line > 0 ? "\nline: " + line : "") + "\ncalls: " + (callsList.length || "none");
     }
 
-    function declNodeColor(name) {
-      var kind = declarationKindOf(name);
+    function declNodeColor(ref) {
+      var kind = declarationKindOf(ref.name, ref.module);
       if (!kind) return "#8fa3bf";
       /* Use the kind-specific color for same-module declarations but
          desaturate slightly for cross-module ones so that visual weight
          emphasizes the local module's declarations. */
       var raw = INTERIOR_KIND_COLOR_MAP[kind] || "#8fa3bf";
-      var declMod = declarationModuleOf(name);
-      if (declMod && declMod !== moduleName) return blendHexColor(raw, "#8fa3bf", 0.45);
+      if (ref.module && ref.module !== moduleName) return blendHexColor(raw, "#8fa3bf", 0.45);
       return raw;
     }
 
     function sortByModuleRelevance(arr, referenceModule) {
       return arr.slice().sort(function (a, b) {
-        var modA = declarationModuleOf(a);
-        var modB = declarationModuleOf(b);
-        var sameA = modA === referenceModule ? 0 : 1;
-        var sameB = modB === referenceModule ? 0 : 1;
+        var sameA = a.module === referenceModule ? 0 : 1;
+        var sameB = b.module === referenceModule ? 0 : 1;
         if (sameA !== sameB) return sameA - sameB;
-        return a.toLowerCase().localeCompare(b.toLowerCase());
+        return compareText(a.name.toLowerCase(), b.name.toLowerCase());
       });
     }
 
@@ -3587,8 +3578,8 @@
     var cursorLeft = laneYStart;
     for (var ci = 0; ci < visibleCalls.length; ci++) {
       var callMetaLink = declMetaLink(visibleCalls[ci]);
-      var ch = nodeContentHeight(visibleCalls[ci], declSummary(visibleCalls[ci]), sideWidth, true, callMetaLink ? callMetaLink.label : "", false);
-      callLayout.push({ name: visibleCalls[ci], y: cursorLeft, h: ch, collapsed: false, expandable: false, compactControl: false, metaLink: callMetaLink });
+      var ch = nodeContentHeight(visibleCalls[ci].name, declSummary(visibleCalls[ci]), sideWidth, true, callMetaLink ? callMetaLink.label : "", false);
+      callLayout.push({ name: visibleCalls[ci].name, ref: visibleCalls[ci], y: cursorLeft, h: ch, collapsed: false, expandable: false, compactControl: false, metaLink: callMetaLink });
       cursorLeft += ch + laneGapY;
     }
     if (collapsedCallCount > 0) {
@@ -3609,8 +3600,8 @@
     var cursorRight = laneYStart;
     for (var bi = 0; bi < visibleCallers.length; bi++) {
       var callerMetaLink = declMetaLink(visibleCallers[bi]);
-      var bh = nodeContentHeight(visibleCallers[bi], declSummary(visibleCallers[bi]), sideWidth, true, callerMetaLink ? callerMetaLink.label : "", false);
-      callerLayout.push({ name: visibleCallers[bi], y: cursorRight, h: bh, collapsed: false, expandable: false, compactControl: false, metaLink: callerMetaLink });
+      var bh = nodeContentHeight(visibleCallers[bi].name, declSummary(visibleCallers[bi]), sideWidth, true, callerMetaLink ? callerMetaLink.label : "", false);
+      callerLayout.push({ name: visibleCallers[bi].name, ref: visibleCallers[bi], y: cursorRight, h: bh, collapsed: false, expandable: false, compactControl: false, metaLink: callerMetaLink });
       cursorRight += bh + laneGapY;
     }
     if (collapsedCallerCount > 0) {
@@ -3627,8 +3618,8 @@
     }
     var callerBottom = callerLayout.length ? cursorRight - laneGapY : laneYStart + 44;
 
-    var centerMetaLink = declMetaLink(declName);
-    var centerHeight = nodeContentHeight(declName, declSummary(declName), centerWidth, false, centerMetaLink ? centerMetaLink.label : "", false) + 14;
+    var centerMetaLink = declMetaLink(centerRef);
+    var centerHeight = nodeContentHeight(declName, declSummary(centerRef), centerWidth, false, centerMetaLink ? centerMetaLink.label : "", false) + 14;
     var declLaneContentHeight = Math.max(callBottom, callerBottom) - laneYStart;
     var idealDeclCenterY = laneYStart + Math.floor((declLaneContentHeight - centerHeight) / 2);
     var minDeclCenterY = Math.max(laneYStart + 20, Math.min(170, laneYStart + Math.floor(declLaneContentHeight * 0.25)));
@@ -3648,11 +3639,12 @@
       flowLaneLabel(labelLayer, text, x, y, color);
     }
 
-    function createDeclNode(name, x, y, w, h, color, subtitle, tooltip, active, onActivate, metaLink) {
+    /* `declModule` is the module of the declaration a node stands for, or ""
+       for a lane control (expand, compact) whose name is only a label. */
+    function createDeclNode(name, declModule, x, y, w, h, color, subtitle, tooltip, active, onActivate, metaLink) {
       var className = "flow-node" + (active ? " active" : "");
       if (onActivate) className += " action";
-      var declMod = declarationModuleOf(name);
-      if (declMod && declMod !== moduleName) className += " cross-module";
+      if (declModule && declModule !== moduleName) className += " cross-module";
       var interactive = Boolean(onActivate);
       var focusable = interactive || active;
       var ariaLabel = interactive ? "Select declaration " + name : name;
@@ -3668,10 +3660,17 @@
 
     if (!hasCallees && !hasCallers) {
       var emptyHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 28, fill: "#8fa3bf", "font-size": "12", "class": "flow-lane-label" });
-      var kind = declarationKindOf(declName);
+      var kind = declarationKindOf(declName, moduleName);
       var hintMsg = kind
         ? "This " + kind + " has no detected internal call relationships."
         : "No internal call relationships detected for this declaration.";
+      /* Until the call graph is in, an empty lane says nothing about the
+         declaration; say what is actually the case. */
+      if (state.callGraphStatus === "loading" || state.callGraphStatus === "idle") {
+        hintMsg = t("map.callgraph_loading") || "Loading the declaration call graph…";
+      } else if (state.callGraphStatus === "failed") {
+        hintMsg = t("map.callgraph_failed") || "The declaration call graph could not be loaded.";
+      }
       emptyHint.textContent = hintMsg;
       labelLayer.appendChild(emptyHint);
       var returnHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 46, fill: "#6e7a91", "font-size": "11", "class": "flow-lane-label" });
@@ -3679,10 +3678,15 @@
       labelLayer.appendChild(returnHint);
     }
 
-    var center = createDeclNode(declName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(declName), declTooltip(declName, "Selected declaration"), true, null, centerMetaLink);
+    var center = createDeclNode(declName, moduleName, centerX, centerY, centerWidth, centerHeight, "#7c9cff", declSummary(centerRef), declTooltip(centerRef, "Selected declaration"), true, null, centerMetaLink);
 
-    function isDeclNavigable(name) {
-      return Boolean(state.declarationGraph[name]) || Boolean(state.declarationReverseGraph[name]);
+    function isDeclNavigable(ref) {
+      if (!ref.module) return false;
+      return declarationCalls(ref.name, ref.module).length > 0 || Boolean(state.declarationReverseGraph[ref.name]);
+    }
+
+    function selectRef(ref) {
+      return function () { selectDeclaration(ref.name, ref.module); };
     }
 
     var callNodes = [];
@@ -3690,13 +3694,13 @@
       var callItem = callLayout[i];
       if (callItem.expandable) {
         var expandCallTooltip = "Expand to show all " + (collapsedCallCount + visibleCalls.length) + " called declarations";
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", expandAllHint, expandCallTooltip, false, expandDeclarationLanes, null));
+        callNodes.push(createDeclNode(callItem.name, "", leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", expandAllHint, expandCallTooltip, false, expandDeclarationLanes, null));
       } else if (callItem.compactControl) {
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", hideExtraCalls, "Return to compact view", false, compactDeclarationLanes, null));
+        callNodes.push(createDeclNode(callItem.name, "", leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", hideExtraCalls, "Return to compact view", false, compactDeclarationLanes, null));
       } else {
-        var callColor = declNodeColor(callItem.name);
-        var callNavigable = isDeclNavigable(callItem.name);
-        callNodes.push(createDeclNode(callItem.name, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.name), declTooltip(callItem.name, "Called declaration"), false, callNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callItem.name) : null, callItem.metaLink || null));
+        var callColor = declNodeColor(callItem.ref);
+        var callNavigable = isDeclNavigable(callItem.ref);
+        callNodes.push(createDeclNode(callItem.name, callItem.ref.module, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.ref), declTooltip(callItem.ref, "Called declaration"), false, callNavigable ? selectRef(callItem.ref) : null, callItem.metaLink || null));
       }
     }
 
@@ -3705,13 +3709,13 @@
       var callerItem = callerLayout[j];
       if (callerItem.expandable) {
         var expandCallerTooltip = "Expand to show all " + (collapsedCallerCount + visibleCallers.length) + " caller declarations";
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", expandAllHint, expandCallerTooltip, false, expandDeclarationLanes, null));
+        callerNodes.push(createDeclNode(callerItem.name, "", rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", expandAllHint, expandCallerTooltip, false, expandDeclarationLanes, null));
       } else if (callerItem.compactControl) {
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", hideExtraCallers, "Return to compact view", false, compactDeclarationLanes, null));
+        callerNodes.push(createDeclNode(callerItem.name, "", rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", hideExtraCallers, "Return to compact view", false, compactDeclarationLanes, null));
       } else {
-        var callerColor = declNodeColor(callerItem.name);
-        var callerNavigable = isDeclNavigable(callerItem.name);
-        callerNodes.push(createDeclNode(callerItem.name, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.name), declTooltip(callerItem.name, "Caller declaration"), false, callerNavigable ? (function (n) { return function () { selectDeclaration(n); }; })(callerItem.name) : null, callerItem.metaLink || null));
+        var callerColor = declNodeColor(callerItem.ref);
+        var callerNavigable = isDeclNavigable(callerItem.ref);
+        callerNodes.push(createDeclNode(callerItem.name, callerItem.ref.module, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.ref), declTooltip(callerItem.ref, "Caller declaration"), false, callerNavigable ? selectRef(callerItem.ref) : null, callerItem.metaLink || null));
       }
     }
 
@@ -3746,10 +3750,7 @@
     renderFlowNodeInteriorMenu(moduleName);
 
     if (!applyFlowScrollTarget(wrap, declName, center.x, center.y, center.w, center.h)) {
-      wrap.style.scrollBehavior = "auto";
-      wrap.scrollLeft = previousScrollLeft;
-      wrap.scrollTop = previousScrollTop;
-      wrap.style.removeProperty("scroll-behavior");
+      restoreFlowScroll(wrap, previousScrollLeft, previousScrollTop);
     }
   }
 
@@ -3771,7 +3772,7 @@
       groups.push({ key: order[j], label: order[j], members: buckets[order[j]].slice() });
     }
     /* Largest subsystems first; the input order (by score) is kept inside each group. */
-    groups.sort(function (a, b) { return b.members.length - a.members.length || a.key.localeCompare(b.key); });
+    groups.sort(function (a, b) { return b.members.length - a.members.length || compareText(a.key, b.key); });
     return groups;
   }
 
@@ -3831,33 +3832,6 @@
       stroke: color
     });
     layer.appendChild(path);
-  }
-
-  /* A live refresh replaces the module graph but may carry no repository tree
-     (the canonical artifact lists only Lean modules) and no Rust inventory
-     (nothing upstream produces one). Keep whichever the previous data had, and
-     remember the commit each was taken at so the page can say so. */
-  function retainInventory(previous, incoming) {
-    var prior = previous || {};
-    var next = incoming || {};
-    var incomingFiles = Array.isArray(next.files) ? next.files : [];
-    var priorFiles = Array.isArray(prior.files) ? prior.files : [];
-    var incomingHasTree = false;
-    for (var i = 0; i < incomingFiles.length; i++) {
-      if (!/\.lean$/i.test(incomingFiles[i])) { incomingHasTree = true; break; }
-    }
-    var files = incomingHasTree || !priorFiles.length ? incomingFiles : priorFiles;
-    var inventoryCommit = incomingHasTree || !priorFiles.length
-      ? String(next.inventoryCommit || next.commitSha || "")
-      : String(prior.inventoryCommit || "");
-
-    var incomingRust = next.rust && Array.isArray(next.rust.crates) ? next.rust : null;
-    var rust = incomingRust || prior.rust || null;
-    var rustCommit = incomingRust
-      ? String(next.rustCommit || next.commitSha || "")
-      : (rust ? String(prior.rustCommit || "") : "");
-
-    return { files: files, inventoryCommit: inventoryCommit, rust: rust, rustCommit: rustCommit, retainedFiles: !incomingHasTree && priorFiles.length > 0, retainedRust: !incomingRust && Boolean(rust) };
   }
 
   function normalizeRustInventory(raw) {
@@ -4095,6 +4069,18 @@
       .toLowerCase();
   }
 
+  /* A cheap necessary condition for two names to share a bridge key:
+     toBridgeKey only lowercases and inserts underscores, so equal keys mean
+     equal names once case and underscores are dropped. Lean has ~20k
+     declaration names and the Rust side ~4k exported items; screening with
+     this first runs the three-regex key on the few hundred Lean names that
+     can match instead of on all of them. */
+  function bridgeScreenKey(name) {
+    var raw = String(name || "").replace(/^r#/, "");
+    if (!raw || raw.charAt(0) === "<") return "";
+    return raw.toLowerCase().replace(/_/g, "");
+  }
+
   function bridgeRelation(rustKind, leanKind, crateName) {
     if (rustKind !== "fn") return "shares";
     if (BRIDGE_FOREIGN_LEAN_KINDS[leanKind]) return "implements";
@@ -4106,8 +4092,10 @@
 
   /* Lean declarations by normalised name. A name declared several times keeps
      every declaration: the same type can be named in a structure and restated
-     in an abbreviation, and both are real. */
-  function leanDeclarationsByBridgeKey() {
+     in an abbreviation, and both are real. `screen`, when given, is the set of
+     bridgeScreenKey values that can match at all; other names are skipped
+     before their key is computed. */
+  function leanDeclarationsByBridgeKey(screen) {
     var index = Object.create(null);
     for (var i = 0; i < state.modules.length; i++) {
       var moduleName = state.modules[i];
@@ -4122,6 +4110,7 @@
         for (var j = 0; j < list.length; j++) {
           var entry = list[j];
           var declName = entry && typeof entry === "object" ? entry.name : entry;
+          if (screen && !screen[bridgeScreenKey(declName)]) continue;
           var key = toBridgeKey(declName);
           if (!key) continue;
           if (!index[key]) index[key] = [];
@@ -4145,7 +4134,6 @@
       return state.bridge;
     }
 
-    var leanIndex = leanDeclarationsByBridgeKey();
     var byRust = Object.create(null);
     var byLean = Object.create(null);
     var edges = Object.create(null);
@@ -4163,6 +4151,10 @@
       }
     }
 
+    /* The Rust side first: the items that may cross the boundary, and the
+       screen their names give the Lean index. */
+    var candidates = [];
+    var screen = Object.create(null);
     for (var i = 0; i < state.rustGraph.nodes.length; i++) {
       var nodeName = state.rustGraph.nodes[i];
       var node = state.rustGraph.byName[nodeName];
@@ -4179,35 +4171,46 @@
            emptying the boundary (see carriesExportFlag). */
         if (!(carriesExportFlag ? item.exported === true : item.visibility === "pub")) continue;
         if (!BRIDGE_RUST_KINDS[item.kind]) continue;
-        var matches = leanIndex[toBridgeKey(item.name)];
-        if (!matches) continue;
-        for (var m = 0; m < matches.length; m++) {
-          var lean = matches[m];
-          var relation = bridgeRelation(item.kind, lean.kind, node.crateName);
-          var edgeKey = nodeName + "\u0000" + lean.module + "\u0000" + relation;
-          var edge = edges[edgeKey];
-          if (!edge) {
-            edge = edges[edgeKey] = {
-              rustNode: nodeName,
-              leanModule: lean.module,
-              relation: relation,
-              links: []
-            };
-            if (!byRust[nodeName]) byRust[nodeName] = [];
-            if (!byLean[lean.module]) byLean[lean.module] = [];
-            byRust[nodeName].push(edge);
-            byLean[lean.module].push(edge);
-          }
-          edge.links.push({
-            leanName: lean.name,
-            leanKind: lean.kind,
-            leanLine: lean.line,
-            rustName: String(item.name),
-            rustKind: String(item.kind),
-            rustLine: item.line || 0
-          });
-          links += 1;
+        var screenKey = bridgeScreenKey(item.name);
+        if (!screenKey) continue;
+        screen[screenKey] = true;
+        candidates.push({ nodeName: nodeName, node: node, item: item });
+      }
+    }
+
+    var leanIndex = leanDeclarationsByBridgeKey(screen);
+    for (var c = 0; c < candidates.length; c++) {
+      nodeName = candidates[c].nodeName;
+      node = candidates[c].node;
+      item = candidates[c].item;
+      var matches = leanIndex[toBridgeKey(item.name)];
+      if (!matches) continue;
+      for (var m = 0; m < matches.length; m++) {
+        var lean = matches[m];
+        var relation = bridgeRelation(item.kind, lean.kind, node.crateName);
+        var edgeKey = nodeName + "\u0000" + lean.module + "\u0000" + relation;
+        var edge = edges[edgeKey];
+        if (!edge) {
+          edge = edges[edgeKey] = {
+            rustNode: nodeName,
+            leanModule: lean.module,
+            relation: relation,
+            links: []
+          };
+          if (!byRust[nodeName]) byRust[nodeName] = [];
+          if (!byLean[lean.module]) byLean[lean.module] = [];
+          byRust[nodeName].push(edge);
+          byLean[lean.module].push(edge);
         }
+        edge.links.push({
+          leanName: lean.name,
+          leanKind: lean.kind,
+          leanLine: lean.line,
+          rustName: String(item.name),
+          rustKind: String(item.kind),
+          rustLine: item.line || 0
+        });
+        links += 1;
       }
     }
 
@@ -4218,10 +4221,10 @@
         var byRelation = relationRank[a.relation] - relationRank[b.relation];
         if (byRelation) return byRelation;
         var byLinks = b.links.length - a.links.length;
-        return byLinks || labelOf(a).localeCompare(labelOf(b));
+        return byLinks || compareText(labelOf(a), labelOf(b));
       });
       for (var s = 0; s < list.length; s++) {
-        list[s].links.sort(function (a, b) { return a.rustName.localeCompare(b.rustName); });
+        list[s].links.sort(function (a, b) { return compareText(a.rustName, b.rustName); });
       }
     }
     for (var rustKey in byRust) {
@@ -4376,10 +4379,10 @@
     return node ? node.path : "";
   }
 
-  /* The Rust inventory can be a commit behind the module graph after a live
-     refresh that carried no crates, so each half links at its own revision. */
-  function nodeSourceRef(name) {
-    if (isRustNode(name)) return state.rustCommit || state.commitSha || REF;
+  /* Both halves come from one snapshot, so every source link names the
+     commit that snapshot was taken at; a line number on `main` would be a
+     line on a moving target. */
+  function nodeSourceRef() {
     return state.commitSha || REF;
   }
 
@@ -4617,7 +4620,7 @@
 
     pairs.sort(function (a, b) {
       var diff = (b.operationsTheorems + b.invariantTheorems) - (a.operationsTheorems + a.invariantTheorems);
-      return diff || a.base.localeCompare(b.base);
+      return diff || compareText(a.base, b.base);
     });
 
     for (var j = 0; j < pairs.length; j++) if (pairs[j].invariantImportsOperations) totals.linked += 1;
@@ -4638,7 +4641,6 @@
     updateMetric("proofPairs", totals.pairs);
     updateMetric("linkedPairs", totals.linked);
     updateMetric("generatedAt", formatGeneratedAt(state.generatedAt));
-    renderInventoryProvenance();
 
     /* Pre-warm assurance cache for all visible modules so the first render
        doesn't stall on assurance computation for each node.  This moves the
@@ -4649,9 +4651,21 @@
   }
 
   function renderAll() {
+    if (state.flowContext === "declaration" && state.selectedDeclaration) ensureCallGraph();
+    var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
+    /* Read before the first write below, so the one layout this costs is the
+       render's only forced one until a scroll target is applied. */
+    flowFrame = readFlowFrame(wrap);
+    try {
+      renderAllInFrame(wrap);
+    } finally {
+      flowFrame = null;
+    }
+  }
+
+  function renderAllInFrame(wrap) {
     renderScopeToggle();
     renderContextChooser();
-    var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (state.flowContext === "declaration" && state.selectedDeclaration) {
       if (wrap) wrap.setAttribute("aria-label", "Declaration call graph for " + state.selectedDeclaration);
       renderDeclarationFlowchart();
@@ -4908,178 +4922,79 @@
     }
   }
 
-  function runInPool(items, worker) {
-    var index = 0;
-
-    function runner() {
-      if (index >= items.length) return Promise.resolve();
-      var current = index++;
-      return Promise.resolve(worker(items[current])).then(runner);
-    }
-
-    var workers = [];
-    for (var i = 0; i < Math.min(FETCH_CONCURRENCY, items.length); i++) workers.push(runner());
-    return Promise.all(workers);
-  }
-
-  function getCache() {
-    try {
-      var raw = localStorage.getItem(CACHE_KEY);
-      if (!raw) return null;
-      var parsed = JSON.parse(raw);
-      if (parsed.schema !== CACHE_SCHEMA_VERSION) return null;
-      var ageMs = Math.max(0, Date.now() - Number(parsed.ts || 0));
-      if (ageMs > CACHE_MAX_STALE_MS) return null;
-      parsed.isFresh = ageMs <= CACHE_TTL_MS;
-      parsed.ageMs = ageMs;
-      return parsed;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function setCache(data, commitSha) {
-    try {
-      var json = JSON.stringify({
-        schema: CACHE_SCHEMA_VERSION,
-        ts: Date.now(),
-        commitSha: commitSha || "",
-        data: data
-      });
-      if (json.length > CACHE_MAX_CHARS) return false;
-      localStorage.setItem(CACHE_KEY, json);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function getLiveSyncMeta() {
-    try {
-      var raw = localStorage.getItem(LIVE_SYNC_META_KEY);
-      if (!raw) return null;
-      var parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") return null;
-      return {
-        nextAllowedAt: Number(parsed.nextAllowedAt) || 0,
-        lastCheckedCommit: parsed.lastCheckedCommit ? String(parsed.lastCheckedCommit) : ""
-      };
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function setLiveSyncMeta(lastCheckedCommit) {
-    var jitter = Math.floor(Math.random() * LIVE_SYNC_JITTER_MAX_MS);
-    var nextAllowedAt = Date.now() + LIVE_SYNC_MIN_INTERVAL_MS + jitter;
-    try {
-      localStorage.setItem(LIVE_SYNC_META_KEY, JSON.stringify({
-        nextAllowedAt: nextAllowedAt,
-        lastCheckedCommit: lastCheckedCommit || ""
-      }));
-    } catch (e) {}
-    return nextAllowedAt;
-  }
-
-  function remainingSyncCooldownMs() {
-    var meta = getLiveSyncMeta();
-    if (!meta || !meta.nextAllowedAt) return 0;
-    return Math.max(0, meta.nextAllowedAt - Date.now());
-  }
-
-  function persistCurrentMapCache() {
-    /* Snapshot moduleMeta without the private __interiorCache/__interiorCacheSource
-       fields: they re-serialize symbols ~3x, inflating the localStorage payload
-       toward the quota, and are rebuilt on demand anyway. */
-    var metaSnapshot = Object.create(null);
-    for (var metaName in state.moduleMeta) {
-      if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, metaName)) continue;
-      var meta = state.moduleMeta[metaName] || {};
-      metaSnapshot[metaName] = {
-        layer: meta.layer,
-        kind: meta.kind,
-        base: meta.base,
-        theorems: meta.theorems,
-        symbols: meta.symbols,
-        symbolsLoaded: meta.symbolsLoaded
-      };
-    }
-    setCache({
-      files: state.files,
-      modules: state.modules,
-      moduleMap: state.moduleMap,
-      moduleMeta: metaSnapshot,
-      importsTo: state.importsTo,
-      importsFrom: state.importsFrom,
-      externalImportsFrom: state.externalImportsFrom,
-      rust: state.rust,
-      inventoryCommit: state.inventoryCommit,
-      rustCommit: state.rustCommit,
-      commitSha: state.commitSha,
-      generatedAt: state.generatedAt
-    }, state.commitSha);
-  }
-
-  function fetchLatestCommitSha() {
-    return safeFetch(API + "/commits/" + REF, false).then(function (payload) {
-      return payload && payload.sha ? String(payload.sha) : "";
-    }).catch(function () {
-      return "";
-    });
-  }
-
-  function fetchLatestMapCommitSha() {
-    var url = API + "/commits?sha=" + encodeURIComponent(REF) + "&path=" + encodeURIComponent(CODEBASE_MAP_PATH) + "&per_page=1";
-    return safeFetch(url, false).then(function (payload) {
-      if (!Array.isArray(payload) || !payload.length) return "";
-      var commit = payload[0] || {};
-      return commit.sha ? String(commit.sha) : "";
-    }).catch(function () {
-      return "";
-    });
-  }
-
-  /* Production Lean by the published scope: the library tree without the
-     in-tree testing framework, plus the kernel entry module. */
-  function isLeanModulePath(path) {
-    var candidate = String(path || "");
-    return /^SeLe4n\/(?!Testing\/).*\.lean$/.test(candidate) || candidate === "Main.lean";
-  }
-
-  function moduleInventoryFromTree(tree) {
-    var files = [];
-    var leanFiles = [];
-    var leanShasByPath = Object.create(null);
-
-    for (var i = 0; i < tree.length; i++) {
-      var entry = tree[i];
-      if (!entry || entry.type !== "blob") continue;
-      files.push(entry.path);
-      if (isLeanModulePath(entry.path)) {
-        leanFiles.push(entry.path);
-        leanShasByPath[entry.path] = entry.sha || "";
+  /* A declaration is identified by its module and its name together. The
+     artifact records short names, so one name can be declared in several
+     modules (`leaves` in BarrierComposition and in TlbCacheComposition, 171
+     names in the current snapshot); the name-keyed `declarationIndex` keeps
+     the first module's entry for callers that know no module, and
+     `declarationsByModule` answers for a named one. Collisions inside one
+     module still collapse, as the data records them (see ARCHITECTURE.md,
+     "Two details the data forced"). */
+  function buildDeclarationIndexes(moduleMeta, moduleNames) {
+    var declarationIndex = Object.create(null);
+    var declarationsByModule = Object.create(null);
+    var declarationModulesByName = Object.create(null);
+    for (var m = 0; m < moduleNames.length; m++) {
+      var moduleName = moduleNames[m];
+      var perModule = Object.create(null);
+      declarationsByModule[moduleName] = perModule;
+      var meta = moduleMeta[moduleName];
+      var byKind = meta && meta.symbols && meta.symbols.byKind;
+      if (!byKind) continue;
+      for (var kind in byKind) {
+        if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
+        var items = byKind[kind];
+        if (!Array.isArray(items)) continue;
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i];
+          if (!item || !item.name || perModule[item.name]) continue;
+          var entry = { module: moduleName, kind: kind, line: item.line || 0 };
+          perModule[item.name] = entry;
+          if (!declarationIndex[item.name]) declarationIndex[item.name] = entry;
+          if (!declarationModulesByName[item.name]) declarationModulesByName[item.name] = [];
+          declarationModulesByName[item.name].push(moduleName);
+        }
       }
     }
-
-    return { files: files, leanFiles: leanFiles, leanShasByPath: leanShasByPath };
+    return {
+      declarationIndex: declarationIndex,
+      declarationsByModule: declarationsByModule,
+      declarationModulesByName: declarationModulesByName
+    };
   }
 
-  function removeModuleState(moduleName) {
-    delete state.moduleMeta[moduleName];
-    delete state.importsFrom[moduleName];
-    delete state.externalImportsFrom[moduleName];
-    if (state.selectedModule === moduleName) state.selectedModule = null;
-    if (state.interiorMenuModule === moduleName) {
-      state.interiorMenuModule = "";
-      state.interiorMenuQuery = "";
+  /* The forward graph stays keyed by name for name-only callers (last module
+     wins, as it always has); the module-aware lookups read each module's own
+     `symbols.callGraph`. The reverse graph lists every caller of a name with
+     the caller's module beside it (`declarationReverseModules`, index for
+     index), so the callers of one module's `leaves` can be told apart from
+     the callers of another's. */
+  function buildCallGraphIndexes(moduleMeta, moduleNames) {
+    var graph = Object.create(null);
+    var reverse = Object.create(null);
+    var reverseModules = Object.create(null);
+    for (var m = 0; m < moduleNames.length; m++) {
+      var moduleName = moduleNames[m];
+      var meta = moduleMeta[moduleName];
+      var callGraph = meta && meta.symbols && meta.symbols.callGraph;
+      if (!callGraph) continue;
+      for (var caller in callGraph) {
+        if (!Object.prototype.hasOwnProperty.call(callGraph, caller)) continue;
+        var calls = callGraph[caller];
+        if (!Array.isArray(calls)) continue;
+        graph[caller] = { module: moduleName, calls: calls };
+        for (var c = 0; c < calls.length; c++) {
+          var target = calls[c];
+          if (!reverse[target]) {
+            reverse[target] = [];
+            reverseModules[target] = [];
+          }
+          reverse[target].push(caller);
+          reverseModules[target].push(moduleName);
+        }
+      }
     }
-  }
-
-  function applyTreeInventory(inventory) {
-    state.files = inventory.files.slice();
-    state.modules = inventory.leanFiles.map(moduleFromPath);
-    state.moduleMap = Object.create(null);
-    for (var i = 0; i < state.modules.length; i++) state.moduleMap[state.modules[i]] = inventory.leanFiles[i];
+    return { declarationGraph: graph, declarationReverseGraph: reverse, declarationReverseModules: reverseModules };
   }
 
   function normalizeMapData(data, options) {
@@ -5144,7 +5059,7 @@
         });
       }
 
-      records.sort(function (a, b) { return a.name.localeCompare(b.name); });
+      records.sort(function (a, b) { return compareText(a.name, b.name); });
       return records;
     }
 
@@ -5196,36 +5111,12 @@
       return out;
     }
 
-    function normalizeFiles(files, moduleMap) {
-      var list = Array.isArray(files) ? files : [];
-      var out = [];
-      var seen = Object.create(null);
-
-      for (var i = 0; i < list.length; i++) {
-        var path = String(list[i] || "").trim();
-        if (!path || seen[path]) continue;
-        seen[path] = true;
-        out.push(path);
-      }
-
-      for (var moduleName in moduleMap) {
-        if (!Object.prototype.hasOwnProperty.call(moduleMap, moduleName)) continue;
-        var modulePath = String(moduleMap[moduleName] || "").trim();
-        if (!modulePath || seen[modulePath]) continue;
-        seen[modulePath] = true;
-        out.push(modulePath);
-      }
-
-      out.sort();
-      return out;
-    }
-
     function normalizeModuleSymbols(rawSymbols) {
       var source = rawSymbols || {};
       var callGraph = Object.create(null);
-      /* Seed from a previously-normalized payload (e.g. a localStorage cache
-         round-trip) whose symbols are already in byKind form: without this the
-         declarations branch below is skipped and the call graph is lost. */
+      /* The bundled snapshot ships symbols already in byKind form with a
+         `callGraph` beside them: without this the declarations branch below
+         is skipped and the call graph is lost. */
       var priorGraph = source && source.callGraph && typeof source.callGraph === "object" && !Array.isArray(source.callGraph) ? source.callGraph : null;
       if (priorGraph) {
         for (var pg in priorGraph) {
@@ -5329,283 +5220,113 @@
       return out;
     })();
 
-    var mergedDeclarationGraph = Object.create(null);
-    var mergedReverseGraph = Object.create(null);
-    var declarationIndex = Object.create(null);
-    for (var dgIdx = 0; dgIdx < moduleRecords.length; dgIdx++) {
-      var dgModule = moduleRecords[dgIdx].name;
-      var dgSymbols = normalizedModuleMeta[dgModule] && normalizedModuleMeta[dgModule].symbols;
-      var dgCallGraph = dgSymbols && dgSymbols.callGraph ? dgSymbols.callGraph : Object.create(null);
-      for (var dgKey in dgCallGraph) {
-        if (!Object.prototype.hasOwnProperty.call(dgCallGraph, dgKey)) continue;
-        mergedDeclarationGraph[dgKey] = { module: dgModule, calls: dgCallGraph[dgKey] };
-        for (var dgCalledIdx = 0; dgCalledIdx < dgCallGraph[dgKey].length; dgCalledIdx++) {
-          var calledTarget = dgCallGraph[dgKey][dgCalledIdx];
-          if (!mergedReverseGraph[calledTarget]) mergedReverseGraph[calledTarget] = [];
-          mergedReverseGraph[calledTarget].push(dgKey);
-        }
-      }
-      // Build fast declaration→{module,kind,line} index from moduleMeta symbols
-      var dgMeta = normalizedModuleMeta[dgModule];
-      if (dgMeta && dgMeta.symbols && dgMeta.symbols.byKind) {
-        var dgByKind = dgMeta.symbols.byKind;
-        for (var dgKind in dgByKind) {
-          if (!Object.prototype.hasOwnProperty.call(dgByKind, dgKind)) continue;
-          var dgItems = dgByKind[dgKind];
-          if (!Array.isArray(dgItems)) continue;
-          for (var diIdx = 0; diIdx < dgItems.length; diIdx++) {
-            var diEntry = dgItems[diIdx];
-            if (diEntry && diEntry.name && !declarationIndex[diEntry.name]) {
-              declarationIndex[diEntry.name] = { module: dgModule, kind: dgKind, line: diEntry.line || 0 };
-            }
-          }
-        }
-      }
-    }
+    var declarationIndexes = buildDeclarationIndexes(normalizedModuleMeta, normalizedModules);
+    var callGraphIndexes = buildCallGraphIndexes(normalizedModuleMeta, normalizedModules);
 
     return {
-      files: normalizeFiles(data.files, normalizedModuleMap),
       modules: normalizedModules,
       moduleMap: normalizedModuleMap,
       moduleMeta: normalizedModuleMeta,
       importsTo: Object.create(null),
       importsFrom: normalizedImportsFrom,
       externalImportsFrom: normalizedExternalImportsFrom,
-      declarationGraph: mergedDeclarationGraph,
-      declarationReverseGraph: mergedReverseGraph,
-      declarationIndex: declarationIndex,
+      declarationGraph: callGraphIndexes.declarationGraph,
+      declarationReverseGraph: callGraphIndexes.declarationReverseGraph,
+      declarationReverseModules: callGraphIndexes.declarationReverseModules,
+      declarationIndex: declarationIndexes.declarationIndex,
+      declarationsByModule: declarationIndexes.declarationsByModule,
+      declarationModulesByName: declarationIndexes.declarationModulesByName,
       rust: normalizeRustInventory(data.rust),
-      inventoryCommit: data.inventoryCommit ? String(data.inventoryCommit) : "",
-      rustCommit: data.rustCommit ? String(data.rustCommit) : "",
       commitSha: data.commitSha ? String(data.commitSha) : "",
       generatedAt: data.generatedAt ? String(data.generatedAt) : ""
     };
   }
 
-  function enrichSparseMapData(data, options) {
-    if (!data || !Array.isArray(data.modules) || !data.modules.length) return Promise.resolve(data);
+  /* The bundled snapshot is the page's only data source. A failure rejects
+     with the reason, so boot can say the map did not load rather than paint
+     an empty workspace. */
+  function moduleMetaHasCallGraph(moduleMeta) {
+    for (var name in moduleMeta) {
+      if (!Object.prototype.hasOwnProperty.call(moduleMeta, name)) continue;
+      var graph = moduleMeta[name] && moduleMeta[name].symbols && moduleMeta[name].symbols.callGraph;
+      if (graph && Object.keys(graph).length) return true;
+    }
+    return false;
+  }
 
-    var modules = data.modules.slice();
-    var moduleLookup = Object.create(null);
-    for (var i = 0; i < modules.length; i++) moduleLookup[modules[i]] = true;
+  /* One request per page: the promise is kept, so a deep link that starts it
+     at boot and the first render that needs it share the download. */
+  var callGraphRequest = null;
+  function fetchCallGraph() {
+    if (!callGraphRequest) {
+      try {
+        callGraphRequest = safeFetch(CALLGRAPH_ENDPOINT, false);
+      } catch (error) {
+        callGraphRequest = Promise.reject(error);
+      }
+    }
+    return callGraphRequest;
+  }
 
-    var totalEdges = 0;
-    for (var j = 0; j < modules.length; j++) totalEdges += (data.importsFrom[modules[j]] || []).length;
-    if (totalEdges > 0) return Promise.resolve(data);
+  /* Merges a call-graph payload into moduleMeta and rebuilds the indexes the
+     declaration view reads. Returns an error message, or "" when applied. A
+     graph from another commit is refused: its names would be matched against
+     declarations it was not computed from. */
+  function applyCallGraphPayload(payload) {
+    if (!payload || typeof payload !== "object" || !payload.callGraph || typeof payload.callGraph !== "object") return "call graph has no callGraph";
+    if (!state.commitSha || payload.commitSha !== state.commitSha) {
+      return "call graph is from commit " + String(payload.commitSha || "?").slice(0, 7) + ", the snapshot from " + String(state.commitSha || "?").slice(0, 7);
+    }
+    for (var i = 0; i < state.modules.length; i++) {
+      var name = state.modules[i];
+      var meta = state.moduleMeta[name];
+      if (!meta) continue;
+      if (!meta.symbols) meta.symbols = makeEmptyInteriorSymbols();
+      var graph = payload.callGraph[name];
+      meta.symbols.callGraph = graph && typeof graph === "object" && !Array.isArray(graph) ? graph : Object.create(null);
+    }
+    var indexes = buildCallGraphIndexes(state.moduleMeta, state.modules);
+    state.declarationGraph = indexes.declarationGraph;
+    state.declarationReverseGraph = indexes.declarationReverseGraph;
+    state.declarationReverseModules = indexes.declarationReverseModules;
+    return "";
+  }
 
-    var opts = options && typeof options === "object" ? options : {};
-    if (!opts.silent) setStatus(t("map.status_missing_edges") || "Canonical map missing import edges; deriving imports from Lean source files\u2026", false);
-
-    return runInPool(modules, function (moduleName) {
-      var path = String((data.moduleMap && data.moduleMap[moduleName]) || "").trim();
-      if (!path) return;
-      var url = "https://raw.githubusercontent.com/" + REPO + "/" + REF + "/" + path;
-      return safeFetch(url, true).then(function (sourceText) {
-        var imports = [];
-        var external = [];
-        var seenIn = Object.create(null);
-        var seenOut = Object.create(null);
-        var tokens = extractImportTokens(sourceText);
-
-        for (var idx = 0; idx < tokens.length; idx++) {
-          var dep = tokens[idx];
-          if (!dep || dep === moduleName) continue;
-          if (moduleLookup[dep]) {
-            if (seenIn[dep]) continue;
-            seenIn[dep] = true;
-            imports.push(dep);
-          } else {
-            if (seenOut[dep]) continue;
-            seenOut[dep] = true;
-            external.push(dep);
-          }
-        }
-
-        data.importsFrom[moduleName] = imports;
-        data.externalImportsFrom[moduleName] = external;
-
-        var meta = data.moduleMeta[moduleName] || (data.moduleMeta[moduleName] = {
-          layer: classifyLayer(moduleName),
-          kind: moduleKind(moduleName),
-          base: moduleBase(moduleName),
-          theorems: 0,
-          symbols: makeEmptyInteriorSymbols()
-        });
-        if (!(meta.theorems > 0)) meta.theorems = theoremCount(sourceText);
-      }).catch(function () {});
+  /* Starts loading the call graph if nothing has, and repaints the
+     declaration view when it lands (or when it fails, to say so). */
+  function ensureCallGraph() {
+    if (state.callGraphStatus !== "idle") return;
+    state.callGraphStatus = "loading";
+    fetchCallGraph().then(function (payload) {
+      var problem = applyCallGraphPayload(payload);
+      if (problem) throw new Error(problem);
+      state.callGraphStatus = "ready";
+    }).catch(function (error) {
+      state.callGraphStatus = "failed";
+      state.callGraphError = error && error.message ? error.message : "";
     }).then(function () {
-      return data;
+      if (state.flowContext === "declaration") scheduleRender();
+    });
+  }
+
+  /* Resolves with `value` from a fresh task, so the work on either side of it
+     is two tasks rather than one long one. */
+  function yieldToBrowser(value) {
+    return new Promise(function (resolve) {
+      window.setTimeout(function () { resolve(value); }, 0);
     });
   }
 
   function fetchBundledMapData() {
-    return safeFetch(DATA_ENDPOINT, false).then(normalizeMapData).catch(function () {
-      return null;
-    });
-  }
-
-  /* The canonical artifact inventories production AND test modules, while the
-     bundled snapshot graphs the published production scope alone — the same
-     modules the landing page counts. Applying the artifact verbatim replaced a
-     311-module map with a 381-module one, so a networked visit silently
-     disagreed with index.html. Scope the live payload the way
-     scripts/sync-upstream.mjs scopes the bundled one: nothing under tests/, and
-     nothing from the in-tree testing framework under SeLe4n/Testing/. */
-  function isOutsideProductionScope(path) {
-    var candidate = String(path || "");
-    return candidate.indexOf("tests/") === 0 || candidate.indexOf("SeLe4n/Testing/") === 0;
-  }
-
-  function productionScopedPayload(payload) {
-    if (!payload || typeof payload !== "object" || !Array.isArray(payload.modules)) return payload;
-
-    var scoped = {};
-    for (var key in payload) {
-      if (Object.prototype.hasOwnProperty.call(payload, key)) scoped[key] = payload[key];
-    }
-
-    scoped.modules = payload.modules.filter(function (entry) {
-      if (!entry || typeof entry !== "object") return true;
-      return !isOutsideProductionScope(entry.path);
-    });
-
-    return scoped;
-  }
-
-  function normalizeCanonicalPayload(payload, fallbackGeneratedAt) {
-    function extractCanonicalMapPayload(input) {
-      if (!input || typeof input !== "object") return null;
-
-      var candidates = [input];
-      for (var key in input) {
-        if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
-        var value = input[key];
-        if (!value || typeof value !== "object") continue;
-        candidates.push(value);
-      }
-
-      var best = null;
-      var bestCount = -1;
-      for (var i = 0; i < candidates.length; i++) {
-        /* Scope before scoring, so the candidate that wins is the one that
-           will actually be applied. */
-        var candidate = productionScopedPayload(candidates[i]);
-        if (!Array.isArray(candidate.modules)) continue;
-        var normalizedCandidate = normalizeMapData(candidate, { requireModulesArray: true });
-        var moduleCount = normalizedCandidate && Array.isArray(normalizedCandidate.modules) ? normalizedCandidate.modules.length : 0;
-        if (moduleCount <= bestCount) continue;
-        best = candidate;
-        bestCount = moduleCount;
-      }
-
-      return best;
-    }
-
-    /* The artifact names its own revision as repository.head.commit_sha; it
-       has no top-level commitSha, so without this a live refresh cleared
-       state.commitSha and the inventory's provenance note went blank. */
-    function canonicalCommitOf(input) {
-      if (!input || typeof input !== "object") return "";
-      var candidates = [input];
-      for (var key in input) {
-        if (Object.prototype.hasOwnProperty.call(input, key) && input[key] && typeof input[key] === "object") candidates.push(input[key]);
-      }
-      for (var i = 0; i < candidates.length; i++) {
-        var head = candidates[i].repository && candidates[i].repository.head;
-        var sha = head && typeof head.commit_sha === "string" ? head.commit_sha.trim() : "";
-        if (/^[0-9a-f]{40}$/i.test(sha)) return sha.toLowerCase();
-      }
-      return "";
-    }
-
-    var canonicalPayload = extractCanonicalMapPayload(payload);
-    var normalized = normalizeMapData(canonicalPayload, { requireModulesArray: true });
-    if (!normalized) throw new Error("Canonical map payload invalid");
-    if (!normalized.commitSha) normalized.commitSha = canonicalCommitOf(payload) || canonicalCommitOf(canonicalPayload) || "";
-    if (!normalized.generatedAt) normalized.generatedAt = fallbackGeneratedAt || new Date().toISOString();
-    return normalized;
-  }
-
-  function fetchCanonicalMapDataFromRaw() {
-    var cacheBust = "?t=" + Date.now();
-    return safeFetch(CODEBASE_MAP_RAW + cacheBust, false).then(function (payload) {
-      return normalizeCanonicalPayload(payload);
-    });
-  }
-
-  function fetchCanonicalMapDataFromContentsApi() {
-    var cacheBust = "?ref=" + encodeURIComponent(REF) + "&t=" + Date.now();
-    return safeFetch(CODEBASE_MAP_API + cacheBust, false).then(function (payload) {
-      if (!payload || payload.encoding !== "base64" || !payload.content) {
-        throw new Error("Canonical map payload missing base64 content");
-      }
-
-      var decoded = decodeBlobBase64(payload.content);
-      var parsed = JSON.parse(decoded);
-      var normalized = normalizeCanonicalPayload(parsed);
-
-      /* payload.sha is the file's BLOB sha — never a commit sha, so it must
-         not be used as commitSha (it can never match commit identifiers). */
+    return safeFetch(DATA_ENDPOINT, false).then(function (payload) {
+      var normalized = normalizeMapData(payload);
+      if (!normalized) throw new Error("snapshot has no modules");
       return normalized;
     });
   }
 
-  function fetchCanonicalMapData() {
-    return fetchCanonicalMapDataFromRaw().catch(function () {
-      return fetchCanonicalMapDataFromContentsApi();
-    });
-  }
-
-  function timestampFromIsoString(value) {
-    if (!value) return 0;
-    var ts = Date.parse(String(value));
-    return isNaN(ts) ? 0 : ts;
-  }
-
-  function chooseBestLocalData(cachedData, bundledData) {
-    if (!cachedData) return bundledData;
-    if (!bundledData) return cachedData;
-
-    var cachedTs = timestampFromIsoString(cachedData.generatedAt);
-    var bundledTs = timestampFromIsoString(bundledData.generatedAt);
-
-    if (bundledTs > cachedTs) return bundledData;
-    return cachedData;
-  }
-
-  /* A cache written by an earlier live refresh can be newer than the bundled
-     snapshot and win the boot choice, yet carry no Rust inventory (nothing
-     upstream produces one) or only a Lean-only file list. The bundle always
-     has both, so fill the gaps from it before applying the cache. */
-  function seedBundledInventory(localData, bundledData) {
-    if (!localData || !bundledData || localData === bundledData) return localData;
-    if (!localData.rust && bundledData.rust) {
-      localData.rust = bundledData.rust;
-      localData.rustCommit = bundledData.rustCommit || bundledData.commitSha || "";
-    }
-    var localFiles = Array.isArray(localData.files) ? localData.files : [];
-    var localHasTree = false;
-    for (var i = 0; i < localFiles.length; i++) {
-      if (!/\.lean$/i.test(localFiles[i])) { localHasTree = true; break; }
-    }
-    if (!localHasTree && Array.isArray(bundledData.files) && bundledData.files.length > localFiles.length) {
-      localData.files = bundledData.files;
-      localData.inventoryCommit = bundledData.inventoryCommit || bundledData.commitSha || "";
-    }
-    return localData;
-  }
-
   function applyData(data) {
-    var inventory = retainInventory({
-      files: state.files,
-      rust: state.rust,
-      inventoryCommit: state.inventoryCommit,
-      rustCommit: state.rustCommit
-    }, data);
-    state.files = inventory.files;
-    state.rust = inventory.rust;
-    state.inventoryCommit = inventory.inventoryCommit;
-    state.rustCommit = inventory.rustCommit;
+    state.rust = data.rust || null;
     state.modules = data.modules || [];
     state.moduleMap = data.moduleMap || Object.create(null);
     state.moduleMeta = data.moduleMeta || Object.create(null);
@@ -5614,7 +5335,11 @@
     state.externalImportsFrom = data.externalImportsFrom || Object.create(null);
     state.declarationGraph = data.declarationGraph || Object.create(null);
     state.declarationReverseGraph = data.declarationReverseGraph || Object.create(null);
+    state.declarationReverseModules = data.declarationReverseModules || Object.create(null);
     state.declarationIndex = data.declarationIndex || Object.create(null);
+    state.declarationsByModule = data.declarationsByModule || Object.create(null);
+    state.declarationModulesByName = data.declarationModulesByName || Object.create(null);
+    state.callGraphStatus = moduleMetaHasCallGraph(state.moduleMeta) ? "ready" : "idle";
     invalidateDerivedCaches();
     state.contextList = [];
     state.commitSha = data.commitSha || "";
@@ -5634,7 +5359,9 @@
          a scope that carries Lean — `nodeExists`, not `moduleMap`. A URL
          pairing `scope=rust` with a Lean `decl=` otherwise pulled the Lean
          module into the selection while the toggle and badge still read Rust. */
-      var resolvedModule = declarationModuleOf(state.selectedDeclaration);
+      /* The URL's `module=` names which declaration of the name it means;
+         only when that module does not declare it does the name decide. */
+      var resolvedModule = declarationModuleOf(state.selectedDeclaration, state.selectedDeclarationModule);
       if (resolvedModule && nodeExists(resolvedModule)) {
         state.selectedDeclarationModule = resolvedModule;
         if (state.selectedModule !== resolvedModule) {
@@ -5648,344 +5375,6 @@
       }
     }
     renderAll();
-  }
-
-  function applyEmptyModule(moduleName) {
-    state.importsFrom[moduleName] = [];
-    state.externalImportsFrom[moduleName] = [];
-    state.moduleMeta[moduleName] = {
-      layer: classifyLayer(moduleName),
-      kind: moduleKind(moduleName),
-      base: moduleBase(moduleName),
-      theorems: 0,
-      symbols: makeEmptyInteriorSymbols(),
-      symbolsLoaded: true
-    };
-  }
-
-  function shouldFallbackFromComparePayload(payload) {
-    if (!payload || typeof payload !== "object") return true;
-    if (payload.status && payload.status !== "ahead") return true;
-    if (payload.files === null || typeof payload.files === "undefined") return true;
-
-    var files = Array.isArray(payload.files) ? payload.files : [];
-    var total = Number(payload.total_files || files.length || 0);
-    if (files.length >= COMPARE_FILES_TRUNCATION_LIMIT && total > files.length) return true;
-
-    return false;
-  }
-
-  function fetchAndApplyIncrementalChanges(knownCommitSha, latestCommitSha, inventory) {
-    var compareUrl = API + "/compare/" + encodeURIComponent(knownCommitSha) + "..." + encodeURIComponent(latestCommitSha);
-    return safeFetch(compareUrl, false).then(function (payload) {
-      if (shouldFallbackFromComparePayload(payload)) throw new Error("incremental-compare-unavailable");
-      var changedPaths = Object.create(null);
-      var removedPaths = Object.create(null);
-      var files = payload && Array.isArray(payload.files) ? payload.files : [];
-
-      for (var i = 0; i < files.length; i++) {
-        var file = files[i] || {};
-        var filename = String(file.filename || "");
-        if (!isLeanModulePath(filename)) continue;
-
-        if (file.status === "removed") {
-          removedPaths[filename] = true;
-          continue;
-        }
-
-        if (file.status === "renamed" && file.previous_filename && isLeanModulePath(file.previous_filename)) {
-          removedPaths[String(file.previous_filename)] = true;
-        }
-
-        changedPaths[filename] = true;
-      }
-
-      applyTreeInventory(inventory);
-
-      var allModules = state.modules.slice();
-      var removedList = Object.keys(removedPaths);
-      for (var r = 0; r < removedList.length; r++) {
-        var removedPath = removedList[r];
-        var removedModule = moduleFromPath(removedPath);
-        if (!state.moduleMap[removedModule]) removeModuleState(removedModule);
-      }
-
-      for (var m = 0; m < allModules.length; m++) {
-        var moduleName = allModules[m];
-        if (!state.importsFrom[moduleName]) state.importsFrom[moduleName] = [];
-        if (!state.externalImportsFrom[moduleName]) state.externalImportsFrom[moduleName] = [];
-      }
-
-      var changedLeanFiles = Object.keys(changedPaths);
-      if (!changedLeanFiles.length) return;
-
-      setStatus("Applying incremental module sync (" + changedLeanFiles.length + " changed files)…", false);
-      return runInPool(changedLeanFiles, function (path) {
-        var moduleName = moduleFromPath(path);
-        var blobSha = inventory.leanShasByPath[path] || "";
-        if (!blobSha) {
-          applyEmptyModule(moduleName);
-          return;
-        }
-
-        return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
-          if (!blob || blob.encoding !== "base64" || !blob.content) {
-            applyEmptyModule(moduleName);
-            return;
-          }
-          parseModule(moduleName, decodeBlobBase64(blob.content));
-        }).catch(function () {
-          applyEmptyModule(moduleName);
-        });
-      });
-    });
-  }
-
-  function fetchAndBuildData(cachedCommitSha) {
-    setStatus(t("map.status_checking_commit") || "Checking latest repository commit\u2026", false);
-
-    return fetchLatestCommitSha().then(function (latestCommitSha) {
-      var knownCommit = state.commitSha || cachedCommitSha || "";
-      setLiveSyncMeta(latestCommitSha || knownCommit);
-
-      if (knownCommit && latestCommitSha && knownCommit === latestCommitSha) {
-        setStatus(t("map.status_already_synced", { commit: latestCommitSha.slice(0, 7) }) || ("Map is already synced to " + latestCommitSha.slice(0, 7) + "."), false);
-        return;
-      }
-
-      var treeRef = latestCommitSha || REF;
-      setStatus(t("map.status_loading_tree") || "Loading repository tree\u2026", false);
-
-      return safeFetch(API + "/git/trees/" + treeRef + "?recursive=1", false).then(function (payload) {
-        var tree = payload && payload.tree ? payload.tree : [];
-        var inventory = moduleInventoryFromTree(tree);
-        var known = state.commitSha || cachedCommitSha || "";
-        var canIncremental = Boolean(known && latestCommitSha && state.modules.length);
-
-        if (!canIncremental) {
-          state.moduleMeta = Object.create(null);
-          state.importsTo = Object.create(null);
-          state.importsFrom = Object.create(null);
-          state.externalImportsFrom = Object.create(null);
-          applyTreeInventory(inventory);
-          invalidateDerivedCaches();
-          state.contextList = [];
-          buildSearchIndex();
-
-          setStatus(t("map.status_analyzing") || "Analyzing Lean modules and theorem declarations\u2026", false);
-          return runInPool(inventory.leanFiles, function (path) {
-            var moduleName = moduleFromPath(path);
-            var blobSha = inventory.leanShasByPath[path];
-            if (!blobSha) {
-              applyEmptyModule(moduleName);
-              return;
-            }
-
-            return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
-              if (!blob || blob.encoding !== "base64" || !blob.content) {
-                applyEmptyModule(moduleName);
-                return;
-              }
-              parseModule(moduleName, decodeBlobBase64(blob.content));
-            }).catch(function () {
-              applyEmptyModule(moduleName);
-            });
-          });
-        }
-
-        return fetchAndApplyIncrementalChanges(known, latestCommitSha, inventory).catch(function () {
-          state.moduleMeta = Object.create(null);
-          state.importsFrom = Object.create(null);
-          state.externalImportsFrom = Object.create(null);
-          applyTreeInventory(inventory);
-          setStatus("Incremental sync unavailable; rebuilding module index…", false);
-          return runInPool(inventory.leanFiles, function (path) {
-            var moduleName = moduleFromPath(path);
-            var blobSha = inventory.leanShasByPath[path];
-            if (!blobSha) {
-              applyEmptyModule(moduleName);
-              return;
-            }
-
-            return safeFetch(API + "/git/blobs/" + blobSha, false).then(function (blob) {
-              if (!blob || blob.encoding !== "base64" || !blob.content) {
-                applyEmptyModule(moduleName);
-                return;
-              }
-              parseModule(moduleName, decodeBlobBase64(blob.content));
-            }).catch(function () {
-              applyEmptyModule(moduleName);
-            });
-          });
-        }).then(function () {
-          invalidateDerivedCaches();
-          state.contextList = [];
-          buildSearchIndex();
-        });
-      }).then(function () {
-          rebuildImportsToIndex();
-          /* Rebuild declaration state from the current moduleMeta the same way
-             normalizeMapData does, so declaration search and call lanes never
-             serve entries from a previous dataset (or stay empty on cold start).
-             Unchanged modules on the incremental path keep their symbols.callGraph,
-             so valid call lanes are preserved; freshly parsed symbols carry no
-             callGraph and correctly yield empty graphs. */
-          state.declarationGraph = Object.create(null);
-          state.declarationReverseGraph = Object.create(null);
-          state.declarationIndex = Object.create(null);
-          for (var declModule in state.moduleMeta) {
-            if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, declModule)) continue;
-            var declMeta = state.moduleMeta[declModule];
-            if (!declMeta || !declMeta.symbols) continue;
-            var declCallGraph = declMeta.symbols.callGraph;
-            if (declCallGraph && typeof declCallGraph === "object") {
-              for (var declKey in declCallGraph) {
-                if (!Object.prototype.hasOwnProperty.call(declCallGraph, declKey)) continue;
-                if (!Array.isArray(declCallGraph[declKey])) continue;
-                state.declarationGraph[declKey] = { module: declModule, calls: declCallGraph[declKey] };
-                for (var declCalledIdx = 0; declCalledIdx < declCallGraph[declKey].length; declCalledIdx++) {
-                  var declCalledTarget = declCallGraph[declKey][declCalledIdx];
-                  if (!state.declarationReverseGraph[declCalledTarget]) state.declarationReverseGraph[declCalledTarget] = [];
-                  state.declarationReverseGraph[declCalledTarget].push(declKey);
-                }
-              }
-            }
-            var declByKind = declMeta.symbols.byKind;
-            if (declByKind && typeof declByKind === "object") {
-              for (var declKind in declByKind) {
-                if (!Object.prototype.hasOwnProperty.call(declByKind, declKind)) continue;
-                var declItems = declByKind[declKind];
-                if (!Array.isArray(declItems)) continue;
-                for (var declItemIdx = 0; declItemIdx < declItems.length; declItemIdx++) {
-                  var declItem = declItems[declItemIdx];
-                  if (declItem && declItem.name && !state.declarationIndex[declItem.name]) {
-                    state.declarationIndex[declItem.name] = { module: declModule, kind: declKind, line: declItem.line || 0 };
-                  }
-                }
-              }
-            }
-          }
-          buildSearchIndex();
-          state.commitSha = latestCommitSha || "";
-          state.generatedAt = new Date().toISOString();
-          /* Before buildPairs(), which stamps the header's Boundary Links
-             from state.bridge: the Rust inventory is unchanged by a tree
-             rebuild, but the Lean declarations it is matched against are
-             not, so rebuilding afterwards left the published total one
-             refresh behind the bands drawn from it. */
-          buildBridgeIndex();
-          buildPairs();
-          if (!nodeExists(state.selectedModule)) state.selectedModule = defaultNodeName();
-          /* The tree fetched above is a complete file inventory at this commit;
-             the Rust crate inventory, if any, is still the bundled one. */
-          state.inventoryCommit = state.commitSha;
-          scheduleRender();
-          syncUrlState();
-          var statusSuffix = state.commitSha ? " Synced commit " + state.commitSha.slice(0, 7) + "." : "";
-          setStatus((t("map.status_ready_integrated") || "Map ready. Integrated dependency/proof flow graph loaded.") + statusSuffix, false);
-          persistCurrentMapCache();
-      });
-    });
-  }
-
-  function syncFromCanonicalMap(cachedCommitSha, options) {
-    var opts = options || {};
-    var silentNoChange = Boolean(opts.silentNoChange);
-    if (!silentNoChange) setStatus("Syncing canonical codebase map from docs/codebase_map.json…", false);
-
-    return fetchCanonicalMapData().then(function (canonicalData) {
-      var knownCommit = state.commitSha || cachedCommitSha || "";
-      var canonicalCommit = canonicalData.commitSha || "";
-      setLiveSyncMeta(canonicalCommit || knownCommit);
-
-      if (knownCommit && canonicalCommit && knownCommit === canonicalCommit) {
-        if (!silentNoChange) setStatus("Map is already synced to " + canonicalCommit.slice(0, 7) + ".", false);
-        return null;
-      }
-
-      return enrichSparseMapData(canonicalData, { silent: silentNoChange });
-    }).then(function (canonicalData) {
-      if (!canonicalData) return;
-      var canonicalCommit = canonicalData.commitSha || "";
-      applyData(canonicalData);
-      persistCurrentMapCache();
-      var statusSuffix = canonicalCommit ? " Synced commit " + canonicalCommit.slice(0, 7) + "." : "";
-      setStatus("Map ready. Canonical seLe4n codebase map loaded." + statusSuffix, false);
-    }).catch(function () {
-      return fetchAndBuildData(cachedCommitSha);
-    });
-  }
-
-  function refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, options) {
-    var opts = options || {};
-    var reason = String(opts.reason || "");
-    var bypassCooldown = Boolean(opts.force || reason === "manual" || reason === "visible" || reason === "focus" || reason === "online");
-    var cooldown = remainingSyncCooldownMs();
-
-    if (reason === "poll" && hasLocalData) {
-      return fetchLatestMapCommitSha().then(function (latestMapCommitSha) {
-        if (!latestMapCommitSha) {
-          if (cooldown > 0 && !opts.force) return;
-          return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true });
-        }
-
-        /* Compare against the last file-touching commit we checked, not
-           state.commitSha (the sha embedded INSIDE the map payload) — those
-           come from different domains and can never be equal, which used to
-           force a full canonical re-download on every poll. */
-        var meta = getLiveSyncMeta();
-        if (meta && meta.lastCheckedCommit && meta.lastCheckedCommit === latestMapCommitSha) {
-          setLiveSyncMeta(latestMapCommitSha);
-          return;
-        }
-
-        return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: true }).then(function () {
-          /* Key the fast path on the same identifier we polled */
-          setLiveSyncMeta(latestMapCommitSha);
-        });
-      });
-    }
-
-    if (hasLocalData && cooldown > 0 && !bypassCooldown) {
-      if (!opts.silentCooldown) {
-        var mins = Math.max(1, Math.ceil(cooldown / 60000));
-        setStatus("Using local snapshot. Next live sync check in about " + mins + " min.", false);
-      }
-      return Promise.resolve();
-    }
-
-    return syncFromCanonicalMap(cachedCommitSha, { silentNoChange: reason === "poll" });
-  }
-
-  function setupLiveSyncPolling() {
-    var inFlight = false;
-
-    function trigger(reason) {
-      if (inFlight) return;
-      if (document.hidden && reason === "poll") return;
-      inFlight = true;
-      var knownCommit = state.commitSha || "";
-      var hasLocalData = Boolean(state.modules && state.modules.length);
-      refreshMapDataWithPolicy(knownCommit, hasLocalData, { silentCooldown: reason !== "manual", reason: reason }).finally(function () {
-        inFlight = false;
-      });
-    }
-
-    function queueNextPoll() {
-      var jitter = Math.floor(Math.random() * 15000);
-      window.setTimeout(function () {
-        trigger("poll");
-        queueNextPoll();
-      }, LIVE_SYNC_POLL_INTERVAL_MS + jitter);
-    }
-
-    queueNextPoll();
-
-    document.addEventListener("visibilitychange", function () {
-      if (!document.hidden) trigger("visible");
-    });
-    window.addEventListener("focus", function () { trigger("focus"); });
-    window.addEventListener("online", function () { trigger("online"); });
   }
 
   function detailLevelFromState() {
@@ -6144,10 +5533,9 @@
     }
 
     // Also check declarationIndex for declarations that may not appear in interior
-    var declList = state.declarationSearchList || [];
+    var declList = declarationSearchEntriesIn(moduleName);
     for (var di = 0; di < declList.length; di++) {
       var entry = declList[di];
-      if (entry.module !== moduleName) continue;
       if (entry.nameLower === declSuffixLower) {
         return { module: moduleName, declaration: entry.name, exact: true };
       } else if (entry.nameLower.indexOf(declSuffixLower) === 0) {
@@ -6226,7 +5614,7 @@
 
     scored.sort(function (a, b) {
       if (b.score !== a.score) return b.score - a.score;
-      return a.declaration.localeCompare(b.declaration);
+      return compareText(a.declaration, b.declaration);
     });
 
     // Deduplicate by module+declaration
@@ -6291,7 +5679,7 @@
 
     scored.sort(function (a, b) {
       if (b.score !== a.score) return b.score - a.score;
-      return a.name.localeCompare(b.name);
+      return compareText(a.name, b.name);
     });
 
     var out = [];
@@ -6530,16 +5918,27 @@
             matches = declHints.concat(moduleOnly);
           }
         }
+        /* An exactly typed module leads, so Enter on the default highlight
+           takes what was typed rather than a declaration suggestion. */
+        var typedModule = sanitizeModuleName(search.value);
+        if (typedModule && listHasModule(list, typedModule)) {
+          var typedAt = matches.indexOf(typedModule);
+          if (typedAt > 0) matches.splice(typedAt, 1);
+          if (typedAt !== 0) matches.unshift(typedModule);
+        }
         state.searchDeclSuggestions = declSuggestions;
         if (matches.length) openModuleSearchOptions(matches);
         else closeModuleSearchOptions();
       }
 
+      /* Typing only refreshes the suggestions. It used to select and render
+         every prefix that happened to name a module (`SeLe4n.Kernel` on the
+         way to `SeLe4n.Kernel.API`), a full chart render per keystroke; the
+         selection is taken on change, Enter, blur or a picked suggestion. */
       var searchDebounceTimer = null;
       search.addEventListener("input", function () {
         setSearchFeedback("", false);
         if (typeof search.setCustomValidity === "function") search.setCustomValidity("");
-        if (chooseExactFromCurrentValue()) return;
         if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
         searchDebounceTimer = setTimeout(function () {
           searchDebounceTimer = null;
@@ -6555,7 +5954,6 @@
         }, 80);
       });
       search.addEventListener("search", choose);
-      search.addEventListener("compositionend", chooseExactFromCurrentValue);
       search.addEventListener("keydown", function (event) {
         if (event.isComposing) return;
         if (event.key === "Escape") {
@@ -6577,6 +5975,13 @@
           return;
         }
         if (event.key !== "Enter") return;
+        /* Suggestions still pending describe an earlier prefix: resolve what
+           is in the field now instead of a stale highlight. */
+        if (searchDebounceTimer) {
+          clearTimeout(searchDebounceTimer);
+          searchDebounceTimer = null;
+          closeModuleSearchOptions();
+        }
         if (state.searchVisibleOptions.length && state.searchActiveOption >= 0) {
           var selected = state.searchVisibleOptions[state.searchActiveOption];
           if (selected) {
@@ -6877,6 +6282,7 @@
      render time, so a locale change only needs a repaint. */
   function repaintForLocale() {
     LABEL_WRAP_CACHE.clear();
+    paintLoadStatus();
     scheduleRender();
   }
 
@@ -6928,6 +6334,12 @@
   }
 
 
+  function purgeLegacyStorage() {
+    for (var i = 0; i < LEGACY_STORAGE_KEYS.length; i++) {
+      try { localStorage.removeItem(LEGACY_STORAGE_KEYS[i]); } catch (e) {}
+    }
+  }
+
   function boot() {
     setupLocaleReady();
     cacheDomElements();
@@ -6940,53 +6352,27 @@
     setupKeyboardNavigation();
     setupFlowchartResize();
     setupLocaleRerender();
-    setupLiveSyncPolling();
     hydrateFilterControls();
+    purgeLegacyStorage();
 
-    var cached = getCache();
-    var cachedData = cached && cached.data ? normalizeMapData(cached.data) : null;
+    /* A deep link to a declaration needs the call graph for its first paint,
+       so its download starts beside the snapshot's rather than after it. */
+    if (state.selectedDeclaration) fetchCallGraph().catch(function () {});
 
-    fetchBundledMapData().then(function (bundledData) {
-      var localData = seedBundledInventory(chooseBestLocalData(cachedData, bundledData), bundledData);
-      if (!localData) return;
-
-      applyData(localData);
-      if (localData === cachedData && cached && !cached.isFresh) {
-        var minutes = Math.max(1, Math.round((cached.ageMs || 0) / 60000));
-        setStatus("Loaded latest local snapshot (" + minutes + " min old) while refreshing…", false);
-      } else if (localData === cachedData) {
-        setStatus("Showing cached map while refreshing…", false);
-      } else {
-        setStatus("Loaded bundled map snapshot while checking live sync…", false);
-      }
-    }).finally(function () {
-      var cachedCommitSha = cached && cached.commitSha ? String(cached.commitSha) : "";
-      var hasLocalData = Boolean(state.modules && state.modules.length);
-      refreshMapDataWithPolicy(cachedCommitSha, hasLocalData, { force: true, reason: "boot" }).then(function () {
-        if (state.modules && state.modules.length) {
-          hardenExternalLinks();
-        }
-      }).catch(function (error) {
-        var message = error && error.message ? error.message : "Unknown error";
-        /* Provide actionable guidance depending on the error type */
-        var isRateLimit = /rate.limit|429|403/i.test(message);
-        if (!hasLocalData) {
-          setStatus(isRateLimit
-            ? "GitHub API rate limit reached. Refresh later to load the map."
-            : "Unable to load codebase map. " + message, true);
-        } else {
-          setStatus(isRateLimit
-            ? "Live refresh rate-limited; showing cached data."
-            : "Refresh failed; showing cached data. " + message, true);
-        }
-      });
+    /* One request per file, one revision: the bundled snapshot is fetched,
+       normalized and rendered, and nothing replaces it afterwards. */
+    fetchBundledMapData().then(yieldToBrowser).then(function (data) {
+      applyData(data);
+      hardenExternalLinks();
+      paintLoadStatus("ready");
+    }).catch(function (error) {
+      paintLoadStatus("error", error && error.message ? error.message : "");
     });
   }
 
   if (window && window.__SELE4N_MAP_DISABLE_BOOT__) {
     window.__SELE4N_MAP_TEST_HOOKS__ = {
       normalizeMapData: normalizeMapData,
-      normalizeCanonicalPayload: normalizeCanonicalPayload,
       hasCompleteSymbolLines: hasCompleteSymbolLines,
       symbolListsFromRaw: symbolListsFromRaw,
       makeEmptyInteriorSymbols: makeEmptyInteriorSymbols,
@@ -7004,6 +6390,11 @@
       declarationFlowLegendItems: declarationFlowLegendItems,
       declarationCalls: declarationCalls,
       declarationCalledBy: declarationCalledBy,
+      declarationCallerRefs: declarationCallerRefs,
+      declarationCalleeRefs: declarationCalleeRefs,
+      resolveDeclarationModule: resolveDeclarationModule,
+      applyData: applyData,
+      readUrlState: readUrlState,
       declarationModuleOf: declarationModuleOf,
       declarationKindOf: declarationKindOf,
       declarationLineOf: declarationLineOf,
@@ -7012,6 +6403,7 @@
       declarationSearchMatches: declarationSearchMatches,
       moduleSearchMatches: moduleSearchMatches,
       buildSearchIndex: buildSearchIndex,
+      declarationSearchEntriesIn: declarationSearchEntriesIn,
       declarationLaneCollapseThreshold: function () { return 12; },
       declarationLaneVisibleLimit: function () { return 10; },
       objectDeclarationCount: objectDeclarationCount,
@@ -7026,19 +6418,14 @@
       moduleSubsystem: moduleSubsystem,
       groupLaneModules: groupLaneModules,
       buildLaneEntries: buildLaneEntries,
-      retainInventory: retainInventory,
-      seedBundledInventory: seedBundledInventory,
       normalizeRustInventory: normalizeRustInventory,
-      isOutsideProductionScope: isOutsideProductionScope,
-      isLeanModulePath: isLeanModulePath,
       isInRepoOutsideScope: isInRepoOutsideScope,
       rustUnsafeSummary: rustUnsafeSummary,
       rustUnsafeDetail: rustUnsafeDetail,
       pickInteriorMenuGroup: pickInteriorMenuGroup,
       formatCount: formatCount,
+      loadStatusText: loadStatusText,
       pluralEn: pluralEn,
-      setCache: setCache,
-      cacheMaxChars: function () { return CACHE_MAX_CHARS; },
       isLibraryRoot: isLibraryRoot,
       externalImportSubtitle: externalImportSubtitle,
       /* Scope, the Rust graph and the Lean ↔ Rust boundary */
@@ -7069,6 +6456,7 @@
       rustFlowLegendItems: rustFlowLegendItems,
       bridgeLegendItems: bridgeLegendItems,
       toBridgeKey: toBridgeKey,
+      bridgeScreenKey: bridgeScreenKey,
       bridgeRelation: bridgeRelation,
       buildBridgeIndex: buildBridgeIndex,
       bridgeIndex: function () { return state.bridge; },
@@ -7095,10 +6483,22 @@
       translate: t,
       handleLocaleReady: handleLocaleReady,
       localePaintState: function () { return { ready: localeReady, painted: paintedBeforeLocale }; },
+      applyCallGraphPayload: applyCallGraphPayload,
+      moduleMetaHasCallGraph: moduleMetaHasCallGraph,
+      ensureCallGraph: ensureCallGraph,
+      callGraphStatus: function () { return state.callGraphStatus; },
+      callGraphError: function () { return state.callGraphError; },
       applyTestState: function (patch) {
         if (patch.declarationGraph) state.declarationGraph = patch.declarationGraph;
-        if (patch.declarationReverseGraph) state.declarationReverseGraph = patch.declarationReverseGraph;
-        if (patch.declarationIndex) state.declarationIndex = patch.declarationIndex;
+        if (patch.declarationReverseGraph) {
+          state.declarationReverseGraph = patch.declarationReverseGraph;
+          state.declarationReverseModules = patch.declarationReverseModules || null;
+        }
+        if (patch.declarationIndex) {
+          state.declarationIndex = patch.declarationIndex;
+          state.declarationsByModule = patch.declarationsByModule || null;
+          state.declarationModulesByName = patch.declarationModulesByName || null;
+        }
         if (patch.moduleMeta) state.moduleMeta = patch.moduleMeta;
         if (patch.moduleMap) state.moduleMap = patch.moduleMap;
         if (patch.modules) state.modules = patch.modules;
@@ -7115,35 +6515,21 @@
         if (typeof patch.neighborLimit === "number") state.neighborLimit = patch.neighborLimit;
         if (typeof patch.flowShowAll === "boolean") state.flowShowAll = patch.flowShowAll;
         if (patch.laneGroupsExpanded) state.laneGroupsExpanded = patch.laneGroupsExpanded;
-        if (patch.files) state.files = patch.files;
         if ("rust" in patch) {
           state.rust = patch.rust;
           state.rustGraph = buildRustGraph(state.rust);
         }
         if (typeof patch.scope === "string") state.scope = patch.scope;
         if (typeof patch.commitSha === "string") state.commitSha = patch.commitSha;
-        if (typeof patch.rustCommit === "string") state.rustCommit = patch.rustCommit;
+        /* A hand-built state is complete unless it says otherwise. */
+        state.callGraphStatus = typeof patch.callGraphStatus === "string" ? patch.callGraphStatus : "ready";
         if (patch.buildBridge) buildBridgeIndex();
-        // Rebuild declarationIndex from moduleMeta when moduleMeta is patched
+        // Rebuild the declaration indexes from moduleMeta when moduleMeta is patched
         if (patch.moduleMeta && !patch.declarationIndex) {
-          var idx = Object.create(null);
-          for (var mod in state.moduleMeta) {
-            if (!Object.prototype.hasOwnProperty.call(state.moduleMeta, mod)) continue;
-            var meta = state.moduleMeta[mod];
-            if (!meta || !meta.symbols || !meta.symbols.byKind) continue;
-            var byKind = meta.symbols.byKind;
-            for (var kind in byKind) {
-              if (!Object.prototype.hasOwnProperty.call(byKind, kind)) continue;
-              var items = byKind[kind];
-              if (!Array.isArray(items)) continue;
-              for (var ii = 0; ii < items.length; ii++) {
-                if (items[ii] && items[ii].name && !idx[items[ii].name]) {
-                  idx[items[ii].name] = { module: mod, kind: kind, line: items[ii].line || 0 };
-                }
-              }
-            }
-          }
-          state.declarationIndex = idx;
+          var rebuilt = buildDeclarationIndexes(state.moduleMeta, Object.keys(state.moduleMeta));
+          state.declarationIndex = rebuilt.declarationIndex;
+          state.declarationsByModule = rebuilt.declarationsByModule;
+          state.declarationModulesByName = rebuilt.declarationModulesByName;
         }
       }
     };

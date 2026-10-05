@@ -286,8 +286,8 @@ export function resolveDeclarationName(declaration, sourceLine) {
 
 /**
  * Project a module's declarations into the shape the code map renders: one
- * array per interior kind, the theorem and function shortcuts, and the
- * declaration call graph.
+ * array per interior kind the module declares, and the declaration call
+ * graph.
  *
  * `sourceText` is the module's own Lean source, used only to recover truncated
  * identifiers; the declaration set itself always comes from the artifact.
@@ -355,10 +355,44 @@ export function symbolsFromDeclarations(declarations, sourceText) {
     if (called.length) callGraph[name] = called;
   }
 
+  // Only the kinds a module actually declares are shipped. An empty bucket
+  // for each of the ~40 interior kinds was 12,198 empty arrays in the bundle;
+  // the runtime fills every kind it groups whether or not the key is present.
+  for (const kind of Object.keys(byKind)) {
+    if (!byKind[kind].length) delete byKind[kind];
+  }
+
+  // No `theorems` / `functions` shortcuts: they were exact, ordered copies of
+  // byKind.theorem+lemma and byKind.def+abbrev+opaque+instance (about 1 MB of
+  // the bundle), and the runtime derives the same lists from byKind.
+  return { byKind, callGraph };
+}
+
+/**
+ * Move the declaration call graph out of a built map snapshot into a payload
+ * of its own, `data/map-callgraph.json`.
+ *
+ * The graph is about half the snapshot and only the declaration view reads it,
+ * so map.html fetches it on first use instead of with every visit. The payload
+ * records the snapshot's own `commitSha`, `sourceDigest`, `metricsSource` and
+ * `generatedAt`: `validateCrossFile` fails when the two files disagree, and
+ * the runtime refuses a graph that names another commit. Modules with no
+ * calls are left out of `callGraph`. `mapData` is changed in place: each
+ * module's `symbols.callGraph` is removed.
+ */
+export function splitCallGraph(mapData) {
+  const callGraph = Object.create(null);
+  for (const name of mapData.modules) {
+    const symbols = mapData.moduleMeta?.[name]?.symbols;
+    if (!symbols || !symbols.callGraph) continue;
+    if (Object.keys(symbols.callGraph).length) callGraph[name] = symbols.callGraph;
+    delete symbols.callGraph;
+  }
   return {
-    byKind,
-    theorems: [...byKind.theorem, ...byKind.lemma],
-    functions: [...byKind.def, ...byKind.abbrev, ...byKind.opaque, ...byKind.instance],
+    commitSha: mapData.commitSha,
+    metricsSource: mapData.metricsSource,
+    sourceDigest: mapData.sourceDigest,
+    generatedAt: mapData.generatedAt,
     callGraph
   };
 }

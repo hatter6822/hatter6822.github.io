@@ -5,7 +5,8 @@
  *   git clone --depth 1 seLe4n@main
  *     └─ docs/codebase_map.json  ─┬─→ data/site-data.json      (landing page)
  *        Lean sources            ─┤   data/map-data.json       (code map)
- *        rust/ workspace         ─┘     └─ #rust: crate inventory
+ *        rust/ workspace         ─┘     ├─ #rust: crate inventory
+ *                                       └─ data/map-callgraph.json (declaration view)
  *        docs/execution-traces.json ─→ data/execution-traces.json (simulator)
  *
  * There used to be three scripts, each fetching upstream independently. They
@@ -59,6 +60,7 @@ import {
   productionModules,
   siteMetricsFromCodebaseMap,
   subsystemMetricsFromCodebaseMap,
+  splitCallGraph,
   symbolsFromDeclarations,
   theoremDeclarationCount
 } from './lib/canonical-map.mjs';
@@ -82,6 +84,7 @@ const WRAPPER_CRATE = 'sele4n-sys';
 const ROOT = new URL('../', import.meta.url);
 const SITE_FILE = new URL('data/site-data.json', ROOT);
 const MAP_FILE = new URL('data/map-data.json', ROOT);
+const CALLGRAPH_FILE = new URL('data/map-callgraph.json', ROOT);
 const TRACE_FILE = new URL('data/execution-traces.json', ROOT);
 const LOCALES_DIR = new URL('locales/', ROOT);
 
@@ -467,7 +470,6 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
   const moduleMap = Object.create(null);
   const moduleMeta = Object.create(null);
   const importsFrom = Object.create(null);
-  const importsTo = Object.create(null);
   const externalImportsFrom = Object.create(null);
 
   for (const moduleInfo of modules) moduleMap[moduleInfo.module] = moduleInfo.path;
@@ -501,10 +503,6 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
 
     importsFrom[name] = internal;
     externalImportsFrom[name] = external;
-    for (const dep of internal) {
-      if (!importsTo[dep]) importsTo[dep] = [];
-      importsTo[dep].push(name);
-    }
 
     moduleMeta[name] = {
       layer: classifyLayer(name),
@@ -520,7 +518,8 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
     modules: modules.map((moduleInfo) => moduleInfo.module),
     moduleMap,
     moduleMeta,
-    importsTo,
+    // No `importsTo`: the runtime rebuilds the reverse edges from importsFrom
+    // in every case, so shipping them was 63 KB of a derived index.
     importsFrom,
     externalImportsFrom,
     // The production Rust crates, from the same checkout: the map renders them
@@ -583,6 +582,9 @@ try {
   const siteData = buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors);
   const mapData = buildMapData(codebaseMap, head, sourceDigest, work);
   assertSyscallWrapperCoverage(codebaseMap, work, mapData.rust, siteData.syscalls);
+  // The call graph ships as a file of its own, loaded by the declaration view
+  // on first use; it carries the snapshot's provenance so the two cannot drift.
+  const callGraphData = splitCallGraph(mapData);
 
   await writeFile(SITE_FILE, JSON.stringify(siteData, null, 2) + '\n');
   // Written compact: this snapshot is the dominant payload on map.html, and
@@ -590,12 +592,15 @@ try {
   // no one reads as text. site-data.json and execution-traces.json stay
   // indented; they are small and people do read them.
   await writeFile(MAP_FILE, JSON.stringify(mapData) + '\n');
+  await writeFile(CALLGRAPH_FILE, JSON.stringify(callGraphData) + '\n');
   await writeTraces(work, head, siteData.version);
 
   const edges = Object.values(mapData.importsFrom).reduce((total, deps) => total + deps.length, 0);
   console.log(`Synced ${REPO}@${head.commitSha.slice(0, 7)}${PINNED_COMMIT ? ' (SELE4N_REF)' : currentWithRef ? ` (${REF})` : ' (pinned to the artifact\'s commit)'}`);
   console.log(`   site-data   v${siteData.version} · ${formatNumber(siteData.theorems)} theorems · ${siteData.lines} lines · ${siteData.modules} modules · ${siteData.admitted} admitted`);
   console.log(`   map-data    ${mapData.modules.length} modules · ${edges} import edges · ${mapData.files.length} files`);
+  const callers = Object.values(callGraphData.callGraph).reduce((total, graph) => total + Object.keys(graph).length, 0);
+  console.log(`   callgraph   ${callers} declarations with calls across ${Object.keys(callGraphData.callGraph).length} modules`);
   const rustFiles = mapData.rust.crates.reduce((total, crate) => total + crate.sourceFiles, 0);
   console.log(`   rust        ${mapData.rust.crates.length} crate(s) · ${rustFiles} source files · ${mapData.rust.crates.map((crate) => crate.name).join(', ')}`);
   const anchorCount = Object.values(sourceAnchors).reduce((total, labels) => total + Object.keys(labels).length, 0);

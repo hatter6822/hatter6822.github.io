@@ -30,13 +30,14 @@ node scripts/apply-static-values.mjs
 ```
 
 `sync-upstream.mjs` is the whole data pipeline: one shallow clone of seLe4n at
-one revision produces all three bundled snapshots.
+one revision produces all four bundled snapshots.
 
 ```
 git clone --depth 1 seLe4n@main
   └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
      Lean sources            ─┤   data/map-data.json           (code map)
-     rust/ workspace         ─┘     └─ #rust: crate inventory
+     rust/ workspace         ─┘     ├─ #rust: crate inventory
+                                    └─ data/map-callgraph.json (declaration view)
      docs/execution-traces.json ─→ data/execution-traces.json  (simulator; the bundled
                                    fixture until upstream ships one — validated and
                                    grounded in this checkout either way)
@@ -138,11 +139,15 @@ upstream source asserts and cached it for thirty days. The projection now
 happens once, offline, in `scripts/sync-upstream.mjs`, where it is reviewed,
 tested and validated in CI.
 
-`map.html` still refreshes its larger payload from GitHub, with the bundled
-snapshot as the fallback. `run.html` is bundle-only, like the landing page: it
-fetches `data/execution-traces.json` and nothing else (`connect-src 'self'`),
-because every source link it draws points at the commit that snapshot was
-grounded at.
+`map.html` follows the same rule: it renders `data/map-data.json` and nothing
+else, with `connect-src 'self'`. It used to refresh from GitHub on every visit
+and focus — downloading the 10 MB upstream artifact, which carries no import
+edges, replacing the bundled graph with it, then fetching every Lean file to
+regex the edges back — a second pipeline that left networked visitors with an
+edgeless graph from an older commit. The weekly sync workflow keeps the bundle
+current instead. `run.html` is bundle-only too: it fetches
+`data/execution-traces.json` and nothing else, because every source link it
+draws points at the commit that snapshot was grounded at.
 
 ## Code map layout (0.31.0)
 
