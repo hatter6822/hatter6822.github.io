@@ -76,11 +76,11 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~7,150 | Largest runtime; read in chunks of ≤500 lines |
-| `scripts/lib/map-runtime.test.mjs` | ~3,200 | Map runtime tests |
+| `assets/js/map.js` | ~6,900 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~3,300 | Map runtime tests |
 | `assets/css/style.css` | ~2,040 | Global design system |
 | `assets/js/run.js` | ~2,130 | Simulator runtime (fold engine, SVG scenes, kernel path, guarantees) |
-| `assets/css/map.css` | ~1,070 | Map-specific styles (hero, workspace, scope toggle, chart, sidebar) |
+| `assets/css/map.css` | ~1,100 | Map-specific styles (hero, workspace, scope toggle, chart, sidebar) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
 | `scripts/lib/rust-analysis.mjs` | ~1,660 | Rust crate inventory scanner, TOML reader |
 | `scripts/lib/rust-analysis.test.mjs` | ~1,390 | Rust scanner tests |
@@ -363,6 +363,18 @@ scope toggle. Production code is the subject in every scope.
 - Imports the graph does not contain are labelled by what they are: `SeLe4n`
   is "in-repo · library root", `SeLe4n.Testing.*` is "in-repo · outside
   production scope", everything else "external dependency".
+- **A declaration lane is a bounded tree, never "show all".** `SystemState`
+  has 10,374 callers; drawing them built a 974,000px chart in one 3.4 s task.
+  `buildDeclarationLane` draws ≤ 12 matches flat, then groups by module (≤ 12
+  modules) or by subsystem, the selected declaration's own module hoisted
+  first; a group opens onto pages of `DECL_LANE_PAGE`, and no lane draws more
+  than `DECL_LANE_NODE_BUDGET` nodes — past it the lane says how many it left
+  out. The breadcrumb filter narrows before grouping. A grouped lane shares
+  one edge spine (`drawLaneSpine`). Never reintroduce an uncapped expansion;
+  `map-smoke.mjs` reads the budget from `map.js` and holds the page to it.
+- Caller lookups are memoized against the identity of the indexes they read
+  (`callerRefsDeps`). Replace an index object rather than mutating it in
+  place, or the memo keeps answering for the old one.
 - Re-selecting the current module must not repaint the declaration sidebar
   unless it shows another module: the search field's `change` fires on blur,
   and rebuilding the list under the pointer swallowed the click that caused it.
@@ -515,7 +527,8 @@ scope toggle. Production code is the subject in every scope.
   snapshot's commit, both themes, a Spanish deep link, a locale held back until after the
   snapshot paints, the scope toggle end to end, the boundary band's direction,
   crossing into the other language, a Rust deep link, tappable scope options on
-  a phone, and nothing clipped in the sidebar). `.github/workflows/ci.yml` runs
+  a phone, nothing clipped in the sidebar, and `SystemState`'s 10,374 callers
+  staying inside the declaration lanes' node budget). `.github/workflows/ci.yml` runs
   it with the runner's Chrome on every push. A layout guarantee the docs make
   gets a probe assertion.
 

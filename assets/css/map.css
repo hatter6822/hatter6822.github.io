@@ -742,6 +742,34 @@
   color: var(--text);
   font-weight: 600;
 }
+/* The dense-lane filter sits at the breadcrumb's far end and wraps under it
+   on a narrow frame. */
+.declaration-lane-filter-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.declaration-lane-filter {
+  width: 16rem;
+  max-width: 100%;
+  min-height: 2rem;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 0.3rem 0.56rem;
+  font: inherit;
+  font-size: 0.8rem;
+}
+.declaration-lane-filter:focus-visible { outline: 2px solid color-mix(in oklab, var(--accent) 55%, transparent); outline-offset: 1px; }
+.declaration-lane-filter-status { font-size: 0.74rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.declaration-lane-filter-status:empty { display: none; }
+.flow-node.lane-more rect { stroke-dasharray: 2 3; fill: color-mix(in oklab, var(--surface) 60%, transparent); }
+.flow-node.lane-note rect { stroke-dasharray: 2 3; stroke-opacity: 0.7; fill: transparent; }
+.flow-node.lane-note text { fill: var(--text-muted); }
 
 /* Keyboard shortcuts hint — collapsible reference under the flowchart */
 .keyboard-shortcuts-hint {
@@ -948,6 +976,8 @@
     min-height: 2.2rem;
     padding: 0.25rem 0.6rem;
   }
+  .declaration-context-breadcrumb .declaration-lane-filter-wrap { margin-left: 0; width: 100%; }
+  .declaration-context-breadcrumb .declaration-lane-filter { width: 100%; min-height: 2.6rem; font-size: 0.95rem; }
   /* Slightly larger text on mobile for readability since SVG is zoomed out. */
   .flow-node text { font-size: 12px; }
   .flow-node .flow-meta { font-size: 10.5px; }
@@ -1028,6 +1058,7 @@
   background: color-mix(in oklab, var(--bg-alt) 92%, transparent);
 }
 [data-theme="light"] .flow-node.lane-group rect { fill: color-mix(in oklab, var(--bg-alt) 80%, transparent); }
+[data-theme="light"] .flow-node.lane-more rect { fill: color-mix(in oklab, var(--bg-alt) 80%, transparent); }
 [data-theme="light"] .flow-node-interior-menu {
   background: color-mix(in oklab, var(--surface) 94%, transparent);
 }

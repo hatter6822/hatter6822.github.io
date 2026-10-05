@@ -841,29 +841,18 @@ test('large declaration lane sorting prioritizes same-module declarations', asyn
   assert.ok(calls.includes('externalFn'), 'calls should include cross-module externalFn');
 });
 
-test('declaration lane collapse threshold and visible limit are exposed via test hooks', async () => {
+test('declaration lane limits are exposed via test hooks', async () => {
   const hooks = await loadMapTestHooks();
-  assert.equal(hooks.declarationLaneCollapseThreshold(), 12, 'collapse threshold should be 12');
-  assert.equal(hooks.declarationLaneVisibleLimit(), 10, 'visible limit should be 10');
+  assert.deepEqual({ ...hooks.declarationLaneLimits() }, { flat: 12, groups: 12, page: 20, budget: 150 });
 });
 
-test('applyTestState accepts declarationLanesExpanded, flowContext, and selectedDeclaration', async () => {
+test('applyTestState accepts the declaration lane state, flowContext, and selectedDeclaration', async () => {
   const hooks = await loadMapTestHooks();
-
-  // Verify initial state
-  hooks.applyTestState({ declarationLanesExpanded: false, flowContext: 'module', selectedDeclaration: '' });
-  // No assertion needed — if applyTestState doesn't throw, the state keys are accepted
-
-  // Set declaration context state
-  hooks.applyTestState({
-    declarationLanesExpanded: true,
-    flowContext: 'declaration',
-    selectedDeclaration: 'myDecl'
-  });
-
-  // Verify state is applied by checking that flowContext affects test hooks behavior
-  // declarationLanesExpanded is transient UI state, so we just verify it's accepted without error
-  assert.ok(true, 'applyTestState accepted declarationLanesExpanded, flowContext, and selectedDeclaration');
+  const open = { calls: { 'm:A': 20 }, callers: Object.create(null) };
+  hooks.applyTestState({ declarationLaneOpen: open, declarationLaneFilter: 'ipc', flowContext: 'declaration', selectedDeclaration: 'myDecl' });
+  assert.equal(hooks.declarationLaneState().open, open);
+  assert.equal(hooks.declarationLaneState().filter, 'ipc');
+  hooks.applyTestState({ declarationLaneOpen: { calls: {}, callers: {} }, declarationLaneFilter: '', flowContext: 'module', selectedDeclaration: '' });
 });
 
 test('interior menu highlights active declaration in declaration context', async () => {
@@ -913,55 +902,135 @@ test('declaration flowchart preserves scroll position on re-render', async () =>
   assert.ok(declFnBody.includes('previousScrollTop'), 'renderDeclarationFlowchart should save previous scroll top');
 });
 
-test('declaration lane expansion shows all items when expanded state is set', async () => {
-  const hooks = await loadMapTestHooks();
+/* The runtime lives in another realm, so its arrays fail a strict deepEqual
+   against this one's; compare copies. */
+const local = (value) => JSON.parse(JSON.stringify(value));
 
+/* A synthetic hub: `count` callers spread over modules and subsystems the
+   way `SystemState`'s are. */
+function hubRefs(count, modulesPerSubsystem = 6, subsystems = 8) {
+  const refs = [];
+  for (let i = 0; i < count; i++) {
+    const sub = i % subsystems;
+    const mod = Math.floor(i / subsystems) % modulesPerSubsystem;
+    refs.push({ name: `d${i}`, module: `SeLe4n.Kernel.S${sub}.M${mod}` });
+  }
+  return refs;
+}
+
+test('a small declaration lane is drawn flat, in the order it was given', async () => {
+  const hooks = await loadMapTestHooks();
+  const refs = hubRefs(12);
+  const lane = hooks.buildDeclarationLane(refs, {}, 'SeLe4n.Kernel.S0.M0', '');
+  assert.equal(lane.grouped, false);
+  assert.deepEqual(local(lane.entries.map((e) => e.ref.name)), refs.map((r) => r.name));
+  assert.ok(lane.entries.every((e) => e.type === 'decl' && e.depth === 0));
+  assert.equal(lane.omitted, 0);
+});
+
+test('a lane over a few modules groups by module, the selected module first', async () => {
+  const hooks = await loadMapTestHooks();
+  const refs = [];
+  for (let i = 0; i < 30; i++) refs.push({ name: `a${i}`, module: 'Big' });
+  for (let i = 0; i < 5; i++) refs.push({ name: `c${i}`, module: 'Center' });
+  refs.push({ name: 'solo', module: 'Solo' });
+  const lane = hooks.buildDeclarationLane(refs, {}, 'Center', '');
+  assert.equal(lane.grouped, true);
+  assert.deepEqual(local(lane.entries.map((e) => e.type + ':' + (e.key || e.ref.name))), ['group:m:Center', 'group:m:Big', 'decl:solo'],
+    'the selected module leads, then the largest; a one-member module is its member');
+  assert.ok(lane.entries.every((e) => !e.open));
+  assert.equal(lane.drawn, 3);
+});
+
+test('an opened module group draws one page, then a control for the next', async () => {
+  const hooks = await loadMapTestHooks();
+  const refs = [];
+  for (let i = 0; i < 45; i++) refs.push({ name: `a${i}`, module: 'Big' });
+  for (let i = 0; i < 3; i++) refs.push({ name: `b${i}`, module: 'Other' });
+  let lane = hooks.buildDeclarationLane(refs, { 'm:Big': 20 }, 'Center', '');
+  const members = lane.entries.filter((e) => e.type === 'decl' && e.depth === 1);
+  assert.equal(members.length, 20);
+  const more = lane.entries.find((e) => e.type === 'more');
+  assert.deepEqual({ key: more.key, remaining: more.remaining, next: more.next, depth: more.depth }, { key: 'm:Big', remaining: 25, next: 20, depth: 1 });
+  lane = hooks.buildDeclarationLane(refs, { 'm:Big': 40 }, 'Center', '');
+  assert.equal(lane.entries.find((e) => e.type === 'more').next, 5, 'the last page offers what is left');
+  lane = hooks.buildDeclarationLane(refs, { 'm:Big': 60 }, 'Center', '');
+  assert.equal(lane.entries.filter((e) => e.type === 'more').length, 0);
+  assert.equal(lane.entries.filter((e) => e.type === 'decl').length, 45);
+});
+
+test('a lane over many modules groups by subsystem and opens onto modules', async () => {
+  const hooks = await loadMapTestHooks();
+  const refs = hubRefs(4000);
+  const center = 'SeLe4n.Kernel.S3.M2';
+  const closed = hooks.buildDeclarationLane(refs, {}, center, '');
+  assert.equal(closed.entries[0].key, 'm:' + center, 'the selected module is hoisted out of its subsystem');
+  const subsystems = closed.entries.filter((e) => e.type === 'group' && e.level === 'subsystem');
+  assert.equal(subsystems.length, 8);
+  assert.equal(subsystems.reduce((n, e) => n + e.count, 0) + closed.entries[0].count, 4000, 'every caller is accounted for');
+  assert.equal(closed.drawn, 9);
+
+  const open = hooks.buildDeclarationLane(refs, { 's:SeLe4n.Kernel.S1': 20, 'm:SeLe4n.Kernel.S1.M0': 20 }, center, '');
+  const s1 = open.entries.findIndex((e) => e.key === 's:SeLe4n.Kernel.S1');
+  assert.equal(open.entries[s1].open, true);
+  const children = open.entries.slice(s1 + 1).filter((e, i, all) => all.slice(0, i + 1).every((x) => x.depth > 0));
+  assert.equal(children.filter((e) => e.type === 'group' && e.depth === 1).length, 6, 'a subsystem opens onto its modules');
+  assert.equal(children.filter((e) => e.type === 'decl' && e.depth === 2).length, 20, 'an opened module draws its first page');
+});
+
+test('no lane draws more than the node budget, and it counts what it left out', async () => {
+  const hooks = await loadMapTestHooks();
+  const refs = hubRefs(10000, 30, 8);
+  const open = {};
+  for (let s = 0; s < 8; s++) {
+    open[`s:SeLe4n.Kernel.S${s}`] = 1000;
+    for (let m = 0; m < 30; m++) open[`m:SeLe4n.Kernel.S${s}.M${m}`] = 1000;
+  }
+  const lane = hooks.buildDeclarationLane(refs, open, '', '');
+  const { budget } = hooks.declarationLaneLimits();
+  assert.equal(lane.entries.length, budget);
+  assert.equal(lane.drawn, budget);
+  const drawnDecls = lane.entries.filter((e) => e.type === 'decl').length;
+  assert.ok(lane.omitted > 0);
+  assert.equal(drawnDecls + lane.omitted, 10000, 'every declaration is either drawn or counted as omitted');
+});
+
+test('the lane filter matches declaration or module names, case-insensitively', async () => {
+  const hooks = await loadMapTestHooks();
+  const refs = hubRefs(4000);
+  assert.equal(hooks.filterDeclarationRefs(refs, '').length, 4000);
+  const bySub = hooks.filterDeclarationRefs(refs, 'kernel.s5.');
+  assert.equal(bySub.length, 500);
+  assert.ok(bySub.every((r) => r.module.startsWith('SeLe4n.Kernel.S5.')));
+  const byName = hooks.filterDeclarationRefs(refs, '  D399 ');
+  assert.deepEqual(local(byName.map((r) => r.name)).sort(), ['d399', 'd3990', 'd3991', 'd3992', 'd3993', 'd3994', 'd3995', 'd3996', 'd3997', 'd3998', 'd3999']);
+  const lane = hooks.buildDeclarationLane(refs, {}, '', 'd3999');
+  assert.equal(lane.grouped, false);
+  assert.equal(lane.matched, 1);
+  assert.equal(lane.total, 4000);
+  const none = hooks.buildDeclarationLane(refs, {}, '', 'nothing-matches');
+  assert.equal(none.matched, 0);
+  assert.equal(none.entries.length, 0);
+});
+
+test('caller lookups are memoized per snapshot and never hand out the memo', async () => {
+  const hooks = await loadMapTestHooks();
   const normalized = hooks.normalizeMapData({
     modules: [
-      {
-        module: 'SeLe4n.Core.Main',
-        path: 'SeLe4n/Core/Main.lean',
-        declarations: [
-          { kind: 'def', name: 'hubFn', line: 10, called: [
-            'a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9', 'a10',
-            'a11', 'a12', 'a13', 'a14', 'a15'
-          ] },
-          { kind: 'def', name: 'a1', line: 20, called: [] },
-          { kind: 'def', name: 'a2', line: 30, called: [] },
-          { kind: 'def', name: 'a3', line: 40, called: [] },
-          { kind: 'def', name: 'a4', line: 50, called: [] },
-          { kind: 'def', name: 'a5', line: 60, called: [] },
-          { kind: 'def', name: 'a6', line: 70, called: [] },
-          { kind: 'def', name: 'a7', line: 80, called: [] },
-          { kind: 'def', name: 'a8', line: 90, called: [] },
-          { kind: 'def', name: 'a9', line: 100, called: [] },
-          { kind: 'def', name: 'a10', line: 110, called: [] },
-          { kind: 'def', name: 'a11', line: 120, called: [] },
-          { kind: 'def', name: 'a12', line: 130, called: [] },
-          { kind: 'def', name: 'a13', line: 140, called: [] },
-          { kind: 'def', name: 'a14', line: 150, called: [] },
-          { kind: 'def', name: 'a15', line: 160, called: [] }
-        ]
-      }
+      { module: 'A', path: 'A.lean', declarations: [{ kind: 'def', name: 'hub', line: 1, called: [] }, { kind: 'def', name: 'x', line: 2, called: ['hub'] }] },
+      { module: 'B', path: 'B.lean', imports: ['A'], declarations: [{ kind: 'def', name: 'y', line: 1, called: ['hub'] }] }
     ]
   });
-
-  const calls = normalized.declarationGraph['hubFn'].calls;
-  assert.equal(calls.length, 15, 'hubFn should call 15 declarations');
-
-  // When collapsed (default), only LANE_VISIBLE_LIMIT (10) should be shown
-  const threshold = hooks.declarationLaneCollapseThreshold();
-  const visibleLimit = hooks.declarationLaneVisibleLimit();
-  assert.ok(calls.length > threshold, 'call count exceeds threshold');
-
-  const collapsedVisible = calls.slice(0, visibleLimit);
-  const collapsedCount = calls.length - visibleLimit;
-  assert.equal(collapsedVisible.length, 10, 'collapsed view shows 10 items');
-  assert.equal(collapsedCount, 5, 'collapsed count shows 5 hidden items');
-
-  // When expanded, all items should be shown
-  const expandedVisible = calls.slice();
-  assert.equal(expandedVisible.length, 15, 'expanded view shows all 15 items');
+  hooks.applyTestState(normalized);
+  const first = hooks.declarationCallerRefs('hub', 'A');
+  assert.deepEqual(local(first.map((r) => r.name)).sort(), ['x', 'y']);
+  first.length = 0;
+  assert.equal(hooks.declarationCallerCount('hub', 'A'), 2, 'mutating a result leaves the memo intact');
+  const replaced = hooks.normalizeMapData({
+    modules: [{ module: 'A', path: 'A.lean', declarations: [{ kind: 'def', name: 'hub', line: 1, called: [] }, { kind: 'def', name: 'x', line: 2, called: ['hub'] }] }]
+  });
+  hooks.applyTestState(replaced);
+  assert.equal(hooks.declarationCallerCount('hub', 'A'), 1, 'a new reverse graph starts the memo afresh');
 });
 
 test('assuranceForModule returns correct levels based on proof pair state', async () => {

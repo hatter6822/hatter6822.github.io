@@ -165,7 +165,7 @@ the bundled snapshot and nothing else (`connect-src 'self'`).
 
 - **Integrated flow legend corner:** legend semantics are rendered directly in the flowchart’s upper-right corner so color keys travel with every chart interaction/screenshot while keeping the chart body focused on graph topology.
 
-- **Declaration context:** clicking any declaration item in the interior panel switches the flowchart to declaration context, showing the selected declaration as a center node with outgoing calls (left lane) and incoming callers (right lane). Declarations with zero relationships display a centered node with an informative empty-state hint. Each callee/caller node is color-coded by declaration kind. Navigable declarations (those with forward or reverse call-graph entries) can be clicked to chain into further declaration contexts. A breadcrumb trail (semantic `<nav>` element with `aria-label`) at the top of the flowchart provides a module-name link to return to the module-level flowchart. The module-search bar updates contextually: in declaration context it displays `ModuleName › DeclarationName` and the label changes to "Current declaration context"; selecting a module via search returns to module context. Declaration context is persisted in the URL via a `decl` parameter. The `flowchart-wrap` container `aria-label` updates dynamically to reflect the current context. The context search bar syncs to `Module.Declaration` dot-append format when a declaration is selected (from any entry point: interior menu, search bar, or node click). Caller lookups use a precomputed reverse graph index for O(1) performance. When a lane exceeds 12 entries, declarations are sorted by module relevance (same-module first, then alphabetically) before the first 10 are shown with a "+N more" expand button. Clicking this button fully expands the lane to show all declarations, and a "Return to Compact" button appears to collapse back. The expansion state is transient and resets when navigating to a new declaration or returning to module context. Scroll position is preserved across declaration flowchart re-renders (lane expand/compact). The interior menu highlights the currently selected declaration with an accent-colored visual indicator.
+- **Declaration context:** clicking any declaration item in the interior panel switches the flowchart to declaration context, showing the selected declaration as a center node with outgoing calls (left lane) and incoming callers (right lane). Declarations with zero relationships display a centered node with an informative empty-state hint. Each callee/caller node is color-coded by declaration kind. Navigable declarations (those with forward or reverse call-graph entries) can be clicked to chain into further declaration contexts. A breadcrumb trail (semantic `<nav>` element with `aria-label`) at the top of the flowchart provides a module-name link to return to the module-level flowchart. The module-search bar updates contextually: in declaration context it displays `ModuleName › DeclarationName` and the label changes to "Current declaration context"; selecting a module via search returns to module context. Declaration context is persisted in the URL via a `decl` parameter. The `flowchart-wrap` container `aria-label` updates dynamically to reflect the current context. The context search bar syncs to `Module.Declaration` dot-append format when a declaration is selected (from any entry point: interior menu, search bar, or node click). Caller lookups use a precomputed reverse graph index for O(1) performance. A lane of more than 12 matches is a bounded tree rather than a list (see **Dense declaration lanes** below). Lane state is transient and resets when navigating to a new declaration or returning to module context. Scroll position is preserved across declaration flowchart re-renders (opening a group, drawing the next page, filtering). The interior menu highlights the currently selected declaration with an accent-colored visual indicator.
 
 - **Interior declaration explorer:** the flow chart context now exposes all interior Lean declaration kinds via three dropdowns:
   - Objects (`inductive`, `structure`, `class`, `def`, `theorem`, `lemma`, `example`, `instance`, `opaque`, `abbrev`, `axiom`, `constant`, `constants`)
@@ -179,6 +179,31 @@ the bundled snapshot and nothing else (`connect-src 'self'`).
   - The interior declaration panel no longer renders a dedicated header row; declaration filtering controls now anchor the panel start directly.
   - Re-selecting an already active module now forces an interior-panel repaint, preventing stale scrollbox content during rapid graph interactions.
   - All declarations display a clickable name that enters declaration context, providing uniform navigation regardless of call-graph presence.
+
+### Dense declaration lanes
+
+Hub declarations have thousands of neighbours (`SystemState`: 10,374 callers
+in 221 modules), so a declaration lane is built by `buildDeclarationLane`:
+
+- **≤ 12 matches** — every declaration, flat, in call order.
+- **≤ 12 modules** — one group per module, the selected declaration's module
+  first, then largest first. A module with one match is drawn as that match.
+- **otherwise** — one group per subsystem (`moduleSubsystem`), each opening
+  onto its modules, with the selected declaration's own module hoisted in
+  front.
+- **Paging** — an opened group draws `DECL_LANE_PAGE` (20) members and a
+  "+N more · show the next 20" control.
+- **Budget** — no lane draws more than `DECL_LANE_NODE_BUDGET` (150) nodes;
+  past it the lane ends in a note naming how many it did not draw.
+- **Filter** — the breadcrumb's filter narrows both lanes by declaration or
+  module name (case-insensitive substring of `Module.name`) before the tree
+  is built; the lane labels then read `matched / total`. Escape clears it.
+- **Edges** — a grouped lane shares one spine (`drawLaneSpine`); opened
+  members hang off their group on a guide line; a flat lane keeps one curve
+  per neighbour.
+
+Caller lookups are memoized per index identity, so a lane node's `←N` count
+costs one pass per declaration per snapshot.
 
 ## Rust scope
 

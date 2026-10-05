@@ -109,7 +109,7 @@ The landing page and the code map stop after step 1.
 - Navigable declaration nodes in the flowchart are interactive—clicking them chains into a new declaration context for that declaration's call graph. Node navigability now checks both forward (`declarationGraph`) and reverse (`declarationReverseGraph`) indices, so declarations that are only called by others (but don't call anything themselves) are also chainable.
 - A breadcrumb navigation bar (semantic `<nav>` element with `aria-label="Declaration breadcrumb"`) at the top of the declaration flowchart provides a module-name return button for free bidirectional traversal between module and declaration contexts.
 - Declaration context is persisted in the URL via a `decl` query parameter. Selecting a module via context search automatically returns to module context. On data load, the `decl` parameter is resolved against both the declaration graph and module metadata to determine the correct module, falling back gracefully if the declaration is no longer present.
-- When a lane (calls or callers) exceeds 12 entries, declarations are sorted by module relevance (same-module declarations first, then alphabetically) before the first 10 are rendered with a "+N more" expand button, ensuring the most contextually relevant declarations are always visible. The "+N more" node is an interactive button that fully expands the lane to show all declarations. A "Return to Compact" button appears after expansion to collapse back to the truncated view. Expansion state (`declarationLanesExpanded`) is transient and resets on navigation to a new declaration or return to module context.
+- When a lane (calls or callers) exceeds 12 entries, declarations are sorted by module relevance (same-module declarations first, then alphabetically) before the first 10 are rendered with a "+N more" expand button, ensuring the most contextually relevant declarations are always visible. The "+N more" node is an interactive button that fully expands the lane to show all declarations. A "Return to Compact" button appears after expansion to collapse back to the truncated view. Expansion state (`declarationLanesExpanded`) is transient and resets on navigation to a new declaration or return to module context. *(Superseded: see "Dense declaration lanes" below — expanding to "show all" is gone.)*
 - The interior menu highlights the currently selected declaration in declaration context with an accent-colored border and background, providing clear visual feedback about which declaration is being inspected.
 - Interior menu items display a clickable name button that enters declaration context for every declaration, keeping panel interactions focused on flow exploration.
 - CSS for the declaration context (breadcrumb, navigable items, active declaration highlight) is contained in `assets/css/map.css`.
@@ -1892,3 +1892,48 @@ leaves the origin. The status line names the snapshot's commit
 (`map.status_load_failed`), and is repainted when a late locale lands.
 `purgeLegacyStorage()` removes the two retired storage keys from returning
 visitors.
+
+## Dense declaration lanes
+
+A hub declaration has more neighbours than a chart can hold. `SystemState`
+is called by 10,374 declarations in 221 modules (`st` by 9,728, `ThreadId`
+by 5,683), and the declaration view's "+N more → expand to show all"
+control drew every one of them: 10,413 nodes, 160,823 DOM elements and an
+SVG 974,159px tall, built in one 3.4 s task. Every caller lookup also
+re-resolved the whole reverse list, once per lane node, for the node's own
+`←N` count.
+
+A lane is now a bounded tree (`buildDeclarationLane`):
+
+- up to `DECL_LANE_FLAT_LIMIT` (12) matches, every declaration, flat;
+- up to `DECL_LANE_GROUP_LIMIT` (12) modules, one group per module;
+- otherwise one group per subsystem (`moduleSubsystem`), each opening onto
+  its modules; the selected declaration's own module is hoisted out in front.
+
+A group opens in place onto a page of `DECL_LANE_PAGE` (20) members and a
+"+N more · show the next 20" control. Nothing draws more than
+`DECL_LANE_NODE_BUDGET` (150) nodes in one lane; past it the lane ends in a
+note saying how many declarations it did not draw and how to reach them
+(close a group, or filter). The filter in the breadcrumb narrows both lanes
+by declaration or module name before the tree is built, so every group count
+describes what matched, and the lane labels carry `matched / total`. The
+filter input is one element kept across redraws, so the caret survives the
+debounced re-render; Escape clears it.
+
+A grouped lane draws one spine (`drawLaneSpine`) instead of a curve per
+top-level entry: once a group is open the remaining entries sit thousands of
+pixels below, and a curve to each crossed every node stacked in between. The
+arrowheads keep their meaning — onto each callee, onto the selected node
+from the callers. The selected node is centred on its lanes only while they
+are short; it stays within the first screen of a tall lane.
+
+`declarationCallerRefs` is memoized per index identity (the reverse graph,
+the module indexes and the import map), so a new snapshot or call-graph load
+starts it afresh, and it returns copies so no caller can corrupt it.
+
+Measured at 1440px: the closed `SystemState` view draws 27 nodes in a 1,315px
+chart; opening the largest subsystem, its largest module and every page there
+is stops at 161 nodes with no task over ~110 ms. `map-runtime.test.mjs` pins
+the tree's shape, paging, budget accounting and filter; `map-smoke.mjs`
+drives the real page through the same steps and reads the budget from
+`map.js` rather than restating it.

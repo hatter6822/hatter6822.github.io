@@ -311,7 +311,11 @@
     declarationIndex: Object.create(null),
     declarationsByModule: Object.create(null),
     declarationModulesByName: Object.create(null),
-    declarationLanesExpanded: false,
+    /* The declaration chart's dense-lane state: which groups are open in each
+       lane and how many of their members are drawn, and the lane filter.
+       Transient: reset whenever another declaration is selected. */
+    declarationLaneOpen: { calls: Object.create(null), callers: Object.create(null) },
+    declarationLaneFilter: "",
     /* The Rust crate inventory, from the same snapshot (and so the same
        commit) as the Lean graph. */
     rust: null,
@@ -1236,18 +1240,52 @@
   }
 
   /* The callers of `declName`, as { name, module } pairs. With a module, only
-     the callers whose bare reference resolves to that module's declaration. */
-  function declarationCallerRefs(declName, moduleName) {
-    var reverse = state.declarationReverseGraph[declName];
-    if (!Array.isArray(reverse)) return [];
-    var modules = state.declarationReverseModules ? state.declarationReverseModules[declName] : null;
-    var out = [];
-    for (var i = 0; i < reverse.length; i++) {
-      var callerModule = modules && modules[i] ? modules[i] : declarationModuleOf(reverse[i]);
-      if (moduleName && resolveDeclarationModule(declName, callerModule) !== moduleName) continue;
-      out.push({ name: reverse[i], module: callerModule });
+     the callers whose bare reference resolves to that module's declaration.
+
+     Memoized: the declaration chart asks for every lane node's own caller
+     count, and a hub like `SystemState` has 10,374 callers, each resolved
+     through the importing module. The memo is keyed by the indexes it reads,
+     so replacing any of them (a call-graph load, a new snapshot) starts it
+     afresh. Callers get a copy; the memo is never handed out. */
+  var callerRefsMemo = { deps: [], entries: Object.create(null) };
+
+  function callerRefsDeps() {
+    return [state.declarationReverseGraph, state.declarationReverseModules, state.declarationModulesByName,
+      state.declarationGraph, state.declarationIndex, state.declarationsByModule, state.importsFrom];
+  }
+
+  function declarationCallerRefsShared(declName, moduleName) {
+    var memo = callerRefsMemo;
+    var deps = callerRefsDeps();
+    var stale = memo.deps.length !== deps.length;
+    for (var d = 0; !stale && d < deps.length; d++) stale = memo.deps[d] !== deps[d];
+    if (stale) {
+      memo.deps = deps;
+      memo.entries = Object.create(null);
     }
+    var key = declName + "\u0000" + (moduleName || "");
+    var cached = memo.entries[key];
+    if (cached) return cached;
+    var out = [];
+    var reverse = state.declarationReverseGraph[declName];
+    if (Array.isArray(reverse)) {
+      var modules = state.declarationReverseModules ? state.declarationReverseModules[declName] : null;
+      for (var i = 0; i < reverse.length; i++) {
+        var callerModule = modules && modules[i] ? modules[i] : declarationModuleOf(reverse[i]);
+        if (moduleName && resolveDeclarationModule(declName, callerModule) !== moduleName) continue;
+        out.push({ name: reverse[i], module: callerModule });
+      }
+    }
+    memo.entries[key] = out;
     return out;
+  }
+
+  function declarationCallerRefs(declName, moduleName) {
+    return declarationCallerRefsShared(declName, moduleName).slice();
+  }
+
+  function declarationCallerCount(declName, moduleName) {
+    return declarationCallerRefsShared(declName, moduleName).length;
   }
 
   /* The callees of `declName` in `moduleName`, each placed by the module the
@@ -1326,7 +1364,7 @@
     state.flowContext = "declaration";
     state.selectedDeclaration = declName;
     state.selectedDeclarationModule = mod;
-    state.declarationLanesExpanded = false;
+    resetDeclarationLanes();
     if (state.selectedModule !== mod) {
       state.selectedModule = mod;
       state.interiorMenuModule = mod;
@@ -1347,19 +1385,233 @@
     state.flowContext = "module";
     state.selectedDeclaration = "";
     state.selectedDeclarationModule = "";
-    state.declarationLanesExpanded = false;
+    resetDeclarationLanes();
     state.flowScrollTarget = state.selectedModule || "";
     syncUrlState();
     scheduleRender();
   }
 
-  function expandDeclarationLanes() {
-    state.declarationLanesExpanded = true;
+  function resetDeclarationLanes() {
+    state.declarationLaneOpen = { calls: Object.create(null), callers: Object.create(null) };
+    state.declarationLaneFilter = "";
+    /* A keystroke still waiting on its debounce belongs to the declaration
+       being left; it must not filter the next one. */
+    if (declLaneFilterTimer) clearTimeout(declLaneFilterTimer);
+    declLaneFilterTimer = 0;
+  }
+
+  /* ── Dense declaration lanes ───────────────────────────────────────────
+     A hub declaration has thousands of neighbours (`SystemState` is called by
+     10,374 declarations in 221 modules), and drawing them all built a
+     974,000px-tall chart of 160,000 elements behind a 3.4 s freeze. A lane is
+     therefore a bounded tree instead of a list:
+
+       ≤ DECL_LANE_FLAT_LIMIT matches   every declaration, flat;
+       ≤ DECL_LANE_GROUP_LIMIT modules  one group per module;
+       otherwise                        one group per subsystem, each opening
+                                        onto its modules — the selected
+                                        declaration's own module is hoisted
+                                        to the top level, first.
+
+     A group opens in place onto a page of DECL_LANE_PAGE members and a
+     "+N more" control that draws the next page; nothing ever draws more than
+     DECL_LANE_NODE_BUDGET nodes in one lane, and the lane says so when it
+     stops. The filter narrows by declaration or module name before any of
+     this, so the tree always describes what matched. */
+  var DECL_LANE_FLAT_LIMIT = 12;
+  var DECL_LANE_GROUP_LIMIT = 12;
+  var DECL_LANE_PAGE = 20;
+  var DECL_LANE_NODE_BUDGET = 150;
+
+  function normalizeLaneFilter(value) {
+    return String(value || "").trim().toLowerCase().slice(0, 120);
+  }
+
+  function filterDeclarationRefs(refs, filter) {
+    var needle = normalizeLaneFilter(filter);
+    if (!needle) return refs.slice();
+    var out = [];
+    for (var i = 0; i < refs.length; i++) {
+      var ref = refs[i];
+      var qualified = ((ref.module ? ref.module + "." : "") + ref.name).toLowerCase();
+      if (qualified.indexOf(needle) !== -1) out.push(ref);
+    }
+    return out;
+  }
+
+  /* Buckets refs by `keyOf`, keeping each bucket in input order; buckets are
+     ordered largest first, then by key, except `pinKey`, which leads. */
+  function bucketRefs(refs, keyOf, pinKey) {
+    var buckets = Object.create(null);
+    var order = [];
+    for (var i = 0; i < refs.length; i++) {
+      var key = keyOf(refs[i]);
+      if (!buckets[key]) {
+        buckets[key] = [];
+        order.push(key);
+      }
+      buckets[key].push(refs[i]);
+    }
+    order.sort(function (a, b) {
+      if (pinKey) {
+        if (a === pinKey && b !== pinKey) return -1;
+        if (b === pinKey && a !== pinKey) return 1;
+      }
+      return buckets[b].length - buckets[a].length || compareText(a, b);
+    });
+    return order.map(function (key) { return { key: key, refs: buckets[key] }; });
+  }
+
+  /* The entries one lane draws, top to bottom. Each entry is
+       { type: "decl", ref, depth }
+       { type: "group", key, level: "subsystem" | "module", label, count,
+         modules, depth, open }
+       { type: "more", key, remaining, next, depth }   — the next page
+       { type: "budget", omitted }                     — the lane stopped
+     `open` maps a group key to the number of its members drawn. */
+  function buildDeclarationLane(refs, open, centerModule, filter) {
+    var all = Array.isArray(refs) ? refs : [];
+    var matched = filterDeclarationRefs(all, filter);
+    var openState = open || Object.create(null);
+    var lane = { total: all.length, matched: matched.length, grouped: false, entries: [], drawn: 0, omitted: 0 };
+    var entries = lane.entries;
+
+    function pushDecl(ref, depth) {
+      if (lane.drawn >= DECL_LANE_NODE_BUDGET) {
+        lane.omitted++;
+        return false;
+      }
+      entries.push({ type: "decl", ref: ref, depth: depth });
+      lane.drawn++;
+      return true;
+    }
+
+    if (matched.length <= DECL_LANE_FLAT_LIMIT) {
+      for (var f = 0; f < matched.length; f++) pushDecl(matched[f], 0);
+      return lane;
+    }
+    lane.grouped = true;
+
+    function shownFor(key) {
+      var n = Number(openState[key]) || 0;
+      return n > 0 ? Math.floor(n) : 0;
+    }
+
+    /* A page of `children` under an open group: each child is drawn by
+       `drawChild`, then one "+N more" control if any are left. Children past
+       the budget are counted, not drawn. */
+    function pushPage(key, children, depth, drawChild, weightOf) {
+      var shown = Math.min(children.length, shownFor(key));
+      for (var c = 0; c < shown; c++) {
+        if (lane.drawn >= DECL_LANE_NODE_BUDGET) {
+          for (var rest = c; rest < children.length; rest++) lane.omitted += weightOf(children[rest]);
+          return;
+        }
+        drawChild(children[c]);
+      }
+      var remaining = children.length - shown;
+      if (remaining > 0) {
+        if (lane.drawn >= DECL_LANE_NODE_BUDGET) {
+          for (var r = shown; r < children.length; r++) lane.omitted += weightOf(children[r]);
+          return;
+        }
+        entries.push({ type: "more", key: key, remaining: remaining, next: Math.min(DECL_LANE_PAGE, remaining), depth: depth });
+        lane.drawn++;
+      }
+    }
+
+    function refWeight() { return 1; }
+    function bucketWeight(bucket) { return bucket.refs.length; }
+
+    function pushModuleGroup(bucket, depth) {
+      if (bucket.refs.length === 1) {
+        pushDecl(bucket.refs[0], depth);
+        return;
+      }
+      if (lane.drawn >= DECL_LANE_NODE_BUDGET) {
+        lane.omitted += bucket.refs.length;
+        return;
+      }
+      var key = "m:" + bucket.key;
+      var isOpen = shownFor(key) > 0;
+      entries.push({ type: "group", key: key, level: "module", label: bucket.key, count: bucket.refs.length, modules: 1, depth: depth, open: isOpen });
+      lane.drawn++;
+      if (!isOpen) return;
+      pushPage(key, bucket.refs, depth + 1, function (ref) { pushDecl(ref, depth + 1); }, refWeight);
+    }
+
+    var byModule = bucketRefs(matched, function (ref) { return ref.module || ""; }, centerModule);
+    if (byModule.length <= DECL_LANE_GROUP_LIMIT) {
+      for (var m = 0; m < byModule.length; m++) pushModuleGroup(byModule[m], 0);
+      return lane;
+    }
+
+    /* Too many modules for one level: subsystems first, with the selected
+       declaration's own module lifted out in front of them. */
+    var own = null;
+    var rest = [];
+    for (var b = 0; b < byModule.length; b++) {
+      if (centerModule && byModule[b].key === centerModule) own = byModule[b];
+      else rest.push(byModule[b]);
+    }
+    if (own) pushModuleGroup(own, 0);
+    var subsystems = Object.create(null);
+    var subsystemOrder = [];
+    for (var r2 = 0; r2 < rest.length; r2++) {
+      var subKey = moduleSubsystem(rest[r2].key) || rest[r2].key;
+      if (!subsystems[subKey]) {
+        subsystems[subKey] = { key: subKey, modules: [], count: 0 };
+        subsystemOrder.push(subKey);
+      }
+      subsystems[subKey].modules.push(rest[r2]);
+      subsystems[subKey].count += rest[r2].refs.length;
+    }
+    subsystemOrder.sort(function (a, b) { return subsystems[b].count - subsystems[a].count || compareText(a, b); });
+    for (var s = 0; s < subsystemOrder.length; s++) {
+      var sub = subsystems[subsystemOrder[s]];
+      if (sub.modules.length === 1) {
+        pushModuleGroup(sub.modules[0], 0);
+        continue;
+      }
+      if (lane.drawn >= DECL_LANE_NODE_BUDGET) {
+        lane.omitted += sub.count;
+        continue;
+      }
+      var subGroupKey = "s:" + sub.key;
+      var subOpen = shownFor(subGroupKey) > 0;
+      entries.push({ type: "group", key: subGroupKey, level: "subsystem", label: sub.key, count: sub.count, modules: sub.modules.length, depth: 0, open: subOpen });
+      lane.drawn++;
+      if (!subOpen) continue;
+      pushPage(subGroupKey, sub.modules, 1, function (bucket) { pushModuleGroup(bucket, 1); }, bucketWeight);
+    }
+    return lane;
+  }
+
+  /* Opens or closes a group; opening draws its first page. */
+  function toggleDeclarationLaneGroup(laneKey, groupKey) {
+    var lane = state.declarationLaneOpen[laneKey];
+    if (!lane) lane = state.declarationLaneOpen[laneKey] = Object.create(null);
+    if (lane[groupKey]) delete lane[groupKey];
+    else lane[groupKey] = DECL_LANE_PAGE;
+    state.flowScrollTarget = "";
     scheduleRender();
   }
 
-  function compactDeclarationLanes() {
-    state.declarationLanesExpanded = false;
+  function showMoreDeclarationLane(laneKey, groupKey) {
+    var lane = state.declarationLaneOpen[laneKey];
+    if (!lane) lane = state.declarationLaneOpen[laneKey] = Object.create(null);
+    lane[groupKey] = (Number(lane[groupKey]) || 0) + DECL_LANE_PAGE;
+    state.flowScrollTarget = "";
+    scheduleRender();
+  }
+
+  /* Filtering redraws the chart; groups opened under the previous filter stay
+     open, since their keys still name the same modules. */
+  function setDeclarationLaneFilter(value) {
+    var next = String(value || "").slice(0, 120);
+    if (next === state.declarationLaneFilter) return;
+    state.declarationLaneFilter = next;
+    state.flowScrollTarget = "";
     scheduleRender();
   }
 
@@ -1525,7 +1777,7 @@
     state.flowContext = "module";
     state.selectedDeclaration = "";
     state.selectedDeclarationModule = "";
-    state.declarationLanesExpanded = false;
+    resetDeclarationLanes();
     state.laneGroupsExpanded = { imports: Object.create(null), importers: Object.create(null) };
     state.flowScrollTarget = preserveScroll ? "" : name;
     if (state.interiorMenuModule !== name) {
@@ -3418,9 +3670,69 @@
     }
   }
 
+  /* The lane filter is one element kept across renders: the chart is rebuilt
+     on every keystroke's debounce, and a fresh input would lose the caret. */
+  var declLaneFilterInput = null;
+  var declLaneFilterStatus = null;
+  var declLaneFilterTimer = 0;
+  var DECL_LANE_FILTER_DEBOUNCE_MS = 160;
+
+  function declarationLaneFilterControl(matched, total) {
+    if (!declLaneFilterInput) {
+      declLaneFilterInput = document.createElement("input");
+      declLaneFilterInput.type = "search";
+      declLaneFilterInput.className = "declaration-lane-filter";
+      declLaneFilterInput.id = "declaration-lane-filter";
+      declLaneFilterInput.setAttribute("maxlength", "120");
+      declLaneFilterInput.setAttribute("autocomplete", "off");
+      declLaneFilterInput.setAttribute("spellcheck", "false");
+      declLaneFilterInput.setAttribute("aria-describedby", "declaration-lane-filter-status");
+      declLaneFilterInput.addEventListener("input", function () {
+        var value = declLaneFilterInput.value;
+        if (declLaneFilterTimer) clearTimeout(declLaneFilterTimer);
+        declLaneFilterTimer = setTimeout(function () {
+          declLaneFilterTimer = 0;
+          setDeclarationLaneFilter(value);
+        }, DECL_LANE_FILTER_DEBOUNCE_MS);
+      });
+      declLaneFilterInput.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape" || !declLaneFilterInput.value) return;
+        event.preventDefault();
+        event.stopPropagation();
+        declLaneFilterInput.value = "";
+        if (declLaneFilterTimer) clearTimeout(declLaneFilterTimer);
+        declLaneFilterTimer = 0;
+        setDeclarationLaneFilter("");
+      });
+      declLaneFilterStatus = document.createElement("span");
+      declLaneFilterStatus.className = "declaration-lane-filter-status";
+      declLaneFilterStatus.id = "declaration-lane-filter-status";
+      declLaneFilterStatus.setAttribute("aria-live", "polite");
+    }
+    var label = t("map.lane_filter_label") || "Filter calls and callers";
+    declLaneFilterInput.setAttribute("aria-label", label);
+    declLaneFilterInput.placeholder = t("map.lane_filter_placeholder") || "Filter by declaration or module";
+    /* Never overwrite what the reader is typing; only an outside change (a
+       new declaration resets the filter) is written back. */
+    if (!declLaneFilterTimer && normalizeLaneFilter(declLaneFilterInput.value) !== normalizeLaneFilter(state.declarationLaneFilter)) {
+      declLaneFilterInput.value = state.declarationLaneFilter;
+    }
+    declLaneFilterStatus.textContent = normalizeLaneFilter(state.declarationLaneFilter)
+      ? (t("map.lane_filter_status", { matched: formatCount(matched), total: formatCount(total) }) || (formatCount(matched) + " of " + formatCount(total) + " match"))
+      : "";
+    var holder = document.createElement("span");
+    holder.className = "declaration-lane-filter-wrap";
+    holder.appendChild(declLaneFilterInput);
+    holder.appendChild(declLaneFilterStatus);
+    return holder;
+  }
+
   function renderDeclarationFlowchart() {
     var wrap = DOM.flowchartWrap || document.getElementById("flowchart-wrap");
     if (!wrap) return;
+    /* Detaching a focused element blurs it; remember the caret to put back. */
+    var filterHadFocus = Boolean(declLaneFilterInput && document.activeElement === declLaneFilterInput);
+    var filterCaret = filterHadFocus ? [declLaneFilterInput.selectionStart, declLaneFilterInput.selectionEnd] : null;
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
     var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
     var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
@@ -3485,7 +3797,7 @@
       }
       if (line > 0) parts.push("L" + line);
       var outgoing = declarationCalls(ref.name, mod).length;
-      var incoming = mod ? declarationCallerRefs(ref.name, mod).length : 0;
+      var incoming = mod ? declarationCallerCount(ref.name, mod) : 0;
       if (outgoing > 0 || incoming > 0) {
         parts.push("\u2190" + incoming + " \u2192" + outgoing);
       }
@@ -3542,88 +3854,93 @@
       });
     }
 
-    var LANE_COLLAPSE_THRESHOLD = 12;
-    var LANE_VISIBLE_LIMIT = 10;
+    /* Dense lanes: see buildDeclarationLane. Past the flat limit the lanes are
+       ordered by module relevance, which is also the order a filter keeps. */
+    var sortedCalls = calls.length > DECL_LANE_FLAT_LIMIT ? sortByModuleRelevance(calls, moduleName) : calls;
+    var sortedCallers = calledBy.length > DECL_LANE_FLAT_LIMIT ? sortByModuleRelevance(calledBy, moduleName) : calledBy;
+    var laneFilter = state.declarationLaneFilter;
+    var callLane = buildDeclarationLane(sortedCalls, state.declarationLaneOpen.calls, moduleName, laneFilter);
+    var callerLane = buildDeclarationLane(sortedCallers, state.declarationLaneOpen.callers, moduleName, laneFilter);
 
-    var sortedCalls = calls.length > LANE_COLLAPSE_THRESHOLD ? sortByModuleRelevance(calls, moduleName) : calls;
-    var sortedCallers = calledBy.length > LANE_COLLAPSE_THRESHOLD ? sortByModuleRelevance(calledBy, moduleName) : calledBy;
-
-    var visibleCalls = sortedCalls;
-    var collapsedCallCount = 0;
-    var visibleCallers = sortedCallers;
-    var collapsedCallerCount = 0;
-
-    if (!state.declarationLanesExpanded) {
-      if (sortedCalls.length > LANE_COLLAPSE_THRESHOLD) {
-        visibleCalls = sortedCalls.slice(0, LANE_VISIBLE_LIMIT);
-        collapsedCallCount = sortedCalls.length - LANE_VISIBLE_LIMIT;
-      }
-      if (sortedCallers.length > LANE_COLLAPSE_THRESHOLD) {
-        visibleCallers = sortedCallers.slice(0, LANE_VISIBLE_LIMIT);
-        collapsedCallerCount = sortedCallers.length - LANE_VISIBLE_LIMIT;
-      }
+    if (calls.length + calledBy.length > DECL_LANE_FLAT_LIMIT || normalizeLaneFilter(laneFilter)) {
+      breadcrumb.appendChild(declarationLaneFilterControl(callLane.matched + callerLane.matched, calls.length + calledBy.length));
     }
-
-    var canCompactCalls = state.declarationLanesExpanded && sortedCalls.length > LANE_COLLAPSE_THRESHOLD;
-    var canCompactCallers = state.declarationLanesExpanded && sortedCallers.length > LANE_COLLAPSE_THRESHOLD;
 
     /* Looked up once and used for both the measurement and the painting: a
        translated label measured at its English width wraps wrongly. */
-    var expandAllHint = t("map.expand_all") || "expand to show all";
-    var compactLabel = t("map.return_compact_short") || "Return to Compact";
-    var hideExtraCalls = t("map.hide_extra_calls") || "hide extra calls";
-    var hideExtraCallers = t("map.hide_extra_callers") || "hide extra callers";
+    var groupExpandHint = t("map.group_expand") || "click to expand";
+    var groupCollapseHint = t("map.group_collapse") || "click to collapse";
+    var budgetHint = t("map.lane_budget_hint") || "close a group or filter to see them";
+    var noMatchLabel = t("map.lane_no_match") || "No matches";
+    var noMatchHint = t("map.lane_no_match_hint") || "clear the filter to see this lane";
+    var laneIndent = 18;
 
-    var callLayout = [];
-    var cursorLeft = laneYStart;
-    for (var ci = 0; ci < visibleCalls.length; ci++) {
-      var callMetaLink = declMetaLink(visibleCalls[ci]);
-      var ch = nodeContentHeight(visibleCalls[ci].name, declSummary(visibleCalls[ci]), sideWidth, true, callMetaLink ? callMetaLink.label : "", false);
-      callLayout.push({ name: visibleCalls[ci].name, ref: visibleCalls[ci], y: cursorLeft, h: ch, collapsed: false, expandable: false, compactControl: false, metaLink: callMetaLink });
-      cursorLeft += ch + laneGapY;
+    function declGroupTitle(entry) {
+      return (entry.open ? "\u25BE " : "\u25B8 ") + entry.label;
     }
-    if (collapsedCallCount > 0) {
-      var collapsedCallLabel = laneMoreLabel("map.lane_more", collapsedCallCount, "");
-      var cch = nodeContentHeight(collapsedCallLabel, expandAllHint, sideWidth, true, "", false);
-      callLayout.push({ name: collapsedCallLabel, y: cursorLeft, h: cch, collapsed: true, expandable: true });
-      cursorLeft += cch + laneGapY;
-    }
-    if (canCompactCalls) {
-      var compactCallLabel = compactLabel;
-      var compactCallH = nodeContentHeight(compactCallLabel, hideExtraCalls, sideWidth, true, "", false);
-      callLayout.push({ name: compactCallLabel, y: cursorLeft, h: compactCallH, compactControl: true });
-      cursorLeft += compactCallH + laneGapY;
-    }
-    var callBottom = callLayout.length ? cursorLeft - laneGapY : laneYStart + 44;
 
-    var callerLayout = [];
-    var cursorRight = laneYStart;
-    for (var bi = 0; bi < visibleCallers.length; bi++) {
-      var callerMetaLink = declMetaLink(visibleCallers[bi]);
-      var bh = nodeContentHeight(visibleCallers[bi].name, declSummary(visibleCallers[bi]), sideWidth, true, callerMetaLink ? callerMetaLink.label : "", false);
-      callerLayout.push({ name: visibleCallers[bi].name, ref: visibleCallers[bi], y: cursorRight, h: bh, collapsed: false, expandable: false, compactControl: false, metaLink: callerMetaLink });
-      cursorRight += bh + laneGapY;
+    function declGroupSummary(entry) {
+      var parts = [t("map.decl_group_decls", { count: entry.count }) || pluralEn(entry.count, "declaration", "declarations")];
+      if (entry.level === "subsystem") {
+        parts.push(t("map.decl_group_modules", { count: entry.modules }) || ("in " + pluralEn(entry.modules, "module", "modules")));
+      }
+      parts.push(entry.open ? groupCollapseHint : groupExpandHint);
+      return parts.join(" \u00B7 ");
     }
-    if (collapsedCallerCount > 0) {
-      var collapsedCallerLabel = laneMoreLabel("map.lane_more", collapsedCallerCount, "");
-      var ccbh = nodeContentHeight(collapsedCallerLabel, expandAllHint, sideWidth, true, "", false);
-      callerLayout.push({ name: collapsedCallerLabel, y: cursorRight, h: ccbh, collapsed: true, expandable: true });
-      cursorRight += ccbh + laneGapY;
+
+    /* One lane's entries, measured and stacked. */
+    function layoutDeclLane(lane) {
+      var items = [];
+      var cursor = laneYStart;
+      function place(item) {
+        item.y = cursor;
+        items.push(item);
+        cursor += item.h + laneGapY;
+      }
+      if (lane.total > 0 && lane.matched === 0) {
+        place({ kind: "info", depth: 0, x: 0, w: sideWidth, name: noMatchLabel, subtitle: noMatchHint, h: nodeContentHeight(noMatchLabel, noMatchHint, sideWidth, true, "", false) });
+      }
+      for (var li = 0; li < lane.entries.length; li++) {
+        var entry = lane.entries[li];
+        var indent = Math.min(entry.depth || 0, 2) * laneIndent;
+        var width = sideWidth - indent;
+        if (entry.type === "decl") {
+          var metaLink = declMetaLink(entry.ref);
+          var summary = declSummary(entry.ref);
+          place({ kind: "decl", entry: entry, depth: entry.depth, x: indent, w: width, name: entry.ref.name, ref: entry.ref, subtitle: summary, metaLink: metaLink,
+            h: nodeContentHeight(entry.ref.name, summary, width, true, metaLink ? metaLink.label : "", false) });
+        } else if (entry.type === "group") {
+          var title = declGroupTitle(entry);
+          var groupSummary = declGroupSummary(entry);
+          place({ kind: "group", entry: entry, depth: entry.depth, x: indent, w: width, name: title, subtitle: groupSummary, h: nodeContentHeight(title, groupSummary, width, true, "", false) });
+        } else if (entry.type === "more") {
+          var moreTitle = laneMoreLabel("map.lane_more", entry.remaining, "");
+          var moreHint = t("map.lane_show_next", { count: entry.next }) || ("show the next " + formatCount(entry.next));
+          place({ kind: "more", entry: entry, depth: entry.depth, x: indent, w: width, name: moreTitle, subtitle: moreHint, h: nodeContentHeight(moreTitle, moreHint, width, true, "", false) });
+        }
+      }
+      if (lane.omitted > 0) {
+        var budgetTitle = t("map.lane_budget", { count: lane.omitted }) || ("+" + formatCount(lane.omitted) + " not drawn");
+        place({ kind: "budget", depth: 0, x: 0, w: sideWidth, name: budgetTitle, subtitle: budgetHint, h: nodeContentHeight(budgetTitle, budgetHint, sideWidth, true, "", false) });
+      }
+      return { items: items, bottom: items.length ? cursor - laneGapY : laneYStart + 44 };
     }
-    if (canCompactCallers) {
-      var compactCallerLabel = compactLabel;
-      var compactCallerH = nodeContentHeight(compactCallerLabel, hideExtraCallers, sideWidth, true, "", false);
-      callerLayout.push({ name: compactCallerLabel, y: cursorRight, h: compactCallerH, compactControl: true });
-      cursorRight += compactCallerH + laneGapY;
-    }
-    var callerBottom = callerLayout.length ? cursorRight - laneGapY : laneYStart + 44;
+
+    var callLayoutInfo = layoutDeclLane(callLane);
+    var callerLayoutInfo = layoutDeclLane(callerLane);
+    var callBottom = callLayoutInfo.bottom;
+    var callerBottom = callerLayoutInfo.bottom;
 
     var centerMetaLink = declMetaLink(centerRef);
     var centerHeight = nodeContentHeight(declName, declSummary(centerRef), centerWidth, false, centerMetaLink ? centerMetaLink.label : "", false) + 14;
     var declLaneContentHeight = Math.max(callBottom, callerBottom) - laneYStart;
     var idealDeclCenterY = laneYStart + Math.floor((declLaneContentHeight - centerHeight) / 2);
     var minDeclCenterY = Math.max(laneYStart + 20, Math.min(170, laneYStart + Math.floor(declLaneContentHeight * 0.25)));
-    var centerY = Math.max(minDeclCenterY, idealDeclCenterY);
+    /* Centred on the lanes while they are short; an opened hub lane runs to
+       thousands of pixels, and centring on it put the selected declaration
+       out of sight below the first screen. */
+    var maxDeclCenterY = laneYStart + 260;
+    var centerY = Math.max(minDeclCenterY, Math.min(maxDeclCenterY, idealDeclCenterY));
     var declMinFlowHeight = prefersCompactViewport() ? 420 : 620;
     var flowHeight = Math.max(declMinFlowHeight, Math.max(callBottom, callerBottom, centerY + centerHeight) + 68);
 
@@ -3641,22 +3958,32 @@
 
     /* `declModule` is the module of the declaration a node stands for, or ""
        for a lane control (expand, compact) whose name is only a label. */
-    function createDeclNode(name, declModule, x, y, w, h, color, subtitle, tooltip, active, onActivate, metaLink) {
-      var className = "flow-node" + (active ? " active" : "");
+    function createDeclNode(name, declModule, x, y, w, h, color, subtitle, tooltip, active, onActivate, metaLink, extraClass) {
+      var className = "flow-node" + (active ? " active" : "") + (extraClass ? " " + extraClass : "");
       if (onActivate) className += " action";
       if (declModule && declModule !== moduleName) className += " cross-module";
       var interactive = Boolean(onActivate);
       var focusable = interactive || active;
-      var ariaLabel = interactive ? "Select declaration " + name : name;
+      /* Lane controls are not declarations: say what activating one does. */
+      var ariaLabel = name;
+      if (interactive && declModule) ariaLabel = "Select declaration " + name;
+      else if (interactive && subtitle) ariaLabel = name + ", " + subtitle;
       return buildFlowNodeGroup(nodeLayer, className, focusable, ariaLabel, name, x, y, w, h, color, subtitle, tooltip, onActivate || null, metaLink || null);
     }
 
     var hasCallees = calls.length > 0;
     var hasCallers = calledBy.length > 0;
 
-    if (hasCallees) laneLabel(t("map.lane_calls") || "Calls (outgoing)", leftX, 30, "#82f0b0");
+    /* A lane label carries its size once the lane is grouped, so a reader
+       sees how dense the neighbourhood is before opening anything. */
+    function laneCountSuffix(lane) {
+      if (lane.total <= DECL_LANE_FLAT_LIMIT && lane.matched === lane.total) return "";
+      if (lane.matched !== lane.total) return " \u00B7 " + formatCount(lane.matched) + " / " + formatCount(lane.total);
+      return " \u00B7 " + formatCount(lane.total);
+    }
+    if (hasCallees) laneLabel((t("map.lane_calls") || "Calls (outgoing)") + laneCountSuffix(callLane), leftX, 30, "#82f0b0");
     laneLabel(t("map.lane_selected_decl") || "Selected declaration", centerX, centerY - 12, "#7c9cff");
-    if (hasCallers) laneLabel(t("map.lane_called_by") || "Called by (incoming)", rightX, 30, "#ffad42");
+    if (hasCallers) laneLabel((t("map.lane_called_by") || "Called by (incoming)") + laneCountSuffix(callerLane), rightX, 30, "#ffad42");
 
     if (!hasCallees && !hasCallers) {
       var emptyHint = createSvgNode("text", { x: centerX, y: centerY + centerHeight + 28, fill: "#8fa3bf", "font-size": "12", "class": "flow-lane-label" });
@@ -3689,63 +4016,87 @@
       return function () { selectDeclaration(ref.name, ref.module); };
     }
 
-    var callNodes = [];
-    for (var i = 0; i < callLayout.length; i++) {
-      var callItem = callLayout[i];
-      if (callItem.expandable) {
-        var expandCallTooltip = "Expand to show all " + (collapsedCallCount + visibleCalls.length) + " called declarations";
-        callNodes.push(createDeclNode(callItem.name, "", leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", expandAllHint, expandCallTooltip, false, expandDeclarationLanes, null));
-      } else if (callItem.compactControl) {
-        callNodes.push(createDeclNode(callItem.name, "", leftX, callItem.y, sideWidth, callItem.h, "#82f0b0", hideExtraCalls, "Return to compact view", false, compactDeclarationLanes, null));
-      } else {
-        var callColor = declNodeColor(callItem.ref);
-        var callNavigable = isDeclNavigable(callItem.ref);
-        callNodes.push(createDeclNode(callItem.name, callItem.ref.module, leftX, callItem.y, sideWidth, callItem.h, callColor, declSummary(callItem.ref), declTooltip(callItem.ref, "Called declaration"), false, callNavigable ? selectRef(callItem.ref) : null, callItem.metaLink || null));
-      }
+    function focusLaneFilter() {
+      if (declLaneFilterInput) declLaneFilterInput.focus();
     }
 
-    var callerNodes = [];
-    for (var j = 0; j < callerLayout.length; j++) {
-      var callerItem = callerLayout[j];
-      if (callerItem.expandable) {
-        var expandCallerTooltip = "Expand to show all " + (collapsedCallerCount + visibleCallers.length) + " caller declarations";
-        callerNodes.push(createDeclNode(callerItem.name, "", rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", expandAllHint, expandCallerTooltip, false, expandDeclarationLanes, null));
-      } else if (callerItem.compactControl) {
-        callerNodes.push(createDeclNode(callerItem.name, "", rightX, callerItem.y, sideWidth, callerItem.h, "#ffad42", hideExtraCallers, "Return to compact view", false, compactDeclarationLanes, null));
-      } else {
-        var callerColor = declNodeColor(callerItem.ref);
-        var callerNavigable = isDeclNavigable(callerItem.ref);
-        callerNodes.push(createDeclNode(callerItem.name, callerItem.ref.module, rightX, callerItem.y, sideWidth, callerItem.h, callerColor, declSummary(callerItem.ref), declTooltip(callerItem.ref, "Caller declaration"), false, callerNavigable ? selectRef(callerItem.ref) : null, callerItem.metaLink || null));
-      }
+    function laneGroupTooltipFor(entry, roleLabel) {
+      return roleLabel + "\n" + entry.label + "\n" + entry.count + " declarations" + (entry.level === "subsystem" ? " in " + entry.modules + " modules" : "");
     }
 
-    var callEdgeCount = 0;
-    for (var ce = 0; ce < callLayout.length; ce++) {
-      if (!callLayout[ce].compactControl) callEdgeCount++;
+    /* Draws one lane and returns the nodes that take an edge to the centre:
+       the top-level entries. An opened group's members hang off it on a guide
+       line, so a 3,000-member subsystem fans no curves into the centre. */
+    function renderDeclLane(layoutInfo, laneX, color, laneKey, roleLabel, groupRoleLabel) {
+      var edgeNodes = [];
+      var stack = [];
+      function closeTo(depth) {
+        while (stack.length && stack[stack.length - 1].depth >= depth) {
+          var frame = stack.pop();
+          if (frame.last) drawLaneGuide(edgeLayer, frame.node, frame.last, color);
+        }
+      }
+      for (var li = 0; li < layoutInfo.items.length; li++) {
+        var item = layoutInfo.items[li];
+        var depth = item.depth || 0;
+        closeTo(depth);
+        var node;
+        if (item.kind === "decl") {
+          node = createDeclNode(item.name, item.ref.module, laneX + item.x, item.y, item.w, item.h, declNodeColor(item.ref), item.subtitle, declTooltip(item.ref, roleLabel), false, isDeclNavigable(item.ref) ? selectRef(item.ref) : null, item.metaLink || null, depth > 0 ? "lane-member" : "");
+        } else if (item.kind === "group") {
+          node = createDeclNode(item.name, "", laneX + item.x, item.y, item.w, item.h, color, item.subtitle, laneGroupTooltipFor(item.entry, groupRoleLabel), false,
+            (function (key) { return function () { toggleDeclarationLaneGroup(laneKey, key); }; })(item.entry.key), null, "lane-group" + (item.entry.open ? " lane-group-open" : ""));
+        } else if (item.kind === "more") {
+          node = createDeclNode(item.name, "", laneX + item.x, item.y, item.w, item.h, color, item.subtitle, item.name, false,
+            (function (key) { return function () { showMoreDeclarationLane(laneKey, key); }; })(item.entry.key), null, "lane-more lane-member");
+        } else {
+          node = createDeclNode(item.name, "", laneX + item.x, item.y, item.w, item.h, "#8fa3bf", item.subtitle, item.name + "\n" + item.subtitle, false,
+            item.kind === "budget" && declLaneFilterInput ? focusLaneFilter : null, null, "lane-note");
+        }
+        if (depth > 0) {
+          if (stack.length) stack[stack.length - 1].last = node;
+        } else if (item.kind === "decl" || item.kind === "group") {
+          edgeNodes.push(node);
+        }
+        if (item.kind === "group" && item.entry.open) stack.push({ node: node, depth: depth, last: null });
+      }
+      closeTo(0);
+      return edgeNodes;
     }
-    var callerEdgeCount = 0;
-    for (var cre = 0; cre < callerLayout.length; cre++) {
-      if (!callerLayout[cre].compactControl) callerEdgeCount++;
+
+    var callNodes = renderDeclLane(callLayoutInfo, leftX, "#82f0b0", "calls", "Called declaration", "Called declarations in");
+    var callerNodes = renderDeclLane(callerLayoutInfo, rightX, "#ffad42", "callers", "Caller declaration", "Callers in");
+
+    /* A grouped lane runs to thousands of pixels once a group is open, and a
+       curve from the centre to each top-level entry then crossed every node
+       stacked in between. Grouped lanes share one spine instead; a flat lane
+       keeps a curve per neighbour. */
+    if (callLane.grouped) {
+      drawLaneSpine(edgeLayer, center, callNodes, "#82f0b0", (leftX + sideWidth + centerX) / 2, "out");
+    } else {
+      var callSpread = Math.min(64, Math.max(14, Math.round(14 + Math.sqrt(Math.max(1, callNodes.length)) * 6)));
+      for (var k = 0; k < callNodes.length; k++) {
+        drawFlowEdge(edgeLayer, center, callNodes[k], "#82f0b0", false, { rank: k, total: callNodes.length, spread: callSpread });
+      }
     }
-    var callSpread = Math.min(64, Math.max(14, Math.round(14 + Math.sqrt(Math.max(1, callEdgeCount)) * 6)));
-    var callerSpread = Math.min(64, Math.max(14, Math.round(14 + Math.sqrt(Math.max(1, callerEdgeCount)) * 6)));
-    var callEdgeIndex = 0;
-    for (var k = 0; k < callNodes.length; k++) {
-      if (callLayout[k].compactControl) continue;
-      var callDashed = Boolean(callLayout[k].collapsed || callLayout[k].expandable);
-      drawFlowEdge(edgeLayer, center, callNodes[k], "#82f0b0", callDashed, { rank: callEdgeIndex, total: callEdgeCount, spread: callSpread });
-      callEdgeIndex++;
-    }
-    var callerEdgeIndex = 0;
-    for (var m = 0; m < callerNodes.length; m++) {
-      if (callerLayout[m].compactControl) continue;
-      var callerDashed = Boolean(callerLayout[m].collapsed || callerLayout[m].expandable);
-      drawFlowEdge(edgeLayer, callerNodes[m], center, "#ffad42", callerDashed, { rank: callerEdgeIndex, total: callerEdgeCount, spread: callerSpread });
-      callerEdgeIndex++;
+    if (callerLane.grouped) {
+      drawLaneSpine(edgeLayer, center, callerNodes, "#ffad42", (centerX + centerWidth + rightX) / 2, "in");
+    } else {
+      var callerSpread = Math.min(64, Math.max(14, Math.round(14 + Math.sqrt(Math.max(1, callerNodes.length)) * 6)));
+      for (var m = 0; m < callerNodes.length; m++) {
+        drawFlowEdge(edgeLayer, callerNodes[m], center, "#ffad42", false, { rank: m, total: callerNodes.length, spread: callerSpread });
+      }
     }
 
     flowSvg.flush();
     wrap.appendChild(svg);
+
+    if (filterHadFocus && declLaneFilterInput && declLaneFilterInput.isConnected) {
+      try {
+        declLaneFilterInput.focus({ preventScroll: true });
+        if (filterCaret && typeof filterCaret[0] === "number") declLaneFilterInput.setSelectionRange(filterCaret[0], filterCaret[1]);
+      } catch (e) {}
+    }
 
     renderFlowNodeInteriorMenu(moduleName);
 
@@ -3819,6 +4170,40 @@
       state.flowScrollTarget = "";
       scheduleRender();
     };
+  }
+
+  /* One trunk for a whole lane: a stub from the centre node's side to a
+     vertical spine at `spineX`, and a tick from the spine to each node. The
+     arrowheads say which way the calls go — onto each node for `out`, onto
+     the centre for `in` — exactly as the per-neighbour curves do. */
+  function drawLaneSpine(layer, center, nodes, color, spineX, direction) {
+    if (!nodes.length) return;
+    var centerMidY = center.y + center.h / 2;
+    var laneIsLeft = spineX < center.x;
+    var centerEdgeX = laneIsLeft ? center.x : center.x + center.w;
+    var top = centerMidY;
+    var bottom = centerMidY;
+    for (var i = 0; i < nodes.length; i++) {
+      var mid = nodes[i].y + nodes[i].h / 2;
+      if (mid < top) top = mid;
+      if (mid > bottom) bottom = mid;
+    }
+    function line(d, arrow) {
+      var path = createSvgNode("path", { d: d, "class": "flow-line lane-spine", stroke: color });
+      path.style.color = color;
+      if (arrow) path.setAttribute("marker-end", "url(#flow-arrow)");
+      layer.appendChild(path);
+    }
+    line("M " + spineX + " " + top + " L " + spineX + " " + bottom, false);
+    if (direction === "in") line("M " + spineX + " " + centerMidY + " L " + centerEdgeX + " " + centerMidY, true);
+    else line("M " + centerEdgeX + " " + centerMidY + " L " + spineX + " " + centerMidY, false);
+    for (var j = 0; j < nodes.length; j++) {
+      var node = nodes[j];
+      var y = node.y + node.h / 2;
+      var nodeEdgeX = laneIsLeft ? node.x + node.w : node.x;
+      if (direction === "in") line("M " + nodeEdgeX + " " + y + " L " + spineX + " " + y, false);
+      else line("M " + spineX + " " + y + " L " + nodeEdgeX + " " + y, true);
+    }
   }
 
   function drawLaneGuide(layer, groupNode, lastMember, color) {
@@ -6404,8 +6789,13 @@
       moduleSearchMatches: moduleSearchMatches,
       buildSearchIndex: buildSearchIndex,
       declarationSearchEntriesIn: declarationSearchEntriesIn,
-      declarationLaneCollapseThreshold: function () { return 12; },
-      declarationLaneVisibleLimit: function () { return 10; },
+      declarationLaneLimits: function () {
+        return { flat: DECL_LANE_FLAT_LIMIT, groups: DECL_LANE_GROUP_LIMIT, page: DECL_LANE_PAGE, budget: DECL_LANE_NODE_BUDGET };
+      },
+      buildDeclarationLane: buildDeclarationLane,
+      filterDeclarationRefs: filterDeclarationRefs,
+      declarationCallerCount: declarationCallerCount,
+      declarationLaneState: function () { return { open: state.declarationLaneOpen, filter: state.declarationLaneFilter }; },
       objectDeclarationCount: objectDeclarationCount,
       extensionDeclarationCount: extensionDeclarationCount,
       verifiableSurfaceArea: verifiableSurfaceArea,
@@ -6508,7 +6898,8 @@
         if (patch.proofPairMap) state.proofPairMap = patch.proofPairMap;
         if (patch.clearAssuranceCache) ASSURANCE_CACHE = Object.create(null);
         if (patch.clearDegreeMap) state.degreeMap = Object.create(null);
-        if (typeof patch.declarationLanesExpanded === "boolean") state.declarationLanesExpanded = patch.declarationLanesExpanded;
+        if (patch.declarationLaneOpen) state.declarationLaneOpen = patch.declarationLaneOpen;
+        if (typeof patch.declarationLaneFilter === "string") state.declarationLaneFilter = patch.declarationLaneFilter;
         if (typeof patch.flowContext === "string") state.flowContext = patch.flowContext;
         if (typeof patch.selectedDeclaration === "string") state.selectedDeclaration = patch.selectedDeclaration;
         if (typeof patch.selectedModule === "string") state.selectedModule = patch.selectedModule;

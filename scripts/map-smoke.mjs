@@ -52,6 +52,11 @@ try {
 const ROOT = new URL('../', import.meta.url);
 const MAP_DATA = JSON.parse(readFileSync(new URL('data/map-data.json', ROOT), 'utf8'));
 const SITE_DATA = JSON.parse(readFileSync(new URL('data/site-data.json', ROOT), 'utf8'));
+/* The dense-lane limits are read from the runtime, so the probe holds the
+   page to whatever budget it declares rather than to a number typed here. */
+const MAP_SOURCE = readFileSync(new URL('assets/js/map.js', ROOT), 'utf8');
+const DECL_LANE_NODE_BUDGET = Number((MAP_SOURCE.match(/var DECL_LANE_NODE_BUDGET = (\d+);/) || [])[1]);
+if (!(DECL_LANE_NODE_BUDGET > 0)) throw new Error('map.js no longer declares DECL_LANE_NODE_BUDGET');
 const LEAN_MODULES = MAP_DATA.modules.length;
 /* The same predicate the runtime draws with — a test target, a test-only
    module and an unreachable orphan are all inventory entries the graph leaves
@@ -439,6 +444,77 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   check(chartAtScale(rustPhone), `Rust chart at 1:1 on a phone (${chartSummary(rustPhone)})`);
   check(errors.length === 0, 'no console errors (phone)');
   await shot(page, 'phone');
+  await context.close();
+}
+
+{
+  /* The densest neighbourhood in the kernel: `SystemState` is called by over
+     ten thousand declarations. Drawing them all froze the page for seconds
+     and built a chart nearly a million pixels tall; the lanes are a bounded
+     tree now, and opening every page of it stays inside the node budget. */
+  console.log('\n[dense declaration, SystemState]');
+  const { context, page, errors } = await open(1440, 900, { query: '?module=SeLe4n.Model.State&decl=SystemState' });
+  await page.evaluate(() => {
+    window.__longTasks = [];
+    new PerformanceObserver((list) => list.getEntries().forEach((entry) => window.__longTasks.push(entry.duration))).observe({ type: 'longtask' });
+  });
+  const reading = () => page.evaluate(() => {
+    const svg = document.querySelector('.flowchart-svg');
+    const labels = Array.from(document.querySelectorAll('#flowchart-wrap .flow-lane-label'), (n) => n.textContent);
+    return {
+      nodes: document.querySelectorAll('#flowchart-wrap .flow-node').length,
+      height: svg ? Number(svg.getAttribute('height')) : 0,
+      callers: labels.find((label) => /Called by/.test(label)) || '',
+      notes: document.querySelectorAll('#flowchart-wrap .flow-node.lane-note').length,
+      more: document.querySelectorAll('#flowchart-wrap .flow-node.lane-more').length,
+      longest: Math.round(Math.max(0, ...window.__longTasks))
+    };
+  });
+  const callerTotal = (label) => Number((label.match(/·\s*([\d,]+)\s*$/) || [])[1]?.replace(/,/g, '') || 0);
+  let r = await reading();
+  check(callerTotal(r.callers) > DECL_LANE_NODE_BUDGET, `the callers lane states its size (${JSON.stringify(r.callers)})`);
+  check(r.nodes <= 40 && r.height < 3000, `the closed lanes draw a summary, not the neighbourhood (${r.nodes} nodes, ${r.height}px)`);
+  /* Open the largest caller subsystem, then its largest module, then every
+     page there is. */
+  const openGroup = (selector) => page.evaluate((sel) => {
+    const center = document.querySelector('#flowchart-wrap .flow-node.active').getBoundingClientRect();
+    const node = Array.from(document.querySelectorAll(sel)).find((n) => n.getBoundingClientRect().left > center.right);
+    if (!node) return false;
+    node.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    return true;
+  }, selector);
+  const settle = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  check(await openGroup('#flowchart-wrap .flow-node.lane-group:not(.lane-group-open)'), 'a caller group opens');
+  await settle();
+  check(await openGroup('#flowchart-wrap .flow-node.lane-group:not(.lane-group-open)'), 'a module group inside it opens');
+  await settle();
+  for (let i = 0; i < 30 && (await reading()).more > 0; i++) {
+    await openGroup('#flowchart-wrap .flow-node.lane-more');
+    await settle();
+  }
+  r = await reading();
+  check(r.more === 0, `paging stops at the budget instead of offering pages it would not draw (${r.more} page control(s) left)`);
+  check(r.nodes <= 2 * DECL_LANE_NODE_BUDGET + 2, `the chart stays inside the node budget (${r.nodes} nodes, budget ${DECL_LANE_NODE_BUDGET} per lane)`);
+  check(r.notes >= 1, 'the lane says it stopped drawing, rather than silently truncating');
+  check(r.longest < 1500, `no render blocks the page for long (longest task ${r.longest} ms)`);
+  /* The filter narrows both lanes, keeps the caret, and Escape restores them. */
+  await page.click('#declaration-lane-filter');
+  await page.keyboard.type('endpoint');
+  await page.waitForTimeout(500);
+  await settle();
+  const filtered = await page.evaluate(() => ({
+    focus: document.activeElement && document.activeElement.id,
+    status: document.getElementById('declaration-lane-filter-status').textContent,
+    callers: Array.from(document.querySelectorAll('#flowchart-wrap .flow-lane-label'), (n) => n.textContent).find((l) => /Called by/.test(l)) || ''
+  }));
+  check(filtered.focus === 'declaration-lane-filter', `typing keeps focus in the filter across redraws (${filtered.focus})`);
+  check(/^[\d,]+ of [\d,]+ match$/.test(filtered.status) && /\/ /.test(filtered.callers), `the filter reports what matched (${JSON.stringify(filtered.status)}, ${JSON.stringify(filtered.callers)})`);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  r = await reading();
+  check(!/\//.test(r.callers) && callerTotal(r.callers) > DECL_LANE_NODE_BUDGET, `Escape clears the filter (${JSON.stringify(r.callers)})`);
+  check(errors.length === 0, `no console errors (dense declaration) ${JSON.stringify(errors)}`);
+  await shot(page, 'dense-declaration');
   await context.close();
 }
 
