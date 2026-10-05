@@ -11,7 +11,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 - `index.html`: main marketing page
 - `map.html`: interactive codebase map
-- `run.html`: Simulator — replay the kernel in action with the proven invariants
+- `run.html`: Simulator — step through scenarios: what the kernel does, how it checks, and why it is safe
 - `404.html`: not-found page served by GitHub Pages
 - `robots.txt` / `sitemap.xml`: crawler policy and page inventory
 - `assets/css/`: shared and page-specific styles
@@ -37,7 +37,9 @@ git clone --depth 1 seLe4n@main
   └─ docs/codebase_map.json  ─┬─→ data/site-data.json          (landing page)
      Lean sources            ─┤   data/map-data.json           (code map)
      rust/ workspace         ─┘     └─ #rust: crate inventory
-     docs/execution-traces.json ─→ data/execution-traces.json  (simulator)
+     docs/execution-traces.json ─→ data/execution-traces.json  (simulator; the bundled
+                                   fixture until upstream ships one — validated and
+                                   grounded in this checkout either way)
 ```
 
 Every published statistic is projected from the canonical
@@ -136,8 +138,11 @@ upstream source asserts and cached it for thirty days. The projection now
 happens once, offline, in `scripts/sync-upstream.mjs`, where it is reviewed,
 tested and validated in CI.
 
-`map.html` and `run.html` still refresh their larger payloads from GitHub, with
-the bundled snapshot as the fallback.
+`map.html` still refreshes its larger payload from GitHub, with the bundled
+snapshot as the fallback. `run.html` is bundle-only, like the landing page: it
+fetches `data/execution-traces.json` and nothing else (`connect-src 'self'`),
+because every source link it draws points at the commit that snapshot was
+grounded at.
 
 ## Code map layout (0.31.0)
 
@@ -240,28 +245,40 @@ The code map interior panel supports declaration-first navigation:
 
 ## Simulator (kernel in action)
 
-`run.html` is a proof-aware execution visualizer. Because every seLe4n transition is a
-deterministic pure function with machine-checked invariants, the page can **replay**
-real kernel execution traces step by step and show the proven invariants holding at
-every transition. It offers seven switchable **scenes** — **System** (CPU, run queue,
-IPC wait queues), **Scheduler** (per-core SMP columns, priority buckets, EDF deadlines, CBS budget bars),
-**Capabilities** (the capability derivation tree, where minting derives children and a
-strict revoke prunes a whole subtree), **Memory** (untyped regions with a watermark,
-carving typed objects out of memory and reclaiming them on revoke), **VSpace** (page
-mappings with W^X status, where a writable-and-executable map is rejected and a TLB row
-shows cached translations being shot down on unmap), **Information
-flow** (the security-domain lattice, where the kernel blocks a leak from secret to
-public until an audited declassification authorizes it), and **Services** (the
-dependency DAG with dependency-ordered start, fault, and restart). A transport bar
-(play/step/scrub) drives the
-timeline; an invariant rail links each machine-checked invariant back to its proof
-module on `map.html`; and an opt-in, clearly-labeled **sandbox** lets you perturb the
-state and watch a structural check break — illustrating exactly what the Lean proofs
-forbid.
+`run.html` shows **what the kernel does, how it checks, and why it is safe**. You
+step through a scenario, and for every step the page shows the state change, the
+checked syscall path that allowed or refused it (entry → decode → lookup → rights →
+flow → operation, with the refusing stage and the `KernelError` it returned), and the
+security properties and invariants the step relies on — each linked to the Lean
+declaration that states or proves it.
 
-Trace data lives in `data/execution-traces.json` (a schema-versioned snapshot; the
-bundled sample is a reference fixture until the upstream kernel emits the artifact
-directly). The full design — schema, scenes, pipeline, and roadmap — is in
+It offers six switchable **scenes** — **System** (CPU, run queue, IPC wait queues),
+**Scheduler** (per-core SMP columns, priority buckets, EDF deadlines, CBS budget bars),
+**Capabilities** (the capability derivation tree: minting derives children, a revoke
+destroys a capability's derivations and keeps the capability), **Memory** (untyped
+regions with a watermark, carving typed objects and resetting the region once the
+children are revoked), **VSpace** (page mappings with W^X status, where a
+writable-and-executable request is refused and a TLB row shows translations shot down
+on unmap) and **Information flow** (the security-domain lattice, a blocked flow from
+secret to public, and the declassification audit log — a declassification is an
+audited release, never an edit to the policy). Beside the stage, an inspector explains
+the step; below it, a **security guarantees** band (nine properties, each with its
+statement, scope caveat and theorems, the step's own highlighted) and a **kernel
+invariants** catalogue (sixteen invariants, each with its predicate, preservation
+theorems and — labelled as a test, not a proof — the harness's runtime check). An
+opt-in, clearly-labeled **sandbox** lets you perturb the state and watch a structural
+check break — illustrating exactly what the Lean proofs forbid.
+
+The nine scenarios in `data/execution-traces.json` (trace schema v2) are written by
+hand: the kernel does not export traces yet, so they illustrate behaviour rather than
+replay a run, and the page says so. What is the kernel's own is every name they cite.
+`scripts/sync-upstream.mjs` resolves each function, theorem and predicate in the pinned
+seLe4n checkout and stamps its file and line, checks every syscall, required right and
+`KernelError` against the kernel's definitions, and refuses to write the snapshot if
+anything is missing; `scripts/validate-traces.mjs` cross-checks every stamped line
+against the code map's snapshot of the same commit. A refused step changes nothing,
+because a kernel transition that returns an error returns no state — the validator
+enforces that too. The full design — schema, scenes, pipeline, and roadmap — is in
 [docs/SIMULATOR_SPEC.md](docs/SIMULATOR_SPEC.md).
 
 ## Documentation index

@@ -6,7 +6,7 @@
 
 ### Strengths
 - Strict CSP/referrer/permissions policies are present on both pages.
-- Data hydration already supports bundled snapshots plus live refresh (the landing page deliberately opts out — see "Landing-page statistics have one source").
+- Data hydration already supports bundled snapshots plus live refresh on the code map (the landing page and the Simulator deliberately opt out — see "Landing-page statistics have one source" and "The Simulator is grounded and bundle-only").
 - The code map is feature rich and includes keyboard navigation, URL state sync, and caching.
 
 ### Primary growth constraints identified
@@ -975,6 +975,50 @@ git clone --depth 1 seLe4n@main
   disagreed with `index.html` while an offline one did not.
   `normalizeCanonicalPayload` now applies the same production scope the
   pipeline does, before it scores candidate payloads.
+- **The trace snapshot joins the same revision.** `execution-traces.json` records
+  the checkout's commit as `sourceRef`, and `validate-traces.mjs` fails when it
+  is not map-data's `commitSha` — see "The Simulator is grounded and
+  bundle-only".
+
+### The Simulator is grounded and bundle-only (trace schema v2)
+
+The Simulator's scenarios are hand-written: the kernel exports no traces yet.
+The 0.33.6 fixture had nonetheless been presented as kernel behaviour, and by
+kernel 0.36.41 it had rotted with nothing to notice — fifteen cited functions
+were off the executed syscall path, one was retired, `cspaceCopy` was said to
+need write (it needs grant) and `reply` grantReply (it needs write), a
+`declassifyStore` syscall did not exist, declassification was drawn as editing
+the flow policy (it appends an audit entry), and the services scenario had no
+reachable kernel path.
+
+Schema v2 makes the claims checkable instead of better-worded:
+
+- **Every name is a reference, and the sync grounds it.** Properties,
+  invariants, step sources and path stages name declarations as
+  `{ name, module }`. `trace-anchors.mjs` resolves each in the pinned checkout
+  and stamps `path` and `line`, and checks every syscall, required right and
+  `KernelError` against the kernel's own definitions; an unresolved name fails
+  the sync. `validate-traces.mjs` cross-checks each stamped line against the
+  code map's declarations at the same commit.
+- **The page cites proofs, and labels tests as tests.** Each invariant names
+  its predicate and preservation theorems; the harness's executable check is
+  shown as "test harness, not a proof". Each security property names the
+  theorems that state it and, where the theorem is narrower than the slogan,
+  says so in a caveat.
+- **A refusal is shown as what the type says it is.** A transition is
+  `σ → Except ε (α × σ)`, so an error carries no state; a refused step may carry
+  event ops only, and the validator and the browser both reject one that would
+  change state.
+- **Bundle-only.** `run.html` fetches `data/execution-traces.json` and nothing
+  else (`connect-src 'self'`): its v1 `localStorage` cache and
+  `raw.githubusercontent.com` live refresh are gone. A refreshed document would
+  be grounded at a different revision from the links and the narrative written
+  against the bundle, and none exists upstream anyway. Source links are built
+  only from the stamped fields, through a whitelist (40-hex commit, `.lean`
+  path, positive line), so a malformed document cannot place an arbitrary URL.
+
+The design is specified in `docs/SIMULATOR_SPEC.md`; the kernel-side contract
+in `docs/UPSTREAM_TRACE_EXPORT.md`.
 
 ### Two upstream defects this surfaced
 
