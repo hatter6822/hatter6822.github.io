@@ -2430,7 +2430,7 @@ test('every production Rust source file is one graph node, and test targets are 
   }
 
   /* Each crate contributes exactly one root, and it is the crate's own name. */
-  assert.deepEqual(Array.from(graph.crateRoots), ['sele4n-types', 'sele4n-abi', 'sele4n-sys', 'sele4n-hal'],
+  assert.deepEqual(Array.from(graph.crateRoots), ['sele4n-types', 'sele4n-abi', 'sele4n-sys', 'sele4n-hal', 'sele4n-lean-boundary'],
     'crate roots keep workspace order and are addressed by the bare crate name');
   for (const root of graph.crateRoots) {
     assert.equal(graph.byName[root].isRoot, true);
