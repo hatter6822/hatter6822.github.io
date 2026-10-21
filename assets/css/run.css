@@ -3,7 +3,11 @@
    Reuses the global design tokens from style.css.
    ============================================================ */
 
+/* The page is a workspace: the stage needs ~900px beside the inspector, so
+   the simulator widens the shared container (re-declared on the element that
+   consumes it, which beats the inherited :root value). */
 .theater-page { padding-top: var(--nav-height); position: relative; z-index: 1; }
+.theater-page .container { --container-w: 92rem; }
 .theater-page h1 { color: var(--heading); margin-bottom: 0.6rem; line-height: 1.1; text-wrap: balance; }
 
 /* The page is the tool: the hero is a caption, not a landing section. Both
@@ -179,10 +183,10 @@
 }
 @media (max-width: 60rem) { .theater-stage-shell { min-height: 15rem; max-height: 70vh; } }
 .theater-stage-shell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.theater-svg { display: block; max-width: 100%; height: auto; }
-/* On a phone the scene is drawn at 1:1 and scrolls inside its shell: scaled
-   to fit, a two-column scene set its labels at about six pixels. */
-@media (max-width: 40rem) { .theater-svg { max-width: none; } }
+/* A scene is drawn at 1:1 at every width and a wider one scrolls inside its
+   shell. Scaled to fit, the 72rem container's 666px shell drew every scene at
+   0.86 on desktop and a two-column scene at about six-pixel labels on a phone. */
+.theater-svg { display: block; max-width: none; height: auto; }
 
 /* ── Scene tabs ────────────────────────────────────────────── */
 .stage-header { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.55rem; }
@@ -193,85 +197,223 @@
 .scene-tab:focus-visible { outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent); outline-offset: 2px; }
 .scene-tab[data-active="true"] { color: var(--accent); font-weight: 600; border-color: color-mix(in oklab, var(--accent) 50%, var(--border)); background: color-mix(in oklab, var(--accent) 14%, transparent); }
 
-/* ── SVG chips & boxes ─────────────────────────────────────── */
-.box-frame { fill: color-mix(in oklab, var(--surface-2) 65%, transparent); stroke: var(--border); stroke-width: 1; }
-.box-frame[data-accent="endpoint"] { stroke: color-mix(in oklab, var(--accent) 55%, var(--border)); }
-.box-frame[data-accent="notification"] { stroke: color-mix(in oklab, var(--purple) 55%, var(--border)); }
-.box-frame[data-accent="running"] { stroke: color-mix(in oklab, var(--green) 55%, var(--border)); }
-.box-frame[data-accent="ready"] { stroke: color-mix(in oklab, var(--accent) 40%, var(--border)); }
-.box-frame[data-accent="blocked"] { stroke: color-mix(in oklab, var(--yellow) 50%, var(--border)); }
-.box-frame[data-touched="true"] { stroke-width: 2; filter: drop-shadow(0 0 5px var(--accent-glow)); }
-.box-title { fill: var(--text-muted); font: 600 0.7rem/1 var(--font-sans); letter-spacing: 0.04em; text-transform: uppercase; }
-.box-title[data-accent="endpoint"] { fill: var(--accent); }
-.box-title[data-accent="notification"] { fill: var(--purple); }
-.box-title[data-accent="infoflow"] { fill: var(--accent); }
-.box-frame[data-accent="infoflow"] { stroke: color-mix(in oklab, var(--accent) 45%, var(--border)); }
-.audit-row { fill: var(--text); }
-.box-empty { fill: var(--text-muted); font: italic 0.72rem var(--font-sans); opacity: 0.7; }
-
-.theater-chip { cursor: pointer; }
-.theater-chip:focus-visible { outline: none; }
-.chip-rect { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke-width: 1.5; transition: fill 0.2s; }
-.theater-chip:hover .chip-rect { fill: color-mix(in oklab, var(--surface-2) 96%, transparent); }
-.chip-rect[data-current="true"] { fill: color-mix(in oklab, var(--green) 16%, var(--surface)); }
-.chip-rect[data-selected="true"] { stroke-width: 2.5; filter: drop-shadow(0 0 6px var(--accent-glow)); }
-.chip-rect[data-touched="true"] { animation: chip-pulse 0.7s ease-out 1; }
-.theater-chip:focus-visible .chip-rect { stroke: var(--accent); stroke-width: 2.5; }
-.chip-name { fill: var(--text-bright); font: 600 0.82rem var(--font-sans); }
-.chip-sub { fill: var(--text-muted); font: 0.68rem var(--font-mono); }
-.chip-badge { fill: var(--purple); font: 600 0.66rem var(--font-mono); }
-@keyframes chip-pulse {
+/* ── Scene primitives ──────────────────────────────────────── */
+/* Every scene is one SVG drawn at 1:1. Colour carries one meaning across
+   all six scenes: green ran / passed / allowed, blue is ready or a plain
+   object, amber waits, red refused, purple is derivation or policy. */
+.theater-svg text { font-family: var(--font-sans); }
+.theater-obj { cursor: pointer; }
+.theater-obj:focus { outline: none; }
+.theater-obj:focus-visible > rect:first-of-type { stroke: var(--accent); stroke-width: 2.5; }
+.theater-obj[data-selected="true"] > rect:first-of-type { stroke: var(--accent); stroke-width: 2.5; filter: drop-shadow(0 0 6px var(--accent-glow)); }
+[data-touched="true"] { animation: touch-pulse 0.8s ease-out 1; }
+rect[data-touched="true"] { stroke: var(--accent); stroke-width: 2; }
+@keyframes touch-pulse {
   0% { filter: drop-shadow(0 0 0 var(--accent)); }
   40% { filter: drop-shadow(0 0 7px var(--accent)); }
   100% { filter: drop-shadow(0 0 0 transparent); }
 }
-@media (prefers-reduced-motion: reduce) { .chip-rect[data-touched="true"] { animation: none; } }
 
-.msg-envelope { fill: color-mix(in oklab, var(--accent) 35%, var(--surface)); stroke: var(--accent); stroke-width: 1.2; }
-.msg-flap { fill: none; stroke: var(--accent); stroke-width: 1.2; }
+.mk-arrow { fill: var(--text-muted); }
+.mk-ok { fill: var(--green); }
+.mk-bad { fill: var(--red); }
+.mk-msg { fill: var(--accent); }
+.mk-cdt { fill: var(--purple); }
+.mk-muted { fill: color-mix(in oklab, var(--text-muted) 70%, var(--border)); }
+.hatch-line { stroke: color-mix(in oklab, var(--text-muted) 35%, transparent); stroke-width: 2; }
 
-/* ── Scheduler scene (budget bars + dimmed non-runnable) ───── */
-.chip-rect[data-dim="true"] { opacity: 0.55; }
-.sched-chip .chip-sub { font-size: 0.66rem; }
+.section-label { fill: var(--text-muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; }
+.scene-lead { fill: var(--text-bright); font-size: 0.86rem; font-weight: 600; }
+.scene-note { fill: var(--text-muted); font-size: 0.74rem; }
+.box-empty { fill: var(--text-muted); font-size: 0.72rem; font-style: italic; opacity: 0.75; }
+.box-frame { fill: color-mix(in oklab, var(--surface-2) 60%, transparent); stroke: var(--border); stroke-width: 1; }
+.box-frame[data-accent="endpoint"], .box-frame[data-accent="core"] { stroke: color-mix(in oklab, var(--accent) 50%, var(--border)); }
+.box-frame[data-accent="notification"], .box-frame[data-accent="cnode"] { stroke: color-mix(in oklab, var(--purple) 50%, var(--border)); }
+.box-frame[data-accent="reply"] { stroke: color-mix(in oklab, var(--yellow) 50%, var(--border)); }
+.box-frame[data-accent="memory"], .box-frame[data-accent="vspace"] { stroke: color-mix(in oklab, var(--green) 45%, var(--border)); }
+.box-title { fill: var(--text-muted); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.box-title[data-accent="endpoint"], .box-title[data-accent="core"] { fill: var(--accent); }
+.box-title[data-accent="notification"], .box-title[data-accent="cnode"] { fill: var(--purple); }
+.box-title[data-accent="reply"] { fill: var(--yellow); }
+.box-title[data-accent="memory"], .box-title[data-accent="vspace"] { fill: var(--green); }
+.box-sub { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.68rem; }
+.lane-label { fill: var(--text-muted); font-size: 0.68rem; font-weight: 600; }
+.lane-note { fill: var(--text); font-family: var(--font-mono); font-size: 0.7rem; }
+
+/* Thread control blocks: a status stripe, the name and priority, the IPC
+   state, and the last message delivered. */
+.chip-rect { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke: var(--border); stroke-width: 1.5; transition: fill 0.2s; }
+.theater-chip:hover .chip-rect { fill: var(--surface-2); }
+.chip-rect[data-status="running"] { stroke: var(--green); fill: color-mix(in oklab, var(--green) 12%, var(--surface)); }
+.chip-rect[data-status="ready"] { stroke: color-mix(in oklab, var(--accent) 70%, var(--border)); }
+.chip-rect[data-status="blocked"] { stroke: color-mix(in oklab, var(--yellow) 70%, var(--border)); }
+.chip-rect[data-status="inactive"] { stroke-dasharray: 3 3; }
+.chip-rect[data-dim="true"] { opacity: 0.5; }
+.chip-rect[data-mark="chosen"] { stroke: var(--green); stroke-width: 2.5; }
+.chip-rect[data-mark="head"] { stroke-width: 2; }
+.chip-stripe { fill: var(--text-muted); }
+.chip-stripe[data-status="running"] { fill: var(--green); }
+.chip-stripe[data-status="ready"] { fill: var(--accent); }
+.chip-stripe[data-status="blocked"] { fill: var(--yellow); }
+.chip-name, .mini-name { fill: var(--text-bright); font-size: 0.8rem; font-weight: 600; }
+.mini-name { font-size: 0.72rem; }
+.chip-prio { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.66rem; }
+.chip-sub { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.66rem; }
+.chip-msg { fill: var(--accent); font-family: var(--font-mono); font-size: 0.66rem; }
+.mini-note { fill: var(--text-muted); font-size: 0.58rem; }
+.queue-link { stroke: color-mix(in oklab, var(--text-muted) 60%, var(--border)); stroke-width: 1.2; fill: none; }
+
+/* ── Kernel path: registers, CPtr walk, pipeline, selection ── */
+.reg-box { fill: color-mix(in oklab, var(--surface) 90%, transparent); stroke: var(--border); stroke-width: 1; }
+.reg[data-used="true"] .reg-box { stroke: color-mix(in oklab, var(--accent) 55%, var(--border)); }
+.reg[data-used="false"] { opacity: 0.45; }
+.reg-name { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.66rem; font-weight: 600; }
+.reg-value { fill: var(--text-bright); font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600; }
+.reg-cap { fill: var(--text-muted); font-size: 0.6rem; }
+.reg-legend { fill: var(--text); font-family: var(--font-mono); font-size: 0.68rem; }
+.bit-cell { fill: var(--surface-2); stroke: var(--border); stroke-width: 1; }
+.bit-cell[data-role="guard"] { fill: color-mix(in oklab, var(--purple) 22%, var(--surface)); stroke: var(--purple); }
+.bit-cell[data-role="radix"] { fill: color-mix(in oklab, var(--accent) 22%, var(--surface)); stroke: var(--accent); }
+.bit-cell[data-bad="true"] { fill: color-mix(in oklab, var(--red) 25%, var(--surface)); stroke: var(--red); }
+.bit-text { fill: var(--text-bright); font-family: var(--font-mono); font-size: 0.72rem; }
+.bracket { fill: none; stroke: var(--text-muted); stroke-width: 1.2; }
+.bit-note { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.64rem; }
+.bit-note-bad { fill: var(--red); font-weight: 600; }
+.walk-arrow { stroke: var(--text-muted); stroke-width: 1.3; fill: none; }
+.walk-cnode { fill: var(--purple); font-size: 0.66rem; font-weight: 600; }
+.slot-dot { fill: var(--surface-2); stroke: color-mix(in oklab, var(--border) 80%, transparent); stroke-width: 0.8; }
+.slot-dot[data-occupied="true"] { fill: color-mix(in oklab, var(--purple) 40%, var(--surface)); }
+.slot-dot[data-hit="true"] { fill: var(--accent); stroke: var(--accent); }
+.slot-dot[data-hit="empty"] { fill: none; stroke: var(--red); stroke-width: 1.5; }
+.walk-ok { fill: var(--green); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; }
+.walk-fail { fill: var(--red); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; }
+.cap-rect { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke: var(--purple); stroke-width: 1.5; }
+.cap-title { fill: var(--text-bright); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; }
+.cap-badge { fill: var(--purple); font-family: var(--font-mono); font-size: 0.64rem; }
+.right-pill { fill: transparent; stroke: color-mix(in oklab, var(--border) 80%, transparent); stroke-width: 1; }
+.right-pill[data-held="true"] { fill: color-mix(in oklab, var(--accent) 22%, var(--surface)); stroke: color-mix(in oklab, var(--accent) 60%, var(--border)); }
+.right-pill[data-need="ok"] { stroke: var(--green); stroke-width: 2; }
+.right-pill[data-need="missing"] { stroke: var(--red); stroke-width: 2; stroke-dasharray: 3 2; }
+.right-text { fill: var(--text); font-family: var(--font-mono); font-size: 0.6rem; font-weight: 600; }
+.pill-rect { fill: var(--surface-2); stroke: var(--border); stroke-width: 1.5; }
+.pill-rect[data-result="pass"] { fill: color-mix(in oklab, var(--green) 14%, var(--surface)); stroke: var(--green); }
+.pill-rect[data-result="fail"] { fill: color-mix(in oklab, var(--red) 16%, var(--surface)); stroke: var(--red); }
+.pill-rect[data-result="skip"] { fill: transparent; stroke-dasharray: 4 3; }
+.path-pill[data-result="skip"] text { opacity: 0.55; }
+.pill-name { fill: var(--text-bright); font-size: 0.72rem; font-weight: 600; }
+.pill-sub { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.56rem; }
+.pill-sub-bad { fill: var(--red); font-weight: 600; }
+.pipe-link { stroke: var(--text-muted); stroke-width: 1.4; fill: none; }
+.pipe-link-off { stroke-dasharray: 3 3; opacity: 0.5; }
+.flow-note { fill: var(--green); font-family: var(--font-mono); font-size: 0.62rem; }
+.flow-note-bad { fill: var(--red); font-weight: 600; }
+.result-rect { stroke-width: 2; }
+.result-rect[data-outcome="ok"] { fill: color-mix(in oklab, var(--green) 16%, var(--surface)); stroke: var(--green); }
+.result-rect[data-outcome="error"] { fill: color-mix(in oklab, var(--red) 16%, var(--surface)); stroke: var(--red); }
+.result-name { fill: var(--text-bright); font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; }
+.result-sub { fill: var(--text-muted); font-size: 0.62rem; }
+.sel-cell { fill: var(--text); font-family: var(--font-mono); font-size: 0.68rem; }
+.sel-why { fill: var(--text-muted); font-size: 0.7rem; }
+.sel-why-chosen { fill: var(--green); font-weight: 600; }
+.sel-why-bad { fill: var(--red); }
+.bar-label { fill: var(--text); font-size: 0.72rem; }
+.bar-value { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.66rem; }
+.tick-cell { fill: transparent; stroke: var(--border); stroke-width: 1; }
+.tick-cell[data-full="true"] { fill: var(--accent); stroke: var(--accent); }
 .budget-track { fill: color-mix(in oklab, var(--surface-2) 85%, transparent); stroke: var(--border); stroke-width: 0.75; }
 .budget-fill { fill: var(--green); }
 .budget-fill[data-empty="true"] { fill: var(--red); }
 
-/* ── Capability scene (CDT tree) ───────────────────────────── */
-.cdt-edge { fill: none; stroke: color-mix(in oklab, var(--purple) 55%, var(--border)); stroke-width: 1.5; }
-.cdt-rect { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke: var(--purple); stroke-width: 1.5; }
-.cdt-node:hover .cdt-rect { fill: color-mix(in oklab, var(--purple) 14%, var(--surface)); }
-.cdt-node .chip-sub { font-family: var(--font-mono); }
+/* ── IPC: queues, notification word, reply objects, messages ── */
+.badge-bit { fill: var(--surface-2); stroke: var(--border); stroke-width: 1; }
+.badge-bit[data-on="true"] { fill: color-mix(in oklab, var(--purple) 45%, var(--surface)); stroke: var(--purple); }
+.ntfn-state { font-size: 0.66rem; font-weight: 600; fill: var(--text-muted); }
+.ntfn-state[data-state="active"] { fill: var(--purple); }
+.ntfn-state[data-state="waiting"] { fill: var(--yellow); }
+.wait-edge { fill: none; stroke: color-mix(in oklab, var(--yellow) 70%, var(--border)); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.wait-edge-reply { stroke: var(--yellow); }
+.stash-edge { fill: none; stroke: color-mix(in oklab, var(--purple) 60%, var(--border)); stroke-width: 1.2; stroke-dasharray: 2 3; }
+.msg-path { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-dasharray: 600; stroke-dashoffset: 600; animation: msg-draw 0.9s ease-out forwards; }
+@keyframes msg-draw { to { stroke-dashoffset: 0; } }
+.msg-tag-rect { fill: color-mix(in oklab, var(--accent) 18%, var(--surface)); stroke: var(--accent); stroke-width: 1; }
+.msg-tag-text { fill: var(--text-bright); font-family: var(--font-mono); font-size: 0.64rem; }
 
-/* ── Memory scene (untyped regions) ────────────────────────── */
-.box-frame[data-accent="memory"] { stroke: color-mix(in oklab, var(--green) 45%, var(--border)); }
-.mem-frame[data-selected="true"] { stroke-width: 2.5; filter: drop-shadow(0 0 6px var(--accent-glow)); }
+/* ── Scheduler ─────────────────────────────────────────────── */
+.idle-rect { fill: transparent; stroke: var(--border); stroke-width: 1; stroke-dasharray: 4 3; }
+.bucket-label { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.66rem; font-weight: 600; }
+.sc-rect { fill: color-mix(in oklab, var(--surface) 88%, transparent); stroke: var(--border); stroke-width: 1; }
+.sc-name { fill: var(--text-bright); font-size: 0.74rem; font-weight: 600; }
+.sc-text { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.64rem; }
+
+/* ── CSpace: slot grid and derivation arcs ─────────────────── */
+.slot-rect { fill: transparent; stroke: color-mix(in oklab, var(--border) 70%, transparent); stroke-width: 1; stroke-dasharray: 3 3; }
+.slot-rect[data-occupied="true"] { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke: var(--purple); stroke-dasharray: none; stroke-width: 1.4; }
+.slot-rect[data-kind="endpoint"], .slot-rect[data-kind="notification"] { stroke: var(--accent); }
+.slot-rect[data-kind="untyped"], .slot-rect[data-kind="frame"], .slot-rect[data-kind="vspace"] { stroke: var(--green); }
+.slot-rect[data-gone="true"] { fill: color-mix(in oklab, var(--red) 10%, transparent); stroke: var(--red); stroke-dasharray: 4 3; }
+.slot-index { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.58rem; }
+.slot-kind { fill: var(--purple); font-family: var(--font-mono); font-size: 0.58rem; }
+.slot-target { fill: var(--text-bright); font-size: 0.7rem; font-weight: 600; }
+.slot-rights { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.6rem; }
+.slot-gone { fill: var(--red); font-size: 0.64rem; font-weight: 600; }
+.cdt-edge { fill: none; stroke: color-mix(in oklab, var(--purple) 70%, var(--border)); stroke-width: 1.6; }
+.cdt-edge[data-touched="true"] { stroke: var(--purple); stroke-width: 2.4; }
+
+/* ── Memory: untyped watermark and address-space table ─────── */
 .mem-track { fill: color-mix(in oklab, var(--bg-alt) 80%, transparent); stroke: var(--border); stroke-width: 1; }
-.mem-child { stroke: rgba(0, 0, 0, 0.28); stroke-width: 0.5; }
-.mem-child-label { fill: #0a0e17; font: 600 0.66rem var(--font-mono); pointer-events: none; }
-.mem-watermark { stroke: var(--red); stroke-width: 1.5; stroke-dasharray: 3 2; }
+.mem-free { fill: url(#hatch); }
+.mem-child { fill: color-mix(in oklab, var(--green) 35%, var(--surface)); stroke: var(--green); stroke-width: 1; }
+.mem-child[data-kind="untyped"] { fill: color-mix(in oklab, var(--accent) 30%, var(--surface)); stroke: var(--accent); }
+.mem-child-label { fill: var(--text-bright); font-family: var(--font-mono); font-size: 0.64rem; font-weight: 600; pointer-events: none; }
+.mem-child-sub { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.6rem; pointer-events: none; }
+.mem-watermark { stroke: var(--yellow); stroke-width: 2; stroke-dasharray: 4 2; }
+.mem-wm-label { fill: var(--yellow); font-family: var(--font-mono); font-size: 0.62rem; font-weight: 600; }
+.mem-scale { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.58rem; }
+.mem-request { fill: color-mix(in oklab, var(--red) 12%, transparent); stroke: var(--red); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.mem-overrun { fill: none; stroke: var(--red); stroke-width: 1.5; }
+.mem-request-label { fill: var(--red); font-family: var(--font-mono); font-size: 0.64rem; font-weight: 600; }
+.vs-head { fill: var(--text-muted); font-size: 0.64rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.vs-row-rect { fill: color-mix(in oklab, var(--surface) 80%, transparent); stroke: transparent; }
+.vs-row[data-kind="rejected"] .vs-row-rect { fill: color-mix(in oklab, var(--red) 12%, transparent); stroke: var(--red); stroke-dasharray: 4 3; }
+.vs-row[data-kind="gone"] .vs-row-rect { fill: transparent; stroke: var(--border); stroke-dasharray: 2 3; }
+.vs-row[data-kind="gone"] .vs-addr, .vs-row[data-kind="gone"] .vs-frame { text-decoration: line-through; opacity: 0.6; }
+.vs-addr, .vs-frame { fill: var(--text); font-family: var(--font-mono); font-size: 0.7rem; }
+.vs-perm { fill: var(--accent); font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; }
+.vs-perm[data-bit="off"] { fill: var(--text-muted); opacity: 0.5; }
+.vs-perm[data-bit="w"] { fill: var(--yellow); }
+.vs-perm[data-bit="x"] { fill: var(--purple); }
+.vs-ok { fill: var(--green); font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; }
+.vs-rejected { fill: var(--red); font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; }
+.vs-tlb { fill: var(--accent); font-family: var(--font-mono); font-size: 0.66rem; }
+.vs-tlb-none { fill: var(--text-muted); }
+.vs-shootdown { fill: var(--yellow); font-family: var(--font-mono); font-size: 0.66rem; font-weight: 600; }
 
-/* ── Information-flow scene (security-domain lattice) ──────── */
+/* ── Information flow: the label lattice ───────────────────── */
 .if-rect { fill: color-mix(in oklab, var(--surface) 92%, transparent); stroke: var(--accent); stroke-width: 1.5; }
-.if-domain:hover .if-rect { fill: color-mix(in oklab, var(--accent) 12%, var(--surface)); }
-.if-policy { fill: none; stroke: color-mix(in oklab, var(--text-muted) 60%, var(--border)); stroke-width: 1.3; }
-.if-head-policy { fill: color-mix(in oklab, var(--text-muted) 70%, var(--border)); }
+.if-rect[data-integ="untrusted"] { stroke: var(--yellow); }
+.if-rect[data-unused="true"] { fill: transparent; stroke: var(--border); stroke-dasharray: 4 3; }
+.if-node:hover .if-rect:not([data-unused]) { fill: color-mix(in oklab, var(--accent) 10%, var(--surface)); }
+.if-name { fill: var(--text-bright); font-size: 0.8rem; font-weight: 600; }
+.if-coords { fill: var(--text-muted); font-family: var(--font-mono); font-size: 0.6rem; }
+.if-member { fill: var(--surface-2); stroke: var(--border); stroke-width: 1; }
+.if-member[data-kind="thread"] { stroke: color-mix(in oklab, var(--green) 60%, var(--border)); }
+.if-member-text { fill: var(--text); font-size: 0.64rem; }
+.if-order { fill: none; stroke: color-mix(in oklab, var(--text-muted) 55%, var(--border)); stroke-width: 1.3; }
+.if-declass { fill: none; stroke: var(--purple); stroke-width: 1.6; stroke-dasharray: 6 4; }
+.if-declass-label { fill: var(--purple); font-size: 0.64rem; font-weight: 600; }
 .if-flow { fill: none; stroke-width: 2.6; }
 .if-flow-allow { stroke: var(--green); }
 .if-flow-block { stroke: var(--red); stroke-dasharray: 5 3; }
-.if-head-allow { fill: var(--green); }
-.if-head-block { fill: var(--red); }
-.if-flow-label-allow { fill: var(--green); font: 600 0.74rem var(--font-sans); }
-.if-flow-label-block { fill: var(--red); font: 600 0.74rem var(--font-sans); }
+.if-check { font-family: var(--font-mono); font-size: 0.68rem; font-weight: 600; paint-order: stroke; stroke: var(--bg-alt); stroke-width: 4px; }
+.if-check-ok { fill: var(--green); }
+.if-check-bad { fill: var(--red); }
+.audit-rect { fill: color-mix(in oklab, var(--purple) 8%, var(--surface)); stroke: color-mix(in oklab, var(--purple) 40%, var(--border)); stroke-width: 1; }
+.audit-text { fill: var(--text); font-family: var(--font-mono); font-size: 0.66rem; }
 
-/* ── VSpace scene (page tables + W^X) ──────────────────────── */
-.vs-frame[data-selected="true"] { stroke-width: 2.5; filter: drop-shadow(0 0 6px var(--accent-glow)); }
-.vs-addr { fill: var(--text); font: 0.74rem var(--font-mono); }
-.vs-perms { fill: var(--accent); font: 600 0.72rem var(--font-mono); }
-.vs-ok { fill: var(--green); font: 600 0.7rem var(--font-mono); }
-.vs-rejected { fill: var(--red); font: 600 0.7rem var(--font-mono); }
-.vs-tlb { fill: var(--text-muted); font: 0.7rem var(--font-mono); }
-.vs-shootdown { fill: var(--yellow); font: 600 0.7rem var(--font-mono); }
+@media (prefers-reduced-motion: reduce) {
+  [data-touched="true"] { animation: none; }
+  .msg-path { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; }
+}
 
 /* ── Shared: a link to a grounded Lean declaration ─────────── */
 .ref-link { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; }
@@ -358,6 +500,7 @@ a.ref-link::after { content: "↗"; font-size: 0.66rem; margin-left: 0.2rem; col
 .inv-item[data-status="preserved"] .inv-badge { color: var(--green); background: var(--green-dim); }
 .inv-item[data-status="violated"] { background: var(--red-dim); border-color: color-mix(in oklab, var(--red) 45%, var(--border)); }
 .inv-item[data-status="violated"] .inv-mark { color: var(--red); }
+.inv-why { margin: 0.3rem 0 0; font-size: 0.72rem; color: var(--red); overflow-wrap: anywhere; }
 .inv-item[data-status="violated"] .inv-badge { color: var(--red); background: color-mix(in oklab, var(--red) 18%, transparent); }
 
 /* ── Inspector: outcome, kernel path, why it's safe ─────────── */
@@ -367,7 +510,6 @@ a.ref-link::after { content: "↗"; font-size: 0.66rem; margin-left: 0.2rem; col
 .insp-syscall { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; margin: 0 0 0.45rem; font-size: 0.76rem; color: var(--text-muted); }
 .insp-syscall-id { font-size: 0.8rem; font-weight: 700; color: var(--text-bright); }
 .insp-right code { color: var(--purple); }
-.insp-cappath { font-family: var(--font-mono); font-size: 0.7rem; overflow-wrap: anywhere; }
 .path-strip { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: none; }
 .path-stage { display: grid; grid-template-columns: 1.3rem minmax(0, 1fr); gap: 0.45rem; position: relative; padding: 0.22rem 0; }
 /* The rail joining consecutive stages. */
@@ -450,14 +592,18 @@ a.ref-link::after { content: "↗"; font-size: 0.66rem; margin-left: 0.2rem; col
 .log-title { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-error { font-size: 0.66rem; color: var(--yellow); }
 
-.theater-legend { display: flex; flex-wrap: wrap; gap: 0.45rem 1.1rem; margin: 0.15rem 0 0; padding-top: 0.7rem; border-top: 1px solid color-mix(in oklab, var(--border) 55%, transparent); font-size: 0.74rem; color: var(--text-muted); }
-.theater-legend { margin-top: 0.6rem; padding-left: 0; list-style: none; }
+.theater-legend { display: flex; flex-wrap: wrap; gap: 0.45rem 1.1rem; margin: 0.6rem 0 0; padding: 0.7rem 0 0; list-style: none; border-top: 1px solid color-mix(in oklab, var(--border) 55%, transparent); font-size: 0.74rem; color: var(--text-muted); }
 .theater-legend li { display: inline-flex; align-items: center; gap: 0.4rem; }
 .theater-legend i { width: 0.72rem; height: 0.72rem; border-radius: 3px; display: inline-block; background: var(--text-muted); box-shadow: 0 0 0 1px color-mix(in oklab, var(--border) 50%, transparent); }
-.theater-legend i[data-state="running"] { background: var(--green); }
-.theater-legend i[data-state="ready"] { background: var(--accent); }
-.theater-legend i[data-state="blocked"] { background: var(--yellow); }
-.theater-legend i[data-state="touched"] { background: transparent; box-shadow: 0 0 0 2px var(--accent), 0 0 6px var(--accent-glow); }
+.theater-legend i[data-swatch="running"], .theater-legend i[data-swatch="pass"], .theater-legend i[data-swatch="ok"], .theater-legend i[data-swatch="frame"] { background: var(--green); }
+.theater-legend i[data-swatch="ready"], .theater-legend i[data-swatch="radix"], .theater-legend i[data-swatch="message"], .theater-legend i[data-swatch="untyped"] { background: var(--accent); }
+.theater-legend i[data-swatch="blocked"] { background: var(--yellow); }
+.theater-legend i[data-swatch="fail"], .theater-legend i[data-swatch="bad"], .theater-legend i[data-swatch="gone"] { background: var(--red); }
+.theater-legend i[data-swatch="guard"], .theater-legend i[data-swatch="cap"], .theater-legend i[data-swatch="cdt"], .theater-legend i[data-swatch="declass"] { background: var(--purple); }
+.theater-legend i[data-swatch="chosen"] { background: transparent; box-shadow: 0 0 0 2px var(--green); }
+.theater-legend i[data-swatch="skip"], .theater-legend i[data-swatch="free"], .theater-legend i[data-swatch="dim"] { background: transparent; box-shadow: inset 0 0 0 1px var(--text-muted); opacity: 0.6; }
+.theater-legend i[data-swatch="order"] { background: color-mix(in oklab, var(--text-muted) 55%, var(--border)); height: 2px; border-radius: 0; }
+.theater-legend i[data-swatch="touched"] { background: transparent; box-shadow: 0 0 0 2px var(--accent), 0 0 6px var(--accent-glow); }
 
 /* Narrow viewports: reflow the transport deck into tidy rows
    (controls+counter+sandbox · scrubber). */

@@ -142,8 +142,7 @@
       "PAddr": 1217
     },
     "SeLe4n/Kernel/API.lean": {
-      "apiInvariantBundle": 154,
-      "dispatchYield": 4652
+      "apiInvariantBundle": 154
     },
     "SeLe4n/Machine.lean": {
       "RegName": 26
@@ -222,5 +221,5 @@
   "metricsScope": "production",
   "schemaVersion": "2.0.0",
   "sourceDigest": "db3c19b83d81fc811b21c31ce54dd3e9d7b6829db518470558ddca59e014983b",
-  "generatedAt": "2026-10-21T19:14:03.233Z"
+  "generatedAt": "2026-10-21T19:45:06.606Z"
 }

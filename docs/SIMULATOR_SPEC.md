@@ -1,9 +1,10 @@
 # seLe4n Simulator — Design Specification
 
-> Status: **living spec**. Phase 1 (vertical slice, trace schema **v2**) is implemented
-> and shipped in this repository (`run.html`, `assets/js/run.js`, `assets/css/run.css`,
-> `data/execution-traces.json`, `scripts/lib/trace-analysis.mjs`,
-> `scripts/lib/trace-anchors.mjs`, `scripts/validate-traces.mjs`). Anything marked
+> Status: **living spec**. Phases 1 and 3 (trace schema **v3**, six scenes) are
+> implemented and shipped in this repository (`run.html`, `assets/js/trace-engine.js`,
+> `assets/js/run.js`, `assets/css/run.css`, `data/execution-traces.json`,
+> `scripts/lib/trace-analysis.mjs`, `scripts/lib/trace-anchors.mjs`,
+> `scripts/validate-traces.mjs`, `scripts/run-smoke.mjs`). Anything marked
 > *roadmap* or *Phase 2+* is specified here and not yet built.
 >
 > Audience: contributors to the seLe4n website and the upstream kernel trace-export tooling.
@@ -102,7 +103,7 @@ carries an **Unverified preview** banner.
 
 ```
 run.html
-├── shared chrome (nav, theme toggle, bg toggle, language switcher, footer)
+├── shared chrome (nav, theme toggle, language switcher, footer)
 ├── hero
 │   ├── title ("What the kernel does, how it checks, and why it is safe") + lead
 │   ├── SOURCE BADGE  (kernel export · vX  |  hand-written scenarios · names grounded in seLe4n vX)
@@ -140,70 +141,36 @@ All transport state is mirrored to the URL for deep links (§9).
 ### 3.2 The Stage (scenes)
 
 The stage renders one **scene** at a time, switchable via a tab strip in the stage
-header (and the `&scene=` URL parameter). Each scene is an SVG projection of the
-current `SystemState`, laid out so that a kernel object lives in exactly the
-structural location the kernel itself puts it. Phase 1 ships six scenes — **System**,
-**Scheduler**, **Capability**, **Memory**, **VSpace** and **Information flow** (`SCENES`
-in `run.js`); later phases deepen them (§5). System and Scheduler are always offered;
-each of the others appears only when the scenario's `initialState` carries the state it
-draws (`cdt`, `untyped`, `vspace`, `infoflow`). There is no Services scene: the
-schema-v1 services scenario drove its start / fault / restart lifecycle through no
-reachable kernel syscall path, so nothing it showed could be grounded, and schema v2
-removed it with its state block and op.
+header (and the `&scene=` URL parameter). Six scenes ship (`SCENES` in `run.js`), each a
+different lens over the same folded state and the same step:
 
-On a phone (under 40rem) the scene SVG is drawn at 1:1 and the stage scrolls
-horizontally rather than shrinking the diagram until its labels are unreadable.
+| Scene | Offered when | What it draws |
+|-------|--------------|---------------|
+| **Kernel path** (`path`) | any step is a syscall or a dispatch | The registers the kernel decodes (x0 CPtr, x1 `MessageInfo` split into its length / extraCaps / label bit fields, x2–x5 message registers, x7 syscall number); the CPtr walked through the caller's CSpace, guard bits then radix bits per CNode, to the slot it lands on and the capability's rights against the one required; the six-stage gate pipeline (`entry → decode → lookup → rights → flow → operation`) with each stage passed, failed with its `KernelError`, or not reached. A timer step draws the budget tick; a dispatch draws the scheduler's selection: every candidate it weighed, why each one lost (lower priority, later deadline, FIFO order, no budget, wrong domain) and the bucket fallback when the top bucket has no eligible thread. |
+| **IPC** (`ipc`) | the state has an endpoint or a notification | Threads on the left; endpoints (send and receive queues), notifications (the pending word drawn bit by bit, its state and its waiters) and reply objects (the caller waiting for the answer) on the right. Wait edges join each blocked thread to the object it waits on; a delivered message is drawn sender → object → receiver with its label, length and badge. |
+| **Scheduler** (`scheduler`) | always | One box per core: the running thread with its time-slice or budget meter, then the run queue as priority buckets, highest first, with the next pick marked and every ineligible entry labelled with the reason. Not-runnable threads below, then the scheduling contexts (budget, remaining, period, EDF deadline, next refill). |
+| **CSpace** (`cspace`) | the state has a CNode | Each CNode as its slot strip (2^radix slots) with its geometry: depth = guard bits (and guard value) + radix bits. An occupied slot shows its kind, target, rights and badge; a slot this step looked up, inserted, deleted or revoked is marked. Derivation edges arch over the grid from parent slot to child slot. |
+| **Memory** (`memory`) | the state has an untyped region or an address space | Untyped regions drawn to scale, with the carved children laid out from the base and the watermark marked. A refused retype draws the request where it would have gone, cut with a jagged edge at the region's end (`untypedRegionExhausted`). Each address space lists its mappings with permissions, a W^X verdict and the core's TLB state (cached, uncached, shot down); a refused W+X mapping is drawn as a rejected row and never stored. |
+| **Information flow** (`infoflow`) | the state has at least two labels | The four-point label lattice (confidentiality low/high × integrity trusted/untrusted) with the order arrows, each label's members, the declassification policy as curves under the lattice, this step's flow checks recomputed from the labels (allowed, denied, same label), and the declassification audit log. |
 
-The **System scene** is a two-column diagram:
+A scenario names its own default scene as `focus`; the URL's `scene=` overrides it
+when that scene is offered. The tabs are a WAI-ARIA tablist: arrow keys, `Home` and
+`End` move between them.
 
-- **Left column** — the scheduler's view of a core:
-  - **CPU · core _k_** box holding the current thread chip.
-  - **Run queue** box holding ready thread chips, ordered by descending priority
-    (the same order `chooseThread` would consider them).
-  - **Blocked (awaiting reply)** box holding threads that are blocked but not parked
-    on a visible queue (e.g. `blockedOnReply`, `blockedOnCall`), which wait on a reply
-    object rather than the endpoint's send/receive queues.
-- **Right column** — IPC objects:
-  - **Endpoint** boxes, each showing its `receiveQ` and `sendQ` with the blocked
-    thread chips inside.
-  - **Notification** boxes, each showing `state`, `badge`, and waiter chips.
+**Every scene is drawn at 1:1.** The SVG takes its natural width (`max-width: none` at
+every viewport) and the stage shell scrolls when it is wider; `.theater-page
+.container` widens to 92rem so the 954px stage fits a 1440px desktop without scrolling.
+A label that could outgrow its box is measured and clipped with an ellipsis, the full
+text in a `<title>`, rather than overflowing; `scripts/run-smoke.mjs` walks every
+scene of every step of every scenario and fails on any text past the SVG's edge.
 
-A **thread chip** shows the thread label, a state dot colored by `threadState`
-(Running / Ready / Blocked / Inactive), the abbreviated `ipcState`, and the priority.
-A `pipBoost` badge appears when priority inheritance is active. Chips are clickable
-(→ inspector) and keyboard-focusable.
+**Motion communicates causality.** Every object the step's ops touch is marked
+(`E.touched(ops)`, computed from the op list, not from a structural diff — exact and
+cheap); a delivered message's path draws itself in. Animation is suppressed under
+`prefers-reduced-motion`.
 
-The **Scheduler scene** re-projects the same state through the scheduler's eyes: the
-current thread sits in a **CPU · core _k_** box, ready threads are grouped into
-**priority buckets** (descending — the `RunQueue`'s `HashMap Priority (List ThreadId)`
-shape), and threads the scheduler ignores fall into a dimmed **not-runnable** lane.
-Each chip carries its **domain**, its **EDF deadline**, and a **CBS budget bar**
-(`timeSlice / budgetMax`, turning red at zero) — so a viewer can *see* why
-Earliest-Deadline-First breaks a priority tie, and watch a budget deplete until the
-thread yields. The bundled `edf-budget-preempt` scenario drives exactly this. The scene
-is **SMP-aware**: it renders one column (CPU + priority buckets) per core, so the
-`smp-affinity` scenario shows two cores scheduling independently and a thread migrating
-between them (and a `tcbSetAffinity` refused with `threadOnDifferentCore`) — and the
-System scene likewise renders one CPU box per core.
-
-The **Capability scene** draws the capability derivation tree; a revoke
-(`cdtRevoke`) removes the revoked capability's descendants and keeps the capability
-itself. The **Memory scene** draws untyped regions as watermarked bars with the objects
-carved from them; a reset (`untypedReset`) reclaims the region, and the fixture shows the
-kernel refusing it (`revocationRequired`) until the children's capabilities are revoked.
-The **VSpace scene** draws page mappings with their permissions and W^X status plus a TLB
-row; a write-and-execute request is drawn as a rejected row, never stored (the decoder
-refuses it with `invalidSyscallArgument` before any lookup). The **Information-flow scene** draws the security-domain lattice with its policy
-arcs, the current step's flow check (allowed or blocked), and the **declassification
-audit log**: a declassification appends an `{from, to, actor}` entry to the log and
-never edits the policy.
-
-**Motion communicates causality.** Between steps:
-
-- Entities touched by the current step's delta **pulse** (computed from the op list,
-  not from a structural diff — exact and cheap).
-- `message` ops animate a small **envelope** travelling from the sender chip to the
-  receiver chip (Web Animations API; suppressed under `prefers-reduced-motion`).
+Every drawn object carries `data-object`; clicking it (or pressing Enter on it) opens
+it in the inspector.
 
 ### 3.3 Security guarantees band and invariant catalogue
 
@@ -240,12 +207,13 @@ step is one of:
 - **preserved** — the step lists it in `step.invariants.preserved`: this transition is
   covered by a preservation theorem;
 - **holds** — part of the kernel's proved state and not touched here;
-- **violated** — the step lists it in `step.invariants.failed`, or the sandbox broke it.
+- **violated** — only in the sandbox, when `E.checkState` reports it broken (§3.6).
 
 Following a link to an `#invariant-…` anchor opens the `<details>` first, so an anchor is
-never inside a closed disclosure. In **sandbox** mode the catalogue opens, the four
-client-side checks (§3.6) override the status of the invariants they approximate, and
-the summary explains that these checks are unverified JavaScript.
+never inside a closed disclosure. In **sandbox** mode the catalogue opens, the
+executable mirrors (§3.6) decide the status of the invariants they approximate, each
+violation shows its reason, and the summary explains that these checks are unverified
+JavaScript.
 
 ### 3.4 Inspector
 
@@ -293,26 +261,37 @@ the bridge between the visual stage and the textual trace that
 
 ### 3.6 Sandbox
 
-Toggling **Sandbox** reveals a panel with three perturbations of the displayed state
-(enqueue the running thread, duplicate a run-queue entry, wake a blocked thread) and a
-reset. Each operates on a clone of the current state; `jsChecks()` then evaluates four
-client-side structural checks keyed by the catalogue ids they approximate —
-`runQueueUnique`, `currentThreadValid`, `queueCurrentConsistent`, `blockedNotRunnable` —
-and the invariant catalogue opens to show which one broke. The panel's banner says
-**Unverified preview**: the checks are JavaScript, not Lean, and the sandbox never runs a
-syscall.
+Toggling **Sandbox** reveals a panel of perturbations and a reset. Each perturbation
+edits a **copy** of the displayed state to break one invariant the catalogue names, and
+is offered only where it applies to that state:
+
+| Perturbation | Breaks |
+|--------------|--------|
+| enqueue the running thread | `queueCurrentConsistent` |
+| duplicate a run-queue entry | `runQueueUnique` |
+| wake a blocked thread | `blockedNotRunnable` |
+| orphan a derivation (CDT edge to an empty slot) | `cdtLinksAgree` |
+| map a page writable and executable | `wxExclusive` |
+| leave a stale TLB entry | `tlbConsistent` |
+| overspend a scheduling-context budget | `budgetWithinBounds` |
+| carve overlapping objects | `untypedNonOverlap` |
+
+The verdict comes from `E.checkState` — the same executable mirrors the validator runs
+over every bundled step — so the invariant catalogue opens and marks what broke, with
+the reason. The panel's banner says **Unverified preview**: the mirrors are JavaScript
+approximations, not the Lean proofs, and the sandbox never runs a syscall.
 
 ---
 
 ## 4. Data model
 
-### 4.1 Trace schema (v2)
+### 4.1 Trace schema (v3)
 
 A dataset is a single JSON document. Top level:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `schemaVersion` | `2` | `SCHEMA_VERSION` in `trace-analysis.mjs`; the browser refuses any other value. |
+| `schemaVersion` | `3` | `SCHEMA_VERSION` in `assets/js/trace-engine.js`; the browser refuses any other value. |
 | `source` | `"kernel"` \| `"fixture"` | Provenance. Drives the source badge; `validate-traces.mjs` warns when it is not `kernel`. |
 | `generator` | string | Tool that produced the file (`hand-authored-reference-fixture` today). |
 | `disclaimer` | string | Honest description of provenance. |
@@ -324,19 +303,20 @@ A dataset is a single JSON document. Top level:
 | `invariantCatalog[]` | object[] | The kernel invariants (§4.4). Non-empty. |
 | `scenarios[]` | object[] | The replayable executions (§4.2). Non-empty. |
 
-The bundled document has 9 scenarios (48 steps), 9 properties and 16 invariants:
+The bundled document has 10 scenarios (60 steps), 9 properties and 17 invariants:
 
-| Scenario | Demonstrates | Refused steps |
-|----------|--------------|---------------|
-| `ipc-call-reply` | authority, invariants, scheduling | — |
-| `capability-gate` | authority, failureAtomic | `illegalAuthority`, `invalidCapability` |
-| `notification-signal` | authority, invariants | — |
-| `edf-budget-preempt` | scheduling, invariants | — |
-| `capability-mint-revoke` | attenuation, authority, failureAtomic | `illegalAuthority`, `revocationRequired` |
-| `untyped-lifecycle` | memoryIsolation, authority, failureAtomic | `untypedRegionExhausted`, `revocationRequired` |
-| `infoflow-noninterference` | flowPolicy, noninterference, failureAtomic | `flowDenied` |
-| `vspace-wx` | wx, memoryIsolation, failureAtomic | `invalidSyscallArgument` |
-| `smp-affinity` | scheduling, failureAtomic | `threadOnDifferentCore` |
+| Scenario | Opens on | Demonstrates | Refused steps |
+|----------|----------|--------------|---------------|
+| `ipc-call-reply` | IPC | authority, flowPolicy, invariants, scheduling | — |
+| `capability-gate` | Kernel path | authority, failureAtomic | `illegalAuthority`, `invalidCapability` |
+| `notification-signal` | IPC | authority, flowPolicy, invariants | — |
+| `scheduler-buckets` | Scheduler | scheduling, invariants | — |
+| `budget-edf` | Scheduler | scheduling, invariants | — |
+| `capability-derivation` | CSpace | authority, attenuation, failureAtomic, invariants | `invalidCapability` |
+| `untyped-retype` | Memory | memoryIsolation, authority, failureAtomic, invariants | `revocationRequired`, `untypedRegionExhausted` |
+| `vspace-wx` | Memory | wx, memoryIsolation, authority, failureAtomic | `invalidSyscallArgument` |
+| `information-flow` | Information flow | flowPolicy, noninterference, failureAtomic, authority | `flowDenied` |
+| `smp-affinity` | Scheduler | authority, scheduling, failureAtomic | `threadOnDifferentCore` |
 
 ### 4.2 Scenario
 
@@ -344,11 +324,12 @@ The bundled document has 9 scenarios (48 steps), 9 properties and 16 invariants:
 |-------|------|-------|
 | `id`, `title`, `summary` | string | Identity + human description. |
 | `properties[]` | string[] | **Required, non-empty.** Ids from `propertyCatalog` this scenario demonstrates; the scenario bar's "Demonstrates" chips and the guarantees band's ordering. |
-| `tags[]` | string[] | e.g. `["ipc","scheduler","capability"]`. |
-| `primaryScene` | string | Default scene for this scenario. |
-| `objects` | map | `id → { label, kind }` display metadata (legend). |
+| `focus` | string | Optional. The scene the scenario opens on (one of `SCENES`). |
 | `initialState` | State | The bootstrap state (§4.6). |
-| `steps[]` | Step | The ordered transitions (§4.7). |
+| `steps[]` | Step | The ordered transitions (§4.7). Step 0 is the `boot` step and changes nothing. |
+
+Schema v2's `tags`, `primaryScene` and `objects` are gone: every object names itself in
+the state, and `focus` replaces the scene hint.
 
 ### 4.3 Property catalog entry
 
@@ -412,80 +393,76 @@ reference without a stamp is rendered as plain text, never as a link.
 
 ### 4.6 State projection
 
-The state is a **display projection** of `SystemState` — faithful but compact, and
-free of the internal representation (`RHTable`, `FrozenMap`, …) that the UI doesn't
-need. Phase 1 fields:
+The state is a **display projection** of `SystemState` — faithful to the kernel's
+structure, compact, and free of the internal representation (`RHTable`, `FrozenMap`,
+…) that the page does not need. Every object is addressed by its `id`; a capability slot
+by `"<cnode>/<slot>"`.
 
 ```jsonc
 {
-  "current": { "thread": "th.client", "core": 0 },
-  "threads": [
-    { "id", "label", "priority", "domain", "ipcState", "threadState",
-      "timeSlice", "deadline", "cspaceRoot", "vspaceRoot", "schedContext",
-      "boundNotification", "pipBoost", "replyObject", "pendingReceiveReply" }
-  ],
-  "endpoints":     [ { "id", "label", "sendQ": [tid], "receiveQ": [tid] } ],
-  "notifications": [ { "id", "label", "state", "waiters": [tid], "badge" } ],
-  "runQueue":      { "0": [tid] },           // per-core, priority-ordered  "cdt": {                                   // capability derivation tree (optional)
-    "nodes": [ { "id", "label", "slot", "target", "rights", "badge" } ],
-    "edges": [ [parentId, childId] ]
-  },
-  "untyped": [                               // untyped memory regions (optional)
-    { "id", "label", "regionBase", "regionSize", "watermark", "isDevice",
-      "children": [ { "id", "type", "size" } ] }
-  ],
-  "infoflow": {                              // security-domain flow policy (optional)
-    "domains": [ { "id", "label", "confidentiality", "integrity" } ],
-    "policy": [ [fromDomainId, toDomainId] ], // allowed flows (never edited by a step)
-    "audit":  [ { "from", "to", "actor" } ]  // declassification audit log
-  },
-  "vspace": [                                // virtual address spaces (optional)
-    { "id", "label", "asid",
-      "mappings": [ { "vaddr", "paddr", "perms", "wx" } ],
-      "tlb": [ "vaddr" ] }                    // cached translations (optional)
-  ]
+  "cores":   [ { "id": 0, "current": "server", "domain": 0 } ],   // current: thread id or null
+  "threads": [ { "id", "name", "priority",            // 0–255
+                 "domain", "core",                     // the core it is affine to
+                 "ipc": { "state", "object", "replyTo" },   // ThreadIpcState constructor name
+                 "timeSlice", "cspace", "label", "sc",      // CSpace root, security label, sched context
+                 "msg", "pendingReply" } ],
+  "runQueues": { "0": [ { "thread", "prio" } ] },      // per core, in insertion order
+  "endpoints":     [ { "id", "name", "label", "send": [tid], "recv": [tid] } ],
+  "notifications": [ { "id", "name", "label", "pending", "waiters": [tid] } ],   // pending: badge word or null
+  "replies":       [ { "id", "name", "caller" } ],
+  "schedContexts": [ { "id", "budget", "remaining", "period", "deadline", "refillIn" } ],
+  "cnodes": [ { "id", "name", "label", "depth", "guardWidth", "guardValue", "radixWidth",
+                "slots": { "1": { "kind", "target", "rights": ["read", …], "badge", "derivation" } } } ],
+  "cdt":     { "cn.root/1": ["cn.app/2"] },            // derivation parent slot → child slots
+  "untyped": [ { "id", "name", "base", "size", "watermark",
+                 "children": [ { "id", "kind", "offset", "size" } ] } ],   // newest first
+  "vspaces": [ { "id", "name", "asid", "mappings": [ { "vaddr", "frame", "perms": "rw-" } ],
+                 "tlb": [ "vaddr" ] } ],               // translations cached on this core
+  "labels":  [ { "id", "name", "conf": "low|high", "integ": "trusted|untrusted" } ],
+  "declassify": [ { "from", "to" } ],                  // the declassification policy (never edited by a step)
+  "audit":   [ { "from", "to", "actor", "target", "core" } ]
 }
 ```
 
-`ipcState` is a string; blocked states carry their target after a colon
-(`"blockedOnReceive:ep.svc"`), mirroring the `ThreadIpcState` constructors. Scheduler
-fields like `domain`, `deadline`, and `budgetMax` feed the Scheduler scene. The optional
-`cdt`, `untyped`, `vspace` and `infoflow` blocks feed the Capability, Memory, VSpace and
-Information-flow scenes (and decide whether their tabs are offered). Schema v1's
-`services` block is gone with the Services scene (§3.2): no reachable syscall path
-drove it, and no op can touch it. The optional `vspace[].tlb` array
-holds the virtual addresses with cached translations; `vspaceMap` caches a page and
-`vspaceUnmap` shoots it down, so the VSpace scene can show stale-entry eviction. Later
-phases extend the projection further with `cnodes` (§5) — all additive.
+The CNode geometry is the kernel's: a lookup consumes `guardWidth` bits that must equal
+`guardValue`, then `radixWidth` bits that index one of `2^radixWidth` slots, and `depth`
+is their sum. A run queue's entries carry the priority they were inserted at, which is
+the bucket the scheduler reads. A security label is a point in the
+`SecurityLabel` lattice: confidentiality may only rise and integrity may only fall.
 
 ### 4.7 Step, outcome, path + delta op vocabulary
 
 ```jsonc
 {
   "index": 1,                       // sequential from 0
-  "kind": "fault",                  // boot|syscall|schedule|timer|ipc|fault|interrupt
-  "title": "app → send(service-ep) — refused",
-  "traceTag": "GATE-001",           // mirrors harness [TAG] codes
-  "actor": "th.app",
-  "syscall": {                      // optional; for a syscall step
+  "kind": "syscall",                // boot|syscall|schedule|timer|interrupt|fault
+  "core": 0,                        // the core the step runs on
+  "actor": "app",
+  "title": "app: send with a read-only capability",
+  "traceTag": "SEND",
+  "syscall": {
     "id": "send",                   // a SyscallId constructor
-    "requiredRight": "write",       // read|write|grant|grantReply|retype — must equal syscallRequiredRight
-    "capPath": "app CSpace slot 4 → service-ep capability (rights: r)",
-    "args": { "msgRegisters": 1 }
+    "number": 0,                    // x7 — must equal SyscallId.toNat
+    "msgInfo": { "length": 1, "extraCaps": 0, "label": 0 },   // x1, decoded (MessageInfo.decode bounds)
+    "args": [ { "reg": "x2", "name": "message word 0", "value": 1 } ],   // x2–x5, in order
+    "capPtr": 1,                    // x0 — the CPtr the lookup resolves
+    "requiredRight": "write"        // present exactly when the path has a rights stage
   },
-  "path": [                         // optional; the checked syscall path, in kernel order
-    { "stage": "entry",     "label": "Checked syscall entry", "ref": {…}, "result": "pass" },
-    { "stage": "lookup",    "label": "Resolve the capability …", "ref": {…}, "result": "pass" },
-    { "stage": "rights",    "label": "Require the write right", "ref": {…},
+  "path": [
+    { "stage": "entry",  "label": "Checked syscall entry", "ref": {…}, "result": "pass" },
+    { "stage": "decode", "label": "Decode x0, x1 and x7",  "ref": {…}, "result": "pass" },
+    { "stage": "lookup", "label": "Resolve x0 in the caller's CSpace (slot 1)", "ref": {…}, "result": "pass" },
+    { "stage": "rights", "label": "Require the write right", "ref": {…},
       "result": "fail", "error": "illegalAuthority" },
-    { "stage": "operation", "label": "Endpoint send", "ref": {…}, "result": "skip" }
+    { "stage": "flow",   "label": "Sender → endpoint flow gate", "ref": {…}, "result": "skip" },
+    { "stage": "operation", "label": "Send", "ref": {…}, "result": "skip" }
   ],
   "outcome": { "status": "error", "error": "illegalAuthority" },   // or { "status": "ok" }
   "narrative": "…plain language…",
-  "sourceRefs": [ { "name": "syscallLookupCap", "module": "SeLe4n.Kernel.API" } ],
+  "sourceRefs": [ { "name": "syscallResolveCap", "module": "SeLe4n.Kernel.API" } ],
   "guarantees": [ "authority", "failureAtomic" ],                    // propertyCatalog ids
-  "delta": { "ops": [] },
-  "invariants": { "preserved": [], "failed": [] }                    // invariantCatalog ids
+  "invariants": { "preserved": [ "runQueueUnique" ] },              // invariantCatalog ids
+  "delta": { "ops": [] }
 }
 ```
 
@@ -493,125 +470,141 @@ phases extend the projection further with `cnodes` (§5) — all additive.
   `KernelError` constructor, and only an error may carry one.
 - **`path`** stages come from `PATH_STAGES` — `entry`, `decode`, `lookup`, `rights`,
   `flow`, `operation` — in that order, each at most once (a stage the call does not go
-  through is simply absent). Each carries a `label`, an optional `ref` (§4.5) and a
-  `result` of `pass`, `fail` or `skip`.
+  through is absent). Each carries a `label`, an optional `ref` (§4.5) and a `result` of
+  `pass`, `fail` or `skip`.
 - **`guarantees`** lists the properties this step relies on; **`invariants.preserved`**
-  the invariants a preservation theorem covers for this transition;
-  **`invariants.failed`** (optional) any the trace records as broken — the page shows
-  those as violated, never green.
-- Schema v1's `syscall.gate`, `invariants.allHold` and `invariants.checked` are gone, and
-  `sourceRefs` entries are references (`name`, not `label`).
+  the invariants a preservation theorem covers for this transition. Schema v2's
+  `invariants.failed` is gone: a bundled step never breaks an invariant (the validator
+  checks every state), and only the sandbox shows a violation.
 
 **A refused step changes nothing.** A kernel transition is
 `σ → Except ε (α × σ)`: the error branch carries no state. So when `outcome.status` is
 `error`, `delta.ops` may contain only the event ops in `EVENT_OPS` — `flowCheck`,
-`vspaceReject`, `message`, `note` — and the validator (and the browser) reject a refused
-step whose delta would change state.
+`vspaceReject`, `note` — and the validator (and the browser) reject a refused step
+whose delta would change state.
 
-The **op vocabulary** is intentionally small and structural — it expresses *effects*,
-never *decisions*:
+The **op vocabulary** is structural — it records *effects*; the decisions behind them
+are recomputed and checked (§4.8):
 
 | Op | Effect on the projected state |
 |----|------------------------------|
-| `setCurrent {thread, core?}` | Set the current (running) thread / core. |
-| `threadPatch {id, set}` | Shallow-merge fields into a TCB. |
-| `epEnqueue {endpoint, queue, thread}` | Append a thread to an endpoint `sendQ`/`receiveQ`. |
-| `epDequeue {endpoint, queue, thread}` | Remove a thread from an endpoint queue. |
-| `rqInsert {core, thread}` | Insert into the run queue, priority-ordered, idempotent. |
-| `rqRemove {core, thread}` | Remove from the run queue. |
-| `notifPatch {id, set}` | Shallow-merge fields into a Notification. |
-| `cdtInsert {node, parent?}` | Add a capability node to the CDT; optionally as a child of `parent` (mint/copy derivation). |
-| `cdtRemove {node}` | Remove a CDT node and all its descendants (delete of a subtree). |
-| `cdtRevoke {node}` | Remove every descendant of a CDT node and **keep the node** — revocation destroys a capability's derivations, not the capability. |
-| `cdtPatch {id, set}` | Shallow-merge fields into a CDT node. |
-| `untypedRetype {untyped, child}` | Carve a typed object out of an untyped region; advance the watermark by its size. |
-| `untypedReset {untyped}` | Reclaim the region: drop every carved object and reset the watermark to zero. The kernel refuses this (`revocationRequired`) while children are live, so a trace revokes them first. |
-| `flowCheck {from, to, allowed}` | Event-only; the Information-flow scene draws the attempted flow allowed or blocked. |
-| `auditAppend {entry: {from, to, actor}}` | Append a declassification record to `infoflow.audit`; both domains must exist. It **never edits the policy**: a declassification is an audited release, not a new allowed flow. |
-| `vspaceMap {vspace, mapping}` | Add a page mapping (`vaddr`→`paddr`, `perms`) to an address space; caches the `vaddr` in the TLB. |
-| `vspaceUnmap {vspace, vaddr}` | Remove a page mapping and shoot down its TLB entry. |
-| `vspaceReject {vspace, mapping}` | Event-only; the VSpace scene shows a W^X-violating map as rejected. |
-| `message {from, to, endpoint, registers, caps}` | Event-only (animation/log); no state change. |
+| `dispatch {core, thread}` | Make `thread` (or `null`) current on `core`, removing it from that core's run queue. |
+| `deschedule {core, thread}` | Take a thread off a core: out of its run queue, and no longer current. |
+| `enqueue {core, thread, prio}` | Insert into a core's run queue at `prio` (idempotent). |
+| `threadPatch {id, set}` | Merge fields into a TCB; a `null` value removes the field. |
+| `message {from, to, via, words, label, badge?}` | Deliver a message: the receiver's `msg` records it. |
+| `epEnqueue` / `epPopHead {endpoint, queue, thread}` | Append to, or pop the head of, an endpoint's `send`/`recv` queue (popping anything but the head is an error). |
+| `ntfnEnqueue` / `ntfnPopHead {notification, thread}` | The same for a notification's waiters. |
+| `ntfnPatch` / `replyPatch` / `scPatch {id, set}` | Merge fields into a notification, reply object or scheduling context. |
+| `capInsert {slot, cap, parent?}` | Fill an empty, addressable slot; with `parent`, record the derivation edge. |
+| `capDelete {slot}` | Empty a slot; its children are spliced up to its parent. |
+| `capRevoke {slot}` | Delete every descendant of the slot's capability, deepest first, and **keep the capability** (`cspaceRevoke`). |
+| `untypedCarve {untyped, child}` | Carve an object at the watermark and advance it (`retypeFromUntyped`); it must fit. |
+| `untypedReset {untyped}` | Drop every carved object and reset the watermark. The kernel refuses this (`revocationRequired`) while children are live, so a trace revokes them first. |
+| `vspaceMap {vspace, mapping, cache?}` | Add a mapping; with `cache`, the executing core caches the translation. |
+| `vspaceUnmap {vspace, vaddr}` | Remove a mapping and shoot down its TLB entry. |
+| `auditAppend {entry}` | Append a declassification record; both labels must exist. It **never edits the policy**. |
+| `flowCheck {from, to, allowed}` | Event-only: a flow the kernel checked. |
+| `vspaceReject {vspace, vaddr, perms}` | Event-only: a mapping the kernel refused. |
 | `note {text}` | Event-only annotation. |
 
-Replaying = folding each step's ops over `initialState`. The canonical fold engine
-lives in `scripts/lib/trace-analysis.mjs` (Node, unit-tested); the browser runtime
-(`assets/js/run.js`) carries a byte-faithful re-implementation of the *same* op
-vocabulary so the two cannot drift (the test suite pins the canonical behavior).
+Replaying = folding each step's ops over `initialState` (`E.scenarioStates`). There is
+**one** fold: `assets/js/trace-engine.js` (`window.sele4nTraceEngine`) is plain ES5 with
+no DOM, the page loads it before `run.js`, and `trace-analysis.mjs` evaluates the same
+file in Node. Before schema v3 the page and the validator each carried a copy, and
+only a test kept them equal.
 
-**Retired in v2:** `untypedRevoke` (the kernel resets an untyped region; it does not
-"revoke" one — revocation is a capability operation, `cdtRevoke`), `ifPolicyAdd` and
-`ifPolicyRemove` (no kernel step edits the flow policy; declassification is
-`auditAppend`), and `servicePatch` with the whole `services` block. `ALLOWED_OPS` is an
-allow-list, so all four are rejected, and a unit test pins that a v1 trace using them
-cannot slip through.
+**Retired in v3:** `setCurrent`, `rqInsert`/`rqRemove` (now `dispatch`, `deschedule`,
+`enqueue`, per core), `epDequeue` (an endpoint queue is FIFO: `epPopHead`),
+`notifPatch` (`ntfnPatch`), the `cdt*` node ops (capabilities live in CNode slots, so
+`capInsert`/`capDelete`/`capRevoke` act on slots and the CDT is slot → slots),
+`untypedRetype` (`untypedCarve`), and `message` as an event op (it now records the
+delivery on the receiver). `OPS` is an allow-list, so every retired name is rejected.
 
 ### 4.8 Validation
 
 `scripts/lib/trace-analysis.mjs#validateTraceDataObject` (run by the sync, by
-`scripts/validate-traces.mjs`, and by the unit tests) enforces:
+`scripts/validate-traces.mjs`, and by the unit tests) checks the document's shape and
+then **recomputes every decision the trace records**, with the shared engine.
 
-- `schemaVersion === 2`, `source` in `kernel`/`fixture`, ISO `generatedAt`.
-- A non-empty `invariantCatalog` with unique ids; each entry has `id`, `label`,
-  `subsystem`, `meaning`, a `predicate` reference, at least one `preservedBy`
-  reference, and a well-formed `runtimeCheck` when present.
-- A non-empty `propertyCatalog` with unique ids; each entry has `id`, `label`,
-  `statement`, at least one theorem reference, a non-empty `caveat` when present, and
-  `invariants` that all resolve in the invariant catalogue.
+Shape:
+
+- `schemaVersion === 3`, `source` in `kernel`/`fixture`, ISO `generatedAt`.
+- Catalogues: non-empty, unique ids; an invariant has `id`, `label`, `subsystem`,
+  `meaning`, a `predicate`, at least one `preservedBy` and a well-formed `runtimeCheck`
+  when present; a property has `id`, `label`, `statement`, at least one theorem, a
+  non-empty `caveat` when present and `invariants` that all resolve.
 - Every reference has a non-empty `name` and a Lean module name; `path`/`line`, when
   stamped, are a string and a positive integer.
-- Per scenario: unique `id`; `title`, `summary`; a non-empty `properties` list of known
-  property ids; a valid `initialState`; non-empty `steps` with **sequential** indices,
-  allowed `kind`, non-empty `title`/`traceTag`, and op names from `ALLOWED_OPS`.
-- Per step: `outcome.status` is `ok` or `error`; an error names a `KernelError`, and
-  **its delta carries only `EVENT_OPS`**; `syscall.id` is non-empty and
-  `syscall.requiredRight` is in `ACCESS_RIGHTS` (`read`, `write`, `grant`,
-  `grantReply`, `retype`); `guarantees` and `invariants.preserved`/`failed` name only
-  catalogue ids.
-- **Path rules:** stages in `PATH_STAGES` order with no repeats; every stage has a
-  `label` and a `result`; a refused step has **exactly one** `fail` stage whose `error`
-  equals `outcome.error`, and every stage after it is `skip`; a successful step has no
-  `fail` stage; no stage is `skip` unless an earlier one refused; `error` appears only on
-  the refusing stage.
-- A full **fold pass** over each scenario: every op reference resolves (no dangling
-  thread, endpoint, notification, CDT, untyped, domain or address-space ids), and after
-  the initial state and every step the structural checks hold — no thread in two
-  run-queue slots across all cores (an echo of `schedulerRunQueueUniqueB`), CDT edges
-  name existing nodes and form no cycle, untyped watermarks stay inside their regions
-  and allocations inside their watermarks, policy edges name existing domains, no stored
-  mapping is writable and executable, ASIDs are unique, and no TLB entry outlives its
-  mapping.
+- Per scenario: identifier `id`, `title`, `summary`, known `properties`, a `focus` from
+  `SCENES` when present, and a well-formed `initialState` (at least one core, priorities
+  0–255, known IPC states, run queues keyed by declared cores, CNode geometry with a
+  guard value that fits its width, label coordinates on the lattice, capabilities of a
+  known kind with known rights).
+- Per step: sequential `index`; step 0 is `boot` and carries no ops; `title`,
+  `traceTag` and `narrative`; op names from `OPS`; a syscall step has an `actor` and a
+  `path`, `syscall.number` (x7), `msgInfo` within `MessageInfo` bounds, `args` in x2–x5
+  order, `capPtr` (x0) when the call looks a capability up, and `requiredRight` exactly
+  when the path has a rights stage.
+- **Path rules:** stages in `PATH_STAGES` order with no repeats; a refused step has
+  **exactly one** `fail` stage whose `error` equals `outcome.error`, and every stage
+  after it is `skip`; a successful step has no `fail`; `error` appears only on the
+  refusing stage. A refused step carries only `EVENT_OPS`.
 
-What the validator cannot check — that a name exists in the kernel, that a syscall
-needs the right the trace says — is checked by grounding (§7.1).
+Recomputed against the state before the step:
+
+- **The caller is current** on the step's core; otherwise `dispatchSyscallChecked`
+  would refuse with `illegalState`.
+- **The lookup:** `E.resolveCap` walks x0 through the caller's CSpace (guard, then
+  radix bits, one level per CNode). It must fail exactly when the lookup stage says
+  `fail`, with the same error.
+- **The rights:** the resolved capability must lack `requiredRight` exactly when the
+  rights stage fails, and a missing right is `illegalAuthority`.
+- **The flow:** a `flow` stage needs a `flowCheck`, and every `flowCheck` must agree
+  with `E.flowsTo` over the two labels (`securityFlowsTo`); a denied flow is
+  `flowDenied`.
+- **The scheduler:** every `dispatch` must name the thread `E.selectOnCore` picks
+  (`chooseBestInBucketEffective`: highest bucket, EDF within a priority, FIFO on a tie,
+  domain and budget eligibility, full-scan fallback). Only a `ready` thread may be
+  enqueued.
+- **Attenuation:** a minted or copied capability names its parent's object and gains no
+  right over it (`capAttenuates`).
+- **The fold** applies every op (an op that names a missing object, pops a non-head, fills
+  an occupied slot or overruns an untyped region throws), and after the initial state
+  and after every step `E.checkState` must report nothing: the sixteen executable
+  mirrors (`runQueueUnique`, `currentThreadValid`, `queueCurrentConsistent`,
+  `blockedNotRunnable`, `dualQueue`, `queueNoDup`, `notificationWaiters`,
+  `replyWaiters`, `budgetWithinBounds`, `cdtLinksAgree`, `cdtAcyclic`,
+  `untypedWatermark`, `untypedNonOverlap`, `vspaceAsidUnique`, `wxExclusive`,
+  `tlbConsistent`), each of which must have a catalogue entry.
+
+What the validator cannot check — that a name exists in the kernel, that a syscall's
+number and required right are the kernel's — is checked by grounding (§7.1).
 
 ---
 
-## 5. Scene catalog (roadmap)
+## 5. Scene catalog
 
-The System scene (Phase 1) already exercises the scheduler + IPC structure. Future
-scenes are focused lenses over the same fold engine and (extended) state projection:
+All six scenes ship (§3.2). The kernel concepts each one stands on:
 
-| Scene | Shows | Backing kernel concepts |
-|-------|-------|------------------------|
-| **System** *(shipped)* | CPU, run queue, blocked lane, endpoints, notifications, message flow. | `SchedulerState`, `Endpoint`, `Notification`, `ThreadIpcState`. |
-| **Scheduler** *(shipped)* | **SMP**: one column per core (CPU + priority buckets), EDF deadlines, CBS budget bars, thread migration, dimmed not-runnable lane. *(Per-domain partitioning and PIP boost chains are future depth.)* | `RunQueue`, `chooseThread`, `cbs_bandwidth_bounded`, `CrossSubsystemPerCore`. |
-| **IPC** | Endpoints with dual queues, call/reply pairing, reply objects, donation chains, badge/notification signalling. | `IPC.DualQueue.*`, `donationChainAcyclic`, `notificationSignal/Wait`. |
-| **Capabilities / CDT** *(shipped)* | The capability derivation tree as a tidy tree — minting/copying derive child capabilities, a revoke prunes the node's descendants and keeps the node — with target, rights, badge, and slot per node. *(A dedicated CNode-slot grid is future depth.)* | `CapDerivationTree` (`childMap`/`parentMap`), `cspaceRevokeCdtStrict`. |
-| **Memory** *(untyped shipped)* | Untyped regions as watermarked bars with typed objects carved out (retype advances the watermark; a reset reclaims the region once the children are revoked). | `UntypedObject`, `retypeFromUntyped`, `untypedWatermarkInvariant`. |
-| **VSpace** *(shipped)* | Per-address-space page-mapping rows with permissions and W^X status; a writable-and-executable map is rejected, never stored. A TLB row shows cached translations: a map caches its page, an unmap shoots it down (with a `⚡ shootdown` marker), and a validator flags any TLB entry left without a backing mapping. | `mapPage`/`unmapPage`, `PagePermissions.wxCompliant`, `vspaceAsidUniquenessChecks`, `tlbConsistent`. |
-| **Information flow** *(shipped)* | Security-domain lattice (ordered by confidentiality) with allowed-flow policy arcs and the current step's flow check drawn allowed (green) or blocked (red), plus the declassification audit log — a declassification appends a record and leaves the policy unchanged. | `DomainFlowPolicy`, `NonInterferenceStep`, `securityFlowsTo`, `auditLogBounded`. |
+| Scene | Backing kernel concepts |
+|-------|------------------------|
+| **Kernel path** | `syscallEntryChecked`, `decodeSyscallArgsFromState`, `MessageInfo.decode`, `resolveCapAddress`, `syscallRequiredRight`, `chooseBestInBucketEffective`. |
+| **IPC** | `Endpoint` dual queues, `ThreadIpcState`, `notificationSignal`/`notificationWait`, reply objects. |
+| **Scheduler** | `RunQueue` priority buckets, per-core scheduling, scheduling contexts (budget, period, EDF deadline, refill). |
+| **CSpace** | `CNode` guard/radix geometry, capability rights and badges, the capability derivation tree, `cspaceRevoke`. |
+| **Memory** | `UntypedObject` watermark, `retypeFromUntyped`, page mappings, `PagePermissions.wxCompliant`, per-core TLB shootdown. |
+| **Information flow** | `SecurityLabel`, `securityFlowsTo`, the declassification policy and its audit log. |
 
-Scene switching is additive: a scene tab strip in the stage header; the active scene
-is part of the URL state (`&scene=`). Each scene reads the same folded state and the
-same step deltas, projecting whichever facet it specializes in.
+Future depth, none of it built: priority-inheritance chains, domain-schedule timelines
+and page-table levels.
 
 ---
 
 ## 6. Upstream integration — how the kernel emits traces
 
-Phase 1 ships a **hand-authored reference fixture** (`source: "fixture"`) that
-conforms to schema v2. Its steps are illustrations, written by hand; its *names* are
+The site ships a **hand-authored reference fixture** (`source: "fixture"`) that
+conforms to schema v3. Its steps are illustrations, written by hand; its *names* are
 not — every declaration, syscall, right and error is checked against the pinned kernel
 checkout at every sync (§7.1). The honest end state is for the **kernel** to emit the
 artifact, so the steps become a replay of real runs (`source: "kernel"`). That is
@@ -717,23 +710,23 @@ reference's module is on the code map (production modules — `SeLe4n.Testing` a
 declaration or moves a line, or a fixture left over from an older sync, fails CI instead
 of shipping a link to the wrong line.
 
-**Files (Phase 1, shipped):**
+**Files (shipped):**
 
 | File | Role |
 |------|------|
-| `run.html` | Page skeleton (mirrors `map.html`: CSP, theme-init, i18n, nav, bg, footer). |
-| `assets/js/run.js` | Runtime: fold engine, SVG stage, inspector, guarantees band, invariant catalogue, log, transport, sandbox, bundle load. |
+| `run.html` | Page skeleton (mirrors `map.html`: CSP, theme-init, i18n, nav, background wash, footer). Loads `trace-engine.js` before `run.js`. |
+| `assets/js/trace-engine.js` | The one engine: op vocabulary, fold, scheduler selection, CPtr resolution, flow lattice, `MessageInfo` encoding and the executable invariant mirrors. Plain ES5, no DOM; the page and the Node validator both evaluate it. |
+| `assets/js/run.js` | Runtime: the six SVG scenes, inspector, guarantees band, invariant catalogue, log, transport, sandbox, bundle load. |
 | `assets/css/run.css` | Page styles (reuses `style.css` tokens). |
-| `data/execution-traces.json` | Bundled reference fixture, schema v2 (9 scenarios, 48 steps, 9 properties, 16 invariants), grounded at `sourceRef`. |
+| `data/execution-traces.json` | Bundled reference fixture, schema v3 (10 scenarios, 60 steps, 9 properties, 17 invariants), grounded at `sourceRef`. |
 | `scripts/sync-upstream.mjs` | `writeTraces()`: adopts upstream `docs/execution-traces.json` if it exists, else the bundled fixture; validates, grounds and refuses to write on any issue. |
-| `scripts/lib/trace-analysis.mjs` | Canonical fold engine, op vocabulary, path stages and validator (Node). |
-| `scripts/lib/trace-anchors.mjs` | Grounding: reference collection, line stamping, kernel-fact checks. |
-| `scripts/lib/trace-analysis.test.mjs` | Unit tests for the fold engine, validator and grounding (`node:test`). |
+| `scripts/lib/trace-analysis.mjs` | Loads the engine in Node; the validator (§4.8). |
+| `scripts/lib/trace-anchors.mjs` | Grounding: reference collection, line stamping, kernel-fact checks (syscall, x7 number, required right, errors). |
+| `scripts/lib/trace-analysis.test.mjs` | Unit tests for the engine, validator and grounding (`node:test`). |
 | `scripts/lib/run-runtime.test.mjs` | Headless `run.js` execution test (§11). |
 | `scripts/validate-traces.mjs` | CLI validator (Tier 2): schema, grounding cross-check against `map-data.json`, fold. |
+| `scripts/run-smoke.mjs` | Playwright probe (Tier 4, §11). |
 | `locales/*.json` | `run.*`, `nav.run`, `meta.run_*` keys. |
-
-**Files (Phase 2+, planned):** a `scripts/theater-smoke.py` Playwright probe.
 
 ---
 
@@ -741,7 +734,7 @@ of shipping a link to the wrong line.
 
 - **Rendering** — hand-rolled **SVG** + the **Web Animations API**, consistent with
   `map.js`. SVG is accessible, theme-able via CSS custom properties, and crisp at any
-  zoom. No frameworks, no D3, no bundler. WebGL is reserved for the background.
+  zoom. No frameworks, no D3, no bundler.
 - **Strict CSP** — as tight as `index.html`: `default-src 'self'`, `script-src 'self'`,
   `style-src 'self'`, `img-src 'self' data:`, **`connect-src 'self'`**, because the page
   fetches nothing beyond its bundled snapshot (§7, §10). No inline scripts/styles, no
@@ -760,22 +753,23 @@ of shipping a link to the wrong line.
   `sele4nI18n.onReady()` before anything paints and repaints once if a lookup fell back
   to English before the locale arrived — the same pattern as `map.js`. Trace content
   (titles, narratives, statements) is English data, not locale strings.
-- **Theming** — light/dark via `data-theme` and the shared tokens; the theme + bg
-  toggles reuse the exact `map.js` handlers.
-- **Mobile** — single-column grid, scene tabs, enlarged touch targets; under 40rem the
-  scene SVG keeps its 1:1 size and the stage scrolls horizontally instead of scaling the
-  diagram down; message animation degrades gracefully.
+- **Theming** — light/dark via `data-theme` and the shared tokens; the theme toggle is
+  `theme-init.js`'s, as on every page.
+- **Layout** — every scene is drawn at 1:1 at every width (§3.2); a scene wider than
+  the stage scrolls inside the stage shell, never the page. Single-column grid and
+  enlarged touch targets on a phone.
 
 ## 9. URL state & deep links
 
 `run.html?scenario=<id>&step=<n>&scene=<scene>&object=<id>&sandbox=1`, where `<scene>`
-is one of `system`, `scheduler`, `capability`, `memory`, `vspace`, `infoflow` (`scene`
-is omitted for `system`; an unknown value is ignored). State is written with
-`history.replaceState` (no history spam) and parsed on load, so any step of any scenario
-in any scene is shareable and bookmarkable — including a selected object. The schema-v2
-redesign left these parameters unchanged, so links shared before it still open.
-In-page anchors `#property-<id>` and `#invariant-<id>` address a guarantee card and an
-invariant entry.
+is one of `path`, `ipc`, `scheduler`, `cspace`, `memory`, `infoflow`. State is written
+with `history.replaceState` (no history spam) and parsed on load, so any step of any
+scenario in any scene is shareable and bookmarkable — including a selected object. Every
+value is whitelisted (`ID_RE`, a 1–4 digit step, `SCENES`); an unknown one is ignored,
+and a scene the scenario does not offer falls back to its `focus`. Schema v3 renamed
+scenarios and scenes, so a link shared before it opens the first scenario at its
+default scene rather than the step it named. In-page anchors `#property-<id>` and
+`#invariant-<id>` address a guarantee card and an invariant entry.
 
 ## 10. Security posture
 
@@ -793,7 +787,8 @@ invariant entry.
   URL on the page. External links carry `rel="noopener noreferrer"`.
 - **Data is untrusted.** Adoption is gated by `isValidTraceData` (schema version,
   catalogues, outcomes and the failure-atomicity rule, path stage names, op reference
-  integrity, fold dry-run); rendering never interpolates data into HTML. *Roadmap:* cap
+  integrity, a fold dry-run with the shared engine); rendering never interpolates data
+  into HTML. *Roadmap:* cap
   payload size and step counts.
 - The sandbox cannot escape into the verified channel; it operates on a throwaway state
   clone and is always labeled unverified.
@@ -802,61 +797,68 @@ invariant entry.
 
 | Tier | Scope | Command |
 |------|-------|---------|
-| 0 | JS syntax | `node --check assets/js/run.js` |
-| 1 | Unit: fold engine, validator and grounding; headless `run.js` execution test | `node scripts/lib/trace-analysis.test.mjs` · `node scripts/lib/run-runtime.test.mjs` |
+| 0 | JS syntax | `node --check assets/js/run.js` · `node --check assets/js/trace-engine.js` |
+| 1 | Unit: engine, validator and grounding; headless `run.js` execution test | `node scripts/lib/trace-analysis.test.mjs` · `node scripts/lib/run-runtime.test.mjs` |
 | 2 | Bundled trace integrity + grounding cross-check against `map-data.json` | `node scripts/validate-traces.mjs` |
 | 3 | Manual browser (desktop + mobile, light + dark, reduced-motion) | — |
-| 4 | Playwright probe for `run.html` *(roadmap — none exists yet)* | — |
+| 4 | Playwright probe for `run.html` (CI runs it on every push) | `node scripts/run-smoke.mjs` |
 
-`scripts/lib/trace-analysis.test.mjs` covers the fold engine (ordered, idempotent
-`rqInsert`; `cdtRevoke` keeping the revoked node while `cdtRemove` prunes it;
-`untypedRetype`/`untypedReset`; `auditAppend` leaving the policy unchanged; TLB caching
-and shootdown; dangling references throwing), the validator (catalogue references,
-predicate and preserving theorem required, a refused step that changes state, path
-ordering and the single refusing stage, run-queue uniqueness across cores, CDT cycles,
-W^X, duplicate ASIDs, stale TLB entries, the retired v1 ops), grounding
-(`collectTraceRefs` coverage, `anchorTraceRefs` stamping and skipping comments,
-`requiredRightTable`, `checkTraceKernelFacts` rejecting an unknown syscall, a wrong
-right and an unknown error) and the bundled document folding cleanly.
+`scripts/lib/trace-analysis.test.mjs` takes the bundled document and breaks one thing
+per test: a dispatch the selection rule would not make, a CPtr that resolves where the
+lookup says it fails (and the reverse), a capability with the required right where the
+rights stage refuses, a flow check that disagrees with the lattice, a mint that gains a
+right, an enqueue of a blocked thread, a refused step that changes state, a second
+`fail` stage, the state checks (each of which must have a catalogue entry), and the
+retired v2 ops. It also pins the engine's semantics directly (the selection rule's
+tie-breaks and fallback, guard and radix resolution, revoke keeping the capability,
+carve and reset, TLB caching and shootdown, the `MessageInfo` word) and grounding
+(`collectTraceRefs`, `anchorTraceRefs`, `requiredRightTable`, `syscallNumberTable`,
+`checkTraceKernelFacts` rejecting an unknown syscall, a wrong x7, a wrong right and an
+unknown error).
 
-`scripts/lib/run-runtime.test.mjs` boots the real `run.js` inside a `vm` context backed
-by a minimal DOM shim (no jsdom dependency) and asserts, without a browser: the stage,
-inspector, guarantees, invariants and log render from the bundle; exactly the step's
-guarantees and invariants are highlighted; the kernel path names the refusing stage;
-every grounded name links to its line at the bundle's commit and nothing else does;
-transport, deep-link restore, scene tabs and per-scenario tab availability; each scene's
-specifics (CBS bars, CDT revoke, untyped reset, blocked flow, declassification leaving
-the policy unchanged, W^X rejection, TLB shootdown, one CPU per core); a recorded
-invariant failure shown as violated; the sandbox breaking a structural check; strict
-adoption refusing a dangling op or a refused step that changes state; and that the page
-fetches the bundled snapshot and nothing else.
+`scripts/lib/run-runtime.test.mjs` boots the real `trace-engine.js` and `run.js` inside a
+`vm` context backed by a minimal DOM shim (no jsdom dependency) and asserts, without a
+browser: every scenario offers the scenes its state supports and opens on its `focus`;
+each scene draws its signature elements (register cells and the gate pipeline, queues and
+wait edges, priority buckets and budget meters, slot strips and derivation edges,
+watermarks and W^X rows, the lattice and its audit log); exactly the step's guarantees
+and invariants are highlighted; every grounded name links to its line at the bundle's
+commit and nothing else does; transport, deep-link restore and object selection; each of
+the eight sandbox perturbations breaking the invariant it names, and reset; strict
+adoption refusing malformed documents; that every `run.*` key the runtime asks for exists
+in `en.json`; and that the page fetches the bundled snapshot and nothing else.
+
+`scripts/run-smoke.mjs` renders the page in headless Chromium and walks every scene of
+every step of every scenario at 1440px: each drawn at 1:1, none wider than the stage, no
+text past the SVG's edge. It then checks the scene tabs answer the keyboard and update
+the URL, a click opens an object in the inspector, the sandbox breaks and reset restores
+an invariant, a phone draws at 1:1 and scrolls inside the stage, the Spanish locale
+translates the tabs, legend and scene labels, and the console stays clean with no request
+leaving the origin.
 
 ---
 
 ## 12. Phased roadmap
 
-- **Phase 1 — Vertical slice (shipped).** Schema v2 with property and invariant
-  catalogues, step outcomes and checked-entry paths; fold engine, validator and grounding
-  with unit tests; the headless runtime test; `sync-upstream.mjs` validating and
-  grounding the trace at the code map's revision; **six scenes** (System, Scheduler,
-  Capability, Memory, VSpace, Information flow) with tab switching; the inspector (kernel
-  path, why it's safe, state changes, source); the security guarantees band and the
-  invariant catalogue; the steps log; transport and deep-link URL state; the
-  clearly-labeled sandbox; full chrome/i18n/theming; SMP-aware Scheduler/System scenes;
-  and a 9-scenario reference fixture (§4.1). Honest provenance via the source badge, the
-  grounding commit and the fixture note.
+- **Phase 1 — Vertical slice (shipped).** Property and invariant catalogues, step
+  outcomes and checked-entry paths; validator and grounding with unit tests; the headless
+  runtime test; `sync-upstream.mjs` validating and grounding the trace at the code map's
+  revision; the inspector, guarantees band, invariant catalogue, steps log, transport,
+  deep links and the clearly-labelled sandbox; full chrome/i18n/theming. Honest
+  provenance via the source badge, the grounding commit and the fixture note.
+- **Phase 3 — Scene depth (shipped, schema v3).** One shared engine; the kernel's
+  decisions recomputed rather than believed (§4.8); six scenes drawn from the kernel's
+  own structures — registers and the gate pipeline, endpoint and notification queues,
+  priority buckets and scheduling contexts, CNode slot strips with guard/radix geometry,
+  untyped watermarks and W^X mappings, the label lattice; a ten-scenario fixture; an
+  eight-perturbation sandbox judged by the executable mirrors; the Playwright probe.
 - **Phase 2 — Upstream truth.** Add `SeLe4n/Testing/TraceExport.lean` + a CI artifact in
   the kernel repo, then flip the bundled snapshot to `source: "kernel"` — the
-  website-side adoption, validation and grounding are already in place. Add a Playwright
-  probe for `run.html`.
-- **Phase 3 — Scene depth.** A dedicated IPC scene (call/reply pairing, donation chains)
-  beyond the System scene's structure; a CNode-slot grid alongside the CDT; per-domain
-  scheduler partitioning and PIP boost chains.
-- **Phase 4 — Hardware depth.** TLB caching with shootdown-on-unmap already ships in the
-  VSpace scene (with a stale-entry validator); remaining depth is richer multi-core visuals
-  (per-core timers, IPI) and multi-level page-table walks.
-- **Phase 5 — Exploration.** A per-step causality graph; a richer sandbox (more
-  structural checks, guided challenges); trace search/filter.
+  website-side adoption, validation and grounding are already in place.
+- **Phase 4 — Hardware depth.** Per-core timers and IPIs, multi-level page-table walks,
+  priority-inheritance chains and domain-schedule timelines.
+- **Phase 5 — Exploration.** A per-step causality graph; guided sandbox challenges;
+  trace search/filter.
 
 ## 13. Documentation sync
 

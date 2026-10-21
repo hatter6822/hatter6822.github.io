@@ -42,7 +42,7 @@ jobs:
       - name: Update static fallback values in index.html, locales and sitemap
         run: node scripts/apply-static-values.mjs
 
-      # Exactly the checks CI runs (one shared script), then the same two
+      # Exactly the checks CI runs (one shared script), then the same three
       # browser probes, all before the push. CI only runs after a push lands,
       # so a sync that skipped them could publish a page CI would reject.
       - name: Tiers 0-2 (unit tests, data validation, syntax)
@@ -58,6 +58,7 @@ jobs:
           for i in $(seq 1 50); do curl -sf http://127.0.0.1:4173/index.html >/dev/null && break; sleep 0.2; done
           INDEX_SMOKE_BASE=http://127.0.0.1:4173 INDEX_SMOKE_CHANNEL=chrome node scripts/index-smoke.mjs
           MAP_SMOKE_CHANNEL=chrome node scripts/map-smoke.mjs
+          RUN_SMOKE_BASE=http://127.0.0.1:4173 RUN_SMOKE_CHANNEL=chrome node scripts/run-smoke.mjs
 
       - name: Check for changes and commit
         run: |

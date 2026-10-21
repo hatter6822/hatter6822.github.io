@@ -51,6 +51,7 @@ node scripts/validate-data.mjs
 node scripts/validate-traces.mjs
 node --check assets/js/map.js
 node --check assets/js/run.js
+node --check assets/js/trace-engine.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
 node --check assets/js/i18n.js
@@ -71,7 +72,7 @@ If you changed UI behavior or layout:
 3. Confirm keyboard navigation still works on map page (`j`/`k`, Enter, Escape, detail pills, Arrow keys across the declaration tabs).
 4. Confirm declaration context switching works (click declaration → flowchart shows calls/callers → breadcrumb navigation returns to module).
 5. On `map.html` with no URL state: the workspace opens on `SeLe4n.Kernel.API` in the **Lean + Rust** scope, over-budget lanes are grouped by subsystem and open in place, the flow chart is drawn at full size (its rendered width equals its `width` attribute) at 1280, 1366, 1440 and 1920px, and the declaration sidebar sits beside the chart from 1440px and below it under that. Switching the scope toggle to Rust must render the Rust module chart at the same 1:1 guarantee with its own four-tab sidebar, each public declaration carrying its `pub` chip beside the name rather than over it; in the combined scope a module with a counterpart (`SeLe4n.Platform.FFI`) must grow the boundary band, and clicking a boundary node must cross into the other language. `node scripts/map-smoke.mjs` checks all of this in headless Chromium (see `docs/TESTING.md`); CI runs it on every push.
-6. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the inspector (kernel path with its refusing stage, why it's safe, state changes, source links at the grounded commit), the security guarantees band, the kernel invariants disclosure, and the sandbox toggle all work; confirm `prefers-reduced-motion` disables animation and that the page requests nothing but its bundled `data/execution-traces.json`.
+6. On the Simulator (`run.html`): confirm transport controls (play/step/scrub, `Space`/`←`/`→`), scenario switching, the scene tabs (arrow keys, `Home`/`End`), the inspector (kernel path with its refusing stage, why it's safe, state changes, source links at the grounded commit), the security guarantees band, the kernel invariants disclosure, and the sandbox's perturbations all work; confirm every scene is drawn at 1:1, `prefers-reduced-motion` disables animation, and the page requests nothing but its bundled `data/execution-traces.json`. `node scripts/run-smoke.mjs` walks every scene of every step in headless Chromium (see `docs/TESTING.md`); CI runs it on every push.
 7. Confirm no security regressions (CSP/referrer/permissions-policy meta tags remain intact).
 
 ## Data/sync change checklist

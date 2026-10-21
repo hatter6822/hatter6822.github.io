@@ -126,11 +126,31 @@ export function requiredRightTable(sourceText, name = KERNEL_FACT_SOURCES.rights
 }
 
 /**
+ * The number each syscall travels under in x7, read off `SyscallId.toNat`'s
+ * match arms (`| .send => 0`). Returns undefined when the encoder is not found.
+ */
+export function syscallNumberTable(sourceText) {
+  const source = stripLeanComments(String(sourceText ?? ''));
+  const header = /^[^\S\n]*(?:@\[[^\]]*\][^\S\n]*)?def[^\S\n]+toNat[^\S\n]*:[^\S\n]*SyscallId[^\S\n]*→[^\S\n]*Nat.*$/m.exec(source);
+  if (!header) return undefined;
+  const table = {};
+  for (const line of source.slice(header.index + header[0].length).split('\n').slice(1)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const arm = /^\|\s*\.([A-Za-z_][A-Za-z0-9_]*)\s*=>\s*(\d+)\b/.exec(trimmed);
+    if (arm) { table[arm[1]] = Number(arm[2]); continue; }
+    break;
+  }
+  return Object.keys(table).length ? table : undefined;
+}
+
+/**
  * Check what a trace restates about the kernel's interface, not just its names.
  *
- * A step's `syscall.id` must be a `SyscallId` constructor, its `requiredRight`
- * the right `syscallRequiredRight` assigns that syscall, and every error it
- * reports a `KernelError` constructor. The 0.33.6 fixture said `cspaceCopy`
+ * A step's `syscall.id` must be a `SyscallId` constructor, its `number` (x7)
+ * the value `SyscallId.toNat` gives it, its `requiredRight` the right
+ * `syscallRequiredRight` assigns that syscall, and every error it reports a
+ * `KernelError` constructor. The 0.33.6 fixture said `cspaceCopy`
  * needed write (it needs grant), `reply` needed grantReply (it needs write),
  * and called a syscall `declassifyStore` that does not exist. Returns issues;
  * an empty list means every restated fact matches the checkout.
@@ -141,9 +161,11 @@ export function checkTraceKernelFacts(data, readSource) {
   const syscalls = inductiveConstructors(readSource(facts.syscalls.path) ?? '', facts.syscalls.inductive);
   const errors = inductiveConstructors(readSource(facts.errors.path) ?? '', facts.errors.inductive);
   const rights = requiredRightTable(readSource(facts.rights.path) ?? '');
+  const numbers = syscallNumberTable(readSource(facts.syscalls.path) ?? '');
   if (!syscalls?.length) issues.push(`${facts.syscalls.inductive} not found in ${facts.syscalls.path}`);
   if (!errors?.length) issues.push(`${facts.errors.inductive} not found in ${facts.errors.path}`);
   if (!rights || !Object.keys(rights).length) issues.push(`${facts.rights.table} not found in ${facts.rights.path}`);
+  if (!numbers) issues.push(`SyscallId.toNat not found in ${facts.syscalls.path}`);
   if (issues.length) return issues;
 
   const syscallSet = new Set(syscalls);
@@ -153,8 +175,16 @@ export function checkTraceKernelFacts(data, readSource) {
     const call = step.syscall;
     if (call) {
       if (!syscallSet.has(call.id)) issues.push(`${where}: syscall "${call.id}" is not a SyscallId constructor`);
-      else if (rights[call.id] !== call.requiredRight) {
-        issues.push(`${where}: ${call.id} requires "${rights[call.id]}" per ${facts.rights.table}, the trace says "${call.requiredRight}"`);
+      else {
+        // x7 carries `SyscallId.toNat` of the syscall (`decodeSyscallId`).
+        if (call.number !== numbers[call.id]) {
+          issues.push(`${where}: x7 = ${call.number}, but SyscallId.toNat .${call.id} = ${numbers[call.id]}`);
+        }
+        // A syscall that names no capability (yield) has no rights stage and so
+        // restates no right; one that does must restate the table's.
+        if (call.requiredRight !== undefined && rights[call.id] !== call.requiredRight) {
+          issues.push(`${where}: ${call.id} requires "${rights[call.id]}" per ${facts.rights.table}, the trace says "${call.requiredRight}"`);
+        }
       }
     }
     const reported = [step.outcome?.error, ...(step.path ?? []).map((stage) => stage.error)].filter(Boolean);

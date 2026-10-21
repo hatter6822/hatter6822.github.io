@@ -87,7 +87,7 @@ statistic.
 `locales/*.json` bundle, whose translated HTML carries its own copy of the same
 spans, and stamps the `lastmod` of the snapshot-rendered pages in
 `sitemap.xml`. The weekly `sync-sele4n-data.yml` workflow runs this same
-pipeline, then `./scripts/check.sh` and both browser probes, before it pushes.
+pipeline, then `./scripts/check.sh` and the three browser probes, before it pushes.
 It uses the git protocol only, so no `GITHUB_TOKEN` and no REST rate limit.
 
 ### 2) Validate snapshots
@@ -257,34 +257,43 @@ flow → operation, with the refusing stage and the `KernelError` it returned), 
 security properties and invariants the step relies on — each linked to the Lean
 declaration that states or proves it.
 
-It offers six switchable **scenes** — **System** (CPU, run queue, IPC wait queues),
-**Scheduler** (per-core SMP columns, priority buckets, EDF deadlines, CBS budget bars),
-**Capabilities** (the capability derivation tree: minting derives children, a revoke
-destroys a capability's derivations and keeps the capability), **Memory** (untyped
-regions with a watermark, carving typed objects and resetting the region once the
-children are revoked), **VSpace** (page mappings with W^X status, where a
-writable-and-executable request is refused and a TLB row shows translations shot down
-on unmap) and **Information flow** (the security-domain lattice, a blocked flow from
-secret to public, and the declassification audit log — a declassification is an
-audited release, never an edit to the policy). Beside the stage, an inspector explains
+It offers six switchable **scenes**, each drawn from the kernel's own structures:
+**Kernel path** (the registers the kernel decodes, the capability pointer walked through
+guard and radix bits to its slot, the six-gate pipeline, and every scheduling decision
+with the candidates it weighed), **IPC** (endpoint send and receive queues, notification
+words bit by bit, reply objects, and messages travelling sender → object → receiver),
+**Scheduler** (one box per core: priority buckets with the next pick, budget meters and
+scheduling contexts with their EDF deadlines), **CSpace** (CNode slot strips with their
+guard/radix geometry and the derivation tree arched over them), **Memory** (untyped
+regions to scale with their watermark, a refused retype drawn where it would have gone,
+and address spaces with W^X and TLB state) and **Information flow** (the label lattice,
+each flow check recomputed from the labels, and the declassification audit log — a
+declassification is an audited release, never an edit to the policy). Beside the stage, an inspector explains
 the step; below it, a **security guarantees** band (nine properties, each with its
 statement, scope caveat and theorems, the step's own highlighted) and a **kernel
-invariants** catalogue (sixteen invariants, each with its predicate, preservation
+invariants** catalogue (seventeen invariants, each with its predicate, preservation
 theorems and — labelled as a test, not a proof — the harness's runtime check). An
-opt-in, clearly-labeled **sandbox** lets you perturb the state and watch a structural
-check break — illustrating exactly what the Lean proofs forbid.
+opt-in, clearly-labeled **sandbox** offers eight perturbations of the state (a thread
+queued twice, W+X mapping, a stale TLB entry, an overspent budget, overlapping objects,
+…) and shows which invariant each one breaks — illustrating exactly what the Lean proofs
+forbid.
 
-The nine scenarios in `data/execution-traces.json` (trace schema v2) are written by
+The ten scenarios in `data/execution-traces.json` (trace schema v3) are written by
 hand: the kernel does not export traces yet, so they illustrate behaviour rather than
 replay a run, and the page says so. What is the kernel's own is every name they cite.
 `scripts/sync-upstream.mjs` resolves each function, theorem and predicate in the pinned
 seLe4n checkout and stamps its file and line, checks every syscall, required right and
 `KernelError` against the kernel's definitions, and refuses to write the snapshot if
 anything is missing; `scripts/validate-traces.mjs` cross-checks every stamped line
-against the code map's snapshot of the same commit. A refused step changes nothing,
+against the code map's snapshot of the same commit. The validator also recomputes what
+the kernel decides — which thread the scheduler picks, where a capability pointer
+resolves, whether the right is held, whether a flow is allowed — with the same engine
+the page runs (`assets/js/trace-engine.js`), and rejects a step that disagrees. A refused step changes nothing,
 because a kernel transition that returns an error returns no state — the validator
-enforces that too. The full design — schema, scenes, pipeline, and roadmap — is in
-[docs/SIMULATOR_SPEC.md](docs/SIMULATOR_SPEC.md).
+enforces that too. `node scripts/run-smoke.mjs` walks every scene of every step in
+headless Chromium (each drawn at 1:1, nothing past its edge, keyboard tabs, the sandbox,
+a phone, Spanish) and CI runs it on every push. The full design — schema, scenes,
+pipeline, and roadmap — is in [docs/SIMULATOR_SPEC.md](docs/SIMULATOR_SPEC.md).
 
 ## Documentation index
 

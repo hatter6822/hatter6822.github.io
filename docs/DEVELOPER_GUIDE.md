@@ -84,7 +84,8 @@ Owns:
 - fixture note (the scenarios are hand-written until the upstream kernel emits `docs/execution-traces.json`; every name they cite is the kernel's own).
 - shells for the scenario bar (selector, summary, "Demonstrates" chips), transport bar (play/step/scrub, sandbox toggle), scene tabs, SVG stage, inspector, the **Security guarantees** band (`#guarantees`), the **Kernel invariants** `<details>` (`#invariant-details`), the sandbox panel and the steps log.
 - the page's CSP: `connect-src 'self'` and `img-src 'self' data:` — the page fetches its bundled snapshot and nothing else, so there is no GitHub origin and no `api.github.com` dns-prefetch.
-- script load order mirrors `map.html`, with `run.js` deferred last.
+- script load order mirrors `map.html`, with `trace-engine.js` then `run.js` deferred last (the runtime reads `window.sele4nTraceEngine`).
+- the stage shell (`#theater-stage-shell`), scene tablist (`#theater-scenes`), legend, and the sandbox panel's eight `data-perturb` buttons.
 
 Edit this file when adding scenes/controls or changing semantic structure of Simulator UI regions. The full design is in `docs/SIMULATOR_SPEC.md`.
 
@@ -94,13 +95,12 @@ Minimal branded page served by GitHub Pages for unknown paths. Uses absolute ass
 ## 4) Browser runtime scripts (`assets/js/`)
 
 ### `assets/js/theme-init.js`
-Very small boot script executed before first paint. Responsibilities:
+The one theme controller for every page. Responsibilities:
 
-- read saved theme from `localStorage` key `sele4n-theme`.
-- if missing, resolve against `prefers-color-scheme`.
-- set `data-theme` on `<html>` as early as possible.
+- before first paint: read the saved theme from `localStorage` key `sele4n-theme`, else resolve `prefers-color-scheme`, and set `data-theme` on `<html>` and the `theme-color` meta.
+- on `DOMContentLoaded`: bind `#theme-toggle` (persisting the choice) and follow OS theme changes while nothing is saved.
 
-Design goal: avoid a dark/light flash while keeping failure-safe behavior if storage is unavailable.
+Design goal: no dark/light flash, failure-safe if storage is unavailable, and one implementation. Until the 0.36.121 resync `site.js` and `map.js` each carried their own toggle handler, OS listener and link hardening, alongside `header-nav.js`'s nav controller and a 240-line nav fallback in each that never ran (`header-nav.js` always loads first).
 
 ### `assets/js/i18n.js`
 Internationalization runtime for multi-language support. Responsibilities:
@@ -121,12 +121,11 @@ Locale string bundles organized by page section. Structure mirrors the site's se
 ### `assets/js/site.js`
 Main runtime for `index.html`. Responsibilities:
 
-- applies live site metrics from bundled/cached/fetched payloads.
-- updates SEO description content based on live theorem counts.
-- updates JSON-LD script metadata (`version`, optional `dateModified`).
-- manages theme toggle behavior and OS theme-change reactions.
-- manages navigation behavior (mobile toggle, active-section state, hash offset logic).
-- handles local cache policy and network fetch timeout behavior.
+- renders `data/site-data.json` (one same-origin fetch with a timeout) into the `data-live` spans and the per-subsystem figures; derives nothing.
+- updates the SEO description and JSON-LD metadata (`version`, optional `dateModified`) from the same snapshot.
+- removes the retired live-cache keys from returning visitors (`purgeLegacyLiveCache`).
+
+The theme toggle is `theme-init.js`'s and navigation is `header-nav.js`'s.
 
 If a landing-page behavior looks dynamic, start here first.
 
@@ -171,6 +170,18 @@ Largest runtime module; owns map page data and rendering behavior. Responsibilit
 
 If the map visualization, interactions, or data compatibility changes, this is the primary file.
 
+### `assets/js/trace-engine.js`
+The Simulator's one engine (`window.sele4nTraceEngine`), plain ES5 with no DOM so it runs unchanged under the page's CSP and inside Node's `Function` constructor. It owns the schema-v3 constants (`OPS`, `EVENT_OPS`, `PATH_STAGES`, `RIGHTS`, `IPC_STATES`, `REGISTERS`, `MSG_LIMITS`), the fold (`applyOp`, `scenarioStates`), the decisions a trace is checked against (`selectOnCore`, `resolveCap`, `flowsTo`, `msgInfoWord`), `touched(ops)` for highlighting, and `checkState`, the executable mirrors of the invariant catalogue that the validator runs over every bundled state and the sandbox runs over a perturbed one. Change semantics here once and both consumers follow.
+
+### `assets/js/run.js`
+The Simulator runtime. Responsibilities:
+
+- one same-origin fetch of `data/execution-traces.json`, the adoption gate (`isValidTraceData`), per-step states precomputed by the engine for O(1) seeking.
+- the six SVG scenes (`renderPathScene`, `renderIpcScene`, `renderSchedulerScene`, `renderCSpaceScene`, `renderMemoryScene`, `renderInfoflowScene`), drawn through a small `Canvas` that measures every label (`fitText`, clipping with an ellipsis and a `<title>` where a box bounds it) and grows the SVG to what it drew, so a scene is always 1:1.
+- the scene tablist (arrow keys, `Home`/`End`), transport and URL state, the inspector, the guarantees band, the invariant catalogue, the steps log.
+- the sandbox (`PERTURB`): eight perturbations, each offered only where it applies and judged by `E.checkState`.
+- every label through `t()` (`tt()` with an English fallback), repainted when the locale lands.
+
 ## 5) Stylesheets (`assets/css/`)
 
 ### `assets/css/style.css`
@@ -199,7 +210,7 @@ Map-page-only styles:
 - map-specific responsive/mobile tuning.
 
 ### `assets/css/run.css`
-Simulator-page-only styles: scenario bar, transport bar, stage/scene layout, the inspector (outcome badge, kernel-path stage strip with pass/fail/skip, state-change rows), the guarantee cards and their highlight, the invariant catalogue's preserved/holds/violated states, the sandbox banner and the steps log. Under 40rem the scene SVG keeps its 1:1 size and the stage scrolls horizontally instead of shrinking the diagram.
+Simulator-page-only styles: scenario bar, transport bar, stage/scene layout, the inspector (outcome badge, kernel-path stage strip with pass/fail/skip, state-change rows), the guarantee cards and their highlight, the invariant catalogue's preserved/holds/violated states, the sandbox banner and the steps log, and every scene's SVG classes (register and bit cells, pipeline pills, queue lanes and wait edges, priority buckets and budget meters, slot strips and derivation edges, untyped bars and VSpace rows, the lattice and audit log), with a reduced-motion block. The scene SVG is `max-width: none` at every width — drawn at 1:1, scrolling inside its shell — and `.theater-page .container` widens to 92rem so a 1440px desktop fits the stage without scrolling.
 
 Rule of thumb: shared primitive in `style.css`; map-only styling in `map.css`; Simulator-only styling in `run.css`.
 
@@ -288,7 +299,7 @@ the import edges are missing from the artifact. `commitSha` and `sourceDigest`
 match `site-data.json`, which `validateCrossFile` requires.
 
 ### `data/execution-traces.json`
-Bundled Simulator trace snapshot, schema v2 (`source: "fixture"` until the upstream kernel emits the artifact). Contains the `propertyCatalog` (9 security properties), the `invariantCatalog` (16 invariants, each with its predicate, preservation theorems and optional runtime check) and 9 scenarios whose steps carry an outcome, the checked syscall path and a delta folded by `assets/js/run.js`. Every declaration it names is a `{ name, module }` reference carrying the `path` and `line` the sync stamped, and `sourceRef` records the seLe4n commit those lines belong to. Schema and fold semantics are specified in `docs/SIMULATOR_SPEC.md`.
+Bundled Simulator trace snapshot, schema v3 (`source: "fixture"` until the upstream kernel emits the artifact). Contains the `propertyCatalog` (9 security properties), the `invariantCatalog` (17 invariants, each with its predicate, preservation theorems and optional runtime check) and 10 scenarios whose steps carry an outcome, the decoded registers, the checked syscall path and a delta folded by `assets/js/trace-engine.js`. Every declaration it names is a `{ name, module }` reference carrying the `path` and `line` the sync stamped, and `sourceRef` records the seLe4n commit those lines belong to. Schema and fold semantics are specified in `docs/SIMULATOR_SPEC.md`.
 
 Never hand-edit a stamped `path`, `line` or `sourceRef`: written by `scripts/sync-upstream.mjs` (which validates and grounds it, and refuses to write on any issue); checked by `scripts/validate-traces.mjs`, which fails when `sourceRef` is not `map-data.json`'s commit or a stamped line is not where the code map has that declaration.
 
@@ -356,7 +367,7 @@ Tiers 0-2 in one command: every `scripts/lib/*.test.mjs`, `validate-data.mjs`, `
 Schema/consistency gate for the site and map snapshots. Fails non-zero if either payload violates required invariants.
 
 ### `scripts/validate-traces.mjs`
-Gate for `data/execution-traces.json`: the schema-v2 validator, then `validateGrounding` — `sourceRef` must equal `map-data.json`'s `commitSha`, every declaration reference must carry its stamped `path`/`line`, and a reference into a module the code map covers must name one of that module's declarations at the stamped line (`moduleMeta[].symbols.byKind`; `SeLe4n.Testing` and `SeLe4n.Prelude` are outside the map and skipped) — then a fold dry-run. Warns when the bundled traces are fixtures rather than a kernel export.
+Gate for `data/execution-traces.json`: the schema-v3 validator (which recomputes the scheduler's picks, CPtr lookups, rights and flow checks, and runs the invariant mirrors over every state), then `validateGrounding` — `sourceRef` must equal `map-data.json`'s `commitSha`, every declaration reference must carry its stamped `path`/`line`, and a reference into a module the code map covers must name one of that module's declarations at the stamped line (`moduleMeta[].symbols.byKind`; `SeLe4n.Testing` and `SeLe4n.Prelude` are outside the map and skipped) — then a fold dry-run. Warns when the bundled traces are fixtures rather than a kernel export.
 
 ### `scripts/nav-stability-smoke.py`
 Optional Playwright smoke probe for nav-hash stability and active-link determinism across browsers.
@@ -377,6 +388,9 @@ request; `PLAYWRIGHT_CHROMIUM=<path>` points it at another binary.
 
 ### `scripts/index-smoke.mjs`
 Headless-Chromium probe for `index.html`. Asserts on the rendered page what `static-values.test.mjs` asserts in the file: every `data-live` span shows exactly what `data/site-data.json` holds (a mismatch means hydration visibly rewrites a figure), no figure label is clipped, no width scrolls sideways, every card grid has even columns inside the viewport, the console is clean, a locale arriving after the snapshot does not carry a stale copy of a figure back onto the page, and every `#L` anchor matches the resolved `sourceAnchors` inventory. Runs at 1920/1440/1024/390px, in both themes, and against a deliberately delayed Spanish locale. `INDEX_SMOKE_BASE` picks the server, `PLAYWRIGHT_CHROMIUM` or `INDEX_SMOKE_CHANNEL` the browser. CI runs it on every push.
+
+### `scripts/run-smoke.mjs`
+Headless-Chromium probe for `run.html`. Walks every scene of every step of every scenario at 1440px (each drawn at 1:1, none wider than the stage, no text past the SVG's edge), then the scene tabs from the keyboard and the URL they write, object selection, a sandbox perturbation breaking an invariant and reset restoring it, a phone at 390px (1:1, scrolling inside the stage), a Spanish locale, and a clean console with no request leaving the origin. `RUN_SMOKE_BASE` picks the server (default port 4175), `PLAYWRIGHT_CHROMIUM` or `RUN_SMOKE_CHANNEL` the browser. CI runs it on every push.
 
 ### `scripts/lib/canonical-map.mjs`
 The contract with seLe4n's canonical `docs/codebase_map.json`: the schema it
@@ -444,7 +458,7 @@ surface the way a rustdoc sidebar does, one item header per line.
 Pure validation utilities for site/map payload objects. Centralizes schema checks used in tests and CI checks, including the optional `rust` inventory block (paths must exist in `files[]`, item kinds/visibilities/lines, per-crate totals equal to per-file sums for items, test items, lines and both `unsafe` counters, target-scoped dependency tables, and the file-level facts the code map draws on — `reachable`, `testOnly` never narrower than the role, and a `targetName` only on a file that is a Cargo target).
 
 ### `scripts/lib/trace-analysis.mjs`
-Trace schema v2 and the deterministic fold engine (`reconstructState`/`scenarioStates`) shared by `validate-traces.mjs`, `sync-upstream.mjs`, and the Simulator tests. It is the one place that defines `SCHEMA_VERSION`, the op allow-list `ALLOWED_OPS`, the state-free `EVENT_OPS` (the only ops a refused step may carry, because a kernel error returns no successor state), `PATH_STAGES`, `PATH_RESULTS` and `ACCESS_RIGHTS`. `validateTraceDataObject` checks the property and invariant catalogues, every declaration reference's shape, step outcomes, the path rules (stages in order, exactly one `fail` matching the outcome's error on a refusal, `skip` after it) and folds every scenario through the structural checks. `assets/js/run.js` carries a faithful copy of the fold engine; the tests pin the two together.
+The Node side of trace schema v3, shared by `validate-traces.mjs`, `sync-upstream.mjs` and the Simulator tests. It evaluates `assets/js/trace-engine.js` — the same file the page runs — with `new Function`, re-exports its constants (`SCHEMA_VERSION`, `OPS`, `EVENT_OPS`, `PATH_STAGES`, `RIGHTS`, `REGISTERS`, …) and `scenarioStates`/`reconstructState`, and adds `validateTraceDataObject`: the catalogues, every reference's shape, step outcomes and registers, the path rules (stages in order, exactly one `fail` matching the outcome's error on a refusal, `skip` after it), then a fold of every scenario that recomputes each decision the trace records (the caller is current, `resolveCap`, the required right, `flowsTo`, `selectOnCore`, `capAttenuates`) and runs `checkState` after every step.
 
 ### `scripts/lib/trace-anchors.mjs`
 Grounds every name the Simulator shows in the pinned kernel checkout. `collectTraceRefs` finds every `{ name, module }` reference (property theorems, invariant predicate/preservedBy/runtimeCheck, step `sourceRefs`, `path[].ref`); `anchorTraceRefs` resolves each in its module's own file — qualified name first, then the last segment, comments stripped — and stamps `path` and `line`, returning what it could not place rather than guessing; `checkTraceKernelFacts` checks each `syscall.id` against `inductive SyscallId` (`SeLe4n/Model/Object/Types.lean`), each `requiredRight` against the `syscallRequiredRight` arm (`SeLe4n/Kernel/API.lean`) and each error against `KernelError` (`SeLe4n/Model/KernelError.lean`); `groundTrace` runs both and records `sourceRef`, `kernelCommit` and `kernelVersion`. Called by `sync-upstream.mjs`'s `writeTraces`, which refuses to write the snapshot on any issue. Reuses `declarationLine` from `source-anchors.mjs`, so a trace reference and a landing-page deep link resolve by the same rule.
@@ -460,9 +474,9 @@ Node tests for parser and validation correctness:
 - `data-validation.test.mjs`: schema and invariant validation checks, null/non-object root rejection, type enforcement, duplicate module detection, non-string module array entries.
 - `map-runtime.test.mjs`: map runtime compatibility, behavior checks, all four assurance levels (linked/partial/local/none), the default module rule, `moduleSubsystem`, subsystem-grouped lane entries, inventory retention across canonical and tree refreshes, `rust` block pass-through, the production/test `unsafe` summary and detail line, plural fallbacks, tab selection, locale digit grouping — and the 0.31.0 model: the Rust graph (one node per production file, test targets excluded, node addressing per role, parent/child and sibling edges), the boundary index (key normalisation, the four relations, the FFI seam in the bundled snapshot, band symmetry and direction), and the scope (node membership, defaults, URL whitelisting, selection fallback on a narrowing switch).
 - `map-toolbar.test.mjs`: structural assertions for map toolbar placement, accessibility labels, removed controls, `.sr-only` CSS definition, `:empty` interior menu behavior, empty initial container state, CSS containment, cursor interactivity, legend ARIA roles, self-edge guard, clean function signatures, DocumentFragment usage, interior menu item flex layout and hover state, CSS transitions, kind label alignment, `focus-visible` outlines, scrollbar styling, grid overflow prevention, navigable item flex-wrap, href guards, declaration search function exports (`declarationSearchMatch`, `declarationSearchMatches`, `buildDeclarationSearchIndex`, `searchDeclarationsInModule`), `declarationSearchList` state tracking, and edge layer `aria-hidden` accessibility.
-- `trace-analysis.test.mjs`: trace schema v2 validation, the fold engine, and grounding (`trace-anchors.mjs`) (see `docs/TESTING.md`).
-- `run-runtime.test.mjs`: boots the real `assets/js/run.js` in a `vm` DOM shim and exercises the Simulator end-to-end (see `docs/TESTING.md`).
-- `csp-html.test.mjs`: asserts no inline `style="…"` attributes on any HTML page (the strict CSP would silently drop them).
+- `trace-analysis.test.mjs`: trace schema v3 validation (one broken decision per test), the engine's semantics, and grounding (`trace-anchors.mjs`) (see `docs/TESTING.md`).
+- `run-runtime.test.mjs`: boots the real `assets/js/trace-engine.js` and `assets/js/run.js` in a `vm` DOM shim and exercises the Simulator end-to-end: every scene, the sandbox's perturbations, adoption refusals (see `docs/TESTING.md`).
+- `csp-html.test.mjs`: asserts no inline `style="…"` attributes on any HTML page (the strict CSP would silently drop them), `connect-src 'self'` on every page, and `rel="noopener noreferrer"` on every `target="_blank"` link in the pages and the locales.
 - `static-values.test.mjs`: pins the static-fallback rewriter mapping and asserts that the committed `index.html`, every locale bundle and `sitemap.xml` match `data/site-data.json`, and that the API Surface table lists syscall IDs `0 … syscalls-1` exactly once each.
 - `i18n-locales.test.mjs`: locale key parity with `en.json` (plural forms compared as families), no empty values, and every `data-i18n*` key referenced by the pages resolves.
 - `i18n-runtime.test.mjs`: boots the real `i18n.js` in a `vm` shim and checks interpolation, plural-form selection for English and Ukrainian counts, and locale digit grouping.
