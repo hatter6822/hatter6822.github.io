@@ -18,9 +18,6 @@
    */
   var DATA_ENDPOINT = "data/site-data.json";
 
-  var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
-  var NAV_INTENT_MAX_AGE_MS = 60 * 1000;
-
   // Cache key of the retired live-refresh layer. Nothing reads it now; it is
   // purged on load so a returning visitor stops carrying a stored snapshot of
   // the heuristics above.

@@ -327,6 +327,11 @@ async function acquireInto(work) {
 
   if (digestOf(work, head.files) !== expected) {
     const generatedAt = codebaseMap.repository.head.commit_sha;
+    // It becomes a git argument below: anything but a full SHA (a value
+    // starting with "-" would be read as an option) is refused, not fetched.
+    if (!/^[0-9a-f]{40}$/.test(String(generatedAt))) {
+      throw new Error(`${METRICS_PATH} names ${JSON.stringify(generatedAt)} as its commit, which is not a 40-hex SHA`);
+    }
     if (PINNED_COMMIT) {
       throw new Error(
         `SELE4N_REF=${PINNED_COMMIT.slice(0, 7)} carries Lean sources its bundled ${METRICS_PATH} does not describe ` +

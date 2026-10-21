@@ -39,6 +39,14 @@ for (const page of SELF_ONLY_CONNECT) {
     const directive = csp.split(';').map((part) => part.trim()).find((part) => part.startsWith('connect-src'));
     assert.equal(directive, "connect-src 'self'", `${page} connect-src should be exactly 'self', got: ${directive}`);
   });
+
+  // Every image is a self-hosted file; no page draws a data: URI, so the
+  // policy does not admit one.
+  test(`${page} pins img-src to 'self'`, async () => {
+    const csp = cspOf(await readFile(new URL(page, ROOT), 'utf8'));
+    const directive = csp.split(';').map((part) => part.trim()).find((part) => part.startsWith('img-src'));
+    assert.equal(directive, "img-src 'self'", `${page} img-src should be exactly 'self', got: ${directive}`);
+  });
 }
 
 for (const page of PAGES) {

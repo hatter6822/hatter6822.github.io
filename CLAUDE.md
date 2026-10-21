@@ -167,10 +167,11 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   `canonicalCrossChecks` says so if it ever stops). Recorded as `metricsScope`
   and pinned by `validate-data.mjs`, which also rejects any map module under
   `tests/` or `SeLe4n/Testing/`. The scope lives in one place,
-  `scripts/lib/canonical-map.mjs` (`isProductionModule`). Because the kernel's
-  own README table is rendered from the same artifact at its wider scope, the
-  landing page says so under the hero stats (`hero.scope_note`); keep that
-  sentence whenever the figures are shown without it.
+  `scripts/lib/canonical-map.mjs` (`isProductionModule`). The kernel's own
+  README table is rendered from the same artifact at its wider scope, so its
+  totals run above the landing page's. A one-line disclosure under the hero
+  stats (`hero.scope_note`) said so until it was taken out of the hero in
+  September 2026; restore it from that history rather than rewording it.
 - `SELE4N_REF=<40-hex commit> node scripts/sync-upstream.mjs` regenerates the
   snapshots at a pinned upstream revision, so a data change can be reviewed
   against one known commit. The snapshot still records `sourceRef: main`. A

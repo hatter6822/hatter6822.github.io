@@ -51,7 +51,6 @@
      are purged on load so a returning visitor stops carrying them, as
      site.js does for the landing page's retired cache. */
   var LEGACY_STORAGE_KEYS = ["sele4n-code-map-v9", "sele4n-code-map-live-sync-meta-v1"];
-  var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
   var NODE_CACHE = Object.create(null);
   var LABEL_WRAP_CACHE = new Map();
   var LABEL_WRAP_CACHE_LIMIT = 1200;
@@ -604,9 +603,6 @@
     node.classList.toggle("error", Boolean(isError));
   }
 
-  function moduleFromPath(path) {
-    return path.replace(/\.lean$/, "").replace(/\//g, ".");
-  }
 
   function classifyLayer(moduleName) {
     if (/\.Model\./.test(moduleName)) return "model";
@@ -2527,13 +2523,8 @@
     defs.appendChild(marker);
     svg.appendChild(defs);
 
-    /* Build layers in detached DocumentFragments so all DOM mutations during
-       node/edge/label construction happen off-screen.  flush() assembles the
-       final SVG in one reflow-free batch append. */
-    var edgeFrag = document.createDocumentFragment();
-    var nodeFrag = document.createDocumentFragment();
-    var labelFrag = document.createDocumentFragment();
-
+    /* The layers are built detached from the SVG, so every node, edge and
+       label is constructed off-screen; flush() attaches them in one batch. */
     var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer", "aria-hidden": "true" });
     var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
     var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });

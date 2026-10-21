@@ -1218,10 +1218,10 @@ disagreement. `validate-data.mjs` rejects any map module under `tests/` or
 
 The kernel's own README table is rendered from the same artifact at its wider
 scope, so the two sites quote different totals for the same commit. Rather than
-leave a reader to reconcile them, `index.html` carries one sentence under the
+leave a reader to reconcile them, `index.html` carried one sentence under the
 hero stats (`hero.scope_note`, in every locale) saying the framework is
-excluded. The disclosure is part of the decision: the figures are not to be
-shown without it.
+excluded. It was taken out of the hero in September 2026, and its unused
+locale keys and style went with the 0.36.121 audit.
 
 ### Reproducible regeneration
 
@@ -2014,3 +2014,39 @@ On the bundle: 19,046 listed declarations (was 19,509, of which 471 were
 scope commands), 134,919 call edges (was 161,737), 1,983 of them qualified.
 `SystemState` has 10,712 callers in 223 modules. The call graph is 360 KB
 gzipped (was 379 KB).
+
+## One copy of each thing (the 0.36.121 audit)
+
+The resync came with an audit for dead and redundant code. What it removed,
+and why each piece could go:
+
+- **Three theme controllers.** `site.js`, `map.js` and `run.js` each bound
+  `#theme-toggle`, listened for OS theme changes and kept the `theme-color`
+  meta in step, beside `theme-init.js`, which already applied the theme before
+  first paint. `theme-init.js` now owns all of it on every page.
+- **Two navigation fallbacks that never ran.** `site.js` and `map.js` each
+  carried ~240 lines re-implementing `header-nav.js` for the case where it had
+  not loaded. Every page loads it first, so the fallback was dead weight that
+  still had to be kept in step with the real controller.
+- **Runtime link hardening.** Three copies of a function patched
+  `rel="noopener noreferrer"` onto `target="_blank"` links after load, which
+  covered only what had rendered by then and hid an unhardened link from
+  review. `csp-html.test.mjs` now requires the attribute in the markup and in
+  every locale bundle.
+- **Unreferenced code and strings.** Two functions and five variables nothing
+  read (among them three `DocumentFragment`s a comment still described as the
+  batching strategy), the `.hero-scope-note` style and its locale key after
+  the note left the hero, and six other locale keys no page asks for — in all
+  six languages.
+
+Tightened at the same time:
+
+- `img-src` is `'self'` on every page; nothing draws a `data:` image, and
+  `csp-html.test.mjs` pins it alongside `connect-src`.
+- Locale HTML refuses a protocol-relative `href` (`//host`, `/\host`): an
+  external origin that looked like a same-origin path. `isSafeHref` is tested
+  directly.
+- `sync-upstream.mjs` refuses an artifact whose `repository.head.commit_sha` is
+  not a 40-hex SHA before passing it to `git fetch`, where a value starting
+  with `-` would have been read as an option.
+- The weekly sync runs the simulator probe too, since it rewrites the traces.

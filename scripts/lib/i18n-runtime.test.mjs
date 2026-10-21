@@ -115,4 +115,9 @@ test('locale HTML is sanitized in an inert document, against a tag allowlist', a
   for (const tag of ['img', 'svg', 'script', 'iframe', 'object', 'style', 'template']) {
     assert.ok(!allow.includes(tag), `SAFE_TAGS must not allow <${tag}>`);
   }
+  const fn = /function isSafeHref\(href\) \{([^]*?)\n {2}\}/.exec(source)?.[1];
+  assert.ok(fn, 'sanitizeHTML checks hrefs through isSafeHref');
+  const isSafeHref = new Function('href', fn);
+  for (const ok of ['https://github.com/hatter6822/seLe4n', '/map.html', '#about', 'mailto:a@b.c']) assert.ok(isSafeHref(ok), `${ok} is kept`);
+  for (const bad of ['javascript:alert(1)', '//evil.example', '/\\evil.example', 'data:text/html,x', 'ftp://x', '']) assert.ok(!isSafeHref(bad), `${bad || '(empty)'} is dropped`);
 });

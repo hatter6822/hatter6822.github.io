@@ -389,9 +389,6 @@
     c.rect(x, y, w, h, "box-frame", { "data-accent": accent || null, "data-touched": touched ? "true" : null }, g);
     return g;
   }
-  function boxTitle(c, g, x, y, title, accent, max) {
-    return c.text(x, y, title, "box-title", { parent: g, max: max }).setAttribute("data-accent", accent || "");
-  }
 
   function message(c, lines, y) {
     var x = MARGIN;
@@ -476,7 +473,6 @@
     var cell = 22;
     r.levels.forEach(function (lv) {
       var x = MARGIN;
-      var guardEnd = lv.bits - lv.guardWidth;            // bit index (from the top) where the radix starts
       for (var i = 0; i < lv.bits; i++) {
         var bitPos = lv.bits - 1 - i;
         var role = i < lv.guardWidth ? "guard" : i < lv.guardWidth + lv.radixWidth ? "radix" : "rest";
@@ -1880,7 +1876,7 @@
      ════════════════════════════════════════════════════════════ */
 
   function parseQuery() {
-    var out = {};
+    var out = Object.create(null);   // a "__proto__" parameter is just a key
     var raw = window.location.search || "";
     if (raw.charAt(0) === "?") raw = raw.slice(1);
     raw.split("&").forEach(function (entry) {

@@ -736,7 +736,7 @@ of shipping a link to the wrong line.
   `map.js`. SVG is accessible, theme-able via CSS custom properties, and crisp at any
   zoom. No frameworks, no D3, no bundler.
 - **Strict CSP** — as tight as `index.html`: `default-src 'self'`, `script-src 'self'`,
-  `style-src 'self'`, `img-src 'self' data:`, **`connect-src 'self'`**, because the page
+  `style-src 'self'`, `img-src 'self'`, **`connect-src 'self'`**, because the page
   fetches nothing beyond its bundled snapshot (§7, §10). No inline scripts/styles, no
   `eval`, no `innerHTML` from trace data (all data rendered via
   `textContent`/`createElement`).
