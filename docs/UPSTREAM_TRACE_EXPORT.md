@@ -3,7 +3,7 @@
 > **Status: reference / design.** This document specifies the upstream (kernel-repo)
 > work that flips the Simulator's data `source` from `"fixture"` to `"kernel"`,
 > so the website replays *real* kernel runs instead of hand-authored illustrations.
-> None of it exists upstream yet. The contract is trace schema **v2**
+> None of it exists upstream yet. The contract is trace schema **v3**
 > (`docs/SIMULATOR_SPEC.md` §4). The Lean below is an **uncompiled reference sketch** written against
 > the kernel's known API (`SeLe4n.Model.State`, `SeLe4n.Testing.*`); it is a starting
 > point for the kernel maintainer to compile and adjust against the live signatures —
@@ -15,7 +15,7 @@ Audience: maintainers of `hatter6822/seLe4n` (the kernel) and of this website.
 
 ## 1. Goal and the one invariant that matters
 
-The website already has the complete consumer side (schema v2, fold engine, validator,
+The website already has the complete consumer side (schema v3, the shared trace engine, validator,
 grounding, `scripts/sync-upstream.mjs`, six scenes). The only thing standing between
 "honest illustration" and "replay of a kernel run" is an upstream artifact:
 
@@ -36,12 +36,16 @@ error must be a `KernelError` constructor. Any issue and the sync refuses to wri
 snapshot. So an exporter that drifts from the kernel it ships with fails the website's
 sync loudly instead of publishing a wrong claim.
 
-**The schema is the contract.** The website never re-implements kernel semantics — it
-*folds* the effects a trace records and *stamps* the declarations it names. So the
-exporter's job is to emit, per step: (a) the structured effect ops, (b) the outcome and
-the checked-entry path it took, and (c) the declarations involved, as `{ name, module }`
-references. As long as the JSON matches `docs/SIMULATOR_SPEC.md` §4, the website renders
-it.
+**The schema is the contract.** The website *folds* the effects a trace records and
+*stamps* the declarations it names. It also recomputes the few decisions that are pure
+functions of the projected state and the step's registers — which thread the scheduler
+picks, where a CPtr resolves, whether the capability carries the required right, whether
+a flow is allowed, whether a derived capability attenuates — and refuses a trace that
+disagrees (`assets/js/trace-engine.js`, `docs/SIMULATOR_SPEC.md` §4.8). So the
+exporter's job is to emit, per step: (a) the structured effect ops, (b) the outcome, the
+registers and the checked-entry path it took, and (c) the declarations involved, as
+`{ name, module }` references. As long as the JSON matches `docs/SIMULATOR_SPEC.md` §4,
+the website renders it.
 
 ---
 
@@ -65,22 +69,23 @@ new endpoints or CSP origins are needed.
 ### 3.1 State projection (kernel `SystemState` → website JSON)
 
 The website wants a *display projection*, not the internal representation. Map only
-what the scenes render (all additive — omit a block and its scene tab simply hides):
+what the scenes render (omit a block and the scene that draws it hides its tab). The
+exact shape is `docs/SIMULATOR_SPEC.md` §4.6.
 
 | Website field | Source in `SeLe4n.Model.State.SystemState` |
 |---------------|--------------------------------------------|
-| `current.thread`, `current.core` | `scheduler.currentThread`, current core |
-| `threads[]` | each `TCB` in `objects` (project `tid`, `priority`, `domain`, `ipcState`, `threadState`, `timeSlice`, `deadline`, `schedContext…`, `pipBoost`, `replyObject`, …) |
-| `endpoints[]` | each `Endpoint` (`sendQ`/`receiveQ` thread ids from the intrusive dual queue) |
-| `notifications[]` | each `Notification` (`state`, `waitingThreads`, `pendingBadge`) |
-| `runQueue` | `scheduler.runQueue` (per-core, per-priority bucket → ordered thread ids) |
-| `cdt` | `cdt : CapDerivationTree` (nodes from `childMap`/`parentMap`; `slot`/`target`/`rights`/`badge` from the slot's `Capability`) |
-| `untyped[]` | each `UntypedObject` (`regionBase`, `regionSize`, `watermark`, `isDevice`, `children`) |
-| `infoflow` | the `DomainFlowPolicy` (`domains` with confidentiality/integrity; `policy` = allowed-flow edges) plus `audit` = the declassification audit log as `{from, to, actor}` records |
-| `vspace[]` | each address space (`asid`; `mappings` = `vaddr`→`paddr`/`perms` from the page tables; `tlb` = the virtual addresses with cached translations) |
-
-`ipcState` is stringified with its target after a colon
-(`blockedOnReceive:<endpointId>`), mirroring the `ThreadIpcState` constructors.
+| `cores[]` | per core: `current` thread (or `null`) and the active `domain` |
+| `threads[]` | each `TCB` in `objects` (`priority`, `domain`, affinity `core`, `ipc` = the `ThreadIpcState` constructor with its `object` and `replyTo`, `timeSlice`, the CSpace root `cspace`, the security `label`, the scheduling context `sc`) |
+| `runQueues` | `scheduler.runQueue` per core, as `{ thread, prio }` in insertion order |
+| `endpoints[]` | each `Endpoint` (`send`/`recv` thread ids from the intrusive dual queue, and its `label`) |
+| `notifications[]` | each `Notification` (`pending` badge word or `null`, `waiters`, `label`) |
+| `replies[]` | each reply object and the `caller` waiting on it |
+| `schedContexts[]` | each scheduling context (`budget`, `remaining`, `period`, `deadline`, `refillIn`) |
+| `cnodes[]` | each `CNode` (`depth`, `guardWidth`, `guardValue`, `radixWidth`, and occupied `slots` → `{ kind, target, rights, badge, derivation }`) |
+| `cdt` | `cdt : CapDerivationTree` as parent slot → child slots, slots written `"<cnode>/<index>"` |
+| `untyped[]` | each `UntypedObject` (`base`, `size`, `watermark`, `children` with `offset` and `size`) |
+| `vspaces[]` | each address space (`asid`; `mappings` = `vaddr` → `frame`/`perms` from the page tables; `tlb` = the virtual addresses this core has cached) |
+| `labels[]`, `declassify`, `audit` | the `SecurityLabel`s in use (`conf`, `integ`), the declassification policy, and the declassification audit log |
 
 ### 3.2 Effect ops (the delta)
 
@@ -91,37 +96,42 @@ just performed. The op set is small and maps 1:1 to operations:
 
 | Kernel operation | Op(s) emitted |
 |------------------|---------------|
-| `chooseThread` / context switch | `setCurrent`, `rqRemove`, `threadPatch{threadState}` |
-| endpoint send/recv rendezvous | `message`, `epDequeue`/`epEnqueue`, `threadPatch{ipcState}`, `rqInsert` |
-| `notificationSignal` / `Wait` | `notifPatch`, `threadPatch`, `rqInsert` |
-| `cspaceMint`/`Copy` | `cdtInsert{node, parent}` |
-| `cspaceRevoke` (the fixture cites `cspaceRevokeCdtFinalising`) | `cdtRevoke{node}` — removes the node's descendants and **keeps the node** |
-| delete of a subtree | `cdtRemove{node}` — removes the node and its descendants |
-| `retypeFromUntyped` | `untypedRetype{untyped, child}` |
+| context switch (`chooseThread` on a core) | `dispatch{core, thread}` — the validator checks it is the thread the selection rule picks |
+| a thread blocks or leaves a core | `deschedule{core, thread}`, `threadPatch{id, set: {ipc}}` |
+| a thread becomes runnable | `enqueue{core, thread, prio}` |
+| endpoint send/receive/call/reply | `epEnqueue`/`epPopHead{endpoint, queue, thread}`, `message{from, to, via, words, label, badge?}`, `replyPatch` |
+| `notificationSignal` / `Wait` | `ntfnPatch{id, set: {pending}}`, `ntfnEnqueue`/`ntfnPopHead` |
+| budget charge / refill | `scPatch{id, set}` |
+| `cspaceMint` / `Copy` | `capInsert{slot, cap, parent}` — the validator checks `capAttenuates` |
+| `cspaceDelete` | `capDelete{slot}` |
+| `cspaceRevoke` | `capRevoke{slot}` — removes the capability's descendants and **keeps the capability** |
+| `retypeFromUntyped` | `untypedCarve{untyped, child}` |
 | untyped reset | `untypedReset{untyped}` — drops the carved objects, watermark back to zero |
-| flow check (`securityFlowsTo`) | `flowCheck{from, to, allowed}` (event-only) |
-| declassification authorize | `auditAppend{entry:{from, to, actor}}` — appends to `infoflow.audit`; the policy is **never** edited |
-| `mapPage` / `unmapPage` | `vspaceMap{vspace, mapping}` (caches the page in `tlb`) / `vspaceUnmap{vspace, vaddr}` (shoots down the `tlb` entry) |
-| a refused map (W^X) | `vspaceReject{vspace, mapping}` (event-only) |
+| flow check (`securityFlowsTo`) | `flowCheck{from, to, allowed}` (event-only) — the validator recomputes it |
+| declassification | `auditAppend{entry: {from, to, actor, target, core}}` — the policy is **never** edited |
+| `mapPage` / `unmapPage` | `vspaceMap{vspace, mapping, cache?}` / `vspaceUnmap{vspace, vaddr}` (shoots down the `tlb` entry) |
+| a refused map (W^X) | `vspaceReject{vspace, vaddr, perms}` (event-only) |
 
-The full vocabulary is `ALLOWED_OPS` in `scripts/lib/trace-analysis.mjs`, an
-allow-list. Schema v1's `untypedRevoke`, `ifPolicyAdd`, `ifPolicyRemove` and
-`servicePatch` are retired and rejected; an exporter must not emit them.
+The full vocabulary is `OPS` in `assets/js/trace-engine.js`, an allow-list. The v2 ops
+(`setCurrent`, `rqInsert`, `rqRemove`, `epDequeue`, `notifPatch`, `cdtInsert`,
+`cdtRemove`, `cdtRevoke`, `cdtPatch`, `untypedRetype`) and the v1 ops (`untypedRevoke`,
+`ifPolicyAdd`, `ifPolicyRemove`, `servicePatch`) are rejected; an exporter must not emit
+them.
 
 **A refused step carries no state change.** A kernel transition is
 `KernelM σ ε α := σ → Except ε (α × σ)`, and the error branch carries no successor state.
 So for a step whose result is `.error e`, emit only event ops (`EVENT_OPS`: `flowCheck`,
-`vspaceReject`, `message`, `note`) — never a mutation — and record the error in
-`outcome` (§3.3). The validator rejects a refused step whose delta would change state,
-and so does the browser. An instrumented exporter gets this for free if it records ops
-only on the `.ok` branch; a snapshot-diff exporter gets it because the before and after
-projections are equal.
+`vspaceReject`, `note`) — never a mutation — and record the error in `outcome` (§3.3).
+The validator rejects a refused step whose delta would change state, and so does the
+browser. An instrumented exporter gets this for free if it records ops only on the
+`.ok` branch; a snapshot-diff exporter gets it because the before and after projections
+are equal.
 
 **(B) Snapshot-diff (zero instrumentation).** Emit only the projected state *before*
 and *after* each step; let the website's sync script derive the ops by diffing
 consecutive projections. This needs no harness changes — only the projector from
 §3.1. If you choose (B), add a `projectionDiff(prev, next) → ops` helper to
-`scripts/lib/trace-analysis.mjs` (and a unit test); the fold engine already round-trips
+`assets/js/trace-engine.js` (and a unit test); the fold already round-trips
 the result. Strategy (A) yields richer per-step provenance (the path, the refusing stage,
 source refs); (B) is faster to land, but it cannot see the path: an exporter using it
 still has to record `outcome` and `path` from the call itself. They can coexist: ship (B)
@@ -138,7 +148,13 @@ A syscall step also carries `syscall` and, ideally, `path`:
 - `syscall.id` — the `SyscallId` constructor (`SeLe4n/Model/Object/Types.lean`);
 - `syscall.requiredRight` — the right `syscallRequiredRight` assigns it
   (`SeLe4n/Kernel/API.lean`): one of `read`, `write`, `grant`, `grantReply`, `retype`;
-- `syscall.capPath`, `syscall.args` — free-form display detail;
+- `syscall.number` — x7 as the kernel encodes it (`SyscallId.toNat`), checked by the
+  sync;
+- `syscall.capPtr` — x0, the CPtr the lookup resolves; the validator walks it through
+  the caller's CSpace and checks the `lookup` and `rights` stages agree;
+- `syscall.msgInfo` — x1 decoded (`length`, `extraCaps`, `label`, within
+  `MessageInfo.decode`'s bounds), and `syscall.args` — x2–x5 in order, each
+  `{ reg, name, value }`;
 - `path[]` — the stages of the checked entry the call went through, in kernel order:
   `entry`, `decode`, `lookup`, `rights`, `flow`, `operation` (omit a stage the call does
   not pass through). Each is `{ stage, label, ref?, result }` with `result` one of
@@ -146,7 +162,7 @@ A syscall step also carries `syscall` and, ideally, `path`:
   `error` equal to `outcome.error`; every stage after it is `skip`. On success no stage
   is `fail` or `skip`.
 
-The sync checks `syscall.id`, `requiredRight` and every error against the kernel source
+The sync checks `syscall.id`, `number`, `requiredRight` and every error against the kernel source
 at the exported commit, so these must be the kernel's own spellings.
 
 ### 3.4 Properties, invariants and references
@@ -169,15 +185,16 @@ sync, naming it. References appear in:
 
 Per step, `guarantees` lists the property ids the step relies on, and `invariants`
 records `preserved` (the catalogue ids a preservation theorem covers for this
-transition) and, optionally, `failed`. Schema v1's `invariants.allHold`,
+transition). Schema v1's `invariants.allHold`,
 `invariants.checked` and `invariantCatalog[].check`/`mapModule` are gone: a list of
 boolean checks that passed is a test result, and the page now cites the theorems.
 
 The executable checks are still useful to the exporter as a **self-test**: run
-`stateInvariantChecks` on each state after a step, and if any check fails, put the
-corresponding catalogue ids in `invariants.failed` — the page shows those as violated,
-never green. For a real run of the verified kernel the list should always be empty;
-an export that says otherwise has found a bug in the harness or the projection.
+`stateInvariantChecks` on each state after a step, and if any check fails, refuse to
+export. For a real run of the verified kernel that never happens; an export that would
+has found a bug in the harness or the projection. (Schema v2's `invariants.failed` is
+gone: the website runs its own mirrors, `checkState`, over every state and refuses the
+document if one fails.)
 Each scenario also names the property ids it demonstrates in `properties` (≥ 1).
 
 ---
@@ -197,17 +214,19 @@ open Lean (Json)
 /-- A recorded op (the delta vocabulary). Construct with the helpers below. -/
 abbrev Op := Json
 
-def setCurrent (thread : Option String) (core : Nat) : Op :=
-  Json.mkObj [("op", "setCurrent"), ("thread", thread.elim Json.null Json.str), ("core", core)]
+def dispatch (core : Nat) (thread : Option String) : Op :=
+  Json.mkObj [("op", "dispatch"), ("core", core), ("thread", thread.elim Json.null Json.str)]
 
 def threadPatch (id : String) (set : List (String × Json)) : Op :=
   Json.mkObj [("op", "threadPatch"), ("id", id), ("set", Json.mkObj set)]
 
-def message (from to : String) (regs : Nat) : Op :=
-  Json.mkObj [("op","message"), ("from",from), ("to",to), ("registers", regs)]
--- … epEnqueue/epDequeue/rqInsert/rqRemove/notifPatch/cdtInsert/cdtRemove/cdtRevoke/
---    cdtPatch/untypedRetype/untypedReset/flowCheck/auditAppend/vspaceMap/vspaceUnmap/
---    vspaceReject/note likewise (ALLOWED_OPS in scripts/lib/trace-analysis.mjs).
+def message (from to via : String) (words : Array Nat) (label : Nat) : Op :=
+  Json.mkObj [("op","message"), ("from",from), ("to",to), ("via",via),
+              ("words", Json.arr (words.map toJson)), ("label", label)]
+-- … deschedule/enqueue/epEnqueue/epPopHead/ntfnEnqueue/ntfnPopHead/ntfnPatch/replyPatch/
+--    scPatch/capInsert/capDelete/capRevoke/untypedCarve/untypedReset/vspaceMap/
+--    vspaceUnmap/auditAppend/flowCheck/vspaceReject/note likewise
+--    (OPS in assets/js/trace-engine.js).
 
 /-- A declaration reference. The website stamps `path` and `line`; emit only these. -/
 def ref (name module : String) : Json :=
@@ -218,12 +237,13 @@ def projectState (s : SystemState) : Json := Id.run do
   -- Walk `s.objects`, `s.scheduler`, `s.cdt`, … and emit only the fields the scenes
   -- render. `reprStr`/`ToString` for enums (ThreadIpcState → "blockedOnReceive:<id>", etc.).
   Json.mkObj [
-    ("current",  Json.mkObj [("thread", /-…-/ Json.null), ("core", 0)]),
+    ("cores",    Json.arr #[ /- per core: id, current, domain -/ ]),
     ("threads",  Json.arr #[ /- per TCB -/ ]),
+    ("runQueues", Json.mkObj [ /- core ↦ [{thread, prio}] -/ ]),
     ("endpoints", Json.arr #[ /- per Endpoint -/ ]),
     ("notifications", Json.arr #[]),
-    ("runQueue", Json.mkObj []),
-    -- include cdt / untyped / infoflow / vspace only when present
+    -- replies / schedContexts / cnodes / cdt / untyped / vspaces / labels /
+    -- declassify / audit only when present
   ]
 
 /-- One stage of the checked syscall path (§3.3). -/
@@ -237,18 +257,18 @@ structure PathStage where
 /-- One step: metadata, what the kernel returned, the path, the ops on success. -/
 structure StepRecord where
   index      : Nat
-  kind       : String                -- boot|syscall|schedule|timer|ipc|fault|interrupt
+  kind       : String                -- boot|syscall|schedule|timer|interrupt|fault
+  core       : Nat := 0
   title      : String
   traceTag   : String                -- reuse the existing "[TAG]" codes
   actor      : Option String := none
-  syscall    : Option Json := none   -- { id, requiredRight, capPath?, args? }
+  syscall    : Option Json := none   -- { id, number, msgInfo, args, capPtr?, requiredRight? }
   path       : Array PathStage := #[]
   error      : Option String := none -- the KernelError constructor when refused
   ops        : Array Op := #[]       -- event ops only when `error` is some
   sourceRefs : Array Json := #[]
   guarantees : Array String := #[]   -- propertyCatalog ids
   preserved  : Array String := #[]   -- invariantCatalog ids
-  failed     : Array String := #[]   -- catalogue ids whose runtime check failed (self-test)
 
 def stepJson (r : StepRecord) : Json :=
   Json.mkObj [
@@ -261,17 +281,15 @@ def stepJson (r : StepRecord) : Json :=
     ("sourceRefs", Json.arr r.sourceRefs),
     ("guarantees", Json.arr (r.guarantees.map Json.str)),
     ("delta", Json.mkObj [("ops", Json.arr r.ops)]),
-    ("invariants", Json.mkObj [
-      ("preserved", Json.arr (r.preserved.map Json.str)),
-      ("failed",    Json.arr (r.failed.map Json.str))])]
+    ("invariants", Json.mkObj [("preserved", Json.arr (r.preserved.map Json.str))])]
 
 /-- A scenario: id/title/summary, the properties it demonstrates, the initial
     projection and the recorded steps. -/
 def scenarioJson (id title summary : String) (properties : Array String)
-    (primaryScene : String) (initial : SystemState) (steps : Array StepRecord) : Json :=
+    (focus : String) (initial : SystemState) (steps : Array StepRecord) : Json :=
   Json.mkObj [
     ("id", id), ("title", title), ("summary", summary),
-    ("properties", Json.arr (properties.map Json.str)), ("primaryScene", primaryScene),
+    ("properties", Json.arr (properties.map Json.str)), ("focus", focus),
     ("initialState", projectState initial),
     ("steps", Json.arr (steps.map stepJson))]
 
@@ -279,7 +297,7 @@ def scenarioJson (id title summary : String) (properties : Array String)
     stamped by the website's sync; the exporter does not write them. -/
 def export (properties invariants scenarios : Array Json) : Json :=
   Json.mkObj [
-    ("schemaVersion", (2 : Nat)), ("source", "kernel"),
+    ("schemaVersion", (3 : Nat)), ("source", "kernel"),
     ("generator", "SeLe4n.Testing.TraceExport"),
     ("disclaimer", "Exported from a kernel run."),
     ("kernelVersion", /- lakefile -/ "0.0.0"),
@@ -327,7 +345,8 @@ Typical refusals, and what they mean:
 
 | Sync message | Cause |
 |--------------|-------|
-| `… failed validation; refusing to write the snapshot` | Schema v2 violated — e.g. a refused step with a mutating op, a path with two `fail` stages, an unknown op such as a v1 `servicePatch`. |
+| `… failed validation; refusing to write the snapshot` | Schema v3 violated — e.g. a refused step with a mutating op, a path with two `fail` stages, an unknown op such as a v2 `rqInsert`, a dispatch the selection rule would not make, or a state an invariant mirror rejects. |
+| `x7 = <n>, but SyscallId.toNat .<id> = <m>` | The syscall number disagrees with the kernel's encoding. |
 | `<where>: <name> in <module>` under "names kernel facts this checkout does not have" | A reference's declaration is not in that module's file at the exported commit (renamed, moved, or the module named instead of the declaration). |
 | `syscall "<id>" is not a SyscallId constructor` | The exporter spelled the syscall differently from the kernel. |
 | `<id> requires "<right>" per syscallRequiredRight, the trace says "<other>"` | `requiredRight` disagrees with the kernel's table. |

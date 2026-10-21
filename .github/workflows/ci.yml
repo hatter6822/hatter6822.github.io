@@ -23,11 +23,13 @@ jobs:
       - name: Unit tests, bundled data validation, syntax
         run: ./scripts/check.sh
 
-      # The two probes render the pages in the runner's Chrome and assert what
-      # the unit tests cannot: for map.html, that the chart is drawn at 1:1 at
-      # every desktop width, the sidebar placement, no sideways overflow and a
-      # clean console; for index.html, that every stamped figure survives
-      # hydration unchanged and no label is clipped.
+      # The three probes render the pages in the runner's Chrome and assert
+      # what the unit tests cannot: for map.html, that the chart is drawn at
+      # 1:1 at every desktop width, the sidebar placement, no sideways overflow
+      # and a clean console; for index.html, that every stamped figure
+      # survives hydration unchanged and no label is clipped; for run.html,
+      # that every scene of every step is drawn at 1:1 with nothing past its
+      # edge, and the tabs, sandbox and a translated locale work.
       # playwright-core is a test-time download, not a repository dependency.
       - name: Install playwright-core
         run: npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.56.1
@@ -45,3 +47,10 @@ jobs:
           python3 -m http.server 4174 --bind 127.0.0.1 >/dev/null 2>&1 &
           for i in $(seq 1 50); do curl -sf http://127.0.0.1:4174/index.html >/dev/null && break; sleep 0.2; done
           INDEX_SMOKE_BASE=http://127.0.0.1:4174 INDEX_SMOKE_CHANNEL=chrome node scripts/index-smoke.mjs
+
+      - name: Simulator smoke probe (headless Chrome)
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4175 --bind 127.0.0.1 >/dev/null 2>&1 &
+          for i in $(seq 1 50); do curl -sf http://127.0.0.1:4175/run.html >/dev/null && break; sleep 0.2; done
+          RUN_SMOKE_BASE=http://127.0.0.1:4175 RUN_SMOKE_CHANNEL=chrome node scripts/run-smoke.mjs

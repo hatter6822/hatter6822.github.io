@@ -51,7 +51,6 @@
      are purged on load so a returning visitor stops carrying them, as
      site.js does for the landing page's retired cache. */
   var LEGACY_STORAGE_KEYS = ["sele4n-code-map-v9", "sele4n-code-map-live-sync-meta-v1"];
-  var NAV_INTENT_KEY = "sele4n-nav-intent-v1";
   var NODE_CACHE = Object.create(null);
   var LABEL_WRAP_CACHE = new Map();
   var LABEL_WRAP_CACHE_LIMIT = 1200;
@@ -338,16 +337,6 @@
   var renderScheduled = false;
   var interiorMenuRenderScheduled = false;
 
-  function safeScrollTo(top, behavior) {
-    var targetTop = Math.max(0, Number(top) || 0);
-    var mode = behavior || "auto";
-
-    try {
-      window.scrollTo({ top: targetTop, behavior: mode });
-    } catch (e) {
-      window.scrollTo(0, targetTop);
-    }
-  }
 
   function queryParamStateFromSearch(search) {
     var out = Object.create(null);
@@ -614,9 +603,6 @@
     node.classList.toggle("error", Boolean(isError));
   }
 
-  function moduleFromPath(path) {
-    return path.replace(/\.lean$/, "").replace(/\//g, ".");
-  }
 
   function classifyLayer(moduleName) {
     if (/\.Model\./.test(moduleName)) return "model";
@@ -2537,13 +2523,8 @@
     defs.appendChild(marker);
     svg.appendChild(defs);
 
-    /* Build layers in detached DocumentFragments so all DOM mutations during
-       node/edge/label construction happen off-screen.  flush() assembles the
-       final SVG in one reflow-free batch append. */
-    var edgeFrag = document.createDocumentFragment();
-    var nodeFrag = document.createDocumentFragment();
-    var labelFrag = document.createDocumentFragment();
-
+    /* The layers are built detached from the SVG, so every node, edge and
+       label is constructed off-screen; flush() attaches them in one batch. */
     var edgeLayer = createSvgNode("g", { "class": "flow-edge-layer", "aria-hidden": "true" });
     var nodeLayer = createSvgNode("g", { "class": "flow-node-layer" });
     var labelLayer = createSvgNode("g", { "class": "flow-label-layer" });
@@ -5075,248 +5056,6 @@
   }
 
 
-  function setupNav() {
-    var toggle = document.getElementById("nav-toggle");
-    var links = document.getElementById("nav-links");
-    var nav = document.getElementById("nav");
-
-    function normalizePagePath(pathname) {
-      var normalized = String(pathname || "").replace(/\/+$/, "");
-      normalized = normalized.replace(/\/index\.html$/i, "");
-      if (!normalized) return "/";
-      return normalized;
-    }
-
-    function resolveNavTarget(href) {
-      if (!href) return null;
-      var parsed;
-      try {
-        parsed = new URL(href, window.location.href);
-      } catch (e) {
-        return null;
-      }
-
-      var currentPath = normalizePagePath(window.location.pathname);
-      var targetPath = normalizePagePath(parsed.pathname);
-      var sameOrigin = parsed.origin === window.location.origin;
-
-      return {
-        href: href,
-        url: parsed.href,
-        path: targetPath,
-        search: parsed.search || "",
-        samePath: sameOrigin && currentPath === targetPath,
-        sameOrigin: sameOrigin,
-        hash: parsed.hash || ""
-      };
-    }
-
-    function samePageHashTarget(href) {
-      var targetInfo = resolveNavTarget(href);
-      if (!targetInfo || !targetInfo.sameOrigin || !targetInfo.samePath || !targetInfo.hash || targetInfo.hash.charAt(0) !== "#") return null;
-      var id = targetInfo.hash.slice(1);
-      if (!id) return null;
-      var target = document.getElementById(id);
-      return target ? { hash: targetInfo.hash, target: target } : null;
-    }
-
-    function scrollToHash(hash, behavior) {
-      var targetInfo = samePageHashTarget(hash);
-      if (!targetInfo || !nav) return;
-      var navOffset = Math.ceil((nav.getBoundingClientRect().height || 0) + 12);
-      var targetTop = targetInfo.target.getBoundingClientRect().top + window.scrollY - navOffset;
-      safeScrollTo(targetTop, behavior || "smooth");
-    }
-
-    function focusHashTarget(hash) {
-      var targetInfo = samePageHashTarget(hash);
-      if (!targetInfo || !targetInfo.target || typeof targetInfo.target.focus !== "function") return;
-
-      var target = targetInfo.target;
-      var shouldRestoreTabIndex = false;
-      if (!target.hasAttribute("tabindex")) {
-        target.setAttribute("tabindex", "-1");
-        shouldRestoreTabIndex = true;
-      }
-
-      try {
-        target.focus({ preventScroll: true });
-      } catch (e) {
-        target.focus();
-      }
-
-      if (shouldRestoreTabIndex) {
-        target.addEventListener("blur", function cleanupTabIndex() {
-          target.removeAttribute("tabindex");
-          target.removeEventListener("blur", cleanupTabIndex);
-        });
-      }
-    }
-
-    function storeCrossPageNavIntent(targetInfo) {
-      if (!targetInfo || !targetInfo.hash || !targetInfo.path) return false;
-      try {
-        sessionStorage.setItem(NAV_INTENT_KEY, JSON.stringify({
-          path: targetInfo.path,
-          hash: targetInfo.hash,
-          ts: Date.now()
-        }));
-        return true;
-      } catch (e) {
-        return false;
-      }
-    }
-
-    function updateCurrentNavLink() {
-      if (!links) return;
-
-      var allLinks = links.querySelectorAll("a");
-      var pageLinks = [];
-      for (var i = 0; i < allLinks.length; i++) {
-        var href = allLinks[i].getAttribute("href") || "";
-        if (!href || href.charAt(0) === "#" || /^https?:\/\//i.test(href)) continue;
-        pageLinks.push(allLinks[i]);
-      }
-
-      if (!pageLinks.length) return;
-
-      var currentPath = normalizePagePath(window.location.pathname);
-      for (var j = 0; j < pageLinks.length; j++) {
-        var link = pageLinks[j];
-        var href = link.getAttribute("href") || "";
-        var normalizedHref = href.split("#")[0].replace(/^\.\//, "");
-        var linkPath = normalizePagePath(("/" + normalizedHref).replace(/\/+/g, "/"));
-
-        if (linkPath === currentPath) link.setAttribute("aria-current", "page");
-        else if (link.hasAttribute("aria-current")) link.removeAttribute("aria-current");
-      }
-    }
-
-    function syncNavMetrics() {
-      if (!nav) return;
-      var navHeight = Math.ceil(nav.getBoundingClientRect().height || 0);
-      if (navHeight > 0) {
-        document.documentElement.style.setProperty("--nav-height", navHeight + "px");
-        document.documentElement.style.setProperty("--nav-scroll-offset", Math.ceil(navHeight + 12) + "px");
-      }
-    }
-
-    function setNavState(open) {
-      if (!toggle || !links) return;
-      links.classList.toggle("open", open);
-      toggle.classList.toggle("open", open);
-      toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      document.body.classList.toggle("nav-open", open);
-    }
-
-    if (toggle && links) {
-      toggle.addEventListener("click", function () {
-        setNavState(!links.classList.contains("open"));
-      });
-
-      var items = links.querySelectorAll("a");
-      for (var i = 0; i < items.length; i++) {
-        items[i].addEventListener("click", function (event) {
-          var href = event.currentTarget.getAttribute("href") || "";
-          var target = resolveNavTarget(href);
-          var targetInfo = samePageHashTarget(href);
-
-          if (targetInfo) {
-            event.preventDefault();
-            scrollToHash(targetInfo.hash, "smooth");
-            focusHashTarget(targetInfo.hash);
-            if (window.location.hash !== targetInfo.hash) { try { history.pushState(null, "", targetInfo.hash); } catch (e) {} }
-          } else if (target && target.samePath && !target.hash) {
-            event.preventDefault();
-            safeScrollTo(0, "smooth");
-            if (window.location.pathname !== target.path || window.location.search || window.location.hash) {
-              try { history.replaceState(null, "", target.path); } catch (e) {}
-            }
-          } else if (target && target.sameOrigin && !target.samePath && target.hash) {
-            event.preventDefault();
-            var storedIntent = storeCrossPageNavIntent(target);
-            // Prefer intent-only navigation to avoid native hash jumps competing with the
-            // landing page's offset-aware scroll/focus pass. If storage is unavailable,
-            // fall back to hash navigation so deep links still work.
-            if (storedIntent) window.location.assign(target.path + (target.search || ""));
-            else window.location.assign(target.url || (target.path + (target.search || "") + target.hash));
-          }
-
-          setNavState(false);
-        });
-      }
-
-      document.addEventListener("keydown", function (event) {
-        if (event.key !== "Escape") return;
-        setNavState(false);
-      });
-
-      document.addEventListener("click", function (event) {
-        if (!links.classList.contains("open")) return;
-        var target = event.target;
-        if (toggle.contains(target) || links.contains(target)) return;
-        setNavState(false);
-      });
-
-      window.addEventListener("resize", function () {
-        if (window.innerWidth > 768) setNavState(false);
-      }, { passive: true });
-    }
-
-    syncNavMetrics();
-    updateCurrentNavLink();
-    window.addEventListener("resize", syncNavMetrics, { passive: true });
-    window.addEventListener("orientationchange", syncNavMetrics, { passive: true });
-
-    if (!nav) return;
-
-    if (nav.getAttribute("data-force-scrolled") === "true") {
-      nav.classList.add("scrolled");
-      return;
-    }
-
-    var applyScrolled = function () {
-      nav.classList.toggle("scrolled", window.scrollY > 40);
-    };
-
-    applyScrolled();
-
-    var ticking = false;
-    window.addEventListener("scroll", function () {
-      if (ticking) return;
-      window.requestAnimationFrame(function () {
-        applyScrolled();
-        ticking = false;
-      });
-      ticking = true;
-    }, { passive: true });
-  }
-
-  function setupTheme() {
-    var root = document.documentElement;
-    var btn = document.getElementById("theme-toggle");
-    if (!root.getAttribute("data-theme")) root.setAttribute("data-theme", "dark");
-    if (!btn) return;
-
-    btn.addEventListener("click", function () {
-      var next = (root.getAttribute("data-theme") || "dark") === "dark" ? "light" : "dark";
-      root.setAttribute("data-theme", next);
-      try { localStorage.setItem("sele4n-theme", next); } catch (e) {}
-      var meta = document.getElementById("theme-color-meta");
-      if (meta) meta.setAttribute("content", next === "light" ? "#f8f9fc" : "#0a0e17");
-    });
-  }
-
-  function hardenExternalLinks() {
-    var links = document.querySelectorAll('a[target="_blank"]');
-    for (var i = 0; i < links.length; i++) {
-      var rel = links[i].getAttribute("rel") || "";
-      var tokens = rel.split(/\s+/).filter(Boolean);
-      if (tokens.indexOf("noopener") === -1) tokens.push("noopener");
-      if (tokens.indexOf("noreferrer") === -1) tokens.push("noreferrer");
-      links[i].setAttribute("rel", tokens.join(" "));
-    }
-  }
 
   /* A declaration is identified by its module and its name together. A name
      is listed as written, relative to its namespace, so one name can be
@@ -6753,9 +6492,6 @@
   function boot() {
     setupLocaleReady();
     cacheDomElements();
-    setupTheme();
-    if (typeof window.sele4nSetupHeaderNav !== "function") setupNav();
-    hardenExternalLinks();
     readUrlState();
     setupFilters();
     setupScopeToggle();
@@ -6773,7 +6509,6 @@
        normalized and rendered, and nothing replaces it afterwards. */
     fetchBundledMapData().then(yieldToBrowser).then(function (data) {
       applyData(data);
-      hardenExternalLinks();
       paintLoadStatus("ready");
     }).catch(function (error) {
       paintLoadStatus("error", error && error.message ? error.message : "");

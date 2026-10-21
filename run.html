@@ -19,7 +19,7 @@
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="Permissions-Policy" content="geolocation=(), microphone=(), camera=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 
   <link rel="canonical" href="https://sele4n.org/run.html">
   <link rel="icon" type="image/png" href="assets/images/favicon.png">
@@ -143,12 +143,7 @@
             <div class="theater-stage-shell" id="theater-stage-shell" tabindex="0" role="region" aria-label="Kernel system state" data-i18n-aria-label="run.stage_region">
               <div id="theater-stage"></div>
             </div>
-            <ul class="theater-legend" aria-hidden="true">
-              <li><i data-state="running"></i> <span data-i18n="run.legend_running">Running</span></li>
-              <li><i data-state="ready"></i> <span data-i18n="run.legend_ready">Ready</span></li>
-              <li><i data-state="blocked"></i> <span data-i18n="run.legend_blocked">Blocked</span></li>
-              <li><i data-state="touched"></i> <span data-i18n="run.legend_touched">Changed by this step</span></li>
-            </ul>
+            <ul class="theater-legend" id="theater-legend" aria-hidden="true"></ul>
           </div>
           <aside class="theater-card inspector-card" aria-label="Step detail" data-i18n-aria-label="run.step_detail">
             <h2 class="visually-hidden" data-i18n="run.step_detail">Step detail</h2>
@@ -179,6 +174,11 @@
             <button class="btn btn-secondary" type="button" data-perturb="enqueue-current" data-i18n="run.sb_enqueue">Enqueue the running thread</button>
             <button class="btn btn-secondary" type="button" data-perturb="dup-runqueue" data-i18n="run.sb_dup">Duplicate a run-queue entry</button>
             <button class="btn btn-secondary" type="button" data-perturb="wake-blocked" data-i18n="run.sb_wake">Wake a blocked thread</button>
+            <button class="btn btn-secondary" type="button" data-perturb="orphan-cdt" data-i18n="run.sb_orphan">Derive a capability into an empty slot</button>
+            <button class="btn btn-secondary" type="button" data-perturb="map-wx" data-i18n="run.sb_wx">Map a page writable and executable</button>
+            <button class="btn btn-secondary" type="button" data-perturb="stale-tlb" data-i18n="run.sb_tlb">Leave a stale TLB entry</button>
+            <button class="btn btn-secondary" type="button" data-perturb="overspend" data-i18n="run.sb_overspend">Overspend a budget</button>
+            <button class="btn btn-secondary" type="button" data-perturb="overlap" data-i18n="run.sb_overlap">Overlap two retyped objects</button>
             <button class="btn" type="button" data-sandbox-reset data-i18n="run.sb_reset">Reset to trace</button>
           </div>
         </section>
@@ -204,6 +204,7 @@
   </footer>
 
   <script src="assets/js/header-nav.js" defer></script>
+  <script src="assets/js/trace-engine.js" defer></script>
   <script src="assets/js/run.js" defer></script>
 </body>
 </html>

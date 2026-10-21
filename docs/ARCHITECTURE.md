@@ -426,7 +426,7 @@ New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.l
 
 ## Rust syscall wrapper layer
 
-The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.36.41 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (41 syscalls at 0.36.41, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.36.121 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (42 syscalls at 0.36.121, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
 
 The crate descriptions below were written at 0.2x (30 syscalls, a 55-variant `KernelError`, eight `sele4n-sys` modules) and are kept as history; at 0.36.41 `SyscallId` has 41 variants, `KernelError` 59 (58 mirroring Lean plus a Rust-only sentinel), and `sele4n-sys` adds `audit.rs` and `declassify.rs` plus `cspace_revoke`, `mint_reply_cap`, `untyped_retype`/`untyped_reset`, `page_table_map`/`unmap`, `tcb_set_space`, `tcb_set_fault_handler` and the notification bind/unbind wrappers.
 
@@ -982,7 +982,7 @@ git clone --depth 1 seLe4n@main
   is not map-data's `commitSha` — see "The Simulator is grounded and
   bundle-only".
 
-### The Simulator is grounded and bundle-only (trace schema v2)
+### The Simulator is grounded and bundle-only (trace schema v2, then v3)
 
 The Simulator's scenarios are hand-written: the kernel exports no traces yet.
 The 0.33.6 fixture had nonetheless been presented as kernel behaviour, and by
@@ -1018,6 +1018,28 @@ Schema v2 makes the claims checkable instead of better-worded:
   against the bundle, and none exists upstream anyway. Source links are built
   only from the stamped fields, through a whitelist (40-hex commit, `.lean`
   path, positive line), so a malformed document cannot place an arbitrary URL.
+
+Schema v3 (the 0.36.121 resync) goes from *names* to *decisions*:
+
+- **One engine.** The fold had been written twice — once in `run.js`, once in
+  `trace-analysis.mjs` — with a test keeping them equal. `assets/js/trace-engine.js`
+  is now the only copy: plain ES5 with no DOM, loaded by the page before
+  `run.js` and evaluated by the Node validator with `new Function`.
+- **The trace records effects; the validator recomputes decisions.** A step now
+  carries the registers the kernel decodes (x0 CPtr, x1 `MessageInfo`, x2–x5,
+  x7), and the state carries the structures the decisions read (per-core run
+  queues with their buckets, CNodes with guard/radix geometry and slots,
+  scheduling contexts, security labels). So the validator can check, rather
+  than believe, that the caller was current, where x0 resolves, whether the
+  right was held, whether the flow was allowed, which thread the scheduler
+  picks, and that a derived capability attenuates; grounding adds x7 against
+  `SyscallId.toNat`. Sixteen executable invariant mirrors run over every state.
+- **Scenes draw the kernel's structures, not a story about them.** Six scenes —
+  kernel path, IPC, scheduler, CSpace, memory, information flow — each a lens on
+  the same folded state, all drawn at 1:1 and probed in a browser
+  (`scripts/run-smoke.mjs`) for text past the edge on every step.
+- **The sandbox uses the same mirrors.** Its eight perturbations are judged by
+  `checkState`, the function the validator runs, not by a second set of checks.
 
 The design is specified in `docs/SIMULATOR_SPEC.md`; the kernel-side contract
 in `docs/UPSTREAM_TRACE_EXPORT.md`.
@@ -1196,10 +1218,10 @@ disagreement. `validate-data.mjs` rejects any map module under `tests/` or
 
 The kernel's own README table is rendered from the same artifact at its wider
 scope, so the two sites quote different totals for the same commit. Rather than
-leave a reader to reconcile them, `index.html` carries one sentence under the
+leave a reader to reconcile them, `index.html` carried one sentence under the
 hero stats (`hero.scope_note`, in every locale) saying the framework is
-excluded. The disclosure is part of the decision: the figures are not to be
-shown without it.
+excluded. It was taken out of the hero in September 2026, and its unused
+locale keys and style went with the 0.36.121 audit.
 
 ### Reproducible regeneration
 
@@ -1992,3 +2014,39 @@ On the bundle: 19,046 listed declarations (was 19,509, of which 471 were
 scope commands), 134,919 call edges (was 161,737), 1,983 of them qualified.
 `SystemState` has 10,712 callers in 223 modules. The call graph is 360 KB
 gzipped (was 379 KB).
+
+## One copy of each thing (the 0.36.121 audit)
+
+The resync came with an audit for dead and redundant code. What it removed,
+and why each piece could go:
+
+- **Three theme controllers.** `site.js`, `map.js` and `run.js` each bound
+  `#theme-toggle`, listened for OS theme changes and kept the `theme-color`
+  meta in step, beside `theme-init.js`, which already applied the theme before
+  first paint. `theme-init.js` now owns all of it on every page.
+- **Two navigation fallbacks that never ran.** `site.js` and `map.js` each
+  carried ~240 lines re-implementing `header-nav.js` for the case where it had
+  not loaded. Every page loads it first, so the fallback was dead weight that
+  still had to be kept in step with the real controller.
+- **Runtime link hardening.** Three copies of a function patched
+  `rel="noopener noreferrer"` onto `target="_blank"` links after load, which
+  covered only what had rendered by then and hid an unhardened link from
+  review. `csp-html.test.mjs` now requires the attribute in the markup and in
+  every locale bundle.
+- **Unreferenced code and strings.** Two functions and five variables nothing
+  read (among them three `DocumentFragment`s a comment still described as the
+  batching strategy), the `.hero-scope-note` style and its locale key after
+  the note left the hero, and six other locale keys no page asks for — in all
+  six languages.
+
+Tightened at the same time:
+
+- `img-src` is `'self'` on every page; nothing draws a `data:` image, and
+  `csp-html.test.mjs` pins it alongside `connect-src`.
+- Locale HTML refuses a protocol-relative `href` (`//host`, `/\host`): an
+  external origin that looked like a same-origin path. `isSafeHref` is tested
+  directly.
+- `sync-upstream.mjs` refuses an artifact whose `repository.head.commit_sha` is
+  not a 40-hex SHA before passing it to `git fetch`, where a value starting
+  with `-` would have been read as an option.
+- The weekly sync runs the simulator probe too, since it rewrites the traces.

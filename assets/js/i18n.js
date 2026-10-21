@@ -160,6 +160,13 @@
    * Attributes on allowed tags are preserved only for <a> (href, rel, target)
    * and <span>/<code> (class, data-live, data-i18n). All others are removed.
    */
+  /* An absolute http(s) URL, a same-origin path, a fragment or a mailto. A
+     protocol-relative "//host" (or "/\host", which browsers read the same way)
+     is an external origin in disguise, and any other scheme is refused. */
+  function isSafeHref(href) {
+    return /^https?:\/\//i.test(href) || /^\/(?![\/\\])/.test(href) || /^#/.test(href) || /^mailto:/i.test(href);
+  }
+
   function sanitizeHTML(raw) {
     // Parse into a <template>, whose content belongs to an inert document: an
     // <img onerror> or <svg onload> in a locale string is neither fetched nor
@@ -186,10 +193,7 @@
         if (!keep) node.removeAttribute(name);
       }
       if (node.localName === "a") {
-        var href = node.getAttribute("href") || "";
-        if (href && !/^https?:\/\//.test(href) && !/^\//.test(href) && !/^#/.test(href) && !/^mailto:/.test(href)) {
-          node.removeAttribute("href");
-        }
+        if (!isSafeHref(node.getAttribute("href") || "")) node.removeAttribute("href");
         node.setAttribute("rel", "noopener noreferrer");
       }
     }

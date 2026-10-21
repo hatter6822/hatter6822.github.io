@@ -159,8 +159,8 @@ test('the map keeps no localStorage copy of the snapshot and runs no refresh loo
   /* The retired keys are named once, to be purged. */
   assert.equal((mapSource.match(/sele4n-code-map/g) || []).length, 2, 'the retired keys appear only in the purge list');
   assert.match(mapSource, /localStorage\.removeItem\(LEGACY_STORAGE_KEYS\[i\]\)/);
-  const storageWrites = [...mapSource.matchAll(/localStorage\.setItem\(\s*"([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(storageWrites, ['sele4n-theme'], 'localStorage holds the theme preference only');
+  /* The theme preference is theme-init.js's to write; the map writes nothing. */
+  assert.ok(!/localStorage\.setItem/.test(mapSource), 'the map writes nothing to localStorage');
   for (const trigger of ['"visibilitychange"', '"online"', 'setInterval(']) {
     assert.ok(!mapSource.includes(trigger), `no refresh trigger (${trigger}) should remain`);
   }
@@ -2430,7 +2430,7 @@ test('every production Rust source file is one graph node, and test targets are 
   }
 
   /* Each crate contributes exactly one root, and it is the crate's own name. */
-  assert.deepEqual(Array.from(graph.crateRoots), ['sele4n-types', 'sele4n-abi', 'sele4n-sys', 'sele4n-hal'],
+  assert.deepEqual(Array.from(graph.crateRoots), ['sele4n-types', 'sele4n-abi', 'sele4n-sys', 'sele4n-hal', 'sele4n-lean-boundary'],
     'crate roots keep workspace order and are addressed by the bare crate name');
   for (const root of graph.crateRoots) {
     assert.equal(graph.byName[root].isRoot, true);
