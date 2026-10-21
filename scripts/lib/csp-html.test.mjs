@@ -10,7 +10,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 
 const PAGES = ['index.html', 'map.html', 'run.html', '404.html'];
 const ROOT = new URL('../../', import.meta.url);
@@ -24,7 +24,7 @@ const INLINE_STYLE_ATTR = /\sstyle\s*=\s*["']/g;
    second data source from creeping back: the code map used to download the
    upstream artifact and hundreds of Lean files on every visit, and replaced
    the bundled graph with an edgeless one from another commit. */
-const SELF_ONLY_CONNECT = ['index.html', 'map.html'];
+const SELF_ONLY_CONNECT = ['index.html', 'map.html', 'run.html', '404.html'];
 
 function cspOf(html) {
   const match = html.match(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"/i);
@@ -52,3 +52,22 @@ for (const page of PAGES) {
     );
   });
 }
+
+/* Every link that opens a new tab carries rel="noopener noreferrer" in the
+   markup itself. The pages used to patch rel at runtime, three copies of one
+   function, which only covered what had rendered by then and hid an
+   unhardened link from review. The locales count too: data-i18n-html writes
+   their links into the page verbatim. */
+test('every target="_blank" link is hardened in the markup and the locales', async () => {
+  const sources = PAGES.map((page) => [page, new URL(page, ROOT)]);
+  for (const name of await readdir(new URL('locales/', ROOT))) {
+    if (name.endsWith('.json')) sources.push([`locales/${name}`, new URL(`locales/${name}`, ROOT)]);
+  }
+  for (const [label, url] of sources) {
+    const text = (await readFile(url, 'utf8')).replace(/\\"/g, '"');
+    for (const tag of text.match(/<a\s[^>]*>/g) || []) {
+      if (!/target="_blank"/.test(tag)) continue;
+      assert.match(tag, /rel="noopener noreferrer"/, `${label}: ${tag}`);
+    }
+  }
+});

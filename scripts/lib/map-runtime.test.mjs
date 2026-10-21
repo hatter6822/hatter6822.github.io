@@ -159,8 +159,8 @@ test('the map keeps no localStorage copy of the snapshot and runs no refresh loo
   /* The retired keys are named once, to be purged. */
   assert.equal((mapSource.match(/sele4n-code-map/g) || []).length, 2, 'the retired keys appear only in the purge list');
   assert.match(mapSource, /localStorage\.removeItem\(LEGACY_STORAGE_KEYS\[i\]\)/);
-  const storageWrites = [...mapSource.matchAll(/localStorage\.setItem\(\s*"([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(storageWrites, ['sele4n-theme'], 'localStorage holds the theme preference only');
+  /* The theme preference is theme-init.js's to write; the map writes nothing. */
+  assert.ok(!/localStorage\.setItem/.test(mapSource), 'the map writes nothing to localStorage');
   for (const trigger of ['"visibilitychange"', '"online"', 'setInterval(']) {
     assert.ok(!mapSource.includes(trigger), `no refresh trigger (${trigger}) should remain`);
   }

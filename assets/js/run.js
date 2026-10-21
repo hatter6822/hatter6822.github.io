@@ -2034,34 +2034,6 @@
   }
 
   /* ════════════════════════════════════════════════════════════
-     Chrome (theme / background toggle, mirroring map.js)
-     ════════════════════════════════════════════════════════════ */
-
-  function setupTheme() {
-    var root = document.documentElement;
-    var btn = document.getElementById("theme-toggle");
-    if (!root.getAttribute("data-theme")) root.setAttribute("data-theme", "dark");
-    if (!btn) return;
-    btn.addEventListener("click", function () {
-      var next = (root.getAttribute("data-theme") || "dark") === "dark" ? "light" : "dark";
-      root.setAttribute("data-theme", next);
-      try { localStorage.setItem("sele4n-theme", next); } catch (e) {}
-      var meta = document.getElementById("theme-color-meta");
-      if (meta) meta.setAttribute("content", next === "light" ? "#f8f9fc" : "#0a0e17");
-    });
-  }
-
-  function hardenExternalLinks() {
-    var links = document.querySelectorAll('a[target="_blank"]');
-    for (var i = 0; i < links.length; i++) {
-      var rel = (links[i].getAttribute("rel") || "").split(/\s+/).filter(Boolean);
-      if (rel.indexOf("noopener") === -1) rel.push("noopener");
-      if (rel.indexOf("noreferrer") === -1) rel.push("noreferrer");
-      links[i].setAttribute("rel", rel.join(" "));
-    }
-  }
-
-  /* ════════════════════════════════════════════════════════════
      Event wiring + bootstrap
      ════════════════════════════════════════════════════════════ */
 
@@ -2118,8 +2090,6 @@
   function init() {
     cacheDom();
     setupLocaleReady();
-    setupTheme();
-    hardenExternalLinks();
     wireControls();
     applyUrlState();
     if (app.sandbox) setSandbox(true);
