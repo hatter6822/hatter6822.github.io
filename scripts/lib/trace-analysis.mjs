@@ -1,5 +1,5 @@
 /**
- * seLe4n Simulator — trace analysis library (schema v3).
+ * seLe4n Simulator — trace analysis library (schema v4).
  *
  * The fold, the scheduler's selection rule, CPtr resolution, the flow lattice
  * and the structural invariant checks live in one file,
@@ -17,9 +17,20 @@
  *     CSpace (`resolveCapAddress`), the rights check against the capability it
  *     finds (`syscallLookupCap`), and each recorded flow check against the
  *     labels (`securityFlowsTo`). A step whose path says otherwise fails.
+ *     The type gate between them (`syscallTargetAccepted`) and the arm's
+ *     length check (`truncationMinimum`) are recomputed the same way.
  *   - **The scheduler's choice is recomputed.** Every `dispatch` op must name
  *     the thread `chooseBestInBucketEffective` picks from the state at that
  *     point of the step.
+ *   - **A kernel entry that takes no argument is recomputed whole.** A timer
+ *     tick, a reschedule and a device interrupt are functions of the state
+ *     alone, so the step's ops must be exactly the ones the engine writes out
+ *     for it (`timerTickOps`, `rescheduleOps`, `interruptOps`).
+ *   - **Capabilities move only as the kernel moves them.** A capability
+ *     installed by an IPC transfer must be the one `transferPlan` installs,
+ *     in the receiver's receive slot, under the slot it came from; an
+ *     interrupt handler is issued, bound, acknowledged and masked only by the
+ *     step that does it.
  *   - **Derivations attenuate.** A minted or copied capability names its
  *     parent's object with a subset of its rights (`capAttenuates`).
  *   - **Every state satisfies the structural invariants** the catalogue names
@@ -51,7 +62,16 @@ export const {
 export const ALLOWED_SOURCES = ['kernel', 'fixture'];
 
 /** The stage views the page offers; a scenario may name one as its focus. */
-export const SCENES = ['path', 'ipc', 'scheduler', 'cspace', 'memory', 'infoflow'];
+export const SCENES = ['path', 'ipc', 'scheduler', 'cspace', 'memory', 'infoflow', 'irq'];
+
+/** Order-insensitive structural equality of two plain values. */
+function canonical(v) {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v && typeof v === 'object') return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  return JSON.stringify(v === undefined ? null : v);
+}
+function sameOps(a, b) { return canonical(a) === canonical(b); }
+function describeOps(ops) { return ops.map((o) => canonical(o)).join(' ') || '(nothing)'; }
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const ID_RE = /^[A-Za-z0-9_.:-]+$/;
@@ -146,6 +166,45 @@ function validateStateShape(state, path, errors) {
     else Object.entries(cn.slots).forEach(([slot, cap]) => checkCap(cap, `${path}.cnodes[${i}].slots.${slot}`, errors));
   });
   if (state.cdt !== undefined && !isObject(state.cdt)) errors.push(`${path}.cdt must be an object of parent → children`);
+  if (state.time !== undefined && !isNonNegInt(state.time)) errors.push(`${path}.time must be the timer's tick count`);
+  const scIds = (state.schedContexts || []).filter(isObject).map((sc) => sc.id);
+  (state.schedContexts || []).forEach((sc, i) => {
+    if (!isObject(sc)) return;
+    for (const f of ['budget', 'period', 'remaining', 'deadline', 'periodStart']) if (!isNonNegInt(sc[f])) errors.push(`${path}.schedContexts[${i}].${f} must be a non-negative integer`);
+    if (!(sc.period > 0)) errors.push(`${path}.schedContexts[${i}].period must be positive`);
+    if (!Array.isArray(sc.refills)) errors.push(`${path}.schedContexts[${i}].refills must be an array of { amount, at }`);
+    else sc.refills.forEach((r, j) => {
+      if (!isObject(r) || !isNonNegInt(r.amount) || !isNonNegInt(r.at)) errors.push(`${path}.schedContexts[${i}].refills[${j}] must be { amount, at }`);
+      else if (j && sc.refills[j - 1].at > r.at) errors.push(`${path}.schedContexts[${i}].refills must be oldest first`);
+    });
+    if (sc.refillIn !== undefined) errors.push(`${path}.schedContexts[${i}].refillIn was a v3 field; a refill's release time is its refills[].at`);
+  });
+  if (state.releaseQueues !== undefined) {
+    if (!isObject(state.releaseQueues)) errors.push(`${path}.releaseQueues must be an object keyed by core`);
+    else Object.entries(state.releaseQueues).forEach(([k, q]) => {
+      if (!cores.includes(Number(k))) errors.push(`${path}.releaseQueues.${k} names no declared core`);
+      if (!Array.isArray(q) || q.some((id) => !scIds.includes(id))) errors.push(`${path}.releaseQueues.${k} must list declared scheduling contexts`);
+    });
+  }
+  (state.untyped || []).forEach((u, i) => {
+    if (!isObject(u)) return;
+    if (u.watermark !== undefined) errors.push(`${path}.untyped[${i}].watermark was a v3 field; the free index is the untyped capability's (freeIndex)`);
+    if (!isNonNegInt(u.base) || !(Number.isInteger(u.size) && u.size > 0)) errors.push(`${path}.untyped[${i}] needs a base address and a size`);
+  });
+  if (state.irqs !== undefined) {
+    if (!Array.isArray(state.irqs)) errors.push(`${path}.irqs must be an array`);
+    else state.irqs.forEach((l, i) => {
+      if (!isObject(l) || !isNonNegInt(l.line) || l.line >= 320) { errors.push(`${path}.irqs[${i}].line must be an interrupt id below 320`); return; }
+      if (l.line < 32) errors.push(`${path}.irqs[${i}].line ${l.line} is no device line (SPIs start at 32)`);
+      if (typeof l.active !== 'boolean' || typeof l.masked !== 'boolean') errors.push(`${path}.irqs[${i}] needs boolean active and masked`);
+      if (!isString(l.name) || !l.name) errors.push(`${path}.irqs[${i}].name must say what the line is`);
+      if (!engine.irqNodeSlot(state, l.line)) errors.push(`${path}.irqs[${i}]: line ${l.line} has no interrupt node (a CNode with irqNode: ${l.line})`);
+    });
+  }
+  (state.threads || []).forEach((t, i) => {
+    if (!isObject(t) || t.recvSlot === undefined) return;
+    if (!isString(t.recvSlot) || !engine.parseSlot(t.recvSlot)) errors.push(`${path}.threads[${i}].recvSlot must be a "<cnode>/<slot>" address`);
+  });
   (state.labels || []).forEach((l, i) => {
     if (!isObject(l)) return;
     if (engine.LABEL_CONF.indexOf(l.conf) === -1) errors.push(`${path}.labels[${i}].conf must be low or high`);
@@ -170,6 +229,8 @@ function checkCap(cap, path, errors) {
   if (!isString(cap.target) || !cap.target) errors.push(`${path}.target must name an object`);
   if (!Array.isArray(cap.rights) || cap.rights.some((r) => RIGHTS.indexOf(r) === -1)) errors.push(`${path}.rights must be a list of ${RIGHTS.join(', ')}`);
   if (cap.badge !== undefined && cap.badge !== null && !isNonNegInt(cap.badge)) errors.push(`${path}.badge must be a non-negative integer`);
+  if (cap.freeIndex !== undefined && (cap.kind !== 'untyped' || !isNonNegInt(cap.freeIndex))) errors.push(`${path}.freeIndex belongs on an untyped capability and is a byte offset`);
+  if (cap.kind === 'irqHandler' && !isNonNegInt(cap.line)) errors.push(`${path}.line must name the handler's interrupt line`);
 }
 
 /* ── Syscall register block ─────────────────────────────────── */
@@ -183,8 +244,33 @@ function validateSyscallShape(step, stp, errors) {
   const needsCap = !!stageOf(step, 'lookup');
   if (needsCap && !isNonNegInt(call.capPtr)) errors.push(`${stp}.syscall.capPtr must be the x0 value the lookup resolves`);
   if (!!stageOf(step, 'rights') !== (call.requiredRight !== undefined)) errors.push(`${stp}.syscall.requiredRight must be present exactly when the path has a rights stage`);
-  if (call.requiredRight !== undefined && RIGHTS.indexOf(call.requiredRight) === -1) errors.push(`${stp}.syscall.requiredRight must be one of ${RIGHTS.join(', ')}`);
   const mi = call.msgInfo;
+  // The yield invokes no capability (`dispatchSyscallChecked` answers it
+  // before any lookup); every other syscall runs lookup, type and rights.
+  const stages = (step.path || []).filter(isObject).map((s) => s.stage);
+  const want = call.id === 'yield' ? [] : ['lookup', 'type', 'rights'];
+  for (const s of ['lookup', 'type', 'rights']) {
+    if (want.includes(s) !== stages.includes(s)) errors.push(`${stp}.path ${want.includes(s) ? 'must have' : 'must not have'} a ${s} stage (${call.id})`);
+  }
+  if (stages.length && stages[stages.length - 1] !== 'operation') errors.push(`${stp}.path must end at the operation stage`);
+  if (!stages.includes('decode')) errors.push(`${stp}.path must have a decode stage`);
+  if (call.ipcBuffer !== undefined) {
+    if (!Array.isArray(call.ipcBuffer) || call.ipcBuffer.some((w) => !isObject(w) || !isString(w.name) || !w.name || !isNonNegInt(w.value))) errors.push(`${stp}.syscall.ipcBuffer must list { name, value } message words past x5`);
+    else if (!engine.readsOverflow(call.id)) errors.push(`${stp}.syscall.ipcBuffer: ${call.id} reads no message word past x5 (syscallReadsOverflow)`);
+  }
+  if (isObject(mi) && Array.isArray(call.args)) {
+    const inline = Math.min(mi.length, REGISTERS.msgRegs.length);
+    if (call.args.length !== inline) errors.push(`${stp}.syscall.args: a message of length ${mi.length} carries ${inline} inline word(s), the step lists ${call.args.length}`);
+    const overflow = Math.max(0, mi.length - REGISTERS.msgRegs.length);
+    const listed = Array.isArray(call.ipcBuffer) ? call.ipcBuffer.length : 0;
+    if (engine.readsOverflow(call.id) ? listed !== overflow : listed !== 0) errors.push(`${stp}.syscall.ipcBuffer: a ${call.id} of length ${mi.length} reads ${engine.readsOverflow(call.id) ? overflow : 0} word(s) from the IPC buffer, the step lists ${listed}`);
+  }
+  if (call.extraCaps !== undefined) {
+    if (!Array.isArray(call.extraCaps) || call.extraCaps.some((c) => !isNonNegInt(c))) errors.push(`${stp}.syscall.extraCaps must list the capability addresses the sender names`);
+    else if (['send', 'call', 'reply', 'replyRecv'].indexOf(call.id) === -1) errors.push(`${stp}.syscall.extraCaps: ${call.id} transfers no capability`);
+  }
+  if (isObject(mi) && (Array.isArray(call.extraCaps) ? call.extraCaps.length : 0) !== mi.extraCaps) errors.push(`${stp}.syscall.extraCaps must list msgInfo.extraCaps (${mi.extraCaps}) addresses`);
+  if (call.requiredRight !== undefined && RIGHTS.indexOf(call.requiredRight) === -1) errors.push(`${stp}.syscall.requiredRight must be one of ${RIGHTS.join(', ')}`);
   if (!isObject(mi)) errors.push(`${stp}.syscall.msgInfo must be { length, extraCaps, label }`);
   else {
     for (const f of ['length', 'extraCaps', 'label']) {
@@ -224,6 +310,16 @@ function checkSyscallGates(step, pre, stp, errors) {
     return;
   }
   if (lookup.result === 'fail') { errors.push(`${stp}: x0 = ${call.capPtr} resolves to ${r.slot}, but the lookup stage says fail`); return; }
+  // `syscallTargetAccepted`: the capability's type, before any right.
+  const type = stageOf(step, 'type');
+  if (!type || type.result === 'skip') return;
+  const accepted = engine.targetAccepted(call.id, r.cap);
+  if (accepted && type.result === 'fail') errors.push(`${stp}: ${r.slot} holds a ${r.cap.kind} capability, which ${call.id} accepts, but the type stage says fail`);
+  if (!accepted) {
+    if (type.result !== 'fail') errors.push(`${stp}: ${r.slot} holds a ${r.cap.kind} capability, which ${call.id} does not invoke (syscallTargetAccepted), but the type stage says ${type.result}`);
+    else if (step.outcome && step.outcome.error !== 'invalidCapability') errors.push(`${stp}: a capability of the wrong type is refused with invalidCapability, not ${step.outcome.error}`);
+    return;
+  }
   const rights = stageOf(step, 'rights');
   if (!rights || rights.result === 'skip') return;
   const has = engine.capHasRight(r.cap, call.requiredRight);
@@ -233,6 +329,96 @@ function checkSyscallGates(step, pre, stp, errors) {
   // invalid capability, every other syscall as illegal authority.
   const refusal = engine.missingRightError(call.id);
   if (!has && step.outcome && step.outcome.error !== refusal) errors.push(`${stp}: ${call.id} without ${call.requiredRight} is refused with ${refusal} (syscallMissingRightError), not ${step.outcome.error}`);
+  if (!has) return;
+  // `requireMessageLength`: the arm's decode refuses a short message before
+  // it reads a word of it.
+  const min = engine.truncationMinimum(call.id);
+  const short = isObject(call.msgInfo) && call.msgInfo.length < min;
+  const args = stageOf(step, 'args');
+  const truncated = !!(args && args.result === 'fail' && args.error === 'truncatedMessage');
+  if (short && !truncated) errors.push(`${stp}: a ${call.id} of length ${call.msgInfo.length} is shorter than its ${min} word(s) and is refused with truncatedMessage at the args stage`);
+  if (!short && truncated) errors.push(`${stp}: a ${call.id} of length ${call.msgInfo.length} meets its ${min} word(s); it is not truncated`);
+  if (min > 0 && !args) errors.push(`${stp}: ${call.id} decodes ${min} argument word(s); its path needs an args stage`);
+  checkArmEffects(step, pre, r, stp, errors);
+}
+
+/**
+ * What an arm writes, where the engine can say so from the state and the
+ * registers: capabilities an IPC rendezvous transfers, and the interrupt
+ * syscalls.
+ */
+function checkArmEffects(step, pre, r, stp, errors) {
+  const call = step.syscall;
+  const ops = (isObject(step.delta) && Array.isArray(step.delta.ops) ? step.delta.ops : []).filter(isObject);
+  const ok = isObject(step.outcome) && step.outcome.status === 'ok';
+  const transfers = ops.filter((o) => o.op === 'capInsert' && o.cap && o.cap.derivation === 'ipcTransfer');
+  if (call.id === 'send' || call.id === 'call') {
+    const ep = engine.byId(pre.endpoints, r.cap.target);
+    const receiver = ep && Array.isArray(ep.recv) && ep.recv.length ? ep.recv[0] : null;
+    let expect = [];
+    if (ok && receiver && Array.isArray(call.extraCaps) && call.extraCaps.length) {
+      expect = engine.transferPlan(pre, step.actor, r.cap, r.cap.target, call.extraCaps, receiver).results.filter((x) => x.kind === 'installed');
+    }
+    const want = expect.map((x) => ({ slot: x.to, parent: x.from, kind: x.cap.kind, target: x.cap.target, rights: (x.cap.rights || []).slice().sort(), badge: x.cap.badge === undefined ? null : x.cap.badge }));
+    const got = transfers.map((o) => ({ slot: o.slot, parent: o.parent, kind: o.cap.kind, target: o.cap.target, rights: (o.cap.rights || []).slice().sort(), badge: o.cap.badge === undefined ? null : o.cap.badge }));
+    if (!sameOps(want, got)) errors.push(`${stp}: the rendezvous installs ${describeOps(want)} (resolveExtraCaps, ipcUnwrapCaps), the step records ${describeOps(got)}`);
+  } else if (transfers.length) {
+    errors.push(`${stp}: ${call.id} transfers no capability, but the step records an ipcTransfer install`);
+  }
+
+  const irqOps = ops.filter((o) => o.op === 'irqPatch');
+  if (call.id === 'irqControlGet') {
+    const lineNo = call.args && call.args[0] ? call.args[0].value : null;
+    const line = engine.irqLine(pre, lineNo);
+    const refusal = !line ? 'invalidIrq' : line.active ? 'revocationRequired' : null;
+    if (refusal && (ok || step.outcome.error !== refusal)) errors.push(`${stp}: irqControlGet of line ${lineNo} is refused with ${refusal} (irqControlLineRefusal)`);
+    if (ok && !refusal) {
+      const insert = ops.find((o) => o.op === 'capInsert');
+      const wantIrq = [{ op: 'irqPatch', line: lineNo, set: { active: true } }];
+      if (!sameOps(irqOps, wantIrq)) errors.push(`${stp}: irqControlGet puts line ${lineNo} at IRQSignal and writes nothing else of it`);
+      if (!insert || insert.parent !== r.slot || !insert.cap || insert.cap.kind !== 'irqHandler' || insert.cap.line !== lineNo || !sameOps((insert.cap.rights || []).slice().sort(), ['write'])) {
+        errors.push(`${stp}: irqControlGet installs a write-only handler capability for line ${lineNo} as a derivation child of ${r.slot}`);
+      }
+    }
+  } else if (call.id === 'irqHandlerAck') {
+    if (ok && !sameOps(irqOps, [{ op: 'irqPatch', line: r.cap.line, set: { masked: false } }])) errors.push(`${stp}: irqHandlerAck unmasks line ${r.cap.line} and writes nothing else`);
+  } else if (call.id === 'irqHandlerSetNotification') {
+    if (irqOps.length) errors.push(`${stp}: irqHandlerSetNotification writes the line's node slot, not its state`);
+    if (ok) {
+      const node = engine.irqNodeSlot(pre, r.cap.line);
+      const src = call.args && call.args[0] ? engine.resolveCap(pre, step.actor, call.args[0].value) : { error: 'invalidCapability' };
+      const insert = ops.find((o) => o.op === 'capInsert');
+      if (src.error || src.cap.kind !== 'notification' || !engine.capHasRight(src.cap, 'write')) errors.push(`${stp}: x2 must name a notification capability with the send right (irqNotificationCapAdmitted)`);
+      else if (!insert || insert.slot !== node || insert.parent !== src.slot || !insert.cap || insert.cap.target !== src.cap.target || !sameOps((insert.cap.rights || []).slice().sort(), (src.cap.rights || []).slice().sort()) || (insert.cap.badge || 0) !== (src.cap.badge || 0)) {
+        errors.push(`${stp}: irqHandlerSetNotification copies ${src.slot} whole into ${node}, as its derivation child`);
+      }
+    }
+  } else if (irqOps.length) {
+    errors.push(`${stp}: ${call.id} writes no interrupt line`);
+  }
+}
+
+/**
+ * A timer tick, a reschedule and a device interrupt take no argument: the
+ * step's state-changing ops must be exactly what the engine writes out.
+ */
+function checkEntryStep(step, pre, stp, errors) {
+  const ops = (isObject(step.delta) && Array.isArray(step.delta.ops) ? step.delta.ops : []).filter((o) => isObject(o) && EVENT_OPS.indexOf(o.op) === -1);
+  const coreId = Number.isInteger(step.core) ? step.core : 0;
+  let want = null;
+  let rule = '';
+  if (step.kind === 'timer') { want = engine.timerTickOps(pre, coreId); rule = 'perCoreTimerTickStep'; }
+  else if (step.kind === 'schedule') { want = engine.rescheduleOps(pre, coreId); rule = 'handleRescheduleOnCoreState'; }
+  else if (step.kind === 'interrupt') {
+    const lineNo = isObject(step.irq) ? step.irq.line : null;
+    const line = engine.irqLine(pre, lineNo);
+    if (!line) { errors.push(`${stp}.irq.line must name a declared interrupt line`); return; }
+    if (line.masked) errors.push(`${stp}: line ${lineNo} is masked at the controller, so it raises no interrupt`);
+    want = engine.interruptOps(pre, lineNo);
+    rule = 'handleInterruptOnCore';
+  }
+  if (want && !sameOps(ops, want)) errors.push(`${stp}: ${rule} on core ${coreId} writes ${describeOps(want)}; the step records ${describeOps(ops)}`);
+  if (step.kind !== 'interrupt' && step.irq !== undefined) errors.push(`${stp}.irq belongs on an interrupt step`);
 }
 
 /* ── Document validation ────────────────────────────────────── */
@@ -324,6 +510,7 @@ export function validateTraceDataObject(data) {
       const stp = `${sp}.steps[${idx}] (${step && step.traceTag})`;
       if (!isObject(step)) return;
       if (step.kind === 'syscall' && isObject(step.syscall)) checkSyscallGates(step, state, stp, errors);
+      else checkEntryStep(step, state, stp, errors);
       const ops = isObject(step.delta) && Array.isArray(step.delta.ops) ? step.delta.ops : [];
       let flowSeen = null;
       for (const op of ops) {
@@ -422,9 +609,12 @@ function validateStepShape(step, idx, stp, ids, errors) {
       step.path.forEach((stage, pi) => {
         const pth = `${stp}.path[${pi}]`;
         if (!isObject(stage)) { errors.push(`${pth} must be an object`); return; }
-        const order = PATH_STAGES.indexOf(stage.stage);
-        if (order === -1) errors.push(`${pth}.stage must be one of ${PATH_STAGES.join(', ')}`);
-        else if (order <= lastStage) errors.push(`${pth}.stage ${stage.stage} is out of order`);
+        // The arm's own stages (`args`, `flow`) share one rank: their order
+        // is the arm's, but neither may repeat.
+        const arm = engine.PATH_ARM_STAGES.indexOf(stage.stage) !== -1;
+        const order = arm ? engine.PATH_FIXED_PREFIX.length : PATH_STAGES.indexOf(stage.stage);
+        if (PATH_STAGES.indexOf(stage.stage) === -1) errors.push(`${pth}.stage must be one of ${PATH_STAGES.join(', ')}`);
+        else if (order < lastStage || (order === lastStage && !arm) || step.path.findIndex((s) => isObject(s) && s.stage === stage.stage) !== pi) errors.push(`${pth}.stage ${stage.stage} is out of order`);
         else lastStage = order;
         if (!isString(stage.label) || !stage.label) errors.push(`${pth}.label must be a non-empty string`);
         if (stage.ref !== undefined) checkRef(stage.ref, `${pth}.ref`, errors);

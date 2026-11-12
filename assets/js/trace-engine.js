@@ -1,5 +1,5 @@
 /**
- * seLe4n Simulator — trace engine (schema v3).
+ * seLe4n Simulator — trace engine (schema v4).
  *
  * One implementation, two consumers. The browser loads this file before
  * run.js and reads `window.sele4nTraceEngine`; the Node tooling
@@ -21,6 +21,20 @@
  *                        (`resolveCapAddress`), one level per CNode
  *       `flowsTo`        `securityFlowsTo` over (confidentiality, integrity)
  *       `msgInfoWord`    the x1 encoding (`MessageInfo.encode`)
+ *       `targetAccepted` the type gate (`syscallTargetAccepted`)
+ *       `scTickExhausts`, `scChargeBudget`, `scReleaseReadyHead` the sporadic
+ *                        refill algebra a tick and a release run
+ *                        (`SchedContext.tickExhausts`, `.chargeBudget`,
+ *                        `.releaseReadyHead`, `cbsUpdateDeadline`)
+ *       `carvePlacement` where a retype carves (`retypeFreeIndex`,
+ *                        `alignedCarveIndex`)
+ *       `irqBinding`     what an interrupt line signals (`irqBinding?`)
+ *       `transferPlan`   what an IPC rendezvous does with the sender's extra
+ *                        capabilities (`resolveExtraCaps`, `ipcUnwrapCaps`)
+ *   - **compute an effect that is a function of the state**: a budget charge
+ *     (`scCharge`), a refill release (`scRelease`) and a carve's offset are
+ *     arithmetic over the state the op meets, so the fold does the arithmetic
+ *     and a trace names only which context or object it happened to.
  *   - **check the state**: `checkState` evaluates executable mirrors of the
  *     invariants the catalogue names. They are structural approximations used
  *     to reject a malformed trace and to drive the sandbox; the proofs are the
@@ -32,7 +46,7 @@
 (function (root) {
   "use strict";
 
-  var SCHEMA_VERSION = 3;
+  var SCHEMA_VERSION = 4;
 
   var STEP_KINDS = ["boot", "syscall", "schedule", "timer", "interrupt", "fault"];
 
@@ -41,7 +55,9 @@
     "threadPatch", "message",
     "epEnqueue", "epPopHead",
     "ntfnEnqueue", "ntfnPopHead", "ntfnPatch",
-    "replyPatch", "scPatch",
+    "replyPatch",
+    "clockTick", "scCharge", "scRelease",
+    "irqPatch",
     "capInsert", "capDelete", "capRevoke",
     "untypedCarve", "untypedReset",
     "vspaceMap", "vspaceUnmap",
@@ -54,11 +70,17 @@
      returns no successor state. */
   var EVENT_OPS = ["flowCheck", "vspaceReject", "note"];
 
-  /* The stages of the checked syscall path, in the order the kernel runs them:
-     `syscallEntryChecked` decodes the registers, `dispatchSyscallChecked`
-     resolves and rights-checks the capability, the arm gates the flow and runs
-     the operation. */
-  var PATH_STAGES = ["entry", "decode", "lookup", "rights", "flow", "operation"];
+  /* The stages of the checked syscall path. `syscallEntryChecked` runs entry
+     and decode; `syscallInvokeTyped` resolves x0 (lookup), checks the
+     capability's type against the syscall (`syscallTargetAccepted`), then its
+     right; the arm then decodes its own arguments and gates the information
+     flow, in an order that is the arm's own (a send checks the flow after its
+     bounds, a receive before anything else), and runs the operation. So the
+     first five and the last are ordered, and `args` and `flow` sit between
+     them in whichever order the arm has. */
+  var PATH_STAGES = ["entry", "decode", "lookup", "type", "rights", "args", "flow", "operation"];
+  var PATH_FIXED_PREFIX = ["entry", "decode", "lookup", "type", "rights"];
+  var PATH_ARM_STAGES = ["args", "flow"];
   var PATH_RESULTS = ["pass", "fail", "skip"];
 
   /* `AccessRight`, in `toBit` order. */
@@ -91,7 +113,50 @@
   var PAGE_BYTES = 4096;
   var PAGE_ALIGNED_KINDS = ["frame", "vspace", "pageTable"];
 
-  var CAP_KINDS = ["endpoint", "notification", "cnode", "untyped", "frame", "vspace", "pageTable", "reply", "tcb", "schedContext"];
+  var CAP_KINDS = ["endpoint", "notification", "cnode", "untyped", "frame", "vspace", "pageTable", "reply", "tcb", "schedContext", "irqControl", "irqHandler"];
+
+  /* `syscallObjectKind?`: the kind of object a syscall's `.object` capability
+     must name, by the engine's capability kinds (`vspace` is the kernel's
+     `vspaceRoot`). A syscall absent from this table and from
+     `SYSCALL_TARGET_KIND` invokes no object capability. */
+  var SYSCALL_OBJECT_KIND = {
+    send: "endpoint", receive: "endpoint", call: "endpoint", replyRecv: "endpoint",
+    serviceRegister: "endpoint", serviceRevoke: "endpoint", serviceQuery: "endpoint",
+    notificationSignal: "notification", notificationWait: "notification", declassifySignal: "notification",
+    cspaceMint: "cnode", cspaceCopy: "cnode", cspaceMove: "cnode", cspaceDelete: "cnode", cspaceRevoke: "cnode", mintReplyCap: "cnode",
+    untypedRetype: "untyped", untypedReset: "untyped",
+    vspaceMap: "vspace", vspaceUnmap: "vspace", vspaceUnifyInstruction: "vspace",
+    schedContextBind: "schedContext", schedContextUnbind: "schedContext", schedContextConsumed: "schedContext", schedContextYieldTo: "schedContext",
+    tcbSuspend: "tcb", tcbResume: "tcb", tcbSetPriority: "tcb", tcbSetMCPriority: "tcb", tcbSetIPCBuffer: "tcb",
+    tcbSetAffinity: "tcb", tcbBindNotification: "tcb", tcbUnbindNotification: "tcb", tcbSetSpace: "tcb", tcbSetFaultHandler: "tcb",
+    pageTableMap: "pageTable", pageTableUnmap: "pageTable"
+  };
+  /* The non-object arms of `syscallTargetAccepted`: a capability whose
+     `CapTarget` is not `.object` is accepted by exactly these syscalls. */
+  var SYSCALL_TARGET_KIND = {
+    reply: "reply",
+    irqControlGet: "irqControl",
+    irqHandlerAck: "irqHandler", irqHandlerSetNotification: "irqHandler", irqHandlerClear: "irqHandler"
+  };
+  var NON_OBJECT_KINDS = ["reply", "irqControl", "irqHandler"];
+
+  /* `truncationMinimum`: the message length below which the arm's decode
+     answers `truncatedMessage` (`requireMessageLength`). Unlisted: 0. */
+  var TRUNCATION_MIN = {
+    untypedRetype: 4, vspaceMap: 4, cspaceCopy: 4, cspaceMove: 4,
+    irqControlGet: 3, auditRead: 3,
+    mintReplyCap: 2, vspaceUnmap: 2, vspaceUnifyInstruction: 2, tcbSetSpace: 2, pageTableMap: 2,
+    cspaceDelete: 1, cspaceRevoke: 1, schedContextBind: 1, tcbBindNotification: 1, tcbSetPriority: 1,
+    tcbSetMCPriority: 1, tcbSetIPCBuffer: 1, tcbSetAffinity: 1, tcbSetFaultHandler: 1,
+    irqHandlerSetNotification: 1, auditDrain: 1,
+    schedContextConfigure: 5, serviceRegister: 5, cspaceMint: 5
+  };
+  /* `syscallReadsOverflow`: the syscalls whose message words past x5 are read
+     from the caller's IPC buffer. */
+  var READS_OVERFLOW = ["send", "call", "reply", "replyRecv", "schedContextConfigure", "serviceRegister", "cspaceMint"];
+
+  /* `maxReplenishments`: the pending refills a scheduling context holds. */
+  var MAX_REFILLS = 8;
   var LABEL_CONF = ["low", "high"];
   var LABEL_INTEG = ["untrusted", "trusted"];
 
@@ -326,9 +391,8 @@
         return s;
       }
       case "ntfnPatch":
-      case "replyPatch":
-      case "scPatch": {
-        var obj = op.op === "ntfnPatch" ? notification(s, op.id) : op.op === "replyPatch" ? reply(s, op.id) : schedContext(s, op.id);
+      case "replyPatch": {
+        var obj = op.op === "ntfnPatch" ? notification(s, op.id) : reply(s, op.id);
         if (!obj) throw new Error(op.op + ": unknown object " + op.id);
         var ps = op.set || {};
         for (var pk in ps) if (hasOwn(ps, pk)) obj[pk] = ps[pk];
@@ -370,15 +434,11 @@
            has a derivation child, and 0 otherwise — a childless untyped
            capability is reset by the carve (seL4's `decodeUntypedInvocation`),
            which refuses while the region still records a carved object. */
-        var from = cdtChildren(s, via).length ? ut.watermark : 0;
-        if (!cdtChildren(s, via).length && ut.children.length) throw new Error("untypedCarve: " + op.untyped + " still records carved objects (revocationRequired)");
-        /* `alignedCarveIndex`: rounded up so the carve's base is on its boundary. */
-        var align = PAGE_ALIGNED_KINDS.indexOf(child.kind) !== -1 ? PAGE_BYTES : child.size;
-        var base = Number(ut.base) || 0;
-        var at = Math.ceil((base + from) / align) * align - base;
-        if (at + child.size > ut.size) throw new Error("untypedCarve: " + child.size + " bytes do not fit at free index " + at + " (untypedRegionExhausted)");
-        ut.children.unshift({ id: child.id, kind: child.kind, offset: at, size: child.size });
-        ut.watermark = at + child.size;
+        var place = carvePlacement(s, via, child);
+        if (place.error) throw new Error("untypedCarve: " + place.message + " (" + place.error + ")");
+        ut.children.unshift({ id: child.id, kind: child.kind, offset: place.at, size: child.size });
+        /* `setCapFreeIndex`: the authority capability's own word, in its slot. */
+        capAt(s, via).freeIndex = place.at + child.size;
         return s;
       }
       case "untypedReset": {
@@ -390,7 +450,7 @@
            capability's free index, is written 0. Nothing is erased here: the
            carved objects left with their final capabilities. */
         if (cdtChildren(s, rv).length || (ur.children || []).length) throw new Error("untypedReset: " + op.untyped + " still has carved objects or derived capabilities (revocationRequired)");
-        ur.watermark = 0;
+        capAt(s, rv).freeIndex = 0;
         return s;
       }
       case "vspaceMap": {
@@ -414,6 +474,58 @@
         if (!vu) throw new Error("vspaceUnmap: unknown vspace " + op.vspace);
         vu.mappings = (vu.mappings || []).filter(function (m) { return m.vaddr !== op.vaddr; });
         vu.tlb = (vu.tlb || []).filter(function (v) { return v !== op.vaddr; });
+        return s;
+      }
+      case "clockTick": {
+        /* `tickClockedState`: the boot core's tick advances the one timer. */
+        s.time = (Number(s.time) || 0) + 1;
+        return s;
+      }
+      case "scCharge": {
+        /* `timerTickBudgetOnCore` on a bound thread: one tick, run from
+           `now - 1` to `now`. A tick that uses the head up takes the spend's
+           arm (`spendBudgetOnCore`: the charge, the deadline rule, the context
+           placed on the core's release queue); any other tick is the charge
+           alone. Which arm is the state's to say (`tickExhausts`). */
+        var cs = schedContext(s, op.sc);
+        if (!cs) throw new Error("scCharge: unknown scheduling context " + op.sc);
+        var cc = core(s, op.core);
+        if (!cc) throw new Error("scCharge: unknown core " + op.core);
+        var runner = cc.current === null || cc.current === undefined ? null : thread(s, cc.current);
+        if (!runner || runner.sc !== op.sc) throw new Error("scCharge: core " + op.core + " is not running a thread bound to " + op.sc);
+        var nowC = Number(s.time) || 0;
+        if (nowC < 1) throw new Error("scCharge: no tick has elapsed");
+        var exhausted = scTickExhausts(cs, nowC - 1);
+        var charged = scChargeBudget(cs, nowC - 1, 1, nowC);
+        if (exhausted) charged = cbsUpdateDeadline(charged, nowC, true);
+        replaceSc(s, charged);
+        if (exhausted) releasePlace(s, op.core, op.sc);
+        return s;
+      }
+      case "scRelease": {
+        /* One turn of `drainDueOnCore`: the head of the core's release queue,
+           released by now, is refilled (`refillSchedContext`) and placed again
+           by the refills it has left (`releasePlace`). */
+        var rq2 = releaseQueue(s, op.core);
+        if (rq2[0] !== op.sc) throw new Error("scRelease: " + op.sc + " is not the head of core " + op.core + "'s release queue");
+        var rs = schedContext(s, op.sc);
+        if (!rs) throw new Error("scRelease: unknown scheduling context " + op.sc);
+        var nowR = Number(s.time) || 0;
+        var key = scReleaseKey(rs);
+        if (key === null || key > nowR) throw new Error("scRelease: " + op.sc + " is not released until " + key + " (now " + nowR + ")");
+        replaceSc(s, cbsUpdateDeadline(scReleaseReadyHead(rs, nowR), nowR, true));
+        releasePlace(s, op.core, op.sc);
+        return s;
+      }
+      case "irqPatch": {
+        var line = irqLine(s, op.line);
+        if (!line) throw new Error("irqPatch: unknown interrupt line " + op.line);
+        var is = op.set || {};
+        for (var ik in is) {
+          if (!hasOwn(is, ik)) continue;
+          if (ik !== "active" && ik !== "masked") throw new Error("irqPatch: only active and masked are written");
+          line[ik] = !!is[ik];
+        }
         return s;
       }
       case "auditAppend": {
@@ -513,6 +625,13 @@
      takes guard and radix bits off the top of what remains; the leaf is the
      slot the last level names. */
   function resolveCap(s, threadId, cptr) {
+    var r = resolveCapSlot(s, threadId, cptr);
+    if (r.error) return r;
+    if (!r.cap) return { error: "invalidCapability", reason: "empty", slot: r.slot, levels: r.levels };
+    return r;
+  }
+  /* `resolveCapAddress` alone: the slot an address names, occupied or not. */
+  function resolveCapSlot(s, threadId, cptr) {
     var th = thread(s, threadId);
     var levels = [];
     if (!th || !th.cspace) return { error: "objectNotFound", levels: levels };
@@ -531,10 +650,7 @@
       if (!level.guardOk) return { error: "invalidCapability", reason: "guard", levels: levels };
       var key = slotKey(cn.id, slot);
       var cap = capAt(s, key);
-      if (shift === 0) {
-        if (!cap) return { error: "invalidCapability", reason: "empty", slot: key, levels: levels };
-        return { slot: key, cap: cap, levels: levels };
-      }
+      if (shift === 0) return { slot: key, cap: cap, levels: levels };
       if (!cap || cap.kind !== "cnode") return { error: "invalidCapability", reason: cap ? "notCNode" : "empty", slot: key, levels: levels };
       cn = cnode(s, cap.target);
       if (!cn) return { error: "objectNotFound", levels: levels };
@@ -573,6 +689,367 @@
     return (Number(mi.length) || 0) + (Number(mi.extraCaps) || 0) * 128 + (Number(mi.capsUnwrapped) || 0) * 512 + (Number(mi.label) || 0) * 4096;
   }
 
+  /* ── The type gate (`syscallTargetAccepted`) ─────────────── */
+
+  /* A capability is of the syscall's type when its target constructor is the
+     one the syscall invokes and, for an object capability, the object is of
+     the syscall's kind. `declassify` releases into any object. The yield
+     invokes no capability and accepts none. */
+  function targetAccepted(syscallId, cap) {
+    if (!cap) return false;
+    if (NON_OBJECT_KINDS.indexOf(cap.kind) !== -1) return SYSCALL_TARGET_KIND[syscallId] === cap.kind;
+    if (hasOwn(SYSCALL_OBJECT_KIND, syscallId)) return SYSCALL_OBJECT_KIND[syscallId] === cap.kind;
+    return syscallId === "declassify";
+  }
+  function expectedKind(syscallId) {
+    if (hasOwn(SYSCALL_OBJECT_KIND, syscallId)) return SYSCALL_OBJECT_KIND[syscallId];
+    if (hasOwn(SYSCALL_TARGET_KIND, syscallId)) return SYSCALL_TARGET_KIND[syscallId];
+    return null;
+  }
+  function truncationMinimum(syscallId) { return hasOwn(TRUNCATION_MIN, syscallId) ? TRUNCATION_MIN[syscallId] : 0; }
+  function readsOverflow(syscallId) { return READS_OVERFLOW.indexOf(syscallId) !== -1; }
+
+  /* The fields of x1, at the positions `MessageInfo.encode` puts them. */
+  function msgInfoFields(mi) {
+    mi = mi || {};
+    return [
+      { name: "length", lo: 0, width: 7, value: Number(mi.length) || 0 },
+      { name: "extraCaps", lo: 7, width: 2, value: Number(mi.extraCaps) || 0 },
+      { name: "capsUnwrapped", lo: 9, width: 3, value: Number(mi.capsUnwrapped) || 0 },
+      { name: "label", lo: 12, width: 52, value: Number(mi.label) || 0 }
+    ];
+  }
+
+  /* ── Untyped memory (`retypeFromUntyped`) ────────────────── */
+
+  /* Where a carve of `child` through the untyped capability in `slotKeyStr`
+     lands. `retypeFreeIndex`: the capability's own free index while its slot
+     has a derivation child, and 0 otherwise — a childless untyped capability
+     is reset by the carve (seL4's `decodeUntypedInvocation`), which refuses
+     while the region still records a carved object (`retypeResetAdmitted`).
+     `alignedCarveIndex`: rounded up so the carve's base is on its boundary. */
+  function carvePlacement(s, slotKeyStr, child) {
+    var cap = capAt(s, slotKeyStr);
+    var ut = cap && cap.kind === "untyped" ? untyped(s, cap.target) : null;
+    if (!ut) return { error: "untypedTypeMismatch", message: slotKeyStr + " holds no untyped capability" };
+    var derived = cdtChildren(s, slotKeyStr).length > 0;
+    if (!derived && (ut.children || []).length) return { error: "revocationRequired", message: ut.id + " still records carved objects" };
+    var from = derived ? (Number(cap.freeIndex) || 0) : 0;
+    var align = PAGE_ALIGNED_KINDS.indexOf(child.kind) !== -1 ? PAGE_BYTES : child.size;
+    var base = Number(ut.base) || 0;
+    var at = Math.ceil((base + from) / align) * align - base;
+    var out = { from: from, reset: !derived, align: align, at: at, end: at + child.size, skipped: at - from };
+    if (at + child.size > ut.size) { out.error = "untypedRegionExhausted"; out.message = child.size + " bytes do not fit at free index " + at; }
+    return out;
+  }
+
+  /* ── Sporadic refills (`SchedContext/Budget.lean`) ───────────
+     A context's head refill is `remaining` ticks released at `periodStart`;
+     `refills` are the pending ones behind it, oldest first, each
+     `{ amount, at }`. Every function returns a new context. */
+
+  function scCopy(sc) {
+    var c = clone(sc);
+    c.remaining = Number(c.remaining) || 0;
+    c.periodStart = Number(c.periodStart) || 0;
+    c.refills = Array.isArray(c.refills) ? c.refills : [];
+    return c;
+  }
+  /* `scheduleUsed`: the amount used returns one period after the head it came
+     from was released. It joins the last pending refill when the two touch,
+     is forced into it when the list is full, and is a new refill otherwise. */
+  function scScheduleUsed(sc, amount, at) {
+    var n = sc.refills.length;
+    if (n) {
+      var last = sc.refills[n - 1];
+      if (at <= last.at + last.amount) last.amount += amount;
+      else if (n >= MAX_REFILLS) { var la = last.amount; last.amount = la + amount; last.at = at - la; }
+      else sc.refills.push({ amount: amount, at: at });
+    } else sc.refills.push({ amount: amount, at: at });
+    return sc;
+  }
+  /* `refillUnblockCheck`: a head released by `t` is moved to `t`, and the
+     pending refills it now overlaps merge into it (`mergeOverlapping`). */
+  function scUnblockCheck(sc, t) {
+    if (!(sc.remaining > 0 && sc.periodStart <= t)) return sc;
+    sc.periodStart = t;
+    while (sc.refills.length && sc.refills[0].at <= sc.periodStart + sc.remaining) sc.remaining += sc.refills.shift().amount;
+    return sc;
+  }
+  /* `refillBudgetCheck`: charge `usage` to the head. */
+  function scBudgetCheck(sc, usage) {
+    var b = sc.remaining;
+    var used = sc.periodStart + (Number(sc.period) || 0);
+    if (usage === 0 || b === 0) return sc;
+    if (b <= usage) { sc.remaining = 0; return scScheduleUsed(sc, b, used); }
+    sc.remaining = b - usage;
+    sc.periodStart = sc.periodStart + usage;
+    return scScheduleUsed(sc, usage, used);
+  }
+  /* `releaseReadyHead`: while the head is used up and the first pending refill
+     is released by `now`, that refill becomes the head. */
+  function scReleaseReadyHead(sc, now) {
+    var out = scCopy(sc);
+    for (var fuel = 0; fuel < MAX_REFILLS; fuel++) {
+      if (!(out.remaining === 0 && out.refills.length && out.refills[0].at <= now)) break;
+      var r = out.refills.shift();
+      out.remaining = r.amount;
+      out.periodStart = r.at;
+    }
+    return out;
+  }
+  /* `chargeBudget`: `usage` run from `start` to `now`. */
+  function scChargeBudget(sc, start, usage, now) {
+    var out = scReleaseReadyHead(scBudgetCheck(scUnblockCheck(scCopy(sc), start), usage), now);
+    out.consumed = (Number(out.consumed) || 0) + (now - start);
+    return out;
+  }
+  /* `tickExhausts`: this tick uses the head up, and no pending refill would
+     merge into it first. */
+  function scTickExhausts(sc, start) {
+    var c = scCopy(sc);
+    var merges = c.remaining > 0 && c.periodStart <= start && c.refills.length > 0 &&
+      c.refills[0].at <= start + c.remaining && c.refills[0].amount > 0;
+    return c.remaining <= 1 && !merges;
+  }
+  /* `cbsUpdateDeadline`: a context that was exhausted and holds budget again
+     gets a new deadline one period from now. */
+  function cbsUpdateDeadline(sc, now, wasExhausted) {
+    var out = scCopy(sc);
+    if (wasExhausted && out.remaining > 0) out.deadline = now + (Number(out.period) || 0);
+    return out;
+  }
+  /* `releaseKey?`: a context's place on a release queue — its first pending
+     refill's release time while its head is used up. */
+  function scReleaseKey(sc) {
+    var c = scCopy(sc);
+    return c.remaining === 0 && c.refills.length ? c.refills[0].at : null;
+  }
+  function replaceSc(s, next) {
+    var list = s.schedContexts || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === next.id) list[i] = next;
+  }
+  function releaseQueue(s, coreId) {
+    if (!s.releaseQueues) s.releaseQueues = {};
+    var key = String(coreId);
+    if (!Array.isArray(s.releaseQueues[key])) s.releaseQueues[key] = [];
+    return s.releaseQueues[key];
+  }
+  function releaseCoreOf(s, scId) {
+    var rqs = s.releaseQueues || {};
+    for (var k in rqs) if (hasOwn(rqs, k) && (rqs[k] || []).indexOf(scId) !== -1) return Number(k);
+    return null;
+  }
+  /* `releasePlace`: off the core's queue, then linked in at its place, behind
+     every entry released no later (`ReplenishQueue.insert`) — or left off when
+     it has no place. A context linked on another core's queue is left alone
+     (`releaseFreeFor`). */
+  function releasePlace(s, coreId, scId) {
+    var on = releaseCoreOf(s, scId);
+    if (on !== null && on !== coreId) return;
+    var q = releaseQueue(s, coreId).filter(function (id) { return id !== scId; });
+    var sc = schedContext(s, scId);
+    var key = sc ? scReleaseKey(sc) : null;
+    if (key !== null) {
+      var at = q.length;
+      for (var i = 0; i < q.length; i++) {
+        var other = schedContext(s, q[i]);
+        var ok = other ? scReleaseKey(other) : null;
+        if (ok !== null && ok > key) { at = i; break; }
+      }
+      q.splice(at, 0, scId);
+    }
+    s.releaseQueues[String(coreId)] = q;
+  }
+
+  /* ── Interrupt lines (`Architecture/InterruptMask.lean`) ─── */
+
+  function irqLine(s, lineNo) {
+    var lines = s.irqs || [];
+    for (var i = 0; i < lines.length; i++) if (lines[i].line === lineNo) return lines[i];
+    return null;
+  }
+  /* The line's interrupt node: a one-slot CNode at a reserved id that no
+     capability names (`irqNodeId`). */
+  function irqNodeSlot(s, lineNo) {
+    var cns = s.cnodes || [];
+    for (var i = 0; i < cns.length; i++) if (cns[i].irqNode === lineNo) return slotKey(cns[i].id, 0);
+    return null;
+  }
+  /* `irqBinding?`: a line at IRQSignal whose node slot holds a notification
+     capability with the send right signals that notification with the
+     capability's badge. Anything else is delivered to no one. */
+  function irqBinding(s, lineNo) {
+    var line = irqLine(s, lineNo);
+    if (!line || !line.active) return null;
+    var key = irqNodeSlot(s, lineNo);
+    var cap = key ? capAt(s, key) : null;
+    if (!cap || cap.kind !== "notification" || !capHasRight(cap, "write") || !notification(s, cap.target)) return null;
+    return { notification: cap.target, badge: Number(cap.badge) || 0, slot: key };
+  }
+
+  /* ── Capability transfer at an IPC rendezvous ─────────────
+     `resolveExtraCaps`: a sender without the grant right transfers nothing
+     and its addresses are not looked up; with it the lookup is all or nothing,
+     and the capabilities are the slots' contents up to the first empty one.
+     `ipcUnwrapCapsLoop`: a capability to the endpoint the message was sent on
+     is unwrapped to its badge; the first other one is installed in the
+     receiver's receive slot, which that uses up; the loop stops at the first
+     capability it cannot place. `ipcTransferSingleCap` installs the same
+     capability (minus any mapping record) as a derivation child of the slot
+     it came from, and refuses an untyped whose slot has children. */
+  function transferPlan(s, senderId, endpointCap, endpointId, extraCaps, receiverId) {
+    var out = { granted: capHasRight(endpointCap, "grant"), results: [], resolved: [] };
+    if (!out.granted) { out.reason = "noGrant"; return out; }
+    var caps = [];
+    var i;
+    for (i = 0; i < (extraCaps || []).length; i++) {
+      var r = resolveCapSlot(s, senderId, extraCaps[i]);
+      if (r.error) { out.reason = "lookupFailed"; out.resolved = []; return out; }
+      out.resolved.push(r.slot);
+      caps.push({ slot: r.slot, cap: capAt(s, r.slot) });
+    }
+    var firstEmpty = caps.length;
+    for (i = 0; i < caps.length; i++) if (!caps[i].cap) { firstEmpty = i; break; }
+    caps = caps.slice(0, firstEmpty);
+    var recv = thread(s, receiverId);
+    var slot = recv && recv.recvSlot && parseSlot(recv.recvSlot) && cnode(s, parseSlot(recv.recvSlot).cnode) && !capAt(s, recv.recvSlot) ? recv.recvSlot : null;
+    for (i = 0; i < caps.length; i++) {
+      var c = caps[i];
+      if (c.cap.kind !== "reply" && NON_OBJECT_KINDS.indexOf(c.cap.kind) === -1 && c.cap.target === endpointId) {
+        out.results.push({ kind: "unwrapped", from: c.slot, badge: Number(c.cap.badge) || 0 });
+        continue;
+      }
+      if (!slot) { out.reason = "noReceiveSlot"; break; }
+      if (c.cap.kind === "untyped" && cdtChildren(s, c.slot).length) { out.reason = "revocationRequired"; break; }
+      out.results.push({ kind: "installed", from: c.slot, to: slot, cap: c.cap });
+      slot = null;
+    }
+    return out;
+  }
+
+  /* ── Whole kernel entries that take no argument ───────────
+     A timer tick, a reschedule and a device interrupt are total functions of
+     the state: nothing a caller passes can change what they do. So the engine
+     writes out the ops each one consists of, and a trace's step of that kind
+     is checked against the list rather than believed. */
+
+  var DEFAULT_TIME_SLICE = 5;   /* `SchedulerState.configDefaultTimeSlice` */
+  var BOOT_CORE = 0;            /* `bootCoreId` */
+
+  /* `handleRescheduleOnCoreState`: the best eligible candidate takes the core
+     only when the core is idle, its current thread is outside the active
+     domain, or the candidate outranks it in the selector's own order
+     (`isBetterCandidate` on the effective parameters). The outgoing thread
+     goes back on the queue's tail (`preemptCurrentOnCore`). */
+  function rescheduleOps(s, coreId) {
+    var c = core(s, coreId);
+    var ops = [];
+    if (!c) return ops;
+    var pick = selectOnCore(s, coreId);
+    var cur = c.current === null || c.current === undefined ? null : thread(s, c.current);
+    /* Nothing eligible: a running thread keeps the core, and an empty core
+       takes the idle fallback, which the projection writes as `null`. */
+    if (!pick.thread) return cur ? ops : [{ op: "dispatch", core: coreId, thread: null }];
+    if (cur) {
+      var cp = effectiveParams(s, cur);
+      var np = effectiveParams(s, thread(s, pick.thread));
+      var outside = (Number(cur.domain) || 0) !== (Number(c.domain) || 0);
+      if (!outside && !isBetterCandidate(cp.prio, cp.deadline, np.prio, np.deadline)) return ops;
+      ops.push({ op: "enqueue", thread: cur.id, core: coreId, prio: cp.prio });
+    }
+    ops.push({ op: "dispatch", core: coreId, thread: pick.thread });
+    return ops;
+  }
+
+  /* `perCoreTimerTickStep`: the clock (boot core only), the core's due
+     releases, the charge to the thread it runs, and the scheduling point. */
+  function timerTickOps(s, coreId) {
+    var w = clone(s);
+    var ops = [];
+    function emit(op) { ops.push(op); applyOp(w, op); }
+    var c = core(w, coreId);
+    if (!c) return ops;
+    if (coreId === BOOT_CORE) emit({ op: "clockTick" });
+    var now = Number(w.time) || 0;
+    var flagged = false;
+    /* `processReplenishmentsDueOnCore`. */
+    for (var fuel = releaseQueue(w, coreId).length; fuel > 0; fuel--) {
+      var headId = releaseQueue(w, coreId)[0];
+      var head = headId ? schedContext(w, headId) : null;
+      var key = head ? scReleaseKey(head) : null;
+      if (key === null || key > now) break;
+      var wasExhausted = head.remaining === 0;
+      emit({ op: "scRelease", sc: headId, core: coreId });
+      var after = schedContext(w, headId);
+      if (wasExhausted && after.remaining > 0) {
+        /* `refillWakeOnCore`: the bound thread, runnable and running nowhere,
+           is queued on its home core unless it already is, and that core's
+           decision is stale either way. */
+        var bound = null;
+        (w.threads || []).forEach(function (th) { if (th.sc === headId) bound = th; });
+        if (bound && ((bound.ipc && bound.ipc.state) || "ready") === "ready" && currentCoreOf(w, bound.id) === null) {
+          var home = Number(bound.core) || 0;
+          if (!queuedOn(w, bound.id).length) emit({ op: "enqueue", thread: bound.id, core: home, prio: Number(bound.priority) || 0 });
+          if (home === coreId) flagged = true;
+        }
+      }
+    }
+    var cur = c.current === null || c.current === undefined ? null : thread(w, c.current);
+    var redispatch = false;
+    if (cur) {
+      var prio = Number(cur.priority) || 0;
+      if (cur.sc && schedContext(w, cur.sc)) {
+        var spent = scTickExhausts(schedContext(w, cur.sc), now - 1);
+        emit({ op: "scCharge", sc: cur.sc, core: coreId });
+        if (spent) { emit({ op: "enqueue", thread: cur.id, core: coreId, prio: prio }); redispatch = true; }
+      } else if (!cur.sc) {
+        if ((Number(cur.timeSlice) || 0) <= 1) {
+          emit({ op: "threadPatch", id: cur.id, set: { timeSlice: DEFAULT_TIME_SLICE } });
+          emit({ op: "enqueue", thread: cur.id, core: coreId, prio: prio });
+          redispatch = true;
+        } else emit({ op: "threadPatch", id: cur.id, set: { timeSlice: cur.timeSlice - 1 } });
+      }
+    }
+    if (redispatch) {
+      /* `scheduleEffectiveOnCoreState`: the outgoing thread is already queued;
+         the best eligible one runs, or the core idles. */
+      emit({ op: "dispatch", core: coreId, thread: selectOnCore(w, coreId).thread });
+    } else if (flagged) {
+      rescheduleOps(w, coreId).forEach(emit);
+    }
+    return ops;
+  }
+
+  function orBits(a, b) {
+    var out = 0;
+    for (var bit = 1; bit <= a || bit <= b; bit *= 2) if (Math.floor(a / bit) % 2 || Math.floor(b / bit) % 2) out += bit;
+    return out;
+  }
+
+  /* `handleInterruptOnCore`: a bound line signals its notification with the
+     node capability's badge — the head waiter woken with the badge, or the
+     badge OR-ed into the pending word — and is masked until the handler
+     acknowledges it; an unbound line is masked and reaches no one. */
+  function interruptOps(s, lineNo) {
+    var ops = [];
+    var b = irqBinding(s, lineNo);
+    if (b) {
+      var n = notification(s, b.notification);
+      var waiter = n.waiters && n.waiters.length ? thread(s, n.waiters[0]) : null;
+      if (waiter) {
+        ops.push({ op: "ntfnPopHead", notification: n.id, thread: waiter.id });
+        ops.push({ op: "threadPatch", id: waiter.id, set: { ipc: { state: "ready" }, msg: { from: null, via: n.id, words: [], label: 0, badge: b.badge } } });
+        ops.push({ op: "enqueue", thread: waiter.id, core: Number(waiter.core) || 0, prio: Number(waiter.priority) || 0 });
+      } else {
+        var had = n.pending === null || n.pending === undefined ? 0 : Number(n.pending) || 0;
+        ops.push({ op: "ntfnPatch", id: n.id, set: { pending: orBits(had, b.badge) } });
+      }
+    }
+    ops.push({ op: "irqPatch", line: lineNo, set: { masked: true } });
+    return ops;
+  }
+
   /* ── Derived views ───────────────────────────────────────── */
 
   /* Running, Ready, Blocked or Inactive, from where the thread is, never from
@@ -605,7 +1082,10 @@
         case "message": add(op.from); add(op.to); add(op.via); break;
         case "epEnqueue": case "epPopHead": add(op.endpoint); add(op.thread); break;
         case "ntfnEnqueue": case "ntfnPopHead": add(op.notification); add(op.thread); break;
-        case "ntfnPatch": case "replyPatch": case "scPatch": add(op.id); break;
+        case "ntfnPatch": case "replyPatch": add(op.id); break;
+        case "clockTick": add("clock"); break;
+        case "scCharge": case "scRelease": add(op.sc); add("release:" + op.core); break;
+        case "irqPatch": add("irq:" + op.line); break;
         case "capInsert": add(op.slot); add(op.parent); break;
         case "capDelete": case "capRevoke": add(op.slot); break;
         case "untypedCarve": add(op.untyped); add(op.slot); if (op.child) add(op.child.id); break;
@@ -689,8 +1169,33 @@
       if (!th || !th.ipc || th.ipc.state !== "blockedOnReply") fail("replyWaiters", r.id + " names " + r.caller + ", which is not blocked on a reply");
     });
 
+    var releasedOn = {};
+    var rlq = s.releaseQueues || {};
+    for (var rk in rlq) {
+      if (!hasOwn(rlq, rk)) continue;
+      var lastKey = null;
+      (rlq[rk] || []).forEach(function (scId) {
+        var qsc = schedContext(s, scId);
+        var qk = qsc ? scReleaseKey(qsc) : null;
+        if (releasedOn[scId] !== undefined) fail("refillsSound", scId + " is on two release queues (cores " + releasedOn[scId] + " and " + rk + ")");
+        releasedOn[scId] = rk;
+        if (qk === null) { fail("refillsSound", "core " + rk + "'s release queue holds " + scId + ", which has no refill to wait for"); return; }
+        if (lastKey !== null && qk < lastKey) fail("refillsSound", "core " + rk + "'s release queue is out of order at " + scId);
+        lastKey = qk;
+        if (!threads.some(function (th) { return th.sc === scId; })) fail("refillsSound", scId + " is queued for release but bound to no thread");
+      });
+    }
     (s.schedContexts || []).forEach(function (sc) {
       if (!(sc.remaining >= 0 && sc.remaining <= sc.budget)) fail("budgetWithinBounds", sc.id + " has " + sc.remaining + " of a " + sc.budget + "-tick budget");
+      var pending = 0;
+      (sc.refills || []).forEach(function (r) { pending += Number(r.amount) || 0; });
+      if (sc.budget > sc.period) fail("budgetWithinBounds", sc.id + " has a " + sc.budget + "-tick budget in a " + sc.period + "-tick period");
+      /* `refillsConserved`: the head and the pending refills sum to the
+         budget, exactly — what makes the one-budget-per-period bound exact. */
+      if ((Number(sc.remaining) || 0) + pending !== sc.budget) fail("refillsSound", sc.id + " holds " + ((Number(sc.remaining) || 0) + pending) + " ticks in its head and refills; its budget is " + sc.budget);
+      if ((sc.refills || []).length > MAX_REFILLS) fail("refillsSound", sc.id + " holds more than " + MAX_REFILLS + " pending refills");
+      var bound = threads.some(function (th) { return th.sc === sc.id && ((th.ipc && th.ipc.state) || "ready") !== "inactive"; });
+      if (bound && scReleaseKey(sc) !== null && releasedOn[sc.id] === undefined) fail("refillsSound", sc.id + " is used up with a refill pending, but on no release queue: nothing would ever release it");
     });
 
     var cdt = s.cdt || {};
@@ -720,10 +1225,22 @@
     });
 
     (s.untyped || []).forEach(function (u) {
-      if (u.watermark > u.size) fail("untypedWatermark", u.id + " free index " + u.watermark + " exceeds its " + u.size + " bytes");
+      /* The free index is the capability's (seL4's `capFreeIndex`). Every
+         carved object lies below the highest one a capability to the region
+         records, and none passes the region's end. */
+      var top = 0;
+      (s.cnodes || []).forEach(function (cn) {
+        var slots = cn.slots || {};
+        for (var sk in slots) {
+          if (!hasOwn(slots, sk) || !slots[sk] || slots[sk].kind !== "untyped" || slots[sk].target !== u.id) continue;
+          var fi = Number(slots[sk].freeIndex) || 0;
+          if (fi > u.size) fail("untypedWatermark", cn.id + "/" + sk + " records free index " + fi + ", past " + u.id + "'s " + u.size + " bytes");
+          if (fi > top) top = fi;
+        }
+      });
       var kids = (u.children || []).slice().sort(function (a, b) { return a.offset - b.offset; });
       kids.forEach(function (ch, i) {
-        if (ch.offset + ch.size > u.watermark) fail("untypedWatermark", ch.id + " ends above " + u.id + "'s free index");
+        if (ch.offset + ch.size > top) fail("untypedWatermark", ch.id + " ends above every free index a capability to " + u.id + " records");
         if (i && kids[i - 1].offset + kids[i - 1].size > ch.offset) fail("untypedNonOverlap", kids[i - 1].id + " and " + ch.id + " overlap");
       });
     });
@@ -749,6 +1266,15 @@
     OPS: OPS,
     EVENT_OPS: EVENT_OPS,
     PATH_STAGES: PATH_STAGES,
+    PATH_FIXED_PREFIX: PATH_FIXED_PREFIX,
+    PATH_ARM_STAGES: PATH_ARM_STAGES,
+    SYSCALL_OBJECT_KIND: SYSCALL_OBJECT_KIND,
+    SYSCALL_TARGET_KIND: SYSCALL_TARGET_KIND,
+    TRUNCATION_MIN: TRUNCATION_MIN,
+    READS_OVERFLOW: READS_OVERFLOW,
+    MISSING_RIGHT_INVALID: MISSING_RIGHT_INVALID,
+    MAX_REFILLS: MAX_REFILLS,
+    PAGE_BYTES: PAGE_BYTES,
     PATH_RESULTS: PATH_RESULTS,
     RIGHTS: RIGHTS,
     IPC_STATES: IPC_STATES,
@@ -775,6 +1301,31 @@
     isBetterCandidate: isBetterCandidate,
     selectOnCore: selectOnCore,
     resolveCap: resolveCap,
+    resolveCapSlot: resolveCapSlot,
+    targetAccepted: targetAccepted,
+    expectedKind: expectedKind,
+    truncationMinimum: truncationMinimum,
+    readsOverflow: readsOverflow,
+    msgInfoFields: msgInfoFields,
+    bitsAt: bitsAt,
+    carvePlacement: carvePlacement,
+    scTickExhausts: scTickExhausts,
+    scChargeBudget: scChargeBudget,
+    scReleaseReadyHead: scReleaseReadyHead,
+    scReleaseKey: scReleaseKey,
+    cbsUpdateDeadline: cbsUpdateDeadline,
+    releaseCoreOf: releaseCoreOf,
+    effectiveParams: effectiveParams,
+    irqLine: irqLine,
+    irqNodeSlot: irqNodeSlot,
+    irqBinding: irqBinding,
+    transferPlan: transferPlan,
+    DEFAULT_TIME_SLICE: DEFAULT_TIME_SLICE,
+    BOOT_CORE: BOOT_CORE,
+    rescheduleOps: rescheduleOps,
+    timerTickOps: timerTickOps,
+    interruptOps: interruptOps,
+    orBits: orBits,
     capHasRight: capHasRight,
     missingRightError: missingRightError,
     rightsMask: rightsMask,

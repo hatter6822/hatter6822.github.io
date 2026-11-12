@@ -1,10 +1,10 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "source": "fixture",
   "generator": "hand-authored-reference-fixture",
-  "disclaimer": "Reference fixture in the simulator trace schema (v3). The scenarios are written by hand, but every function, theorem, predicate, right, syscall number and error they name is the kernel's own: the sync resolves each declaration in the pinned seLe4n checkout and fails if one is missing. The validator re-runs every capability lookup, rights check, flow check and scheduling decision against the state and refuses a trace that disagrees. The kernel does not yet export JSON traces; when it does (source == \"kernel\"), steps become a replay of a real run.",
+  "disclaimer": "Reference fixture in the simulator trace schema (v4). The scenarios are written by hand, but every function, theorem, predicate, right, syscall number and error they name is the kernel's own: the sync resolves each declaration in the pinned seLe4n checkout and fails if one is missing. The validator re-runs every capability lookup, type check, rights check, flow check and scheduling decision against the state, recomputes every timer tick, reschedule and interrupt whole, and refuses a trace that disagrees. The kernel does not yet export JSON traces; when it does (source == \"kernel\"), steps become a replay of a real run.",
   "leanToolchain": "4.28.0",
-  "generatedAt": "2026-11-12T00:00:00Z",
+  "generatedAt": "2026-11-12T23:40:49Z",
   "propertyCatalog": [
     {
       "id": "authority",
@@ -208,6 +208,66 @@
         "runQueueUnique",
         "queueCurrentConsistent",
         "budgetWithinBounds"
+      ]
+    },
+    {
+      "id": "replenishment",
+      "label": "Budget replenishment",
+      "statement": "A budget that is used returns exactly one period after the refill it came from was released, and only through the release queue: a charge never leaves a refill due in the past, the queue stays sorted by release time, and a tick keeps every pending refill on it.",
+      "caveat": "These are statements about the refill bookkeeping. The bound on how long a thread runs is the scheduling property's refill_window_bound.",
+      "theorems": [
+        {
+          "name": "SeLe4n.Kernel.SchedContext.chargeBudget_releaseKey_gt",
+          "module": "SeLe4n.Kernel.SchedContext.ReleaseLinks",
+          "path": "SeLe4n/Kernel/SchedContext/ReleaseLinks.lean",
+          "line": 1836
+        },
+        {
+          "name": "insert_preserves_sorted",
+          "module": "SeLe4n.Kernel.SchedContext.ReplenishQueue",
+          "path": "SeLe4n/Kernel/SchedContext/ReplenishQueue.lean",
+          "line": 320
+        },
+        {
+          "name": "perCoreTimerTickEntryState_preserves_refillsSound",
+          "module": "SeLe4n.Kernel.IPC.Invariant.RunQueueAgreement.Entry",
+          "path": "SeLe4n/Kernel/IPC/Invariant/RunQueueAgreement/Entry.lean",
+          "line": 800
+        }
+      ],
+      "invariants": [
+        "budgetWithinBounds",
+        "refillsSound"
+      ]
+    },
+    {
+      "id": "interrupts",
+      "label": "Interrupt delivery",
+      "statement": "A device interrupt reaches only the notification whose capability the line's handler bound, carries that capability's badge, and leaves the line masked until the handler acknowledges it.",
+      "caveat": "At this revision the kernel states no invariant of its own over interrupt lines, so the page checks none. The theorems cited are about the operations: what a bound line names, and what an acknowledge writes.",
+      "theorems": [
+        {
+          "name": "irqBinding?_notification",
+          "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+          "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+          "line": 91
+        },
+        {
+          "name": "irqHandlerAck_unmasks",
+          "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+          "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+          "line": 187
+        },
+        {
+          "name": "irqHandlerAck_refuses_off_board",
+          "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+          "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+          "line": 197
+        }
+      ],
+      "invariants": [
+        "notificationWaiters",
+        "cdtLinksAgree"
       ]
     }
   ],
@@ -424,7 +484,7 @@
       "id": "budgetWithinBounds",
       "label": "Budget within bounds",
       "subsystem": "scheduler",
-      "meaning": "A scheduling context's remaining budget never exceeds its configured budget.",
+      "meaning": "A scheduling context's remaining budget never exceeds its configured budget, and its budget never exceeds its period.",
       "predicate": {
         "name": "budgetWithinBounds",
         "module": "SeLe4n.Kernel.SchedContext.Invariant.Defs",
@@ -635,6 +695,32 @@
           "line": 500
         }
       ]
+    },
+    {
+      "id": "refillsSound",
+      "label": "No refill is lost or stranded",
+      "subsystem": "scheduler",
+      "meaning": "A scheduling context's head and pending refills always sum to its budget, and a used-up context that a thread holds, with a refill still pending, is on a release queue at that refill's release time. Nothing else would ever release it: the tick reads the queues alone.",
+      "predicate": {
+        "name": "refillsSound",
+        "module": "SeLe4n.Kernel.SchedContext.RefillState",
+        "path": "SeLe4n/Kernel/SchedContext/RefillState.lean",
+        "line": 597
+      },
+      "preservedBy": [
+        {
+          "name": "perCoreTimerTickEntryState_preserves_refillsSound",
+          "module": "SeLe4n.Kernel.IPC.Invariant.RunQueueAgreement.Entry",
+          "path": "SeLe4n/Kernel/IPC/Invariant/RunQueueAgreement/Entry.lean",
+          "line": 800
+        }
+      ],
+      "runtimeCheck": {
+        "name": "releaseNoRefillStrandedChecks",
+        "module": "SeLe4n.Testing.InvariantChecks",
+        "path": "SeLe4n/Testing/InvariantChecks.lean",
+        "line": 273
+      }
     }
   ],
   "scenarios": [
@@ -864,6 +950,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: receive invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the read right",
               "ref": {
@@ -1082,6 +1179,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: call invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
               },
               "result": "pass"
             },
@@ -1333,6 +1441,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: reply invokes a reply capability",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -1475,6 +1594,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: receive invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
               },
               "result": "pass"
             },
@@ -1797,6 +1927,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: send invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -1925,6 +2066,17 @@
               "error": "invalidCapability"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: call invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "skip"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -2046,6 +2198,17 @@
               "error": "invalidCapability"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: send invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "skip"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -2149,6 +2312,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: receive invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
               },
               "result": "pass"
             },
@@ -2502,6 +2676,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: notificationSignal invokes a notification",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -2652,6 +2837,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: notificationSignal invokes a notification",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -2772,6 +2968,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: notificationSignal invokes a notification",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
               },
               "result": "pass"
             },
@@ -3010,6 +3217,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: notificationWait invokes a notification",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the read right",
               "ref": {
@@ -3143,6 +3361,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: notificationWait invokes a notification",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
               },
               "result": "pass"
             },
@@ -3427,6 +3656,9 @@
           "delta": {
             "ops": [
               {
+                "op": "clockTick"
+              },
+              {
                 "op": "threadPatch",
                 "id": "a",
                 "set": {
@@ -3479,6 +3711,9 @@
           "narrative": "The tick finds a on its last tick. Its slice is refilled to 5 and it goes to the tail of the priority-50 bucket, behind b and c. The scheduler scans the highest bucket in order and takes its head, b. d is not considered: the bucket above it has runnable threads.",
           "delta": {
             "ops": [
+              {
+                "op": "clockTick"
+              },
               {
                 "op": "threadPatch",
                 "id": "a",
@@ -3630,6 +3865,9 @@
           "delta": {
             "ops": [
               {
+                "op": "clockTick"
+              },
+              {
                 "op": "threadPatch",
                 "id": "c",
                 "set": {
@@ -3657,14 +3895,16 @@
     },
     {
       "id": "budget-edf",
-      "title": "Budgets and earliest deadline first",
-      "summary": "Three threads at one priority, each bound to a scheduling context. A thread whose budget runs out is ineligible until the budget it used is released again, one period after it was first released; among the eligible, the earliest deadline wins.",
+      "title": "Budgets, refills and deadlines",
+      "summary": "Three threads at one priority, each bound to a scheduling context, and one unbound thread below them. A tick charges the running context; a context that is used up waits on the release queue until the budget it used comes back, one period after it was released; among the eligible, the earliest deadline wins.",
       "focus": "scheduler",
       "properties": [
         "scheduling",
+        "replenishment",
         "invariants"
       ],
       "initialState": {
+        "time": 2,
         "cores": [
           {
             "id": 0,
@@ -3708,6 +3948,17 @@
             },
             "timeSlice": 5,
             "sc": "sc.gamma"
+          },
+          {
+            "id": "bg",
+            "name": "background",
+            "priority": 10,
+            "domain": 0,
+            "core": 0,
+            "ipc": {
+              "state": "ready"
+            },
+            "timeSlice": 5
           }
         ],
         "runQueues": {
@@ -3719,8 +3970,15 @@
             {
               "thread": "gamma",
               "prio": 60
+            },
+            {
+              "thread": "bg",
+              "prio": 10
             }
           ]
+        },
+        "releaseQueues": {
+          "0": []
         },
         "endpoints": [],
         "notifications": [],
@@ -3728,24 +3986,41 @@
         "schedContexts": [
           {
             "id": "sc.alpha",
-            "budget": 3,
+            "name": "alpha's context",
+            "budget": 2,
+            "period": 6,
+            "deadline": 6,
             "remaining": 1,
-            "period": 20,
-            "deadline": 20
+            "periodStart": 2,
+            "refills": [
+              {
+                "amount": 1,
+                "at": 7
+              }
+            ],
+            "consumed": 1
           },
           {
             "id": "sc.beta",
-            "budget": 3,
-            "remaining": 3,
-            "period": 25,
-            "deadline": 25
+            "name": "beta's context",
+            "budget": 2,
+            "period": 8,
+            "deadline": 8,
+            "remaining": 2,
+            "periodStart": 0,
+            "refills": [],
+            "consumed": 0
           },
           {
             "id": "sc.gamma",
-            "budget": 2,
-            "remaining": 2,
-            "period": 18,
-            "deadline": 18
+            "name": "gamma's context",
+            "budget": 1,
+            "period": 9,
+            "deadline": 5,
+            "remaining": 1,
+            "periodStart": 0,
+            "refills": [],
+            "consumed": 0
           }
         ],
         "cnodes": [],
@@ -3763,7 +4038,7 @@
           "kind": "boot",
           "title": "Initial state",
           "traceTag": "BOOT",
-          "narrative": "alpha has run for two of its three ticks and has 1 tick of budget left. beta (deadline 25) and gamma (deadline 18) wait at the same priority. Deadlines and budgets live in each thread's scheduling context.",
+          "narrative": "The state the scenario starts from.",
           "delta": {
             "ops": []
           },
@@ -3776,9 +4051,14 @@
           }
         },
         {
-          "index": 1,
           "core": 0,
           "sourceRefs": [
+            {
+              "name": "timerTickOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2400
+            },
             {
               "name": "timerTickBudgetOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
@@ -3786,10 +4066,34 @@
               "line": 2237
             },
             {
+              "name": "SchedContext.tickExhausts",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 1856
+            },
+            {
               "name": "budgetExhaustOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
               "line": 2134
+            },
+            {
+              "name": "spendBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1930
+            },
+            {
+              "name": "SchedContext.chargeBudget",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 746
+            },
+            {
+              "name": "releasePlace",
+              "module": "SeLe4n.Kernel.SchedContext.ReleaseLinks",
+              "path": "SeLe4n/Kernel/SchedContext/ReleaseLinks.lean",
+              "line": 2076
             },
             {
               "name": "scheduleEffectiveOnCore",
@@ -3805,18 +4109,18 @@
             }
           ],
           "kind": "timer",
-          "title": "tick: alpha's budget runs out",
+          "title": "tick 3: alpha's budget runs out",
           "traceTag": "TICK",
-          "narrative": "The tick spends alpha's last tick of budget. Its scheduling context drops to 0 and goes on the core's release queue: the three ticks it used come back one period (20 ticks) after they were released, which is 17 ticks from now. The deadline stays where it is. alpha is requeued, but with no budget it is not eligible. Of beta and gamma, gamma's deadline is earlier, so gamma runs even though beta was queued first.",
+          "narrative": "alpha has one tick left in its head refill and nothing that would merge into it, so this tick uses the head up (tickExhausts). The tick it ran is scheduled to come back one period after the head was released: 2 + 6 = 8, which touches the refill already pending at 7, so the two join into one refill of 2 at time 7. alpha's context goes on the release queue at 7 and alpha itself goes back on the run queue, where it is ineligible: its budget is 0. Of the eligible threads in the priority-60 bucket, beta is first in the queue but gamma's deadline (5) is earlier than beta's (8), so gamma runs.",
           "delta": {
             "ops": [
               {
-                "op": "scPatch",
-                "id": "sc.alpha",
-                "set": {
-                  "remaining": 0,
-                  "refillIn": 17
-                }
+                "op": "clockTick"
+              },
+              {
+                "op": "scCharge",
+                "sc": "sc.alpha",
+                "core": 0
               },
               {
                 "op": "enqueue",
@@ -3835,7 +4139,8 @@
             "status": "ok"
           },
           "guarantees": [
-            "scheduling"
+            "scheduling",
+            "replenishment"
           ],
           "invariants": {
             "preserved": [
@@ -3843,56 +4148,21 @@
               "queueCurrentConsistent",
               "currentThreadValid",
               "blockedNotRunnable",
-              "budgetWithinBounds"
+              "budgetWithinBounds",
+              "refillsSound"
             ]
-          }
+          },
+          "index": 1
         },
         {
-          "index": 2,
           "core": 0,
           "sourceRefs": [
             {
-              "name": "timerTickBudgetOnCore",
+              "name": "timerTickOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 2237
-            }
-          ],
-          "kind": "timer",
-          "title": "tick: gamma spends a tick",
-          "traceTag": "TICK",
-          "narrative": "gamma spends one of its two ticks.",
-          "delta": {
-            "ops": [
-              {
-                "op": "scPatch",
-                "id": "sc.gamma",
-                "set": {
-                  "remaining": 1
-                }
-              }
-            ]
-          },
-          "outcome": {
-            "status": "ok"
-          },
-          "guarantees": [
-            "scheduling"
-          ],
-          "invariants": {
-            "preserved": [
-              "runQueueUnique",
-              "queueCurrentConsistent",
-              "currentThreadValid",
-              "blockedNotRunnable",
-              "budgetWithinBounds"
-            ]
-          }
-        },
-        {
-          "index": 3,
-          "core": 0,
-          "sourceRefs": [
+              "line": 2400
+            },
             {
               "name": "timerTickBudgetOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
@@ -3900,10 +4170,34 @@
               "line": 2237
             },
             {
+              "name": "SchedContext.tickExhausts",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 1856
+            },
+            {
               "name": "budgetExhaustOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
               "line": 2134
+            },
+            {
+              "name": "spendBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1930
+            },
+            {
+              "name": "SchedContext.chargeBudget",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 746
+            },
+            {
+              "name": "releasePlace",
+              "module": "SeLe4n.Kernel.SchedContext.ReleaseLinks",
+              "path": "SeLe4n/Kernel/SchedContext/ReleaseLinks.lean",
+              "line": 2076
             },
             {
               "name": "scheduleEffectiveOnCore",
@@ -3919,18 +4213,18 @@
             }
           ],
           "kind": "timer",
-          "title": "tick: gamma's budget runs out",
+          "title": "tick 4: gamma's one-tick budget runs out",
           "traceTag": "TICK",
-          "narrative": "gamma exhausts its budget too. Its two ticks come back one period (18 ticks) after their release, 16 ticks from now. beta is the only eligible thread left, so it runs.",
+          "narrative": "gamma's whole budget is one tick. The head was released at 0 and is taken up at 3 (refill_unblock_check moves a head that was ready to the moment it starts running), so the tick comes back at 3 + 9 = 12. gamma's context joins the release queue behind alpha's. beta is the only eligible thread left at priority 60.",
           "delta": {
             "ops": [
               {
-                "op": "scPatch",
-                "id": "sc.gamma",
-                "set": {
-                  "remaining": 0,
-                  "refillIn": 16
-                }
+                "op": "clockTick"
+              },
+              {
+                "op": "scCharge",
+                "sc": "sc.gamma",
+                "core": 0
               },
               {
                 "op": "enqueue",
@@ -3949,7 +4243,8 @@
             "status": "ok"
           },
           "guarantees": [
-            "scheduling"
+            "scheduling",
+            "replenishment"
           ],
           "invariants": {
             "preserved": [
@@ -3957,9 +4252,702 @@
               "queueCurrentConsistent",
               "currentThreadValid",
               "blockedNotRunnable",
-              "budgetWithinBounds"
+              "budgetWithinBounds",
+              "refillsSound"
             ]
-          }
+          },
+          "index": 2
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "timerTickOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2400
+            },
+            {
+              "name": "timerTickBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2237
+            },
+            {
+              "name": "SchedContext.tickExhausts",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 1856
+            },
+            {
+              "name": "SchedContext.chargeBudget",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 746
+            },
+            {
+              "name": "SchedContext.scheduleUsed",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 471
+            }
+          ],
+          "kind": "timer",
+          "title": "tick 5: beta spends a tick",
+          "traceTag": "TICK",
+          "narrative": "beta has two ticks, so this tick does not use the head up. One tick is charged: the head shrinks to 1 and the tick that was used is scheduled to return at 4 + 8 = 12, one period after the head started. Nothing else changes; no release is due.",
+          "delta": {
+            "ops": [
+              {
+                "op": "clockTick"
+              },
+              {
+                "op": "scCharge",
+                "sc": "sc.beta",
+                "core": 0
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling",
+            "replenishment"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable",
+              "budgetWithinBounds",
+              "refillsSound"
+            ]
+          },
+          "index": 3
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "timerTickOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2400
+            },
+            {
+              "name": "timerTickBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2237
+            },
+            {
+              "name": "SchedContext.tickExhausts",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 1856
+            },
+            {
+              "name": "budgetExhaustOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2134
+            },
+            {
+              "name": "spendBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1930
+            },
+            {
+              "name": "SchedContext.chargeBudget",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 746
+            },
+            {
+              "name": "releasePlace",
+              "module": "SeLe4n.Kernel.SchedContext.ReleaseLinks",
+              "path": "SeLe4n/Kernel/SchedContext/ReleaseLinks.lean",
+              "line": 2076
+            },
+            {
+              "name": "scheduleEffectiveOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1210
+            },
+            {
+              "name": "isBetterCandidate",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 44
+            }
+          ],
+          "kind": "timer",
+          "title": "tick 6: beta's budget runs out",
+          "traceTag": "TICK",
+          "narrative": "beta's last tick would return at 5 + 8 = 13, which touches the refill pending at 12, so the whole budget of 2 returns together at 12. beta's context is placed on the release queue behind the entries released no later than it (alpha at 7, gamma at 12). Every thread in the priority-60 bucket is now out of budget, so the scheduler falls back to a scan of the whole queue and runs the background thread, which is bound to no context and is charged a time slice instead.",
+          "delta": {
+            "ops": [
+              {
+                "op": "clockTick"
+              },
+              {
+                "op": "scCharge",
+                "sc": "sc.beta",
+                "core": 0
+              },
+              {
+                "op": "enqueue",
+                "thread": "beta",
+                "core": 0,
+                "prio": 60
+              },
+              {
+                "op": "dispatch",
+                "core": 0,
+                "thread": "bg"
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling",
+            "replenishment"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable",
+              "budgetWithinBounds",
+              "refillsSound"
+            ]
+          },
+          "index": 4
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "timerTickOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2400
+            },
+            {
+              "name": "processReplenishmentsDueOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1804
+            },
+            {
+              "name": "refillSchedContext",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 533
+            },
+            {
+              "name": "SchedContext.releaseReadyHead",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 677
+            },
+            {
+              "name": "cbsUpdateDeadline",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 2021
+            },
+            {
+              "name": "refillWakeOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1426
+            },
+            {
+              "name": "rescheduleIfPendingOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2361
+            },
+            {
+              "name": "handleRescheduleOnCoreState",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 3464
+            },
+            {
+              "name": "candidateOutranksCurrentOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 3210
+            }
+          ],
+          "kind": "timer",
+          "title": "tick 7: alpha's refill is released",
+          "traceTag": "TICK",
+          "narrative": "The tick first drains the release queue: alpha's refill of 2 is due at 7, so it becomes the head again, and a context that was exhausted and holds budget again gets a new deadline one period on, 7 + 6 = 13. alpha is already on the run queue, so nothing is enqueued, but the core's decision is now stale. The running thread is then charged (the background thread's slice goes from 5 to 4), and the scheduling point finds a candidate that outranks it: alpha, at priority 60 against 10. The background thread goes to the tail of the queue and alpha runs.",
+          "delta": {
+            "ops": [
+              {
+                "op": "clockTick"
+              },
+              {
+                "op": "scRelease",
+                "sc": "sc.alpha",
+                "core": 0
+              },
+              {
+                "op": "threadPatch",
+                "id": "bg",
+                "set": {
+                  "timeSlice": 4
+                }
+              },
+              {
+                "op": "enqueue",
+                "thread": "bg",
+                "core": 0,
+                "prio": 10
+              },
+              {
+                "op": "dispatch",
+                "core": 0,
+                "thread": "alpha"
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling",
+            "replenishment"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable",
+              "budgetWithinBounds",
+              "refillsSound"
+            ]
+          },
+          "index": 5
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "timerTickOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2400
+            },
+            {
+              "name": "timerTickBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2237
+            },
+            {
+              "name": "SchedContext.tickExhausts",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 1856
+            },
+            {
+              "name": "SchedContext.chargeBudget",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 746
+            },
+            {
+              "name": "SchedContext.scheduleUsed",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 471
+            }
+          ],
+          "kind": "timer",
+          "title": "tick 8: alpha spends a tick",
+          "traceTag": "TICK",
+          "narrative": "alpha's head was released at 7 and has run since, so the tick it used returns at 7 + 6 = 13.",
+          "delta": {
+            "ops": [
+              {
+                "op": "clockTick"
+              },
+              {
+                "op": "scCharge",
+                "sc": "sc.alpha",
+                "core": 0
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling",
+            "replenishment"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable",
+              "budgetWithinBounds",
+              "refillsSound"
+            ]
+          },
+          "index": 6
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "timerTickOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2400
+            },
+            {
+              "name": "timerTickBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2237
+            },
+            {
+              "name": "SchedContext.tickExhausts",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 1856
+            },
+            {
+              "name": "budgetExhaustOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2134
+            },
+            {
+              "name": "spendBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1930
+            },
+            {
+              "name": "SchedContext.chargeBudget",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 746
+            },
+            {
+              "name": "releasePlace",
+              "module": "SeLe4n.Kernel.SchedContext.ReleaseLinks",
+              "path": "SeLe4n/Kernel/SchedContext/ReleaseLinks.lean",
+              "line": 2076
+            },
+            {
+              "name": "scheduleEffectiveOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1210
+            },
+            {
+              "name": "isBetterCandidate",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 44
+            }
+          ],
+          "kind": "timer",
+          "title": "tick 9: alpha is out of budget again",
+          "traceTag": "TICK",
+          "narrative": "The second tick would return at 8 + 6 = 14, which touches the refill pending at 13: both return at 13. alpha's context goes on the release queue behind gamma's and beta's, which are due at 12. No bound thread has budget, so the background thread runs again.",
+          "delta": {
+            "ops": [
+              {
+                "op": "clockTick"
+              },
+              {
+                "op": "scCharge",
+                "sc": "sc.alpha",
+                "core": 0
+              },
+              {
+                "op": "enqueue",
+                "thread": "alpha",
+                "core": 0,
+                "prio": 60
+              },
+              {
+                "op": "dispatch",
+                "core": 0,
+                "thread": "bg"
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling",
+            "replenishment"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable",
+              "budgetWithinBounds",
+              "refillsSound"
+            ]
+          },
+          "index": 7
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "timerTickOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2400
+            },
+            {
+              "name": "processReplenishmentsDueOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1804
+            },
+            {
+              "name": "timerTickBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2237
+            }
+          ],
+          "kind": "timer",
+          "title": "tick 10: the background thread runs",
+          "traceTag": "TICK",
+          "narrative": "Nothing is due on the release queue until 12. The background thread's time slice goes from 4 to 3.",
+          "delta": {
+            "ops": [
+              {
+                "op": "clockTick"
+              },
+              {
+                "op": "threadPatch",
+                "id": "bg",
+                "set": {
+                  "timeSlice": 3
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling",
+            "replenishment"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable",
+              "budgetWithinBounds",
+              "refillsSound"
+            ]
+          },
+          "index": 8
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "timerTickOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2400
+            },
+            {
+              "name": "processReplenishmentsDueOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1804
+            },
+            {
+              "name": "timerTickBudgetOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2237
+            }
+          ],
+          "kind": "timer",
+          "title": "tick 11: the background thread runs",
+          "traceTag": "TICK",
+          "narrative": "Still nothing due. The slice goes from 3 to 2.",
+          "delta": {
+            "ops": [
+              {
+                "op": "clockTick"
+              },
+              {
+                "op": "threadPatch",
+                "id": "bg",
+                "set": {
+                  "timeSlice": 2
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling",
+            "replenishment"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable",
+              "budgetWithinBounds",
+              "refillsSound"
+            ]
+          },
+          "index": 9
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "timerTickOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2400
+            },
+            {
+              "name": "processReplenishmentsDueOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1804
+            },
+            {
+              "name": "refillSchedContext",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 533
+            },
+            {
+              "name": "SchedContext.releaseReadyHead",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 677
+            },
+            {
+              "name": "cbsUpdateDeadline",
+              "module": "SeLe4n.Kernel.SchedContext.Budget",
+              "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+              "line": 2021
+            },
+            {
+              "name": "refillWakeOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1426
+            },
+            {
+              "name": "rescheduleIfPendingOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 2361
+            },
+            {
+              "name": "handleRescheduleOnCoreState",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 3464
+            },
+            {
+              "name": "candidateOutranksCurrentOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 3210
+            }
+          ],
+          "kind": "timer",
+          "title": "tick 12: two refills are released at once",
+          "traceTag": "TICK",
+          "narrative": "gamma's and beta's refills are both due at 12, and the drain takes the queue's head while it is due: gamma first, then beta. Each gets a new deadline one period on: gamma 12 + 9 = 21, beta 12 + 8 = 20. After the background thread is charged, the scheduling point compares the best candidate with it. Both refilled threads are eligible at priority 60; beta's deadline is the earlier, so beta preempts the background thread. alpha is still waiting for 13.",
+          "delta": {
+            "ops": [
+              {
+                "op": "clockTick"
+              },
+              {
+                "op": "scRelease",
+                "sc": "sc.gamma",
+                "core": 0
+              },
+              {
+                "op": "scRelease",
+                "sc": "sc.beta",
+                "core": 0
+              },
+              {
+                "op": "threadPatch",
+                "id": "bg",
+                "set": {
+                  "timeSlice": 1
+                }
+              },
+              {
+                "op": "enqueue",
+                "thread": "bg",
+                "core": 0,
+                "prio": 10
+              },
+              {
+                "op": "dispatch",
+                "core": 0,
+                "thread": "beta"
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling",
+            "replenishment"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable",
+              "budgetWithinBounds",
+              "refillsSound"
+            ]
+          },
+          "index": 10
         }
       ]
     },
@@ -4124,7 +5112,13 @@
               }
             ],
             "capPtr": 0,
-            "requiredRight": "grant"
+            "requiredRight": "grant",
+            "ipcBuffer": [
+              {
+                "name": "badge (message word 4; 0 keeps the source badge)",
+                "value": 7
+              }
+            ]
           },
           "path": [
             {
@@ -4161,6 +5155,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: cspaceMint invokes a CNode",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the grant right",
               "ref": {
@@ -4168,6 +5173,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 5 argument words",
+              "ref": {
+                "name": "decodeCSpaceMintArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 381
               },
               "result": "pass"
             },
@@ -4298,7 +5314,13 @@
               }
             ],
             "capPtr": 0,
-            "requiredRight": "grant"
+            "requiredRight": "grant",
+            "ipcBuffer": [
+              {
+                "name": "badge (message word 4; 0 keeps the source badge)",
+                "value": 0
+              }
+            ]
           },
           "path": [
             {
@@ -4335,6 +5357,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: cspaceMint invokes a CNode",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the grant right",
               "ref": {
@@ -4342,6 +5375,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 5 argument words",
+              "ref": {
+                "name": "decodeCSpaceMintArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 381
               },
               "result": "pass"
             },
@@ -4461,7 +5505,13 @@
               }
             ],
             "capPtr": 0,
-            "requiredRight": "grant"
+            "requiredRight": "grant",
+            "ipcBuffer": [
+              {
+                "name": "badge (message word 4; 0 keeps the source badge)",
+                "value": 0
+              }
+            ]
           },
           "path": [
             {
@@ -4498,6 +5548,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: cspaceMint invokes a CNode",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the grant right",
               "ref": {
@@ -4505,6 +5566,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 5 argument words",
+              "ref": {
+                "name": "decodeCSpaceMintArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 381
               },
               "result": "pass"
             },
@@ -4621,6 +5693,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: cspaceCopy invokes a CNode",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the grant right",
               "ref": {
@@ -4628,6 +5711,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 4 argument words",
+              "ref": {
+                "name": "decodeCSpaceCopyArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 351
               },
               "result": "pass"
             },
@@ -4752,7 +5846,13 @@
               }
             ],
             "capPtr": 0,
-            "requiredRight": "grant"
+            "requiredRight": "grant",
+            "ipcBuffer": [
+              {
+                "name": "badge (message word 4; 0 keeps the source badge)",
+                "value": 9
+              }
+            ]
           },
           "path": [
             {
@@ -4789,6 +5889,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: cspaceMint invokes a CNode",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the grant right",
               "ref": {
@@ -4796,6 +5907,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 5 argument words",
+              "ref": {
+                "name": "decodeCSpaceMintArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 381
               },
               "result": "pass"
             },
@@ -4930,6 +6052,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: cspaceDelete invokes a CNode",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -4937,6 +6070,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 1 argument word",
+              "ref": {
+                "name": "decodeCSpaceDeleteArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 413
               },
               "result": "pass"
             },
@@ -5036,6 +6180,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: cspaceRevoke invokes a CNode",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -5043,6 +6198,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 1 argument word",
+              "ref": {
+                "name": "decodeCSpaceDeleteArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 413
               },
               "result": "pass"
             },
@@ -5146,7 +6312,8 @@
                   "read",
                   "write",
                   "retype"
-                ]
+                ],
+                "freeIndex": 0
               }
             }
           }
@@ -5158,7 +6325,6 @@
             "name": "pool",
             "base": 2147483648,
             "size": 16384,
-            "watermark": 0,
             "children": []
           }
         ],
@@ -5287,6 +6453,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: untypedRetype invokes an untyped",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the retype right",
               "ref": {
@@ -5294,6 +6471,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 4 argument words",
+              "ref": {
+                "name": "decodeUntypedRetypeArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 425
               },
               "result": "pass"
             },
@@ -5445,6 +6633,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: untypedRetype invokes an untyped",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the retype right",
               "ref": {
@@ -5452,6 +6651,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 4 argument words",
+              "ref": {
+                "name": "decodeUntypedRetypeArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 425
               },
               "result": "pass"
             },
@@ -5597,6 +6807,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: untypedRetype invokes an untyped",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the retype right",
               "ref": {
@@ -5604,6 +6825,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 4 argument words",
+              "ref": {
+                "name": "decodeUntypedRetypeArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 425
               },
               "result": "pass"
             },
@@ -5699,6 +6931,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: untypedReset invokes an untyped",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
               },
               "result": "pass"
             },
@@ -5815,6 +7058,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: cspaceRevoke invokes a CNode",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -5822,6 +7076,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 1 argument word",
+              "ref": {
+                "name": "decodeCSpaceDeleteArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 413
               },
               "result": "pass"
             },
@@ -5920,6 +7185,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: untypedReset invokes an untyped",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
               },
               "result": "pass"
             },
@@ -6188,6 +7464,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: vspaceMap invokes an address-space root",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -6195,6 +7482,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 4 argument words",
+              "ref": {
+                "name": "decodeVSpaceMapArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 449
               },
               "result": "pass"
             },
@@ -6324,6 +7622,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: vspaceMap invokes an address-space root",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -6331,6 +7640,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 4 argument words",
+              "ref": {
+                "name": "decodeVSpaceMapArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 449
               },
               "result": "pass"
             },
@@ -6466,6 +7786,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: vspaceMap invokes an address-space root",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -6477,8 +7808,8 @@
               "result": "pass"
             },
             {
-              "stage": "operation",
-              "label": "Decode the permission word: writable and executable",
+              "stage": "args",
+              "label": "Decode the arm's 4 argument words; the permissions are refused",
               "ref": {
                 "name": "decodeVSpaceMapArgs",
                 "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
@@ -6487,6 +7818,17 @@
               },
               "result": "fail",
               "error": "invalidSyscallArgument"
+            },
+            {
+              "stage": "operation",
+              "label": "Map the frame",
+              "ref": {
+                "name": "vspaceMapOrRemapFromFrameCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 3065
+              },
+              "result": "skip"
             }
           ],
           "narrative": "The address-space capability passes the gate: the arm then decodes its arguments, and 0b11111 is both writable and executable. PagePermissions.ofNat? has no value for such a word, so the decode refuses with invalidSyscallArgument and no entry is written.",
@@ -6582,6 +7924,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: vspaceUnmap invokes an address-space root",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -6589,6 +7942,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 2 argument words",
+              "ref": {
+                "name": "decodeVSpaceUnmapArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 488
               },
               "result": "pass"
             },
@@ -6881,6 +8245,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: send invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -7090,6 +8465,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: send invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
               },
               "result": "pass"
             },
@@ -7337,6 +8723,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: declassify accepts any object capability",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
               },
               "result": "pass"
             },
@@ -7608,6 +9005,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: tcbSetAffinity invokes a thread",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -7615,6 +9023,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 1 argument word",
+              "ref": {
+                "name": "decodeSetAffinityArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 1986
               },
               "result": "pass"
             },
@@ -7750,6 +9169,17 @@
               "result": "pass"
             },
             {
+              "stage": "type",
+              "label": "Check the capability's type: tcbSetAffinity invokes a thread",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
               "stage": "rights",
               "label": "Require the write right",
               "ref": {
@@ -7757,6 +9187,17 @@
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
                 "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 1 argument word",
+              "ref": {
+                "name": "decodeSetAffinityArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 1986
               },
               "result": "pass"
             },
@@ -7862,6 +9303,2439 @@
               "blockedNotRunnable"
             ]
           }
+        }
+      ]
+    },
+    {
+      "id": "irq-delivery",
+      "title": "A device interrupt, from line to driver",
+      "summary": "A driver claims an interrupt line, binds a notification to it, and waits. The interrupt wakes the driver with the bound capability's badge and masks the line until the driver acknowledges it. A line nobody has claimed is masked and reaches no one.",
+      "focus": "irq",
+      "properties": [
+        "interrupts",
+        "authority",
+        "failureAtomic",
+        "invariants"
+      ],
+      "initialState": {
+        "cores": [
+          {
+            "id": 0,
+            "current": "drv",
+            "domain": 0
+          }
+        ],
+        "threads": [
+          {
+            "id": "drv",
+            "name": "UART driver",
+            "priority": 120,
+            "domain": 0,
+            "core": 0,
+            "ipc": {
+              "state": "ready"
+            },
+            "timeSlice": 5,
+            "cspace": "cn.drv",
+            "label": "lb.sys"
+          },
+          {
+            "id": "app",
+            "name": "application",
+            "priority": 50,
+            "domain": 0,
+            "core": 0,
+            "ipc": {
+              "state": "ready"
+            },
+            "timeSlice": 5,
+            "label": "lb.sys"
+          }
+        ],
+        "runQueues": {
+          "0": [
+            {
+              "thread": "app",
+              "prio": 50
+            }
+          ]
+        },
+        "endpoints": [],
+        "notifications": [
+          {
+            "id": "n.uart",
+            "name": "UART events",
+            "label": "lb.sys",
+            "pending": null,
+            "waiters": []
+          }
+        ],
+        "replies": [],
+        "schedContexts": [],
+        "cnodes": [
+          {
+            "id": "cn.drv",
+            "name": "driver CSpace",
+            "depth": 8,
+            "guardWidth": 4,
+            "guardValue": 0,
+            "radixWidth": 4,
+            "slots": {
+              "0": {
+                "kind": "cnode",
+                "target": "cn.drv",
+                "rights": [
+                  "read",
+                  "write",
+                  "grant"
+                ]
+              },
+              "1": {
+                "kind": "irqControl",
+                "target": "irq.control",
+                "rights": [
+                  "write"
+                ]
+              },
+              "2": {
+                "kind": "notification",
+                "target": "n.uart",
+                "rights": [
+                  "read",
+                  "write"
+                ],
+                "badge": 4
+              }
+            }
+          },
+          {
+            "id": "irqnode.33",
+            "name": "interrupt node, line 33",
+            "irqNode": 33,
+            "depth": 0,
+            "guardWidth": 0,
+            "guardValue": 0,
+            "radixWidth": 0,
+            "slots": {}
+          }
+        ],
+        "cdt": {},
+        "untyped": [],
+        "vspaces": [],
+        "labels": [
+          {
+            "id": "lb.sys",
+            "name": "system",
+            "conf": "low",
+            "integ": "trusted"
+          }
+        ],
+        "audit": [],
+        "irqs": [
+          {
+            "line": 33,
+            "name": "UART0",
+            "active": false,
+            "masked": false
+          }
+        ]
+      },
+      "steps": [
+        {
+          "index": 0,
+          "core": 0,
+          "sourceRefs": [],
+          "kind": "boot",
+          "title": "Initial state",
+          "traceTag": "BOOT",
+          "narrative": "The state the scenario starts from.",
+          "delta": {
+            "ops": []
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [],
+          "invariants": {
+            "preserved": []
+          }
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "interruptEntryStep",
+              "module": "SeLe4n.Kernel.IPC.CrossCore.InterruptDelivery",
+              "path": "SeLe4n/Kernel/IPC/CrossCore/InterruptDelivery.lean",
+              "line": 234
+            },
+            {
+              "name": "handleInterruptOnCore",
+              "module": "SeLe4n.Kernel.IPC.CrossCore.InterruptDelivery",
+              "path": "SeLe4n/Kernel/IPC/CrossCore/InterruptDelivery.lean",
+              "line": 226
+            },
+            {
+              "name": "irqBinding?",
+              "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+              "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+              "line": 74
+            },
+            {
+              "name": "setInterruptLineMask",
+              "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+              "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+              "line": 109
+            }
+          ],
+          "kind": "interrupt",
+          "title": "line 33 fires with no handler",
+          "traceTag": "IRQ",
+          "narrative": "No handler capability has been issued for line 33, so the line is not at IRQSignal and names no notification. The kernel does the one thing it can: it masks the line at the controller. Nothing is signalled and no thread is woken; an unclaimed device cannot interrupt the system twice.",
+          "delta": {
+            "ops": [
+              {
+                "op": "irqPatch",
+                "line": 33,
+                "set": {
+                  "masked": true
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "interrupts"
+          ],
+          "invariants": {
+            "preserved": [
+              "notificationWaiters"
+            ]
+          },
+          "irq": {
+            "line": 33
+          },
+          "index": 1
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "irqControlLineRefusal",
+              "module": "SeLe4n.Kernel.Capability.IrqControl",
+              "path": "SeLe4n/Kernel/Capability/IrqControl.lean",
+              "line": 45
+            },
+            {
+              "name": "irqControlGet",
+              "module": "SeLe4n.Kernel.Capability.IrqControl",
+              "path": "SeLe4n/Kernel/Capability/IrqControl.lean",
+              "line": 97
+            },
+            {
+              "name": "resolveIssuingSlots",
+              "module": "SeLe4n.Kernel.API",
+              "path": "SeLe4n/Kernel/API.lean",
+              "line": 2163
+            }
+          ],
+          "kind": "syscall",
+          "title": "drv: claim line 33",
+          "traceTag": "IRQGET",
+          "actor": "drv",
+          "syscall": {
+            "id": "irqControlGet",
+            "number": 45,
+            "msgInfo": {
+              "length": 3,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [
+              {
+                "reg": "x2",
+                "name": "interrupt line",
+                "value": 33
+              },
+              {
+                "reg": "x3",
+                "name": "destination CNode CPtr",
+                "value": 0
+              },
+              {
+                "reg": "x4",
+                "name": "destination slot",
+                "value": 3
+              }
+            ],
+            "capPtr": 1,
+            "requiredRight": "write"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 1, the interrupt-control capability)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: irqControlGet invokes the interrupt-control capability",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the write right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 3 argument words",
+              "ref": {
+                "name": "decodeIrqControlGetArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 1582
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Check the line, then issue its handler capability",
+              "ref": {
+                "name": "irqControlGetFromCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 2468
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "The interrupt-control capability is the authority to hand out lines. The arm checks the line first (a device line of this board, with its node, held by no handler), then puts it at IRQSignal and installs a handler capability for line 33 in slot 3, as a derivation child of the control capability: revoking that capability reaches every handler it issued. The line stays masked; issuing a handler does not unmask it.",
+          "delta": {
+            "ops": [
+              {
+                "op": "irqPatch",
+                "line": 33,
+                "set": {
+                  "active": true
+                }
+              },
+              {
+                "op": "capInsert",
+                "slot": "cn.drv/3",
+                "parent": "cn.drv/1",
+                "cap": {
+                  "kind": "irqHandler",
+                  "target": "irq.33",
+                  "line": 33,
+                  "rights": [
+                    "write"
+                  ],
+                  "derivation": "issue"
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "interrupts",
+            "authority",
+            "invariants"
+          ],
+          "invariants": {
+            "preserved": [
+              "cdtLinksAgree",
+              "cdtAcyclic"
+            ]
+          },
+          "index": 2
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "irqHandlerSetNotification",
+              "module": "SeLe4n.Kernel.Capability.IrqControl",
+              "path": "SeLe4n/Kernel/Capability/IrqControl.lean",
+              "line": 223
+            },
+            {
+              "name": "irqNotificationCapAdmitted",
+              "module": "SeLe4n.Kernel.Capability.IrqControl",
+              "path": "SeLe4n/Kernel/Capability/IrqControl.lean",
+              "line": 123
+            }
+          ],
+          "kind": "syscall",
+          "title": "drv: bind the notification to the line",
+          "traceTag": "IRQBIND",
+          "actor": "drv",
+          "syscall": {
+            "id": "irqHandlerSetNotification",
+            "number": 46,
+            "msgInfo": {
+              "length": 1,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [
+              {
+                "reg": "x2",
+                "name": "notification CPtr",
+                "value": 2
+              }
+            ],
+            "capPtr": 3,
+            "requiredRight": "write"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 3, the handler for line 33)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: irqHandlerSetNotification invokes an interrupt-handler capability",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the write right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 1 argument word",
+              "ref": {
+                "name": "decodeIrqHandlerSetNotificationArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 1598
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Copy the notification capability into the line's node",
+              "ref": {
+                "name": "irqHandlerSetNotificationFromCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 2486
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "x2 names the notification capability in the driver's own CSpace; it must be a notification capability with the send right. The kernel copies it, badge and all, into line 33's interrupt node: a one-slot CNode at a reserved id that no capability names. The copy is a derivation child of the driver's capability, so deleting or revoking that one unbinds the line. From now on the node slot is what an interrupt on line 33 reads.",
+          "delta": {
+            "ops": [
+              {
+                "op": "capInsert",
+                "slot": "irqnode.33/0",
+                "parent": "cn.drv/2",
+                "cap": {
+                  "kind": "notification",
+                  "target": "n.uart",
+                  "rights": [
+                    "read",
+                    "write"
+                  ],
+                  "badge": 4,
+                  "derivation": "copy"
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "interrupts",
+            "authority",
+            "attenuation",
+            "invariants"
+          ],
+          "invariants": {
+            "preserved": [
+              "cdtLinksAgree",
+              "cdtAcyclic"
+            ]
+          },
+          "index": 3
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "setInterruptLineMask",
+              "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+              "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+              "line": 109
+            },
+            {
+              "name": "irqHandlerAck_unmasks",
+              "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+              "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+              "line": 187
+            }
+          ],
+          "kind": "syscall",
+          "title": "drv: acknowledge, unmasking the line",
+          "traceTag": "IRQACK",
+          "actor": "drv",
+          "syscall": {
+            "id": "irqHandlerAck",
+            "number": 44,
+            "msgInfo": {
+              "length": 0,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [],
+            "capPtr": 3,
+            "requiredRight": "write"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 3, the handler for line 33)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: irqHandlerAck invokes an interrupt-handler capability",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the write right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Unmask the line at the controller",
+              "ref": {
+                "name": "irqHandlerAck",
+                "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+                "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+                "line": 182
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "The line has been masked since it fired with no handler. An acknowledge writes exactly one thing: the line's mask, cleared. The device can interrupt again.",
+          "delta": {
+            "ops": [
+              {
+                "op": "irqPatch",
+                "line": 33,
+                "set": {
+                  "masked": false
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "interrupts",
+            "authority"
+          ],
+          "invariants": {
+            "preserved": []
+          },
+          "index": 4
+        },
+        {
+          "core": 0,
+          "sourceRefs": [],
+          "kind": "syscall",
+          "title": "drv: wait for the device",
+          "traceTag": "WAIT",
+          "actor": "drv",
+          "syscall": {
+            "id": "notificationWait",
+            "number": 15,
+            "msgInfo": {
+              "length": 0,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [],
+            "capPtr": 2,
+            "requiredRight": "read"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 2, the notification)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: notificationWait invokes a notification",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the read right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "flow",
+              "label": "Notification → waiter flow gate",
+              "ref": {
+                "name": "securityFlowsTo",
+                "module": "SeLe4n.Kernel.InformationFlow.Policy",
+                "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
+                "line": 211
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Wait; the word is clear, so block",
+              "ref": {
+                "name": "notificationWaitCrossCoreDispatchChecked",
+                "module": "SeLe4n.Kernel.IPC.CrossCore.NotificationBindDispatch",
+                "path": "SeLe4n/Kernel/IPC/CrossCore/NotificationBindDispatch.lean",
+                "line": 218
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "Nothing is pending on the notification, so the driver joins its wait queue and leaves the core.",
+          "delta": {
+            "ops": [
+              {
+                "op": "flowCheck",
+                "from": "n.uart",
+                "to": "drv",
+                "allowed": true
+              },
+              {
+                "op": "ntfnEnqueue",
+                "notification": "n.uart",
+                "thread": "drv"
+              },
+              {
+                "op": "threadPatch",
+                "id": "drv",
+                "set": {
+                  "ipc": {
+                    "state": "blockedOnNotification",
+                    "object": "n.uart"
+                  }
+                }
+              },
+              {
+                "op": "deschedule",
+                "thread": "drv",
+                "core": 0
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "authority",
+            "flowPolicy",
+            "invariants"
+          ],
+          "invariants": {
+            "preserved": [
+              "notificationWaiters",
+              "blockedNotRunnable",
+              "queueNoDup",
+              "runQueueUnique",
+              "queueCurrentConsistent"
+            ]
+          },
+          "index": 5
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "scheduleLocalSuccessorFrom",
+              "module": "SeLe4n.Kernel.Scheduler.PriorityInheritance.PerCore",
+              "path": "SeLe4n/Kernel/Scheduler/PriorityInheritance/PerCore.lean",
+              "line": 1526
+            },
+            {
+              "name": "handleRescheduleSgiOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 3421
+            },
+            {
+              "name": "chooseThreadEffectiveOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 831
+            },
+            {
+              "name": "switchToThreadOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 1678
+            }
+          ],
+          "kind": "schedule",
+          "title": "core 0: the application runs",
+          "traceTag": "SCHED",
+          "narrative": "The driver left the core, so the scheduler picks again. The application is the only runnable thread.",
+          "delta": {
+            "ops": [
+              {
+                "op": "dispatch",
+                "core": 0,
+                "thread": "app"
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable"
+            ]
+          },
+          "index": 6
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "interruptDispatchSequence",
+              "module": "SeLe4n.Kernel.Architecture.InterruptDispatch",
+              "path": "SeLe4n/Kernel/Architecture/InterruptDispatch.lean",
+              "line": 222
+            },
+            {
+              "name": "handleInterruptOnCore",
+              "module": "SeLe4n.Kernel.IPC.CrossCore.InterruptDelivery",
+              "path": "SeLe4n/Kernel/IPC/CrossCore/InterruptDelivery.lean",
+              "line": 226
+            },
+            {
+              "name": "irqBinding?",
+              "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+              "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+              "line": 74
+            },
+            {
+              "name": "interruptSignal",
+              "module": "SeLe4n.Kernel.IPC.CrossCore.InterruptDelivery",
+              "path": "SeLe4n/Kernel/IPC/CrossCore/InterruptDelivery.lean",
+              "line": 62
+            },
+            {
+              "name": "setInterruptLineMask",
+              "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+              "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+              "line": 109
+            }
+          ],
+          "kind": "interrupt",
+          "title": "line 33 fires: the driver is woken",
+          "traceTag": "IRQ",
+          "narrative": "The controller raises line 33 on core 0 while the application runs. The kernel acknowledges and ends the interrupt at the controller, then reads the line's node slot: a notification capability with the send right, badge 4. That notification is signalled with that badge. The driver is the head of its wait queue, so it is taken off, made ready with the badge in its message, and queued on its home core. The line is then masked: it will not fire again until the driver acknowledges it.",
+          "delta": {
+            "ops": [
+              {
+                "op": "ntfnPopHead",
+                "notification": "n.uart",
+                "thread": "drv"
+              },
+              {
+                "op": "threadPatch",
+                "id": "drv",
+                "set": {
+                  "ipc": {
+                    "state": "ready"
+                  },
+                  "msg": {
+                    "from": null,
+                    "via": "n.uart",
+                    "words": [],
+                    "label": 0,
+                    "badge": 4
+                  }
+                }
+              },
+              {
+                "op": "enqueue",
+                "thread": "drv",
+                "core": 0,
+                "prio": 120
+              },
+              {
+                "op": "irqPatch",
+                "line": 33,
+                "set": {
+                  "masked": true
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "interrupts",
+            "invariants"
+          ],
+          "invariants": {
+            "preserved": [
+              "notificationWaiters",
+              "blockedNotRunnable",
+              "queueNoDup",
+              "runQueueUnique",
+              "queueCurrentConsistent"
+            ]
+          },
+          "irq": {
+            "line": 33
+          },
+          "index": 7
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "handleRescheduleOnCoreState",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 3464
+            },
+            {
+              "name": "candidateOutranksCurrentOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 3210
+            },
+            {
+              "name": "preemptCurrentOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 1528
+            },
+            {
+              "name": "isBetterCandidate",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 44
+            }
+          ],
+          "kind": "schedule",
+          "title": "core 0: the driver preempts",
+          "traceTag": "SCHED",
+          "narrative": "The wake flagged core 0 to choose again. The best candidate is the driver at priority 120; the application runs at 50, so the candidate outranks it. The application goes to the tail of the run queue and the driver runs.",
+          "delta": {
+            "ops": [
+              {
+                "op": "enqueue",
+                "thread": "app",
+                "core": 0,
+                "prio": 50
+              },
+              {
+                "op": "dispatch",
+                "core": 0,
+                "thread": "drv"
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable"
+            ]
+          },
+          "index": 8
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "setInterruptLineMask",
+              "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+              "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+              "line": 109
+            },
+            {
+              "name": "irqHandlerAck_unmasks",
+              "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+              "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+              "line": 187
+            }
+          ],
+          "kind": "syscall",
+          "title": "drv: service the device and acknowledge",
+          "traceTag": "IRQACK",
+          "actor": "drv",
+          "syscall": {
+            "id": "irqHandlerAck",
+            "number": 44,
+            "msgInfo": {
+              "length": 0,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [],
+            "capPtr": 3,
+            "requiredRight": "write"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 3, the handler for line 33)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: irqHandlerAck invokes an interrupt-handler capability",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the write right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Unmask the line at the controller",
+              "ref": {
+                "name": "irqHandlerAck",
+                "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+                "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+                "line": 182
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "The driver has handled the device. Its acknowledge unmasks line 33, and the next interrupt can be delivered.",
+          "delta": {
+            "ops": [
+              {
+                "op": "irqPatch",
+                "line": 33,
+                "set": {
+                  "masked": false
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "interrupts",
+            "authority"
+          ],
+          "invariants": {
+            "preserved": []
+          },
+          "index": 9
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "irqControlGetFromCap",
+              "module": "SeLe4n.Kernel.API",
+              "path": "SeLe4n/Kernel/API.lean",
+              "line": 2468
+            }
+          ],
+          "kind": "syscall",
+          "title": "drv: claim line 33 a second time",
+          "traceTag": "IRQGET",
+          "actor": "drv",
+          "syscall": {
+            "id": "irqControlGet",
+            "number": 45,
+            "msgInfo": {
+              "length": 3,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [
+              {
+                "reg": "x2",
+                "name": "interrupt line",
+                "value": 33
+              },
+              {
+                "reg": "x3",
+                "name": "destination CNode CPtr",
+                "value": 0
+              },
+              {
+                "reg": "x4",
+                "name": "destination slot",
+                "value": 5
+              }
+            ],
+            "capPtr": 1,
+            "requiredRight": "write"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 1, the interrupt-control capability)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: irqControlGet invokes the interrupt-control capability",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the write right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 3 argument words",
+              "ref": {
+                "name": "decodeIrqControlGetArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 1582
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Check the line: a handler already holds it",
+              "ref": {
+                "name": "irqControlLineRefusal",
+                "module": "SeLe4n.Kernel.Capability.IrqControl",
+                "path": "SeLe4n/Kernel/Capability/IrqControl.lean",
+                "line": 45
+              },
+              "result": "fail",
+              "error": "revocationRequired"
+            }
+          ],
+          "narrative": "Every gate passes: the capability is the interrupt-control capability and carries the write right, and the message is long enough. The arm's own first check refuses: line 33 is already at IRQSignal, so a handler holds it, and a second handler for one line would be a second owner. The refusal comes before any slot is resolved and nothing is written.",
+          "delta": {
+            "ops": []
+          },
+          "outcome": {
+            "status": "error",
+            "error": "revocationRequired"
+          },
+          "guarantees": [
+            "interrupts",
+            "failureAtomic"
+          ],
+          "invariants": {
+            "preserved": [
+              "cdtLinksAgree",
+              "cdtAcyclic"
+            ]
+          },
+          "index": 10
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "syscallInvokeTyped",
+              "module": "SeLe4n.Kernel.API",
+              "path": "SeLe4n/Kernel/API.lean",
+              "line": 1026
+            }
+          ],
+          "kind": "syscall",
+          "title": "drv: acknowledge through the wrong capability",
+          "traceTag": "IRQACK",
+          "actor": "drv",
+          "syscall": {
+            "id": "irqHandlerAck",
+            "number": 44,
+            "msgInfo": {
+              "length": 0,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [],
+            "capPtr": 2,
+            "requiredRight": "write"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 2, the notification)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: irqHandlerAck invokes an interrupt-handler capability",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "fail",
+              "error": "invalidCapability"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the write right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "skip"
+            },
+            {
+              "stage": "operation",
+              "label": "Unmask the line at the controller",
+              "ref": {
+                "name": "irqHandlerAck",
+                "module": "SeLe4n.Kernel.Architecture.InterruptMask",
+                "path": "SeLe4n/Kernel/Architecture/InterruptMask.lean",
+                "line": 182
+              },
+              "result": "skip"
+            }
+          ],
+          "narrative": "Slot 2 holds a capability, and it even carries the write right an acknowledge asks for. But it is a notification capability, and an acknowledge invokes an interrupt handler. The type gate runs after the lookup and before any right, so a capability of the wrong type is refused as invalid whatever rights it carries.",
+          "delta": {
+            "ops": []
+          },
+          "outcome": {
+            "status": "error",
+            "error": "invalidCapability"
+          },
+          "guarantees": [
+            "authority",
+            "failureAtomic"
+          ],
+          "invariants": {
+            "preserved": []
+          },
+          "index": 11
+        }
+      ]
+    },
+    {
+      "id": "cap-transfer",
+      "title": "Passing a capability through IPC",
+      "summary": "A client sends a frame capability to a server along with a message. The endpoint capability it sends through decides whether the capability travels: without the grant right the message arrives alone. A transferred capability is a copy, recorded under the slot it came from, so revoking the original takes the copy back.",
+      "focus": "ipc",
+      "properties": [
+        "authority",
+        "attenuation",
+        "flowPolicy",
+        "invariants"
+      ],
+      "initialState": {
+        "cores": [
+          {
+            "id": 0,
+            "current": "client",
+            "domain": 0
+          }
+        ],
+        "threads": [
+          {
+            "id": "client",
+            "name": "client",
+            "priority": 100,
+            "domain": 0,
+            "core": 0,
+            "ipc": {
+              "state": "ready"
+            },
+            "timeSlice": 5,
+            "cspace": "cn.cli",
+            "label": "lb.sys"
+          },
+          {
+            "id": "server",
+            "name": "server",
+            "priority": 100,
+            "domain": 0,
+            "core": 0,
+            "ipc": {
+              "state": "blockedOnReceive",
+              "object": "ep.svc"
+            },
+            "timeSlice": 5,
+            "cspace": "cn.srv",
+            "label": "lb.sys",
+            "recvSlot": "cn.srv/4"
+          }
+        ],
+        "runQueues": {
+          "0": []
+        },
+        "endpoints": [
+          {
+            "id": "ep.svc",
+            "name": "service endpoint",
+            "label": "lb.sys",
+            "send": [],
+            "recv": [
+              "server"
+            ]
+          }
+        ],
+        "notifications": [],
+        "replies": [],
+        "schedContexts": [],
+        "cnodes": [
+          {
+            "id": "cn.cli",
+            "name": "client CSpace",
+            "depth": 8,
+            "guardWidth": 4,
+            "guardValue": 0,
+            "radixWidth": 4,
+            "slots": {
+              "0": {
+                "kind": "cnode",
+                "target": "cn.cli",
+                "rights": [
+                  "read",
+                  "write",
+                  "grant"
+                ]
+              },
+              "1": {
+                "kind": "endpoint",
+                "target": "ep.svc",
+                "rights": [
+                  "write",
+                  "grant"
+                ]
+              },
+              "2": {
+                "kind": "endpoint",
+                "target": "ep.svc",
+                "rights": [
+                  "write"
+                ]
+              },
+              "3": {
+                "kind": "frame",
+                "target": "fr.buf",
+                "rights": [
+                  "read",
+                  "write"
+                ]
+              }
+            }
+          },
+          {
+            "id": "cn.srv",
+            "name": "server CSpace",
+            "depth": 8,
+            "guardWidth": 4,
+            "guardValue": 0,
+            "radixWidth": 4,
+            "slots": {
+              "0": {
+                "kind": "cnode",
+                "target": "cn.srv",
+                "rights": [
+                  "read",
+                  "write",
+                  "grant"
+                ]
+              },
+              "1": {
+                "kind": "endpoint",
+                "target": "ep.svc",
+                "rights": [
+                  "read"
+                ]
+              }
+            }
+          }
+        ],
+        "cdt": {},
+        "untyped": [],
+        "vspaces": [],
+        "labels": [
+          {
+            "id": "lb.sys",
+            "name": "system",
+            "conf": "low",
+            "integ": "trusted"
+          }
+        ],
+        "audit": []
+      },
+      "steps": [
+        {
+          "index": 0,
+          "core": 0,
+          "sourceRefs": [],
+          "kind": "boot",
+          "title": "Initial state",
+          "traceTag": "BOOT",
+          "narrative": "The state the scenario starts from.",
+          "delta": {
+            "ops": []
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [],
+          "invariants": {
+            "preserved": []
+          }
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "resolveExtraCaps",
+              "module": "SeLe4n.Kernel.IPC.DualQueue.SenderMessage",
+              "path": "SeLe4n/Kernel/IPC/DualQueue/SenderMessage.lean",
+              "line": 86
+            }
+          ],
+          "kind": "syscall",
+          "title": "client: send a capability without the grant right",
+          "traceTag": "SEND",
+          "actor": "client",
+          "syscall": {
+            "id": "send",
+            "number": 0,
+            "msgInfo": {
+              "length": 1,
+              "extraCaps": 1,
+              "label": 0
+            },
+            "args": [
+              {
+                "reg": "x2",
+                "name": "message word 0",
+                "value": 1
+              }
+            ],
+            "capPtr": 2,
+            "requiredRight": "write",
+            "extraCaps": [
+              3
+            ]
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 2, the endpoint without grant)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: send invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the write right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "flow",
+              "label": "Sender → endpoint flow gate",
+              "ref": {
+                "name": "endpointFlowGate",
+                "module": "SeLe4n.Kernel.InformationFlow.Policy",
+                "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
+                "line": 1719
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Send; a receiver waits, so deliver",
+              "ref": {
+                "name": "endpointSendCrossCoreDispatchChecked",
+                "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointSend",
+                "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointSend.lean",
+                "line": 645
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "x1 says the message carries one extra capability, and the client's IPC buffer names it: address 3, the frame. The send itself is allowed: slot 2 is an endpoint capability with the write right. But transferring a capability needs the grant right on the endpoint capability, and slot 2 does not carry it. A sender without grant transfers nothing, and its addresses are not even looked up. The server receives the message word and no capability; its receive slot stays empty.",
+          "delta": {
+            "ops": [
+              {
+                "op": "flowCheck",
+                "from": "client",
+                "to": "ep.svc",
+                "allowed": true
+              },
+              {
+                "op": "epPopHead",
+                "endpoint": "ep.svc",
+                "queue": "recv",
+                "thread": "server"
+              },
+              {
+                "op": "message",
+                "from": "client",
+                "to": "server",
+                "via": "ep.svc",
+                "words": [
+                  1
+                ],
+                "label": 0
+              },
+              {
+                "op": "threadPatch",
+                "id": "server",
+                "set": {
+                  "ipc": {
+                    "state": "ready"
+                  }
+                }
+              },
+              {
+                "op": "enqueue",
+                "thread": "server",
+                "core": 0,
+                "prio": 100
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "authority",
+            "flowPolicy",
+            "invariants"
+          ],
+          "invariants": {
+            "preserved": [
+              "dualQueue",
+              "queueNoDup",
+              "blockedNotRunnable",
+              "notificationWaiters",
+              "replyWaiters",
+              "runQueueUnique",
+              "queueCurrentConsistent"
+            ]
+          },
+          "index": 1
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "dispatchYield",
+              "module": "SeLe4n.Kernel.API",
+              "path": "SeLe4n/Kernel/API.lean",
+              "line": 5408
+            },
+            {
+              "name": "sliceExpireOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1910
+            },
+            {
+              "name": "scheduleEffectiveOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 1210
+            }
+          ],
+          "kind": "syscall",
+          "title": "client: yield",
+          "traceTag": "YIELD",
+          "actor": "client",
+          "syscall": {
+            "id": "yield",
+            "number": 41,
+            "msgInfo": {
+              "length": 0,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": []
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Charge the rest of the slice, requeue at the tail, pick again",
+              "ref": {
+                "name": "yieldOnCore",
+                "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+                "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+                "line": 2551
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "The client gives up the core so the server can run. Yield names no capability, so the path goes straight from decode to the scheduler.",
+          "delta": {
+            "ops": [
+              {
+                "op": "threadPatch",
+                "id": "client",
+                "set": {
+                  "timeSlice": 5
+                }
+              },
+              {
+                "op": "enqueue",
+                "thread": "client",
+                "core": 0,
+                "prio": 100
+              },
+              {
+                "op": "dispatch",
+                "core": 0,
+                "thread": "server"
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable"
+            ]
+          },
+          "index": 2
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "receiveSlot?",
+              "module": "SeLe4n.Kernel.IPC.Operations.CapTransfer",
+              "path": "SeLe4n/Kernel/IPC/Operations/CapTransfer.lean",
+              "line": 94
+            }
+          ],
+          "kind": "syscall",
+          "title": "server: receive again",
+          "traceTag": "RECV",
+          "actor": "server",
+          "syscall": {
+            "id": "receive",
+            "number": 1,
+            "msgInfo": {
+              "length": 0,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [],
+            "capPtr": 1,
+            "requiredRight": "read"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 1, the endpoint)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: receive invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the read right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "flow",
+              "label": "Endpoint → receiver flow gate",
+              "ref": {
+                "name": "endpointFlowGate",
+                "module": "SeLe4n.Kernel.InformationFlow.Policy",
+                "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
+                "line": 1719
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Receive; nothing is queued, so block",
+              "ref": {
+                "name": "endpointReceiveDualWithCapsOnCore",
+                "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointReply",
+                "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointReply.lean",
+                "line": 945
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "The server has handled the first message and waits for the next. No sender is queued, so it joins the endpoint's receive queue and leaves the core. Its IPC buffer still names slot 4 of its CSpace as the place a transferred capability should land.",
+          "delta": {
+            "ops": [
+              {
+                "op": "flowCheck",
+                "from": "ep.svc",
+                "to": "server",
+                "allowed": true
+              },
+              {
+                "op": "epEnqueue",
+                "endpoint": "ep.svc",
+                "queue": "recv",
+                "thread": "server"
+              },
+              {
+                "op": "threadPatch",
+                "id": "server",
+                "set": {
+                  "ipc": {
+                    "state": "blockedOnReceive",
+                    "object": "ep.svc"
+                  },
+                  "msg": null
+                }
+              },
+              {
+                "op": "deschedule",
+                "thread": "server",
+                "core": 0
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "authority",
+            "flowPolicy",
+            "invariants"
+          ],
+          "invariants": {
+            "preserved": [
+              "dualQueue",
+              "queueNoDup",
+              "blockedNotRunnable",
+              "notificationWaiters",
+              "replyWaiters",
+              "runQueueUnique",
+              "queueCurrentConsistent"
+            ]
+          },
+          "index": 3
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "scheduleLocalSuccessorFrom",
+              "module": "SeLe4n.Kernel.Scheduler.PriorityInheritance.PerCore",
+              "path": "SeLe4n/Kernel/Scheduler/PriorityInheritance/PerCore.lean",
+              "line": 1526
+            },
+            {
+              "name": "handleRescheduleSgiOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 3421
+            },
+            {
+              "name": "chooseThreadEffectiveOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 831
+            },
+            {
+              "name": "switchToThreadOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 1678
+            }
+          ],
+          "kind": "schedule",
+          "title": "core 0: the client resumes",
+          "traceTag": "SCHED",
+          "narrative": "The server left the core, so the scheduler picks again: the client.",
+          "delta": {
+            "ops": [
+              {
+                "op": "dispatch",
+                "core": 0,
+                "thread": "client"
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "scheduling"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable"
+            ]
+          },
+          "index": 4
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "resolveExtraCaps",
+              "module": "SeLe4n.Kernel.IPC.DualQueue.SenderMessage",
+              "path": "SeLe4n/Kernel/IPC/DualQueue/SenderMessage.lean",
+              "line": 86
+            },
+            {
+              "name": "ipcUnwrapCaps",
+              "module": "SeLe4n.Kernel.IPC.Operations.CapTransfer",
+              "path": "SeLe4n/Kernel/IPC/Operations/CapTransfer.lean",
+              "line": 172
+            },
+            {
+              "name": "ipcTransferSingleCap",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 3219
+            },
+            {
+              "name": "capUnwrapsAt",
+              "module": "SeLe4n.Kernel.IPC.Operations.CapTransfer",
+              "path": "SeLe4n/Kernel/IPC/Operations/CapTransfer.lean",
+              "line": 105
+            }
+          ],
+          "kind": "syscall",
+          "title": "client: send the capability with grant",
+          "traceTag": "SEND",
+          "actor": "client",
+          "syscall": {
+            "id": "send",
+            "number": 0,
+            "msgInfo": {
+              "length": 1,
+              "extraCaps": 1,
+              "label": 0
+            },
+            "args": [
+              {
+                "reg": "x2",
+                "name": "message word 0",
+                "value": 2
+              }
+            ],
+            "capPtr": 1,
+            "requiredRight": "write",
+            "extraCaps": [
+              3
+            ]
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 1, the endpoint with grant)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: send invokes an endpoint",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the write right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "flow",
+              "label": "Sender → endpoint flow gate",
+              "ref": {
+                "name": "endpointFlowGate",
+                "module": "SeLe4n.Kernel.InformationFlow.Policy",
+                "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
+                "line": 1719
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Send; a receiver waits, so deliver",
+              "ref": {
+                "name": "endpointSendCrossCoreDispatchChecked",
+                "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointSend",
+                "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointSend.lean",
+                "line": 645
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "The same message through slot 1, which carries grant. Now the kernel resolves address 3 in the client's CSpace and finds the frame capability. It is not a capability to the endpoint itself (that would be unwrapped to its badge), so it is installed in the server's receive slot, slot 4 of the server's CSpace. The server gets the same capability with the same rights; the client keeps its own. The derivation tree records the server's slot as a child of the client's slot 3.",
+          "delta": {
+            "ops": [
+              {
+                "op": "flowCheck",
+                "from": "client",
+                "to": "ep.svc",
+                "allowed": true
+              },
+              {
+                "op": "epPopHead",
+                "endpoint": "ep.svc",
+                "queue": "recv",
+                "thread": "server"
+              },
+              {
+                "op": "message",
+                "from": "client",
+                "to": "server",
+                "via": "ep.svc",
+                "words": [
+                  2
+                ],
+                "label": 0
+              },
+              {
+                "op": "threadPatch",
+                "id": "server",
+                "set": {
+                  "ipc": {
+                    "state": "ready"
+                  }
+                }
+              },
+              {
+                "op": "enqueue",
+                "thread": "server",
+                "core": 0,
+                "prio": 100
+              },
+              {
+                "op": "capInsert",
+                "slot": "cn.srv/4",
+                "parent": "cn.cli/3",
+                "cap": {
+                  "kind": "frame",
+                  "target": "fr.buf",
+                  "rights": [
+                    "read",
+                    "write"
+                  ],
+                  "derivation": "ipcTransfer"
+                }
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "authority",
+            "attenuation",
+            "flowPolicy",
+            "invariants"
+          ],
+          "invariants": {
+            "preserved": [
+              "dualQueue",
+              "queueNoDup",
+              "blockedNotRunnable",
+              "notificationWaiters",
+              "replyWaiters",
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "cdtLinksAgree",
+              "cdtAcyclic"
+            ]
+          },
+          "index": 5
+        },
+        {
+          "core": 0,
+          "sourceRefs": [
+            {
+              "name": "ipcTransferSingleCap_ok_cases",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 3237
+            }
+          ],
+          "kind": "syscall",
+          "title": "client: revoke what it handed out",
+          "traceTag": "REVOKE",
+          "actor": "client",
+          "syscall": {
+            "id": "cspaceRevoke",
+            "number": 35,
+            "msgInfo": {
+              "length": 1,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [
+              {
+                "reg": "x2",
+                "name": "slot",
+                "value": 3
+              }
+            ],
+            "capPtr": 0,
+            "requiredRight": "write"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 0, the CSpace root)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "type",
+              "label": "Check the capability's type: cspaceRevoke invokes a CNode",
+              "ref": {
+                "name": "syscallTargetAccepted",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 984
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the write right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "args",
+              "label": "Decode the arm's 1 argument word",
+              "ref": {
+                "name": "decodeCSpaceDeleteArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 413
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Delete every capability derived from the slot",
+              "ref": {
+                "name": "cspaceRevokeCdtFinalising",
+                "module": "SeLe4n.Kernel.Capability.FrameFinalise",
+                "path": "SeLe4n/Kernel/Capability/FrameFinalise.lean",
+                "line": 2181
+              },
+              "result": "pass"
+            }
+          ],
+          "narrative": "The client revokes slot 3. Revocation deletes every capability derived from the slot and keeps the slot's own. The only derivation is the copy in the server's CSpace, in another thread's CNode, and it is deleted: the server can no longer reach the frame. This is why the transfer recorded a derivation edge instead of handing over an unrelated copy.",
+          "delta": {
+            "ops": [
+              {
+                "op": "capRevoke",
+                "slot": "cn.cli/3"
+              }
+            ]
+          },
+          "outcome": {
+            "status": "ok"
+          },
+          "guarantees": [
+            "authority",
+            "attenuation",
+            "invariants"
+          ],
+          "invariants": {
+            "preserved": [
+              "cdtLinksAgree",
+              "cdtAcyclic"
+            ]
+          },
+          "index": 6
         }
       ]
     }

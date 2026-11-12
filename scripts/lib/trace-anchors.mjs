@@ -196,12 +196,125 @@ export function checkTraceKernelFacts(data, readSource) {
 }
 
 /**
+ * A `def name : SyscallId → …` written as match arms, read into
+ * `{ constructor: value }`. An arm may list several constructors and run over
+ * several lines (`| .a | .b` … `| .c => v`); the value is the text after `=>`
+ * with a leading `some` and a leading dot dropped. A wildcard arm is returned
+ * under `_`. `undefined` when the definition is not there.
+ */
+export function matchArmTable(sourceText, name) {
+  const source = stripLeanComments(String(sourceText ?? ''));
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const header = new RegExp(`^[^\\S\\n]*(?:@\\[[^\\]]*\\][^\\S\\n]*)?def[^\\S\\n]+${escaped}(?![A-Za-z0-9_?!'])[^\\n]*$`, 'm').exec(source);
+  if (!header) return undefined;
+  const table = {};
+  let pending = [];
+  for (const line of source.slice(header.index + header[0].length).split('\n').slice(1)) {
+    const trimmed = line.trim();
+    if (!trimmed) { if (Object.keys(table).length || pending.length) break; continue; }
+    if (!trimmed.startsWith('|')) break;
+    const at = trimmed.indexOf('=>');
+    const patterns = (at === -1 ? trimmed : trimmed.slice(0, at)).split('|').map((p) => p.trim()).filter(Boolean);
+    for (const p of patterns) {
+      const m = /^\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(p) || /^(_)$/.exec(p);
+      if (!m) return undefined;
+      pending.push(m[1]);
+    }
+    if (at !== -1) {
+      const value = trimmed.slice(at + 2).trim().replace(/^some\s+/, '').replace(/^\./, '');
+      for (const ctor of pending) table[ctor] = value;
+      pending = [];
+    }
+  }
+  return Object.keys(table).length && !pending.length ? table : undefined;
+}
+
+/** Where the kernel writes the tables the trace engine restates. */
+export const ENGINE_TABLE_SOURCES = Object.freeze({
+  objectKind: { path: 'SeLe4n/Kernel/API.lean', table: 'syscallObjectKind?' },
+  missingRight: { path: 'SeLe4n/Kernel/API.lean', table: 'syscallMissingRightError' },
+  truncation: { path: 'SeLe4n/Kernel/Architecture/SyscallArgDecode.lean', table: 'truncationMinimum' },
+  overflow: { path: 'SeLe4n/Kernel/Architecture/RegisterDecode.lean', table: 'syscallReadsOverflow' },
+  targetAccepted: { path: 'SeLe4n/Kernel/API.lean', table: 'syscallTargetAccepted' }
+});
+
+/** The engine's capability kind for a kernel `KernelObjectType`. */
+const OBJECT_KIND_NAMES = { vspaceRoot: 'vspace' };
+/** The engine's capability kind for a non-object `CapTarget` constructor. */
+const TARGET_KIND_NAMES = { replyCap: 'reply', irqControl: 'irqControl', irqHandler: 'irqHandler' };
+
+/**
+ * The trace engine decides the type gate, the missing-right answer, the
+ * truncation minimum and which syscalls read the IPC buffer from tables it
+ * restates. They are the kernel's tables, so they are compared with the
+ * kernel's, entry for entry, for every syscall, at the revision the trace is
+ * grounded in. A table that has moved fails the sync: a gate the page
+ * recomputes from a stale table is a decision the kernel no longer makes.
+ */
+export function checkEngineTables(engine, readSource) {
+  const issues = [];
+  const src = ENGINE_TABLE_SOURCES;
+  const read = (entry) => matchArmTable(readSource(entry.path) ?? '', entry.table);
+  const syscalls = inductiveConstructors(readSource(KERNEL_FACT_SOURCES.syscalls.path) ?? '', KERNEL_FACT_SOURCES.syscalls.inductive) ?? [];
+  if (!syscalls.length) return [`${KERNEL_FACT_SOURCES.syscalls.inductive} not found in ${KERNEL_FACT_SOURCES.syscalls.path}`];
+
+  const kinds = read(src.objectKind);
+  if (!kinds) issues.push(`${src.objectKind.table} not found in ${src.objectKind.path}`);
+  else for (const id of syscalls) {
+    const lean = kinds[id] === undefined ? kinds._ : kinds[id];
+    const want = lean === undefined || lean === 'none' ? undefined : (OBJECT_KIND_NAMES[lean] ?? lean);
+    const got = engine.SYSCALL_OBJECT_KIND[id];
+    if (want !== got) issues.push(`${src.objectKind.table} .${id} is ${lean ?? 'unstated'}, the engine's SYSCALL_OBJECT_KIND says ${got ?? 'none'}`);
+  }
+
+  const missing = read(src.missingRight);
+  if (!missing) issues.push(`${src.missingRight.table} not found in ${src.missingRight.path}`);
+  else for (const id of syscalls) {
+    const lean = missing[id] === undefined ? missing._ : missing[id];
+    if (lean !== engine.missingRightError(id)) issues.push(`${src.missingRight.table} .${id} is ${lean ?? 'unstated'}, the engine answers ${engine.missingRightError(id)}`);
+  }
+
+  const mins = read(src.truncation);
+  if (!mins) issues.push(`${src.truncation.table} not found in ${src.truncation.path}`);
+  else for (const id of syscalls) {
+    const lean = Number(mins[id] === undefined ? mins._ : mins[id]);
+    if (lean !== engine.truncationMinimum(id)) issues.push(`${src.truncation.table} .${id} is ${lean}, the engine's TRUNCATION_MIN says ${engine.truncationMinimum(id)}`);
+  }
+
+  const overflow = read(src.overflow);
+  if (!overflow) issues.push(`${src.overflow.table} not found in ${src.overflow.path}`);
+  else for (const id of syscalls) {
+    const lean = (overflow[id] === undefined ? overflow._ : overflow[id]) === 'true';
+    if (lean !== engine.readsOverflow(id)) issues.push(`${src.overflow.table} .${id} is ${lean}, the engine's READS_OVERFLOW says ${engine.readsOverflow(id)}`);
+  }
+
+  // `syscallTargetAccepted`'s non-object arms: `| .replyCap _ => sid == .reply`.
+  const accepted = stripLeanComments(readSource(src.targetAccepted.path) ?? '');
+  const at = accepted.search(new RegExp(`def[^\\S\\n]+${src.targetAccepted.table}\\b`));
+  if (at === -1) issues.push(`${src.targetAccepted.table} not found in ${src.targetAccepted.path}`);
+  else {
+    const body = accepted.slice(at).split(/\n[^\S\n]*\n/)[0];
+    for (const [ctor, kind] of Object.entries(TARGET_KIND_NAMES)) {
+      const arm = new RegExp(`\\|\\s*\\.${ctor}\\s+_\\s*=>([\\s\\S]*?)(?=\\n\\s*\\|\\s*\\.|$)`).exec(body);
+      const lean = arm ? [...arm[1].matchAll(/sid\s*==\s*\.([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]).sort() : null;
+      const got = Object.keys(engine.SYSCALL_TARGET_KIND).filter((id) => engine.SYSCALL_TARGET_KIND[id] === kind).sort();
+      if (!lean) issues.push(`${src.targetAccepted.table} has no .${ctor} arm`);
+      else if (lean.join(',') !== got.join(',')) issues.push(`${src.targetAccepted.table} accepts a .${ctor} capability for ${lean.join(', ')}; the engine's SYSCALL_TARGET_KIND says ${got.join(', ') || 'none'}`);
+    }
+    if (!/\|\s*none\s*=>\s*sid\s*==\s*\.declassify\b/.test(body)) issues.push(`${src.targetAccepted.table} no longer accepts any object capability for exactly .declassify`);
+  }
+  return issues;
+}
+
+/**
  * Ground a whole trace document at one revision: anchor every reference, check
  * every restated interface fact, and record the revision the lines belong to.
+ * With `engine`, the tables the trace engine restates are checked too.
  * Returns the issues; the caller must refuse to publish when there are any.
  */
-export function groundTrace(data, { readSource, commitSha, version }) {
+export function groundTrace(data, { readSource, commitSha, version, engine }) {
   const issues = [...anchorTraceRefs(data, readSource), ...checkTraceKernelFacts(data, readSource)];
+  if (engine) issues.push(...checkEngineTables(engine, readSource));
   data.sourceRef = commitSha;
   data.kernelCommit = String(commitSha).slice(0, 7);
   if (version) data.kernelVersion = version;

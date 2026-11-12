@@ -68,7 +68,7 @@ import {
 import { collectSourceAnchors, resolveSourceAnchors } from './lib/source-anchors.mjs';
 import { extractImportTokens, inductiveConstructors } from './lib/lean-analysis.mjs';
 import { buildRustInventory, stripRustCommentsAndStrings } from './lib/rust-analysis.mjs';
-import { validateTraceDataObject, scenarioStates } from './lib/trace-analysis.mjs';
+import { validateTraceDataObject, scenarioStates, engine as traceEngine } from './lib/trace-analysis.mjs';
 import { groundTrace } from './lib/trace-anchors.mjs';
 
 const REPO = 'hatter6822/seLe4n';
@@ -573,7 +573,10 @@ async function writeTraces(work, head, version) {
   const issues = groundTrace(traces, {
     readSource: (file) => (existsSync(join(work, file)) ? readFileSync(join(work, file), 'utf8') : undefined),
     commitSha: head.commitSha,
-    version
+    version,
+    // The tables the engine decides gates from are the kernel's: compared
+    // with the checkout's, entry for entry (`checkEngineTables`).
+    engine: traceEngine
   });
   if (issues.length) {
     throw new Error(`${label} names kernel facts this checkout does not have:\n  ${issues.join('\n  ')}`);
