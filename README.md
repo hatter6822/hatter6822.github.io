@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.32.0`
+- Website version: `0.33.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -265,7 +265,7 @@ words bit by bit, reply objects, and messages travelling sender → object → r
 **Scheduler** (one box per core: priority buckets with the next pick, budget meters and
 scheduling contexts with their EDF deadlines), **CSpace** (CNode slot strips with their
 guard/radix geometry and the derivation tree arched over them), **Memory** (untyped
-regions to scale with their watermark, a refused retype drawn where it would have gone,
+regions to scale with their free index, a refused retype drawn where it would have gone,
 and address spaces with W^X and TLB state) and **Information flow** (the label lattice,
 each flow check recomputed from the labels, and the declassification audit log — a
 declassification is an audited release, never an edit to the policy). Beside the stage, an inspector explains

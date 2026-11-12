@@ -1,6 +1,6 @@
 # Codebase Map: End-to-End Guide
 
-> Documentation baseline: website release **0.32.0**.
+> Documentation baseline: website release **0.33.0**.
 
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
@@ -189,8 +189,8 @@ the bundled snapshot and nothing else (`connect-src 'self'`).
 
 ### Dense declaration lanes
 
-Hub declarations have thousands of neighbours (`SystemState`: 10,712 callers
-in 223 modules), so a declaration lane is built by `buildDeclarationLane`:
+Hub declarations have thousands of neighbours (`SystemState`: 18,880 callers
+in 457 modules at seLe4n 0.37.19), so a declaration lane is built by `buildDeclarationLane`:
 
 - **≤ 12 matches** — every declaration, flat, in call order.
 - **≤ 12 modules** — one group per module, the selected declaration's module

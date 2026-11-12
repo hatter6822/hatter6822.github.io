@@ -35,6 +35,7 @@ import {
   subsystemNamespaces,
   symbolsFromDeclarations,
   splitCallGraph,
+  syscallSurfaceNumbers,
   theoremDeclarationCount,
 } from './canonical-map.mjs';
 
@@ -603,4 +604,34 @@ test('splitCallGraph moves the call graph into a payload with the snapshot prove
   assert.equal(graph.metricsSource, mapData.metricsSource);
   assert.equal(graph.generatedAt, mapData.generatedAt);
   assert.ok(!('callGraph' in mapData.moduleMeta.A.symbols) && !('callGraph' in mapData.moduleMeta.B.symbols), 'the snapshot keeps no copy');
+});
+
+test('syscallSurfaceNumbers reads the number of every syscall, gaps included', () => {
+  // The kernel retired `lifecycleRetype` (ID 8) and renumbered nothing, so
+  // the surface is not a range and the count alone cannot describe it.
+  const map = {
+    modules: [{ name: 'SeLe4n.Model.Object.Types', path: 'SeLe4n/Model/Object/Types.lean',
+      declarations: [{ kind: 'inductive', name: 'SyscallId', line: 1 }] }]
+  };
+  const source = [
+    'inductive SyscallId where',
+    '  | send',
+    '  | receive',
+    '  | yield',
+    '  deriving Repr',
+    '',
+    'namespace SyscallId',
+    'def toNat : SyscallId → Nat',
+    '  | .send => 0',
+    '  | .receive => 1',
+    '  | .yield => 41',
+    'end SyscallId'
+  ].join('\n');
+  assert.deepEqual(syscallSurfaceNumbers(map, () => source), [0, 1, 41]);
+
+  // A constructor the encoder does not number, or two sharing one number, is
+  // not a surface anyone can list: report it instead of publishing a guess.
+  assert.equal(syscallSurfaceNumbers(map, () => source.replace("  | .yield => 41\n", '')), undefined);
+  assert.equal(syscallSurfaceNumbers(map, () => source.replace('=> 41', '=> 1')), undefined);
+  assert.equal(syscallSurfaceNumbers(map, null), undefined);
 });

@@ -11,7 +11,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.32.0`
+**Website version:** `0.33.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -211,6 +211,12 @@ the kernel generates it, and seLe4n's own README table is rendered from its
   close to the truth as a published number gets — and upstream's own docstring
   asks for exactly that: "the entry count is **not** restated here … a number
   repeated in prose goes stale the first time an entry lands".
+- **The syscall surface is a list of numbers, not a range.** `syscallNumbers`
+  records `SyscallId.toNat` of every constructor (`syscallSurfaceNumbers`),
+  and `static-values.test.mjs` holds the API table's IDs to that list. The
+  test once expected `0 … syscalls-1`; at 0.37.19 the kernel has 47 syscalls
+  numbered 0–47, because `lifecycleRetype` (ID 8) was retired and a retired
+  number is never reused. The sync fails if any constructor has no number.
 - `niSteps` is published **only while the claim it supports is still true**. The
   page says every kernel step has its own non-interference proof, so
   `nonInterferenceCoverage()` checks the correspondence rather than comparing
@@ -368,7 +374,8 @@ scope toggle. Production code is the subject in every scope.
   is "in-repo · library root", `SeLe4n.Testing.*` is "in-repo · outside
   production scope", everything else "external dependency".
 - **A declaration lane is a bounded tree, never "show all".** `SystemState`
-  has 10,712 callers; drawing them built a 974,000px chart in one 3.4 s task.
+  has 18,880 callers (10,712 when this was measured); drawing them built a
+  974,000px chart in one 3.4 s task.
   `buildDeclarationLane` draws ≤ 12 matches flat, then groups by module (≤ 12
   modules) or by subsystem, the selected declaration's own module hoisted
   first; a group opens onto pages of `DECL_LANE_PAGE`, and no lane draws more
@@ -531,7 +538,7 @@ scope toggle. Production code is the subject in every scope.
   snapshot's commit, both themes, a Spanish deep link, a locale held back until after the
   snapshot paints, the scope toggle end to end, the boundary band's direction,
   crossing into the other language, a Rust deep link, tappable scope options on
-  a phone, nothing clipped in the sidebar, and `SystemState`'s 10,712 callers
+  a phone, nothing clipped in the sidebar, and `SystemState`'s 18,880 callers
   staying inside the declaration lanes' node budget). `.github/workflows/ci.yml` runs
   it with the runner's Chrome on every push. A layout guarantee the docs make
   gets a probe assertion.
@@ -733,8 +740,16 @@ invariants it preserves). Its data is `data/execution-traces.json`, schema
 - **Ops follow the kernel, not a story about it.** Capabilities live in CNode
   slots, so `capInsert`/`capDelete`/`capRevoke` act on `"<cnode>/<slot>"` and
   the CDT is slot → slots. `capRevoke` removes a capability's derivations and
-  keeps the capability (`cspaceRevoke`); `untypedReset` needs its children
-  revoked first; declassification is `auditAppend` — it never edits the
+  keeps the capability (`cspaceRevoke`). A carve and a reset name the untyped
+  capability's `slot`, because the free index is the capability's:
+  `untypedCarve` starts there (or at 0 when the slot has no derivation child)
+  and rounds up to the object's boundary, `untypedReset` writes it back to 0
+  and is refused until the capability's children are revoked, and deleting the
+  last capability to a carved object retires it. A missing right is refused
+  with `syscallMissingRightError`'s answer (`invalidCapability` on the IPC
+  syscalls, `illegalAuthority` elsewhere); a mint masks the rights it is asked
+  for rather than refusing; `flowsTo` follows `integrityFlowsTo dst src`
+  (untrusted → trusted allowed, not Biba); declassification is `auditAppend` — it never edits the
   policy. Endpoint and notification queues are FIFO: `epPopHead` /
   `ntfnPopHead` throw on anything but the head. The v1 ops (`untypedRevoke`,
   `ifPolicyAdd/Remove`, `servicePatch`) and the v2 ops (`setCurrent`,

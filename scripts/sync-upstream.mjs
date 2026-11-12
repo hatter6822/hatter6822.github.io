@@ -395,6 +395,14 @@ function buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors) {
       'unreadable. The syscall surface is published on the landing page and must not fall back to a stale figure.'
     );
   }
+  // The API table lists each syscall under its number, and a retired number
+  // leaves a gap the count cannot describe (`lifecycleRetype`, ID 8).
+  if (!Array.isArray(metrics.syscallNumbers) || metrics.syscallNumbers.length !== metrics.syscalls) {
+    throw new Error(
+      'syscall numbers could not be read: `SyscallId.toNat` does not give every `SyscallId` constructor its own ' +
+      'number. The API table is checked against them and must not fall back to a range.'
+    );
+  }
   if (metrics.externs === undefined) {
     throw new Error('externs could not be counted: a production Lean source was unreadable');
   }
@@ -429,6 +437,7 @@ function buildSiteData(codebaseMap, head, sourceDigest, work, sourceAnchors) {
     lines: formatNumber(metrics.lines),
     theorems: metrics.theorems,
     syscalls: metrics.syscalls,
+    syscallNumbers: metrics.syscallNumbers,
     externs: metrics.externs,
     niSteps: metrics.niSteps,
     niCrossCore: metrics.niCrossCore,

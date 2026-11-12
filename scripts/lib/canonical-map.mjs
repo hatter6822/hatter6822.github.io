@@ -84,6 +84,7 @@ import {
   inductiveConstructors,
   stripLeanComments
 } from './lean-analysis.mjs';
+import { syscallNumberTable } from './trace-anchors.mjs';
 
 const ALL_INTERIOR_KINDS = Object.freeze([
   ...INTERIOR_KIND_GROUPS.object,
@@ -580,6 +581,39 @@ export function syscallSurfaceSize(codebaseMap, sourceText) {
 }
 
 /**
+ * The numbers the syscall surface travels under: `SyscallId.toNat` of every
+ * constructor, ascending.
+ *
+ * The count alone does not say which IDs exist. The landing page's API table
+ * was held to `0 … syscalls-1` until the kernel retired `lifecycleRetype`
+ * (ID 8) and kept every other number where it was: 47 syscalls, numbered 0–47
+ * with a gap. A retired number is never reused, so the table is checked
+ * against this list rather than against a range. Returns `undefined` when the
+ * encoder cannot be read or does not number every constructor, and the sync
+ * fails.
+ */
+export function syscallSurfaceNumbers(codebaseMap, sourceText) {
+  if (typeof sourceText !== 'function') return undefined;
+  for (const moduleInfo of productionModules(codebaseMap)) {
+    const declarations = Array.isArray(moduleInfo.declarations) ? moduleInfo.declarations : [];
+    const declaresSyscallId = declarations.some(
+      (declaration) => declaration?.name === 'SyscallId' && declaration?.kind === 'inductive'
+    );
+    if (!declaresSyscallId) continue;
+    let source;
+    try { source = sourceText(moduleInfo.path); } catch { return undefined; }
+    const constructors = inductiveConstructors(source, 'SyscallId');
+    const table = syscallNumberTable(source);
+    if (!constructors?.length || !table) return undefined;
+    const numbers = constructors.map((name) => table[name]);
+    if (numbers.some((number) => !Number.isInteger(number))) return undefined;
+    if (new Set(numbers).size !== numbers.length) return undefined;
+    return numbers.sort((a, b) => a - b);
+  }
+  return undefined;
+}
+
+/**
  * The Lean side of the foreign-function bridge: `@[extern …]` declarations
  * across the production sources. The artifact records declarations but not
  * their attributes, so this is counted over the same verified sources `lines`
@@ -768,6 +802,8 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
   if (sourceText) {
     const syscalls = syscallSurfaceSize(map, sourceText);
     if (syscalls !== undefined) metrics.syscalls = syscalls;
+    const syscallNumbers = syscallSurfaceNumbers(map, sourceText);
+    if (syscallNumbers !== undefined) metrics.syscallNumbers = syscallNumbers;
     const externs = externBridgeSize(map, sourceText);
     if (externs !== undefined) metrics.externs = externs;
 

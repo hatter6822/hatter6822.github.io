@@ -4,24 +4,24 @@
   "generator": "hand-authored-reference-fixture",
   "disclaimer": "Reference fixture in the simulator trace schema (v3). The scenarios are written by hand, but every function, theorem, predicate, right, syscall number and error they name is the kernel's own: the sync resolves each declaration in the pinned seLe4n checkout and fails if one is missing. The validator re-runs every capability lookup, rights check, flow check and scheduling decision against the state and refuses a trace that disagrees. The kernel does not yet export JSON traces; when it does (source == \"kernel\"), steps become a replay of a real run.",
   "leanToolchain": "4.28.0",
-  "generatedAt": "2026-10-21T19:44:28Z",
+  "generatedAt": "2026-11-12T00:00:00Z",
   "propertyCatalog": [
     {
       "id": "authority",
       "label": "No capability, no access",
-      "statement": "A syscall reaches its operation only after the caller's CSpace resolves the named slot to a capability carrying the right that syscall requires; the lookup itself changes no state.",
+      "statement": "A syscall reaches its operation only after the caller's CSpace resolves the named slot to a capability of the kind that syscall acts on, carrying the right it requires; the gate itself changes no state.",
       "theorems": [
         {
-          "name": "syscallLookupCap_implies_capability_held",
+          "name": "syscallInvokeTyped_requires_right",
           "module": "SeLe4n.Kernel.API",
           "path": "SeLe4n/Kernel/API.lean",
-          "line": 913
+          "line": 1108
         },
         {
           "name": "syscallRequiredRight",
           "module": "SeLe4n.Kernel.API",
           "path": "SeLe4n/Kernel/API.lean",
-          "line": 1008
+          "line": 839
         }
       ],
       "invariants": []
@@ -29,13 +29,13 @@
     {
       "id": "attenuation",
       "label": "Derived authority never grows",
-      "statement": "A minted capability names the same object as its parent and carries a subset of the parent's rights.",
+      "statement": "A minted or copied capability names the same object as its parent and carries a subset of the parent's rights: the rights asked for are masked by the parent's, so a derivation can only lose them.",
       "theorems": [
         {
           "name": "cspaceMint_child_attenuates",
           "module": "SeLe4n.Kernel.Capability.Invariant.Authority",
           "path": "SeLe4n/Kernel/Capability/Invariant/Authority.lean",
-          "line": 353
+          "line": 314
         },
         {
           "name": "capAttenuates",
@@ -59,13 +59,13 @@
           "name": "KernelM",
           "module": "SeLe4n.Prelude",
           "path": "SeLe4n/Prelude.lean",
-          "line": 1251
+          "line": 1351
         },
         {
           "name": "Kernel",
           "module": "SeLe4n.Model.State",
           "path": "SeLe4n/Model/State.lean",
-          "line": 1979
+          "line": 2459
         }
       ],
       "invariants": []
@@ -74,25 +74,25 @@
       "id": "noninterference",
       "label": "Non-interference",
       "statement": "Every NonInterferenceStep, and every trace of them, preserves low-equivalence: what an observer at one security level can see does not depend on higher-level state.",
-      "caveat": "Stated over the NonInterferenceStep relation (35 constructors). The theorem over the live checked syscall entry holds given a per-arm hypothesis.",
+      "caveat": "Stated over the NonInterferenceStep relation, one constructor per kernel step. The theorem over the live checked syscall entry holds given a per-arm hypothesis.",
       "theorems": [
         {
           "name": "composedNonInterference_step",
           "module": "SeLe4n.Kernel.InformationFlow.Invariant.Composition",
           "path": "SeLe4n/Kernel/InformationFlow/Invariant/Composition.lean",
-          "line": 534
+          "line": 546
         },
         {
           "name": "composedNonInterference_trace",
           "module": "SeLe4n.Kernel.InformationFlow.Invariant.Composition",
           "path": "SeLe4n/Kernel/InformationFlow/Invariant/Composition.lean",
-          "line": 576
+          "line": 588
         },
         {
           "name": "crossCoreNonInterference",
           "module": "SeLe4n.Kernel.InformationFlow.NonInterferencePerCore",
           "path": "SeLe4n/Kernel/InformationFlow/NonInterferencePerCore.lean",
-          "line": 244
+          "line": 233
         }
       ],
       "invariants": []
@@ -106,7 +106,7 @@
           "name": "endpointFlowGate_implies_securityFlowsTo",
           "module": "SeLe4n.Kernel.InformationFlow.Policy",
           "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-          "line": 1739
+          "line": 1728
         },
         {
           "name": "securityFlowsTo",
@@ -120,13 +120,13 @@
     {
       "id": "memoryIsolation",
       "label": "Memory isolation",
-      "statement": "Carving from untyped memory preserves the untyped-memory invariant: watermarks stay inside their regions and carved children never overlap. Distinct address-space roots carry distinct ASIDs.",
+      "statement": "Carving from untyped memory preserves the untyped-memory invariant: free indexes stay inside their regions and carved children never overlap. Distinct address-space roots carry distinct ASIDs.",
       "theorems": [
         {
           "name": "retypeFromUntyped_preserves_untypedMemoryInvariant",
           "module": "SeLe4n.Kernel.Lifecycle.Invariant",
           "path": "SeLe4n/Kernel/Lifecycle/Invariant.lean",
-          "line": 222
+          "line": 281
         },
         {
           "name": "vspaceCrossAsidIsolation",
@@ -167,20 +167,20 @@
     {
       "id": "invariants",
       "label": "Invariant preservation",
-      "statement": "The syscall entry preserves proofLayerInvariantBundle, the 16-conjunct composition of every subsystem invariant.",
+      "statement": "The syscall entry preserves proofLayerInvariantBundle, the composition of every subsystem invariant.",
       "caveat": "Compositional: the theorem takes, as a hypothesis, that the dispatched operation preserves the bundle, and per-operation preservation theorems discharge it arm by arm.",
       "theorems": [
         {
           "name": "syscallEntry_preserves_proofLayerInvariantBundle",
           "module": "SeLe4n.Kernel.API",
           "path": "SeLe4n/Kernel/API.lean",
-          "line": 6262
+          "line": 7281
         },
         {
           "name": "proofLayerInvariantBundle",
           "module": "SeLe4n.Kernel.Architecture.Invariant",
           "path": "SeLe4n/Kernel/Architecture/Invariant.lean",
-          "line": 159
+          "line": 206
         }
       ],
       "invariants": []
@@ -188,20 +188,20 @@
     {
       "id": "scheduling",
       "label": "Scheduling discipline",
-      "statement": "The per-core selector picks the best thread of the highest-priority bucket (priority, then earliest deadline, then FIFO), and a scheduling context can never consume more than 8 × its budget.",
-      "caveat": "Optimality is stated over the maximum-priority bucket, not the whole queue; the CBS bound is the static 8 × budget ceiling. There is no unconditional no-starvation theorem.",
+      "statement": "The per-core selector picks the best thread of the highest-priority bucket (priority, then earliest deadline, then FIFO), and a scheduling context is never charged more than its budget in any window of one period.",
+      "caveat": "Optimality is stated over the maximum-priority bucket, not the whole queue; the budget bound is stated over the context's refill events. There is no unconditional no-starvation theorem.",
       "theorems": [
         {
           "name": "chooseThreadEffectiveOnCore_selects_highest",
           "module": "SeLe4n.Kernel.Scheduler.Operations.PerCoreChooseThread",
           "path": "SeLe4n/Kernel/Scheduler/Operations/PerCoreChooseThread.lean",
-          "line": 1602
+          "line": 1573
         },
         {
-          "name": "cbs_bandwidth_bounded",
-          "module": "SeLe4n.Kernel.SchedContext.Invariant.Defs",
-          "path": "SeLe4n/Kernel/SchedContext/Invariant/Defs.lean",
-          "line": 489
+          "name": "refill_window_bound",
+          "module": "SeLe4n.Kernel.SchedContext.Budget",
+          "path": "SeLe4n/Kernel/SchedContext/Budget.lean",
+          "line": 1839
         }
       ],
       "invariants": [
@@ -228,7 +228,7 @@
           "name": "endpointCall_preserves_dualQueueSystemInvariant",
           "module": "SeLe4n.Kernel.IPC.Invariant.Structural.StoreObjectFrame",
           "path": "SeLe4n/Kernel/IPC/Invariant/Structural/StoreObjectFrame.lean",
-          "line": 733
+          "line": 761
         }
       ],
       "runtimeCheck": {
@@ -247,14 +247,14 @@
         "name": "endpointQueueNoDup",
         "module": "SeLe4n.Kernel.IPC.Invariant.Defs",
         "path": "SeLe4n/Kernel/IPC/Invariant/Defs.lean",
-        "line": 2400
+        "line": 2578
       },
       "preservedBy": [
         {
           "name": "endpointCallOnCore_preserves_endpointQueueNoDup",
           "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointCallInvariant",
           "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointCallInvariant.lean",
-          "line": 1307
+          "line": 1098
         }
       ]
     },
@@ -267,21 +267,21 @@
         "name": "ipcSchedulerContractPredicates",
         "module": "SeLe4n.Kernel.IPC.Invariant.Defs",
         "path": "SeLe4n/Kernel/IPC/Invariant/Defs.lean",
-        "line": 1222
+        "line": 1262
       },
       "preservedBy": [
         {
           "name": "endpointCall_preserves_ipcSchedulerContractPredicates",
           "module": "SeLe4n.Kernel.IPC.Invariant.CallReplyRecv.Call",
           "path": "SeLe4n/Kernel/IPC/Invariant/CallReplyRecv/Call.lean",
-          "line": 284
+          "line": 286
         }
       ],
       "runtimeCheck": {
         "name": "blockedOnReceiveNotRunnableChecks",
         "module": "SeLe4n.Testing.InvariantChecks",
         "path": "SeLe4n/Testing/InvariantChecks.lean",
-        "line": 487
+        "line": 582
       }
     },
     {
@@ -293,21 +293,21 @@
         "name": "notificationWaiterConsistent",
         "module": "SeLe4n.Kernel.IPC.Invariant.Defs",
         "path": "SeLe4n/Kernel/IPC/Invariant/Defs.lean",
-        "line": 1446
+        "line": 1486
       },
       "preservedBy": [
         {
           "name": "notificationSignal_preserves_notificationWaiterConsistent",
           "module": "SeLe4n.Kernel.IPC.Invariant.NotificationPreservation.Wait",
           "path": "SeLe4n/Kernel/IPC/Invariant/NotificationPreservation/Wait.lean",
-          "line": 355
+          "line": 369
         }
       ],
       "runtimeCheck": {
         "name": "notificationWaiterConsistentChecks",
         "module": "SeLe4n.Testing.InvariantChecks",
         "path": "SeLe4n/Testing/InvariantChecks.lean",
-        "line": 389
+        "line": 484
       }
     },
     {
@@ -319,27 +319,27 @@
         "name": "SystemState.replyWaitersConsistent",
         "module": "SeLe4n.Kernel.Scheduler.ReplyWaiters",
         "path": "SeLe4n/Kernel/Scheduler/ReplyWaiters.lean",
-        "line": 100
+        "line": 107
       },
       "preservedBy": [
         {
           "name": "endpointCallWithCapsOnCore_preserves_replyWaitersConsistent",
           "module": "SeLe4n.Kernel.IPC.CrossCore.ReplyWaitersDispatch",
           "path": "SeLe4n/Kernel/IPC/CrossCore/ReplyWaitersDispatch.lean",
-          "line": 314
+          "line": 342
         },
         {
           "name": "endpointReceiveDualWithCapsOnCore_preserves_replyWaitersConsistent",
           "module": "SeLe4n.Kernel.IPC.CrossCore.ReplyWaitersDispatch",
           "path": "SeLe4n/Kernel/IPC/CrossCore/ReplyWaitersDispatch.lean",
-          "line": 287
+          "line": 315
         }
       ],
       "runtimeCheck": {
         "name": "replyWaitersConsistentChecks",
         "module": "SeLe4n.Testing.InvariantChecks",
         "path": "SeLe4n/Testing/InvariantChecks.lean",
-        "line": 431
+        "line": 526
       }
     },
     {
@@ -351,14 +351,14 @@
         "name": "runQueueUnique",
         "module": "SeLe4n.Kernel.Scheduler.Invariant",
         "path": "SeLe4n/Kernel/Scheduler/Invariant.lean",
-        "line": 97
+        "line": 99
       },
       "preservedBy": [
         {
           "name": "timerTick_preserves_schedulerInvariantBundle",
           "module": "SeLe4n.Kernel.Scheduler.Operations.Preservation",
           "path": "SeLe4n/Kernel/Scheduler/Operations/Preservation.lean",
-          "line": 757
+          "line": 626
         }
       ],
       "runtimeCheck": {
@@ -377,7 +377,7 @@
         "name": "queueCurrentConsistent",
         "module": "SeLe4n.Kernel.Scheduler.Invariant",
         "path": "SeLe4n/Kernel/Scheduler/Invariant.lean",
-        "line": 85
+        "line": 87
       },
       "preservedBy": [
         {
@@ -403,7 +403,7 @@
         "name": "currentThreadValid",
         "module": "SeLe4n.Kernel.Scheduler.Invariant",
         "path": "SeLe4n/Kernel/Scheduler/Invariant.lean",
-        "line": 102
+        "line": 104
       },
       "preservedBy": [
         {
@@ -429,14 +429,14 @@
         "name": "budgetWithinBounds",
         "module": "SeLe4n.Kernel.SchedContext.Invariant.Defs",
         "path": "SeLe4n/Kernel/SchedContext/Invariant/Defs.lean",
-        "line": 45
+        "line": 46
       },
       "preservedBy": [
         {
-          "name": "consumeBudget_preserves_budgetWithinBounds",
+          "name": "chargeBudget_preserves_schedContextWellFormed",
           "module": "SeLe4n.Kernel.SchedContext.Invariant.Defs",
           "path": "SeLe4n/Kernel/SchedContext/Invariant/Defs.lean",
-          "line": 112
+          "line": 140
         }
       ]
     },
@@ -449,33 +449,33 @@
         "name": "cdtLinksAgree",
         "module": "SeLe4n.Kernel.Capability.Invariant.Defs",
         "path": "SeLe4n/Kernel/Capability/Invariant/Defs.lean",
-        "line": 98
+        "line": 109
       },
       "preservedBy": [
         {
           "name": "cspaceMintWithCdt_preserves_capabilityInvariantBundle",
           "module": "SeLe4n.Kernel.Capability.Invariant.Preservation.CopyMoveMutate",
           "path": "SeLe4n/Kernel/Capability/Invariant/Preservation/CopyMoveMutate.lean",
-          "line": 210
+          "line": 405
         },
         {
           "name": "cspaceDeleteSlot_preserves_capabilityInvariantBundle",
           "module": "SeLe4n.Kernel.Capability.Invariant.Preservation.Delete",
           "path": "SeLe4n/Kernel/Capability/Invariant/Preservation/Delete.lean",
-          "line": 171
+          "line": 186
         },
         {
           "name": "cspaceRevokeCdtFinalising_preserves_capabilityInvariantBundle",
           "module": "SeLe4n.Kernel.Capability.Invariant.Preservation.Revoke",
           "path": "SeLe4n/Kernel/Capability/Invariant/Preservation/Revoke.lean",
-          "line": 123
+          "line": 523
         }
       ],
       "runtimeCheck": {
         "name": "cdtLinksConsistentCheck",
         "module": "SeLe4n.Testing.InvariantChecks",
         "path": "SeLe4n/Testing/InvariantChecks.lean",
-        "line": 615
+        "line": 709
       }
     },
     {
@@ -487,41 +487,47 @@
         "name": "cdtAcyclicity",
         "module": "SeLe4n.Kernel.Capability.Invariant.Defs",
         "path": "SeLe4n/Kernel/Capability/Invariant/Defs.lean",
-        "line": 147
+        "line": 164
       },
       "preservedBy": [
         {
           "name": "cspaceMintWithCdt_preserves_capabilityInvariantBundle",
           "module": "SeLe4n.Kernel.Capability.Invariant.Preservation.CopyMoveMutate",
           "path": "SeLe4n/Kernel/Capability/Invariant/Preservation/CopyMoveMutate.lean",
-          "line": 210
+          "line": 405
         }
       ]
     },
     {
       "id": "untypedWatermark",
-      "label": "Untyped watermark in bounds",
+      "label": "Untyped free index in bounds",
       "subsystem": "memory",
-      "meaning": "Each untyped's allocation watermark stays inside its region.",
+      "meaning": "The free index of every untyped capability stays inside the region it names.",
       "predicate": {
-        "name": "untypedWatermarkInvariant",
+        "name": "untypedFreeIndexInvariant",
         "module": "SeLe4n.Kernel.Lifecycle.Invariant",
         "path": "SeLe4n/Kernel/Lifecycle/Invariant.lean",
-        "line": 116
+        "line": 99
       },
       "preservedBy": [
         {
           "name": "retypeFromUntyped_preserves_untypedMemoryInvariant",
           "module": "SeLe4n.Kernel.Lifecycle.Invariant",
           "path": "SeLe4n/Kernel/Lifecycle/Invariant.lean",
-          "line": 222
+          "line": 281
+        },
+        {
+          "name": "untypedResetSlot_preserves_untypedMemoryInvariant",
+          "module": "SeLe4n.Kernel.Lifecycle.Invariant",
+          "path": "SeLe4n/Kernel/Lifecycle/Invariant.lean",
+          "line": 589
         }
       ],
       "runtimeCheck": {
-        "name": "untypedWatermarkChecks",
+        "name": "untypedFreeIndexChecks",
         "module": "SeLe4n.Testing.InvariantChecks",
         "path": "SeLe4n/Testing/InvariantChecks.lean",
-        "line": 357
+        "line": 432
       }
     },
     {
@@ -533,14 +539,14 @@
         "name": "untypedChildrenNonOverlapInvariant",
         "module": "SeLe4n.Kernel.Lifecycle.Invariant",
         "path": "SeLe4n/Kernel/Lifecycle/Invariant.lean",
-        "line": 130
+        "line": 128
       },
       "preservedBy": [
         {
           "name": "retypeFromUntyped_preserves_untypedMemoryInvariant",
           "module": "SeLe4n.Kernel.Lifecycle.Invariant",
           "path": "SeLe4n/Kernel/Lifecycle/Invariant.lean",
-          "line": 222
+          "line": 281
         }
       ]
     },
@@ -573,7 +579,7 @@
         "name": "vspaceAsidRootsUnique",
         "module": "SeLe4n.Kernel.Architecture.VSpace",
         "path": "SeLe4n/Kernel/Architecture/VSpace.lean",
-        "line": 688
+        "line": 684
       },
       "preservedBy": [
         {
@@ -587,7 +593,7 @@
         "name": "vspaceAsidUniquenessChecks",
         "module": "SeLe4n.Testing.InvariantChecks",
         "path": "SeLe4n/Testing/InvariantChecks.lean",
-        "line": 323
+        "line": 396
       }
     },
     {
@@ -614,19 +620,19 @@
       "id": "auditLogBounded",
       "label": "Audit log bounded",
       "subsystem": "infoflow",
-      "meaning": "The declassification audit log never exceeds its capacity; a full log refuses the downgrade.",
+      "meaning": "The declassification audit trail never exceeds its capacity; a full trail refuses the downgrade.",
       "predicate": {
         "name": "auditLogBounded",
         "module": "SeLe4n.Kernel.InformationFlow.AuditRecord",
         "path": "SeLe4n/Kernel/InformationFlow/AuditRecord.lean",
-        "line": 495
+        "line": 509
       },
       "preservedBy": [
         {
-          "name": "authorizeDeclassificationOnCore_preserves_auditLogBounded",
+          "name": "authorizeDeclassificationOnCore_preserves_proofLayerInvariantBundle",
           "module": "SeLe4n.Kernel.InformationFlow.Declassification",
           "path": "SeLe4n/Kernel/InformationFlow/Declassification.lean",
-          "line": 456
+          "line": 500
         }
       ]
     }
@@ -792,13 +798,13 @@
               "name": "dispatchSyscallChecked",
               "module": "SeLe4n.Kernel.API",
               "path": "SeLe4n/Kernel/API.lean",
-              "line": 4677
+              "line": 5433
             },
             {
               "name": "dispatchWithCapChecked",
               "module": "SeLe4n.Kernel.API",
               "path": "SeLe4n/Kernel/API.lean",
-              "line": 4131
+              "line": 4888
             }
           ],
           "kind": "syscall",
@@ -831,7 +837,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -842,7 +848,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -850,10 +856,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the endpoint)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -864,7 +870,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -875,7 +881,7 @@
                 "name": "endpointFlowGate",
                 "module": "SeLe4n.Kernel.InformationFlow.Policy",
                 "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-                "line": 1730
+                "line": 1719
               },
               "result": "pass"
             },
@@ -886,7 +892,7 @@
                 "name": "endpointReceiveDualWithCapsOnCore",
                 "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointReply",
                 "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointReply.lean",
-                "line": 821
+                "line": 945
               },
               "result": "pass"
             }
@@ -952,13 +958,13 @@
               "name": "scheduleLocalSuccessorFrom",
               "module": "SeLe4n.Kernel.Scheduler.PriorityInheritance.PerCore",
               "path": "SeLe4n/Kernel/Scheduler/PriorityInheritance/PerCore.lean",
-              "line": 1414
+              "line": 1526
             },
             {
               "name": "handleRescheduleSgiOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 3271
+              "line": 3421
             },
             {
               "name": "chooseThreadEffectiveOnCore",
@@ -970,7 +976,7 @@
               "name": "switchToThreadOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 1658
+              "line": 1678
             }
           ],
           "kind": "schedule",
@@ -1009,7 +1015,7 @@
               "name": "dispatchSyscallChecked",
               "module": "SeLe4n.Kernel.API",
               "path": "SeLe4n/Kernel/API.lean",
-              "line": 4677
+              "line": 5433
             },
             {
               "name": "endpointCallCrossCoreDispatchChecked",
@@ -1053,7 +1059,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -1064,7 +1070,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -1072,10 +1078,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the badged endpoint)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -1086,7 +1092,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -1097,7 +1103,7 @@
                 "name": "endpointFlowGate",
                 "module": "SeLe4n.Kernel.InformationFlow.Policy",
                 "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-                "line": 1730
+                "line": 1719
               },
               "result": "pass"
             },
@@ -1210,13 +1216,13 @@
               "name": "scheduleLocalSuccessorFrom",
               "module": "SeLe4n.Kernel.Scheduler.PriorityInheritance.PerCore",
               "path": "SeLe4n/Kernel/Scheduler/PriorityInheritance/PerCore.lean",
-              "line": 1414
+              "line": 1526
             },
             {
               "name": "handleRescheduleSgiOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 3271
+              "line": 3421
             },
             {
               "name": "chooseThreadEffectiveOnCore",
@@ -1228,7 +1234,7 @@
               "name": "switchToThreadOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 1658
+              "line": 1678
             }
           ],
           "kind": "schedule",
@@ -1267,7 +1273,7 @@
               "name": "endpointReplyOnCore",
               "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointReply",
               "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointReply.lean",
-              "line": 125
+              "line": 127
             }
           ],
           "kind": "syscall",
@@ -1300,7 +1306,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -1311,7 +1317,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -1319,10 +1325,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 2, the reply object)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -1333,7 +1339,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -1344,7 +1350,7 @@
                 "name": "replyTransferOnCoreChecked",
                 "module": "SeLe4n.Kernel.IPC.CrossCore.Fault",
                 "path": "SeLe4n/Kernel/IPC/CrossCore/Fault.lean",
-                "line": 684
+                "line": 821
               },
               "result": "pass"
             }
@@ -1446,7 +1452,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -1457,7 +1463,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -1465,10 +1471,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the endpoint)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -1479,7 +1485,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -1490,7 +1496,7 @@
                 "name": "endpointFlowGate",
                 "module": "SeLe4n.Kernel.InformationFlow.Policy",
                 "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-                "line": 1730
+                "line": 1719
               },
               "result": "pass"
             },
@@ -1501,7 +1507,7 @@
                 "name": "endpointReceiveDualWithCapsOnCore",
                 "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointReply",
                 "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointReply.lean",
-                "line": 821
+                "line": 945
               },
               "result": "pass"
             }
@@ -1567,13 +1573,13 @@
               "name": "scheduleLocalSuccessorFrom",
               "module": "SeLe4n.Kernel.Scheduler.PriorityInheritance.PerCore",
               "path": "SeLe4n/Kernel/Scheduler/PriorityInheritance/PerCore.lean",
-              "line": 1414
+              "line": 1526
             },
             {
               "name": "handleRescheduleSgiOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 3271
+              "line": 3421
             },
             {
               "name": "chooseThreadEffectiveOnCore",
@@ -1585,7 +1591,7 @@
               "name": "switchToThreadOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 1658
+              "line": 1678
             }
           ],
           "kind": "schedule",
@@ -1722,10 +1728,16 @@
           "core": 0,
           "sourceRefs": [
             {
-              "name": "syscallResolveCap",
+              "name": "syscallInvokeTyped",
               "module": "SeLe4n.Kernel.API",
               "path": "SeLe4n/Kernel/API.lean",
-              "line": 277
+              "line": 1026
+            },
+            {
+              "name": "syscallMissingRightError",
+              "module": "SeLe4n.Kernel.API",
+              "path": "SeLe4n/Kernel/API.lean",
+              "line": 1009
             }
           ],
           "kind": "syscall",
@@ -1758,7 +1770,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -1769,7 +1781,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -1777,10 +1789,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -1791,10 +1803,10 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "fail",
-              "error": "illegalAuthority"
+              "error": "invalidCapability"
             },
             {
               "stage": "flow",
@@ -1803,7 +1815,7 @@
                 "name": "endpointFlowGate",
                 "module": "SeLe4n.Kernel.InformationFlow.Policy",
                 "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-                "line": 1730
+                "line": 1719
               },
               "result": "skip"
             },
@@ -1814,18 +1826,18 @@
                 "name": "endpointSendCrossCoreDispatchChecked",
                 "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointSend",
                 "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointSend.lean",
-                "line": 672
+                "line": 645
               },
               "result": "skip"
             }
           ],
-          "narrative": "x0 = 1 resolves: guard 0 matches and slot 1 holds the endpoint. But a send needs write and the capability carries only read, so the lookup refuses with illegalAuthority. Nothing after the gate runs and nothing changes.",
+          "narrative": "x0 = 1 resolves: guard 0 matches and slot 1 holds the endpoint. But a send needs write and the capability carries only read. An IPC syscall answers a missing right the way it answers a missing capability, with invalidCapability, so a caller cannot tell a slot it may not use from one that holds nothing. Nothing after the gate runs and nothing changes.",
           "delta": {
             "ops": []
           },
           "outcome": {
             "status": "error",
-            "error": "illegalAuthority"
+            "error": "invalidCapability"
           },
           "guarantees": [
             "authority",
@@ -1843,10 +1855,16 @@
           "core": 0,
           "sourceRefs": [
             {
+              "name": "syscallResolveCap",
+              "module": "SeLe4n.Kernel.API",
+              "path": "SeLe4n/Kernel/API.lean",
+              "line": 246
+            },
+            {
               "name": "resolveCapAddress",
               "module": "SeLe4n.Kernel.Capability.Operations",
               "path": "SeLe4n/Kernel/Capability/Operations.lean",
-              "line": 178
+              "line": 197
             }
           ],
           "kind": "syscall",
@@ -1879,7 +1897,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -1890,7 +1908,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -1898,10 +1916,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 5)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "fail",
               "error": "invalidCapability"
@@ -1913,7 +1931,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "skip"
             },
@@ -1924,7 +1942,7 @@
                 "name": "endpointFlowGate",
                 "module": "SeLe4n.Kernel.InformationFlow.Policy",
                 "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-                "line": 1730
+                "line": 1719
               },
               "result": "skip"
             },
@@ -1940,7 +1958,7 @@
               "result": "skip"
             }
           ],
-          "narrative": "x0 = 5: the guard matches, but slot 5 is empty. There is no capability to check rights against, so the lookup refuses with invalidCapability.",
+          "narrative": "x0 = 5: the guard matches, but slot 5 is empty. There is no capability to check, so the lookup refuses with invalidCapability: the same answer the read-only capability got.",
           "delta": {
             "ops": []
           },
@@ -1967,7 +1985,7 @@
               "name": "resolveCapAddress",
               "module": "SeLe4n.Kernel.Capability.Operations",
               "path": "SeLe4n/Kernel/Capability/Operations.lean",
-              "line": 178
+              "line": 197
             }
           ],
           "kind": "syscall",
@@ -2000,7 +2018,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -2011,7 +2029,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -2019,10 +2037,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (guard 3, slot 1)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "fail",
               "error": "invalidCapability"
@@ -2034,7 +2052,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "skip"
             },
@@ -2045,7 +2063,7 @@
                 "name": "endpointFlowGate",
                 "module": "SeLe4n.Kernel.InformationFlow.Policy",
                 "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-                "line": 1730
+                "line": 1719
               },
               "result": "skip"
             },
@@ -2056,7 +2074,7 @@
                 "name": "endpointSendCrossCoreDispatchChecked",
                 "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointSend",
                 "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointSend.lean",
-                "line": 672
+                "line": 645
               },
               "result": "skip"
             }
@@ -2108,7 +2126,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -2119,7 +2137,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -2127,10 +2145,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -2141,7 +2159,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -2152,7 +2170,7 @@
                 "name": "endpointFlowGate",
                 "module": "SeLe4n.Kernel.InformationFlow.Policy",
                 "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-                "line": 1730
+                "line": 1719
               },
               "result": "pass"
             },
@@ -2163,7 +2181,7 @@
                 "name": "endpointReceiveDualWithCapsOnCore",
                 "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointReply",
                 "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointReply.lean",
-                "line": 821
+                "line": 945
               },
               "result": "pass"
             }
@@ -2228,13 +2246,13 @@
               "name": "scheduleLocalSuccessorFrom",
               "module": "SeLe4n.Kernel.Scheduler.PriorityInheritance.PerCore",
               "path": "SeLe4n/Kernel/Scheduler/PriorityInheritance/PerCore.lean",
-              "line": 1414
+              "line": 1526
             },
             {
               "name": "handleRescheduleSgiOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 3271
+              "line": 3421
             },
             {
               "name": "chooseThreadEffectiveOnCore",
@@ -2246,7 +2264,7 @@
               "name": "switchToThreadOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 1658
+              "line": 1678
             }
           ],
           "kind": "schedule",
@@ -2282,7 +2300,7 @@
     {
       "id": "notification-signal",
       "title": "Notifications: signals and badges",
-      "summary": "A driver signals a handler three times. The first signal wakes the waiting handler; the next two find nobody waiting and accumulate as a bitwise OR in the notification word, which the handler collects in one wait.",
+      "summary": "A driver signals a handler through three badged capabilities. A signal carries the badge of the capability it was sent through, never a word the caller supplies. The first wakes the waiting handler; the next two find nobody waiting and accumulate as a bitwise OR in the notification word, which the handler collects in one wait.",
       "focus": "ipc",
       "properties": [
         "authority",
@@ -2357,7 +2375,24 @@
                 "target": "n.alarm",
                 "rights": [
                   "write"
-                ]
+                ],
+                "badge": 1
+              },
+              "2": {
+                "kind": "notification",
+                "target": "n.alarm",
+                "rights": [
+                  "write"
+                ],
+                "badge": 4
+              },
+              "3": {
+                "kind": "notification",
+                "target": "n.alarm",
+                "rights": [
+                  "write"
+                ],
+                "badge": 2
               }
             }
           },
@@ -2400,7 +2435,7 @@
           "kind": "boot",
           "title": "Initial state",
           "traceTag": "BOOT",
-          "narrative": "The handler is blocked on the alarm notification. The driver runs; both have priority 80. The driver's capability can signal (write), the handler's can wait (read).",
+          "narrative": "The handler is blocked on the alarm notification. The driver runs; both have priority 80. The driver holds three capabilities that can signal (write), badged 0b001, 0b100 and 0b010: one per source it reports. The handler's capability can wait (read).",
           "delta": {
             "ops": []
           },
@@ -2417,24 +2452,18 @@
           "core": 0,
           "sourceRefs": [],
           "kind": "syscall",
-          "title": "driver: signal badge 0b001",
+          "title": "driver: signal through slot 1 (badge 0b001)",
           "traceTag": "SIGNAL",
           "actor": "driver",
           "syscall": {
             "id": "notificationSignal",
             "number": 14,
             "msgInfo": {
-              "length": 1,
+              "length": 0,
               "extraCaps": 0,
               "label": 0
             },
-            "args": [
-              {
-                "reg": "x2",
-                "name": "badge",
-                "value": 1
-              }
-            ],
+            "args": [],
             "capPtr": 1,
             "requiredRight": "write"
           },
@@ -2446,7 +2475,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -2457,7 +2486,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -2465,10 +2494,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the notification)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -2479,7 +2508,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -2506,7 +2535,7 @@
               "result": "pass"
             }
           ],
-          "narrative": "The handler is waiting, so the badge does not touch the notification word: the kernel pops the handler off the wait queue and delivers badge 1 straight to it, after checking that the flow onward to the handler is allowed too. The handler becomes runnable but does not preempt the driver: equal priority never does.",
+          "narrative": "A signal sends no message words: the badge is the one minted into the capability in slot 1. The handler is waiting, so the badge does not touch the notification word: the kernel pops the handler off the wait queue and delivers badge 1 straight to it, after checking that the flow onward to the handler is allowed too. The handler becomes runnable but does not preempt the driver: equal priority never does.",
           "delta": {
             "ops": [
               {
@@ -2573,25 +2602,19 @@
           "core": 0,
           "sourceRefs": [],
           "kind": "syscall",
-          "title": "driver: signal badge 0b100",
+          "title": "driver: signal through slot 2 (badge 0b100)",
           "traceTag": "SIGNAL",
           "actor": "driver",
           "syscall": {
             "id": "notificationSignal",
             "number": 14,
             "msgInfo": {
-              "length": 1,
+              "length": 0,
               "extraCaps": 0,
               "label": 0
             },
-            "args": [
-              {
-                "reg": "x2",
-                "name": "badge",
-                "value": 4
-              }
-            ],
-            "capPtr": 1,
+            "args": [],
+            "capPtr": 2,
             "requiredRight": "write"
           },
           "path": [
@@ -2602,7 +2625,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -2613,18 +2636,18 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
             {
               "stage": "lookup",
-              "label": "Resolve x0 in the caller's CSpace (slot 1, the notification)",
+              "label": "Resolve x0 in the caller's CSpace (slot 2, the notification)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -2635,7 +2658,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -2662,7 +2685,7 @@
               "result": "pass"
             }
           ],
-          "narrative": "Nobody waits now, so the badge is stored: the notification becomes active with word 0b100.",
+          "narrative": "Nobody waits now, so the badge of the capability in slot 2 is stored: the notification becomes active with word 0b100.",
           "delta": {
             "ops": [
               {
@@ -2703,25 +2726,19 @@
           "core": 0,
           "sourceRefs": [],
           "kind": "syscall",
-          "title": "driver: signal badge 0b010",
+          "title": "driver: signal through slot 3 (badge 0b010)",
           "traceTag": "SIGNAL",
           "actor": "driver",
           "syscall": {
             "id": "notificationSignal",
             "number": 14,
             "msgInfo": {
-              "length": 1,
+              "length": 0,
               "extraCaps": 0,
               "label": 0
             },
-            "args": [
-              {
-                "reg": "x2",
-                "name": "badge",
-                "value": 2
-              }
-            ],
-            "capPtr": 1,
+            "args": [],
+            "capPtr": 3,
             "requiredRight": "write"
           },
           "path": [
@@ -2732,7 +2749,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -2743,18 +2760,18 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
             {
               "stage": "lookup",
-              "label": "Resolve x0 in the caller's CSpace (slot 1, the notification)",
+              "label": "Resolve x0 in the caller's CSpace (slot 3, the notification)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -2765,7 +2782,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -2792,7 +2809,7 @@
               "result": "pass"
             }
           ],
-          "narrative": "A second signal with nobody waiting ORs into the word: 0b100 | 0b010 = 0b110. Signals coalesce; the word records which sources fired, not how often.",
+          "narrative": "A second signal with nobody waiting ORs its capability's badge into the word: 0b100 | 0b010 = 0b110. Signals coalesce; the word records which sources fired, not how often.",
           "delta": {
             "ops": [
               {
@@ -2836,19 +2853,19 @@
               "name": "dispatchYield",
               "module": "SeLe4n.Kernel.API",
               "path": "SeLe4n/Kernel/API.lean",
-              "line": 4652
+              "line": 5408
             },
             {
               "name": "sliceExpireOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1444
+              "line": 1910
             },
             {
               "name": "scheduleEffectiveOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1248
+              "line": 1210
             }
           ],
           "kind": "syscall",
@@ -2873,7 +2890,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -2884,7 +2901,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -2895,7 +2912,7 @@
                 "name": "yieldOnCore",
                 "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
                 "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-                "line": 1821
+                "line": 2551
               },
               "result": "pass"
             }
@@ -2966,7 +2983,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -2977,7 +2994,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -2985,10 +3002,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the notification)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -2999,7 +3016,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -3103,7 +3120,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -3114,7 +3131,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -3122,10 +3139,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the notification)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -3136,7 +3153,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -3220,13 +3237,13 @@
               "name": "scheduleLocalSuccessorFrom",
               "module": "SeLe4n.Kernel.Scheduler.PriorityInheritance.PerCore",
               "path": "SeLe4n/Kernel/Scheduler/PriorityInheritance/PerCore.lean",
-              "line": 1414
+              "line": 1526
             },
             {
               "name": "handleRescheduleSgiOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 3271
+              "line": 3421
             },
             {
               "name": "chooseThreadEffectiveOnCore",
@@ -3238,7 +3255,7 @@
               "name": "switchToThreadOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
-              "line": 1658
+              "line": 1678
             }
           ],
           "kind": "schedule",
@@ -3400,7 +3417,7 @@
               "name": "timerTickOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1715
+              "line": 2400
             }
           ],
           "kind": "timer",
@@ -3441,19 +3458,19 @@
               "name": "timerTickOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1715
+              "line": 2400
             },
             {
               "name": "sliceExpireOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1444
+              "line": 1910
             },
             {
               "name": "scheduleEffectiveOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1248
+              "line": 1210
             }
           ],
           "kind": "timer",
@@ -3505,7 +3522,7 @@
               "name": "dispatchYield",
               "module": "SeLe4n.Kernel.API",
               "path": "SeLe4n/Kernel/API.lean",
-              "line": 4652
+              "line": 5408
             }
           ],
           "kind": "syscall",
@@ -3530,7 +3547,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -3541,7 +3558,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -3552,7 +3569,7 @@
                 "name": "yieldOnCore",
                 "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
                 "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-                "line": 1821
+                "line": 2551
               },
               "result": "pass"
             }
@@ -3603,7 +3620,7 @@
               "name": "timerTickOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1715
+              "line": 2400
             }
           ],
           "kind": "timer",
@@ -3641,7 +3658,7 @@
     {
       "id": "budget-edf",
       "title": "Budgets and earliest deadline first",
-      "summary": "Three threads at one priority, each bound to a scheduling context. A thread whose budget runs out is ineligible until it is replenished; among the eligible, the earliest deadline wins.",
+      "summary": "Three threads at one priority, each bound to a scheduling context. A thread whose budget runs out is ineligible until the budget it used is released again, one period after it was first released; among the eligible, the earliest deadline wins.",
       "focus": "scheduler",
       "properties": [
         "scheduling",
@@ -3746,7 +3763,7 @@
           "kind": "boot",
           "title": "Initial state",
           "traceTag": "BOOT",
-          "narrative": "alpha runs with 1 tick of budget left. beta (deadline 25) and gamma (deadline 18) wait at the same priority. Deadlines and budgets live in each thread's scheduling context.",
+          "narrative": "alpha has run for two of its three ticks and has 1 tick of budget left. beta (deadline 25) and gamma (deadline 18) wait at the same priority. Deadlines and budgets live in each thread's scheduling context.",
           "delta": {
             "ops": []
           },
@@ -3766,19 +3783,19 @@
               "name": "timerTickBudgetOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1585
+              "line": 2237
             },
             {
               "name": "budgetExhaustOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1544
+              "line": 2134
             },
             {
               "name": "scheduleEffectiveOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1248
+              "line": 1210
             },
             {
               "name": "isBetterCandidate",
@@ -3790,7 +3807,7 @@
           "kind": "timer",
           "title": "tick: alpha's budget runs out",
           "traceTag": "TICK",
-          "narrative": "The tick spends alpha's last tick of budget. Its scheduling context drops to 0 and a refill is scheduled one period (20 ticks) out; the deadline stays where it is. alpha is requeued, but with no budget it is not eligible. Of beta and gamma, gamma's deadline is earlier, so gamma runs even though beta was queued first.",
+          "narrative": "The tick spends alpha's last tick of budget. Its scheduling context drops to 0 and goes on the core's release queue: the three ticks it used come back one period (20 ticks) after they were released, which is 17 ticks from now. The deadline stays where it is. alpha is requeued, but with no budget it is not eligible. Of beta and gamma, gamma's deadline is earlier, so gamma runs even though beta was queued first.",
           "delta": {
             "ops": [
               {
@@ -3798,7 +3815,7 @@
                 "id": "sc.alpha",
                 "set": {
                   "remaining": 0,
-                  "refillIn": 20
+                  "refillIn": 17
                 }
               },
               {
@@ -3838,7 +3855,7 @@
               "name": "timerTickBudgetOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1585
+              "line": 2237
             }
           ],
           "kind": "timer",
@@ -3880,19 +3897,19 @@
               "name": "timerTickBudgetOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1585
+              "line": 2237
             },
             {
               "name": "budgetExhaustOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1544
+              "line": 2134
             },
             {
               "name": "scheduleEffectiveOnCore",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1248
+              "line": 1210
             },
             {
               "name": "isBetterCandidate",
@@ -3904,7 +3921,7 @@
           "kind": "timer",
           "title": "tick: gamma's budget runs out",
           "traceTag": "TICK",
-          "narrative": "gamma exhausts its budget too and waits for its refill. beta is the only eligible thread left, so it runs.",
+          "narrative": "gamma exhausts its budget too. Its two ticks come back one period (18 ticks) after their release, 16 ticks from now. beta is the only eligible thread left, so it runs.",
           "delta": {
             "ops": [
               {
@@ -3912,7 +3929,7 @@
                 "id": "sc.gamma",
                 "set": {
                   "remaining": 0,
-                  "refillIn": 18
+                  "refillIn": 16
                 }
               },
               {
@@ -3949,7 +3966,7 @@
     {
       "id": "capability-derivation",
       "title": "Minting, copying, deleting and revoking",
-      "summary": "A supervisor derives capabilities from an endpoint master capability and then takes them back. Every derivation is recorded in the derivation tree, a derived capability can only lose rights, and revoking the master deletes everything derived from it.",
+      "summary": "A supervisor derives capabilities from an endpoint master capability and then takes them back. Every derivation is recorded in the derivation tree, a derived capability can only lose rights (rights it asks for beyond its source's are masked off, not refused), and revoking the master deletes everything derived from it.",
       "focus": "cspace",
       "properties": [
         "authority",
@@ -4047,7 +4064,7 @@
           "kind": "boot",
           "title": "Initial state",
           "traceTag": "BOOT",
-          "narrative": "The supervisor's CSpace holds, in slot 0, a capability to the CNode itself (with grant, which minting and copying need) and, in slot 1, the master capability to the log endpoint with read, write and grant. x0 = 0 names the CNode; the slots to operate on travel in x2 and x3.",
+          "narrative": "The supervisor's CSpace holds, in slot 0, a capability to the CNode itself (with grant, which minting and copying need) and, in slot 1, the master capability to the log endpoint with read, write and grant. A CNode operation is addressed as seL4's is: x0 names the destination CNode, x2 the destination slot, x3 a capability to the source CNode, x4 the source slot, and x5 packs both lookup depths (8 bits each here) with the rights mask.",
           "delta": {
             "ops": []
           },
@@ -4062,58 +4079,48 @@
         {
           "index": 1,
           "core": 0,
-          "sourceRefs": [
-            {
-              "name": "cspaceMintChecked",
-              "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Wrappers",
-              "path": "SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean",
-              "line": 52
-            },
-            {
-              "name": "mintDerivedCap",
-              "module": "SeLe4n.Kernel.Capability.Operations",
-              "path": "SeLe4n/Kernel/Capability/Operations.lean",
-              "line": 932
-            },
-            {
-              "name": "capAttenuates",
-              "module": "SeLe4n.Kernel.Capability.Operations",
-              "path": "SeLe4n/Kernel/Capability/Operations.lean",
-              "line": 84
-            }
-          ],
           "kind": "syscall",
+          "actor": "sup",
+          "outcome": {
+            "status": "ok"
+          },
+          "invariants": {
+            "preserved": [
+              "cdtLinksAgree",
+              "cdtAcyclic"
+            ]
+          },
           "title": "mint slot 1 → slot 4: write only, badge 7",
           "traceTag": "MINT",
-          "actor": "sup",
+          "narrative": "The rights mask 0b00010 asks for write alone, which the master holds, so slot 4 receives a write-only capability to the same endpoint and becomes the first child of slot 1 in the derivation tree. A mint carries five words: the fifth, the badge (7), does not fit in x2–x5 and travels in the caller's IPC buffer.",
           "syscall": {
             "id": "cspaceMint",
             "number": 4,
             "msgInfo": {
-              "length": 4,
+              "length": 5,
               "extraCaps": 0,
               "label": 0
             },
             "args": [
               {
                 "reg": "x2",
-                "name": "source slot",
-                "value": 1
-              },
-              {
-                "reg": "x3",
                 "name": "destination slot",
                 "value": 4
               },
               {
+                "reg": "x3",
+                "name": "source CNode CPtr",
+                "value": 0
+              },
+              {
                 "reg": "x4",
-                "name": "rights mask",
-                "value": 2
+                "name": "source slot",
+                "value": 1
               },
               {
                 "reg": "x5",
-                "name": "badge",
-                "value": 7
+                "name": "depths 8, 8 | rights 0b00010 << 16",
+                "value": 133128
               }
             ],
             "capPtr": 0,
@@ -4127,7 +4134,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -4138,7 +4145,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -4146,10 +4153,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 0, the CNode)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -4160,7 +4167,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -4179,15 +4186,14 @@
               "stage": "operation",
               "label": "Mint a derived capability and link it under its source",
               "ref": {
-                "name": "cspaceMintWithCdt",
-                "module": "SeLe4n.Kernel.Capability.Operations",
-                "path": "SeLe4n/Kernel/Capability/Operations.lean",
-                "line": 1613
+                "name": "cspaceMintChecked",
+                "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Wrappers",
+                "path": "SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean",
+                "line": 52
               },
               "result": "pass"
             }
           ],
-          "narrative": "The rights mask 0b00010 asks for write alone, a subset of the master's rights, so the mint succeeds: slot 4 receives a write-only capability to the same endpoint, stamped with badge 7, and becomes the first child of slot 1 in the derivation tree.",
           "delta": {
             "ops": [
               {
@@ -4212,64 +4218,83 @@
               }
             ]
           },
-          "outcome": {
-            "status": "ok"
-          },
+          "sourceRefs": [
+            {
+              "name": "decodeCSpaceMintArgs",
+              "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+              "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+              "line": 381
+            },
+            {
+              "name": "resolveCNodeOpSlots",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 492
+            },
+            {
+              "name": "mintMaskedRights",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 2998
+            },
+            {
+              "name": "cspaceMintWithCdt",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 2373
+            }
+          ],
           "guarantees": [
             "authority",
             "attenuation",
             "invariants"
-          ],
+          ]
+        },
+        {
+          "index": 2,
+          "core": 0,
+          "kind": "syscall",
+          "actor": "sup",
+          "outcome": {
+            "status": "ok"
+          },
           "invariants": {
             "preserved": [
               "cdtLinksAgree",
               "cdtAcyclic"
             ]
-          }
-        },
-        {
-          "index": 2,
-          "core": 0,
-          "sourceRefs": [
-            {
-              "name": "capAttenuates",
-              "module": "SeLe4n.Kernel.Capability.Operations",
-              "path": "SeLe4n/Kernel/Capability/Operations.lean",
-              "line": 84
-            }
-          ],
-          "kind": "syscall",
-          "title": "mint slot 4 → slot 5: read + write (refused)",
+          },
+          "title": "mint slot 4 → slot 5: asks for read + write, gets write",
           "traceTag": "MINT",
-          "actor": "sup",
+          "narrative": "Slot 4 carries write only; this asks for read and write. The kernel does not refuse: it masks the request with the source's rights, as seL4 does, so slot 5 receives write alone. A derived capability can never hold a right its source lacks, whatever it asks for. Slot 5 becomes a child of slot 4.",
           "syscall": {
             "id": "cspaceMint",
             "number": 4,
             "msgInfo": {
-              "length": 4,
+              "length": 5,
               "extraCaps": 0,
               "label": 0
             },
             "args": [
               {
                 "reg": "x2",
-                "name": "source slot",
-                "value": 4
-              },
-              {
-                "reg": "x3",
                 "name": "destination slot",
                 "value": 5
               },
               {
+                "reg": "x3",
+                "name": "source CNode CPtr",
+                "value": 0
+              },
+              {
                 "reg": "x4",
-                "name": "rights mask",
-                "value": 3
+                "name": "source slot",
+                "value": 4
               },
               {
                 "reg": "x5",
-                "name": "badge",
-                "value": 0
+                "name": "depths 8, 8 | rights 0b00011 << 16",
+                "value": 198664
               }
             ],
             "capPtr": 0,
@@ -4283,7 +4308,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -4294,7 +4319,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -4302,10 +4327,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 0, the CNode)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -4316,7 +4341,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -4333,18 +4358,16 @@
             },
             {
               "stage": "operation",
-              "label": "Mint: the requested rights are not a subset of the source's",
+              "label": "Mint with the requested rights masked by the source's",
               "ref": {
-                "name": "mintDerivedCap",
-                "module": "SeLe4n.Kernel.Capability.Operations",
-                "path": "SeLe4n/Kernel/Capability/Operations.lean",
-                "line": 932
+                "name": "cspaceMintChecked",
+                "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Wrappers",
+                "path": "SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean",
+                "line": 52
               },
-              "result": "fail",
-              "error": "invalidCapability"
+              "result": "pass"
             }
           ],
-          "narrative": "Slot 4 carries write only; this asks for read and write. A derived capability can never hold a right its source lacks, so the mint refuses with invalidCapability and slot 5 stays empty. The supervisor's own CNode capability passed every gate: the refusal is about the derivation, not about who asked.",
           "delta": {
             "ops": [
               {
@@ -4352,57 +4375,89 @@
                 "from": "cn.sup",
                 "to": "cn.sup",
                 "allowed": true
+              },
+              {
+                "op": "capInsert",
+                "slot": "cn.sup/5",
+                "parent": "cn.sup/4",
+                "cap": {
+                  "kind": "endpoint",
+                  "target": "ep.log",
+                  "rights": [
+                    "write"
+                  ],
+                  "badge": 7,
+                  "derivation": "mint"
+                }
               }
             ]
           },
+          "sourceRefs": [
+            {
+              "name": "mintMaskedRights",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 2998
+            },
+            {
+              "name": "mintDerivedCap",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 1327
+            }
+          ],
+          "guarantees": [
+            "authority",
+            "attenuation",
+            "invariants"
+          ]
+        },
+        {
+          "index": 3,
+          "core": 0,
+          "kind": "syscall",
+          "actor": "sup",
           "outcome": {
             "status": "error",
-            "error": "invalidCapability"
+            "error": "targetSlotOccupied"
           },
-          "guarantees": [
-            "attenuation",
-            "failureAtomic"
-          ],
           "invariants": {
             "preserved": [
               "cdtLinksAgree",
               "cdtAcyclic"
             ]
-          }
-        },
-        {
-          "index": 3,
-          "core": 0,
-          "sourceRefs": [
-            {
-              "name": "cspaceCopyChecked",
-              "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Wrappers",
-              "path": "SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean",
-              "line": 579
-            }
-          ],
-          "kind": "syscall",
-          "title": "copy slot 4 → slot 6",
-          "traceTag": "COPY",
-          "actor": "sup",
+          },
+          "title": "mint slot 1 → slot 5 (refused: slot occupied)",
+          "traceTag": "MINT",
+          "narrative": "Slot 5 already holds a capability. The destination is resolved before the source is even read, and a CNode operation never overwrites: the kernel refuses with targetSlotOccupied and every slot stays as it was.",
           "syscall": {
-            "id": "cspaceCopy",
-            "number": 5,
+            "id": "cspaceMint",
+            "number": 4,
             "msgInfo": {
-              "length": 2,
+              "length": 5,
               "extraCaps": 0,
               "label": 0
             },
             "args": [
               {
                 "reg": "x2",
-                "name": "source slot",
-                "value": 4
+                "name": "destination slot",
+                "value": 5
               },
               {
                 "reg": "x3",
-                "name": "destination slot",
-                "value": 6
+                "name": "source CNode CPtr",
+                "value": 0
+              },
+              {
+                "reg": "x4",
+                "name": "source slot",
+                "value": 1
+              },
+              {
+                "reg": "x5",
+                "name": "depths 8, 8 | rights 0b00001 << 16",
+                "value": 67592
               }
             ],
             "capPtr": 0,
@@ -4416,7 +4471,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -4427,7 +4482,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -4435,10 +4490,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 0, the CNode)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -4449,7 +4504,130 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "operation",
+              "label": "Resolve the destination slot: it must be empty",
+              "ref": {
+                "name": "resolveCNodeOpSlots",
+                "module": "SeLe4n.Kernel.Capability.Operations",
+                "path": "SeLe4n/Kernel/Capability/Operations.lean",
+                "line": 492
+              },
+              "result": "fail",
+              "error": "targetSlotOccupied"
+            }
+          ],
+          "delta": {
+            "ops": []
+          },
+          "sourceRefs": [
+            {
+              "name": "resolveCNodeOpSlots",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 492
+            }
+          ],
+          "guarantees": [
+            "failureAtomic"
+          ]
+        },
+        {
+          "index": 4,
+          "core": 0,
+          "kind": "syscall",
+          "actor": "sup",
+          "outcome": {
+            "status": "ok"
+          },
+          "invariants": {
+            "preserved": [
+              "cdtLinksAgree",
+              "cdtAcyclic"
+            ]
+          },
+          "title": "copy slot 4 → slot 6",
+          "traceTag": "COPY",
+          "narrative": "A copy keeps the source's badge and, with a mask of every right, its rights: a copy takes a rights mask too and can only narrow. Slot 6 becomes the first child of slot 4, in front of slot 5.",
+          "syscall": {
+            "id": "cspaceCopy",
+            "number": 5,
+            "msgInfo": {
+              "length": 4,
+              "extraCaps": 0,
+              "label": 0
+            },
+            "args": [
+              {
+                "reg": "x2",
+                "name": "destination slot",
+                "value": 6
+              },
+              {
+                "reg": "x3",
+                "name": "source CNode CPtr",
+                "value": 0
+              },
+              {
+                "reg": "x4",
+                "name": "source slot",
+                "value": 4
+              },
+              {
+                "reg": "x5",
+                "name": "depths 8, 8 | rights 0b11111 << 16",
+                "value": 2033672
+              }
+            ],
+            "capPtr": 0,
+            "requiredRight": "grant"
+          },
+          "path": [
+            {
+              "stage": "entry",
+              "label": "Checked syscall entry",
+              "ref": {
+                "name": "syscallEntryChecked",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 5671
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "decode",
+              "label": "Decode x0, x1 and x7 from the register file",
+              "ref": {
+                "name": "decodeSyscallArgsFromState",
+                "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
+                "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
+                "line": 259
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "lookup",
+              "label": "Resolve x0 in the caller's CSpace (slot 0, the CNode)",
+              "ref": {
+                "name": "syscallResolveCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 246
+              },
+              "result": "pass"
+            },
+            {
+              "stage": "rights",
+              "label": "Require the grant right",
+              "ref": {
+                "name": "syscallRequiredRight",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 839
               },
               "result": "pass"
             },
@@ -4468,15 +4646,14 @@
               "stage": "operation",
               "label": "Copy the capability and link it under its source",
               "ref": {
-                "name": "cspaceCopy",
-                "module": "SeLe4n.Kernel.Capability.Operations",
-                "path": "SeLe4n/Kernel/Capability/Operations.lean",
-                "line": 1454
+                "name": "cspaceCopyChecked",
+                "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Wrappers",
+                "path": "SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean",
+                "line": 593
               },
               "result": "pass"
             }
           ],
-          "narrative": "A copy keeps the source's rights and badge. Slot 6 becomes a child of slot 4, a grandchild of the master.",
           "delta": {
             "ops": [
               {
@@ -4501,64 +4678,77 @@
               }
             ]
           },
-          "outcome": {
-            "status": "ok"
-          },
+          "sourceRefs": [
+            {
+              "name": "decodeCSpaceCopyArgs",
+              "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+              "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+              "line": 351
+            },
+            {
+              "name": "resolveCNodeOpSlots",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 492
+            },
+            {
+              "name": "cspaceCopy",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 2169
+            }
+          ],
           "guarantees": [
             "authority",
             "attenuation",
             "invariants"
-          ],
+          ]
+        },
+        {
+          "index": 5,
+          "core": 0,
+          "kind": "syscall",
+          "actor": "sup",
+          "outcome": {
+            "status": "ok"
+          },
           "invariants": {
             "preserved": [
               "cdtLinksAgree",
               "cdtAcyclic"
             ]
-          }
-        },
-        {
-          "index": 4,
-          "core": 0,
-          "sourceRefs": [
-            {
-              "name": "mintDerivedCap",
-              "module": "SeLe4n.Kernel.Capability.Operations",
-              "path": "SeLe4n/Kernel/Capability/Operations.lean",
-              "line": 932
-            }
-          ],
-          "kind": "syscall",
+          },
           "title": "mint slot 1 → slot 8: read only, badge 9",
           "traceTag": "MINT",
-          "actor": "sup",
+          "narrative": "A second child of the master: read only, badge 9. A new child goes to the front of its parent's child list, so slot 1's children now read 8, then 4.",
           "syscall": {
             "id": "cspaceMint",
             "number": 4,
             "msgInfo": {
-              "length": 4,
+              "length": 5,
               "extraCaps": 0,
               "label": 0
             },
             "args": [
               {
                 "reg": "x2",
-                "name": "source slot",
-                "value": 1
-              },
-              {
-                "reg": "x3",
                 "name": "destination slot",
                 "value": 8
               },
               {
+                "reg": "x3",
+                "name": "source CNode CPtr",
+                "value": 0
+              },
+              {
                 "reg": "x4",
-                "name": "rights mask",
+                "name": "source slot",
                 "value": 1
               },
               {
                 "reg": "x5",
-                "name": "badge",
-                "value": 9
+                "name": "depths 8, 8 | rights 0b00001 << 16",
+                "value": 67592
               }
             ],
             "capPtr": 0,
@@ -4572,7 +4762,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -4583,7 +4773,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -4591,10 +4781,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 0, the CNode)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -4605,7 +4795,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -4624,15 +4814,14 @@
               "stage": "operation",
               "label": "Mint a derived capability and link it under its source",
               "ref": {
-                "name": "cspaceMintWithCdt",
-                "module": "SeLe4n.Kernel.Capability.Operations",
-                "path": "SeLe4n/Kernel/Capability/Operations.lean",
-                "line": 1613
+                "name": "cspaceMintChecked",
+                "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Wrappers",
+                "path": "SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean",
+                "line": 52
               },
               "result": "pass"
             }
           ],
-          "narrative": "A second child of the master: read only, badge 9. A new child goes to the front of its parent's child list, so slot 1's children now read 8, then 4.",
           "delta": {
             "ops": [
               {
@@ -4657,29 +4846,37 @@
               }
             ]
           },
-          "outcome": {
-            "status": "ok"
-          },
+          "sourceRefs": [
+            {
+              "name": "mintDerivedCap",
+              "module": "SeLe4n.Kernel.Capability.Operations",
+              "path": "SeLe4n/Kernel/Capability/Operations.lean",
+              "line": 1327
+            }
+          ],
           "guarantees": [
             "authority",
             "attenuation",
             "invariants"
-          ],
+          ]
+        },
+        {
+          "index": 6,
+          "core": 0,
+          "kind": "syscall",
+          "actor": "sup",
+          "outcome": {
+            "status": "ok"
+          },
           "invariants": {
             "preserved": [
               "cdtLinksAgree",
               "cdtAcyclic"
             ]
-          }
-        },
-        {
-          "index": 5,
-          "core": 0,
-          "sourceRefs": [],
-          "kind": "syscall",
+          },
           "title": "delete slot 4",
           "traceTag": "DELETE",
-          "actor": "sup",
+          "narrative": "Deleting a capability does not delete what was derived from it. Slot 4 is emptied and unlinked; its children, slots 6 and 5, take its place among the master's children, in their own order: 8, 6, 5. They keep their write right: revoking the master is still the way to take them back.",
           "syscall": {
             "id": "cspaceDelete",
             "number": 7,
@@ -4706,7 +4903,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -4717,7 +4914,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -4725,10 +4922,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 0, the CNode)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -4739,23 +4936,22 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
             {
               "stage": "operation",
-              "label": "Delete the slot and splice its children into its parent",
+              "label": "Delete the slot; its children take its place",
               "ref": {
-                "name": "cspaceDeleteSlotFinalising",
+                "name": "cspaceDeleteSlotZombie",
                 "module": "SeLe4n.Kernel.Capability.FrameFinalise",
                 "path": "SeLe4n/Kernel/Capability/FrameFinalise.lean",
-                "line": 604
+                "line": 1764
               },
               "result": "pass"
             }
           ],
-          "narrative": "Deleting a capability does not delete what was derived from it. Slot 4 is emptied and unlinked; its child, slot 6, is re-linked as a child of slot 4's parent, the master. The copy keeps its write right: revoking the master is still the way to take it back.",
           "delta": {
             "ops": [
               {
@@ -4764,35 +4960,29 @@
               }
             ]
           },
-          "outcome": {
-            "status": "ok"
-          },
+          "sourceRefs": [],
           "guarantees": [
             "authority",
             "invariants"
-          ],
+          ]
+        },
+        {
+          "index": 7,
+          "core": 0,
+          "kind": "syscall",
+          "actor": "sup",
+          "outcome": {
+            "status": "ok"
+          },
           "invariants": {
             "preserved": [
               "cdtLinksAgree",
               "cdtAcyclic"
             ]
-          }
-        },
-        {
-          "index": 6,
-          "core": 0,
-          "sourceRefs": [
-            {
-              "name": "revokeFirstChildLoop",
-              "module": "SeLe4n.Kernel.Capability.FrameFinalise",
-              "path": "SeLe4n/Kernel/Capability/FrameFinalise.lean",
-              "line": 1094
-            }
-          ],
-          "kind": "syscall",
+          },
           "title": "revoke slot 1",
           "traceTag": "REVOKE",
-          "actor": "sup",
+          "narrative": "Revoke deletes everything derived from slot 1 and keeps slot 1 itself. It repeatedly deletes the source's first child: slot 8, then slot 6, then slot 5. The master is left with no descendants.",
           "syscall": {
             "id": "cspaceRevoke",
             "number": 35,
@@ -4819,7 +5009,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -4830,7 +5020,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -4838,10 +5028,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 0, the CNode)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -4852,7 +5042,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -4863,12 +5053,11 @@
                 "name": "cspaceRevokeCdtFinalising",
                 "module": "SeLe4n.Kernel.Capability.FrameFinalise",
                 "path": "SeLe4n/Kernel/Capability/FrameFinalise.lean",
-                "line": 1143
+                "line": 2181
               },
               "result": "pass"
             }
           ],
-          "narrative": "Revoke deletes everything derived from slot 1 and keeps slot 1 itself. It repeatedly deletes the source's first child: slot 6 (spliced in front by the delete), then slot 8. The master is left with no descendants.",
           "delta": {
             "ops": [
               {
@@ -4877,26 +5066,25 @@
               }
             ]
           },
-          "outcome": {
-            "status": "ok"
-          },
+          "sourceRefs": [
+            {
+              "name": "revokeFirstChildLoop",
+              "module": "SeLe4n.Kernel.Capability.FrameFinalise",
+              "path": "SeLe4n/Kernel/Capability/FrameFinalise.lean",
+              "line": 2138
+            }
+          ],
           "guarantees": [
             "authority",
             "invariants"
-          ],
-          "invariants": {
-            "preserved": [
-              "cdtLinksAgree",
-              "cdtAcyclic"
-            ]
-          }
+          ]
         }
       ]
     },
     {
       "id": "untyped-retype",
       "title": "Carving and resetting untyped memory",
-      "summary": "All kernel memory starts as untyped regions. Retyping carves objects off the bottom of a region above a watermark that only rises; the region can be reset only once nothing refers to what was carved from it.",
+      "summary": "All kernel memory starts as untyped regions. Retyping carves objects off a region at the free index of the untyped capability it is invoked through, each on its own alignment boundary; the index only rises until everything derived from that capability has been revoked, and only then can it be reset.",
       "focus": "memory",
       "properties": [
         "memoryIsolation",
@@ -4986,7 +5174,7 @@
           "kind": "boot",
           "title": "Initial state",
           "traceTag": "BOOT",
-          "narrative": "The memory manager holds a 16 KiB untyped region in slot 1 (with the retype right) and a capability to its own CNode in slot 0, where new capabilities land. Nothing has been carved yet: the watermark is at 0.",
+          "narrative": "The memory manager holds a 16 KiB untyped region in slot 1 (with the retype right) and a capability to its own CNode in slot 0, where new capabilities land. Nothing has been carved yet: the capability's free index is 0.",
           "delta": {
             "ops": []
           },
@@ -5003,16 +5191,28 @@
           "core": 0,
           "sourceRefs": [
             {
-              "name": "resolveUntypedRetype",
+              "name": "resolveIssuingSlots",
               "module": "SeLe4n.Kernel.API",
               "path": "SeLe4n/Kernel/API.lean",
-              "line": 1957
+              "line": 2163
+            },
+            {
+              "name": "untypedRetypeObject",
+              "module": "SeLe4n.Kernel.Lifecycle.Operations.ScrubAndUntyped",
+              "path": "SeLe4n/Kernel/Lifecycle/Operations/ScrubAndUntyped.lean",
+              "line": 1393
+            },
+            {
+              "name": "retypeFreeIndex",
+              "module": "SeLe4n.Kernel.Lifecycle.Operations.ScrubAndUntyped",
+              "path": "SeLe4n/Kernel/Lifecycle/Operations/ScrubAndUntyped.lean",
+              "line": 223
             },
             {
               "name": "retypeFromUntyped",
               "module": "SeLe4n.Kernel.Lifecycle.Operations.ScrubAndUntyped",
               "path": "SeLe4n/Kernel/Lifecycle/Operations/ScrubAndUntyped.lean",
-              "line": 242
+              "line": 286
             }
           ],
           "kind": "syscall",
@@ -5060,7 +5260,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -5071,7 +5271,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -5079,10 +5279,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the untyped)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -5093,23 +5293,23 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
             {
               "stage": "operation",
-              "label": "Carve the object above the watermark and install its capability",
+              "label": "Carve the object at the free index and install its capability",
               "ref": {
                 "name": "untypedRetypeFromCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 2113
+                "line": 2445
               },
               "result": "pass"
             }
           ],
-          "narrative": "x2 packs the object type (8, a frame) with its size bits (0: a frame is one page). The kernel carves 4 KiB at the watermark, moves the watermark to 4096, and installs a frame capability in slot 2 as a child of the untyped capability, so revoking the untyped reaches it.",
+          "narrative": "x2 packs the object type (8, a frame) with its size bits (0: a frame is one page). The kernel carves 4 KiB at the free index, advances it to 4096, zeroes the page, and installs a frame capability in slot 2 as a child of the untyped capability, so revoking the untyped reaches it.",
           "delta": {
             "ops": [
               {
@@ -5119,7 +5319,8 @@
                   "id": "fr.a",
                   "kind": "frame",
                   "size": 4096
-                }
+                },
+                "slot": "cn.mgr/1"
               },
               {
                 "op": "capInsert",
@@ -5160,10 +5361,16 @@
           "core": 0,
           "sourceRefs": [
             {
+              "name": "alignedCarveIndex",
+              "module": "SeLe4n.Kernel.Lifecycle.Operations.ScrubAndUntyped",
+              "path": "SeLe4n/Kernel/Lifecycle/Operations/ScrubAndUntyped.lean",
+              "line": 144
+            },
+            {
               "name": "retypeFromUntyped",
               "module": "SeLe4n.Kernel.Lifecycle.Operations.ScrubAndUntyped",
               "path": "SeLe4n/Kernel/Lifecycle/Operations/ScrubAndUntyped.lean",
-              "line": 242
+              "line": 286
             }
           ],
           "kind": "syscall",
@@ -5211,7 +5418,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -5222,7 +5429,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -5230,10 +5437,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the untyped)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -5244,23 +5451,23 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
             {
               "stage": "operation",
-              "label": "Carve the object above the watermark and install its capability",
+              "label": "Round the free index up, carve there and install the capability",
               "ref": {
                 "name": "untypedRetypeFromCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 2113
+                "line": 2445
               },
               "result": "pass"
             }
           ],
-          "narrative": "An untyped can be split into smaller untypeds: type 5 with 13 size bits is 8 KiB. It is carved directly above the frame, so the two never overlap, and the watermark moves to 12288.",
+          "narrative": "An untyped can be split into smaller untypeds: type 5 with 13 size bits is 8 KiB. A carve starts on a multiple of its own size, so the free index (4096) is rounded up to 8192: the 4 KiB between are skipped, the sub-untyped takes the upper half of the region, and the free index moves to 16384. The two children never overlap.",
           "delta": {
             "ops": [
               {
@@ -5270,7 +5477,8 @@
                   "id": "ut.sub",
                   "kind": "untyped",
                   "size": 8192
-                }
+                },
+                "slot": "cn.mgr/1"
               },
               {
                 "op": "capInsert",
@@ -5309,7 +5517,14 @@
         {
           "index": 3,
           "core": 0,
-          "sourceRefs": [],
+          "sourceRefs": [
+            {
+              "name": "retypeFromUntyped",
+              "module": "SeLe4n.Kernel.Lifecycle.Operations.ScrubAndUntyped",
+              "path": "SeLe4n/Kernel/Lifecycle/Operations/ScrubAndUntyped.lean",
+              "line": 286
+            }
+          ],
           "kind": "syscall",
           "title": "retype another 8 KiB (refused)",
           "traceTag": "RETYPE",
@@ -5355,7 +5570,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -5366,7 +5581,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -5374,10 +5589,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the untyped)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -5388,24 +5603,24 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
             {
               "stage": "operation",
-              "label": "Carve: 8192 bytes do not fit above the watermark",
+              "label": "Carve: 8192 bytes do not fit above the free index",
               "ref": {
                 "name": "untypedRetypeFromCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 2113
+                "line": 2445
               },
               "result": "fail",
               "error": "untypedRegionExhausted"
             }
           ],
-          "narrative": "4 KiB remain above the watermark and 8 KiB were asked for. The carve refuses with untypedRegionExhausted; the watermark, the region's children and slot 4 are untouched.",
+          "narrative": "The free index is at the end of the region, so nothing fits above it: the 4 KiB skipped for alignment are not handed out either. The carve refuses with untypedRegionExhausted; the free index, the region's children and slot 4 are untouched.",
           "delta": {
             "ops": []
           },
@@ -5431,10 +5646,10 @@
           "core": 0,
           "sourceRefs": [
             {
-              "name": "untypedReset",
+              "name": "untypedResetSlot",
               "module": "SeLe4n.Kernel.Lifecycle.Operations.UntypedReset",
               "path": "SeLe4n/Kernel/Lifecycle/Operations/UntypedReset.lean",
-              "line": 465
+              "line": 95
             }
           ],
           "kind": "syscall",
@@ -5461,7 +5676,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -5472,7 +5687,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -5480,10 +5695,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the untyped)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -5494,24 +5709,24 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
             {
               "stage": "operation",
-              "label": "Reset: carved objects are still referenced",
+              "label": "Reset: the capability still has derived children",
               "ref": {
-                "name": "untypedResetWithShootdown",
-                "module": "SeLe4n.Kernel.Lifecycle.Operations.UntypedReset",
-                "path": "SeLe4n/Kernel/Lifecycle/Operations/UntypedReset.lean",
-                "line": 991
+                "name": "untypedResetFromCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 2606
               },
               "result": "fail",
               "error": "revocationRequired"
             }
           ],
-          "narrative": "Resetting would hand the frame and the sub-untyped's memory out again while slots 2 and 3 still refer to them. The kernel refuses with revocationRequired: revoke first.",
+          "narrative": "Resetting would hand the frame and the sub-untyped's memory out again while slots 2 and 3 still refer to them. The kernel refuses with revocationRequired while the untyped capability's slot has a derivation child: revoke first.",
           "delta": {
             "ops": []
           },
@@ -5540,7 +5755,7 @@
               "name": "revokeFirstChildLoop",
               "module": "SeLe4n.Kernel.Capability.FrameFinalise",
               "path": "SeLe4n/Kernel/Capability/FrameFinalise.lean",
-              "line": 1094
+              "line": 2138
             }
           ],
           "kind": "syscall",
@@ -5573,7 +5788,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -5584,7 +5799,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -5592,10 +5807,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 0, the CNode)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -5606,7 +5821,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -5617,12 +5832,12 @@
                 "name": "cspaceRevokeCdtFinalising",
                 "module": "SeLe4n.Kernel.Capability.FrameFinalise",
                 "path": "SeLe4n/Kernel/Capability/FrameFinalise.lean",
-                "line": 1143
+                "line": 2181
               },
               "result": "pass"
             }
           ],
-          "narrative": "Every capability carved from the region is a child of the untyped capability, so revoking it deletes them: slot 3 first (the newest child is first), then slot 2.",
+          "narrative": "Every capability carved from the region is a child of the untyped capability, so revoking it deletes them: slot 3 first (the newest child is first), then slot 2. Each was the last capability to its object, so the objects themselves are retired and the region forgets them.",
           "delta": {
             "ops": [
               {
@@ -5650,7 +5865,14 @@
         {
           "index": 6,
           "core": 0,
-          "sourceRefs": [],
+          "sourceRefs": [
+            {
+              "name": "untypedResetSlot",
+              "module": "SeLe4n.Kernel.Lifecycle.Operations.UntypedReset",
+              "path": "SeLe4n/Kernel/Lifecycle/Operations/UntypedReset.lean",
+              "line": 95
+            }
+          ],
           "kind": "syscall",
           "title": "reset the untyped",
           "traceTag": "RESET",
@@ -5675,7 +5897,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -5686,7 +5908,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -5694,10 +5916,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the untyped)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -5708,28 +5930,29 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
             {
               "stage": "operation",
-              "label": "Reset: scrub, flush and lower the watermark to 0",
+              "label": "Reset: write the capability's free index back to 0",
               "ref": {
-                "name": "untypedResetWithShootdown",
-                "module": "SeLe4n.Kernel.Lifecycle.Operations.UntypedReset",
-                "path": "SeLe4n/Kernel/Lifecycle/Operations/UntypedReset.lean",
-                "line": 991
+                "name": "untypedResetFromCap",
+                "module": "SeLe4n.Kernel.API",
+                "path": "SeLe4n/Kernel/API.lean",
+                "line": 2606
               },
               "result": "pass"
             }
           ],
-          "narrative": "Nothing refers to the carved objects any more. The region is scrubbed, stale translations are shot down, the children are forgotten and the watermark returns to 0.",
+          "narrative": "Nothing was derived from the capability any more and the region records no carved object, so the reset is one write: the capability's free index returns to 0. Nothing is scrubbed here; a frame is zeroed when it is next carved.",
           "delta": {
             "ops": [
               {
                 "op": "untypedReset",
-                "untyped": "ut.pool"
+                "untyped": "ut.pool",
+                "slot": "cn.mgr/1"
               }
             ]
           },
@@ -5884,7 +6107,7 @@
               "name": "frameMappingAdmissible",
               "module": "SeLe4n.Kernel.API",
               "path": "SeLe4n/Kernel/API.lean",
-              "line": 2276
+              "line": 2746
             },
             {
               "name": "PagePermissions.ofNat?",
@@ -5938,7 +6161,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -5949,7 +6172,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -5957,10 +6180,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the address space)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -5971,7 +6194,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -5979,10 +6202,10 @@
               "stage": "operation",
               "label": "Admit the frame, check the window and the walk, write the entry",
               "ref": {
-                "name": "vspaceMapFromFrameCap",
+                "name": "vspaceMapOrRemapFromFrameCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 2347
+                "line": 3065
               },
               "result": "pass"
             }
@@ -6026,7 +6249,7 @@
               "name": "frameMappingAdmissible",
               "module": "SeLe4n.Kernel.API",
               "path": "SeLe4n/Kernel/API.lean",
-              "line": 2276
+              "line": 2746
             }
           ],
           "kind": "syscall",
@@ -6074,7 +6297,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -6085,7 +6308,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -6093,10 +6316,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the address space)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -6107,7 +6330,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -6115,10 +6338,10 @@
               "stage": "operation",
               "label": "Admit the frame, check the window and the walk, write the entry",
               "ref": {
-                "name": "vspaceMapFromFrameCap",
+                "name": "vspaceMapOrRemapFromFrameCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 2347
+                "line": 3065
               },
               "result": "pass"
             }
@@ -6162,7 +6385,7 @@
               "name": "decodeVSpaceMapArgs",
               "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
               "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
-              "line": 269
+              "line": 449
             },
             {
               "name": "PagePermissions.ofNat?",
@@ -6216,7 +6439,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -6227,7 +6450,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -6235,10 +6458,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the address space)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -6249,7 +6472,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -6257,10 +6480,10 @@
               "stage": "operation",
               "label": "Decode the permission word: writable and executable",
               "ref": {
-                "name": "vspaceMapFromFrameCap",
-                "module": "SeLe4n.Kernel.API",
-                "path": "SeLe4n/Kernel/API.lean",
-                "line": 2347
+                "name": "decodeVSpaceMapArgs",
+                "module": "SeLe4n.Kernel.Architecture.SyscallArgDecode",
+                "path": "SeLe4n/Kernel/Architecture/SyscallArgDecode.lean",
+                "line": 449
               },
               "result": "fail",
               "error": "invalidSyscallArgument"
@@ -6332,7 +6555,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -6343,7 +6566,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -6351,10 +6574,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the address space)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -6365,7 +6588,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -6376,7 +6599,7 @@
                 "name": "vspaceUnmapPageWithShootdownAndIcacheBroadcast",
                 "module": "SeLe4n.Kernel.Architecture.PerCoreCacheModel",
                 "path": "SeLe4n/Kernel/Architecture/PerCoreCacheModel.lean",
-                "line": 1568
+                "line": 1718
               },
               "result": "pass"
             }
@@ -6411,7 +6634,7 @@
     {
       "id": "information-flow",
       "title": "Information flow and declassification",
-      "summary": "Security labels pair a confidentiality level with an integrity level. Information may flow to equal or higher confidentiality and to equal or lower integrity. A secret thread is refused when it writes down; a public thread may write up; and a write down happens only through declassification, which a policy must authorize and the kernel records.",
+      "summary": "Security labels pair a confidentiality level with an integrity level. Information may flow to equal or higher confidentiality, and only to a destination at least as trusted as its source (the kernel's authority order, deliberately not Biba's). A secret thread is refused when it writes down; a public thread may write up; and a write down happens only through declassification, which a policy must authorize and the kernel records.",
       "focus": "infoflow",
       "properties": [
         "flowPolicy",
@@ -6631,7 +6854,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -6642,7 +6865,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -6650,10 +6873,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -6664,7 +6887,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -6675,7 +6898,7 @@
                 "name": "endpointFlowGate",
                 "module": "SeLe4n.Kernel.InformationFlow.Policy",
                 "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-                "line": 1730
+                "line": 1719
               },
               "result": "fail",
               "error": "flowDenied"
@@ -6687,7 +6910,7 @@
                 "name": "endpointSendCrossCoreDispatchChecked",
                 "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointSend",
                 "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointSend.lean",
-                "line": 672
+                "line": 645
               },
               "result": "skip"
             }
@@ -6745,7 +6968,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -6756,7 +6979,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -6767,7 +6990,7 @@
                 "name": "yieldOnCore",
                 "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
                 "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-                "line": 1821
+                "line": 2551
               },
               "result": "pass"
             }
@@ -6811,7 +7034,7 @@
               "name": "endpointFlowGate",
               "module": "SeLe4n.Kernel.InformationFlow.Policy",
               "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-              "line": 1730
+              "line": 1719
             }
           ],
           "kind": "syscall",
@@ -6844,7 +7067,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -6855,7 +7078,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -6863,10 +7086,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -6877,7 +7100,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -6888,7 +7111,7 @@
                 "name": "endpointFlowGate",
                 "module": "SeLe4n.Kernel.InformationFlow.Policy",
                 "path": "SeLe4n/Kernel/InformationFlow/Policy.lean",
-                "line": 1730
+                "line": 1719
               },
               "result": "pass"
             },
@@ -6899,7 +7122,7 @@
                 "name": "endpointSendCrossCoreDispatchChecked",
                 "module": "SeLe4n.Kernel.IPC.CrossCore.EndpointSend",
                 "path": "SeLe4n/Kernel/IPC/CrossCore/EndpointSend.lean",
-                "line": 672
+                "line": 645
               },
               "result": "pass"
             }
@@ -6992,7 +7215,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -7003,7 +7226,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -7014,7 +7237,7 @@
                 "name": "yieldOnCore",
                 "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
                 "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-                "line": 1821
+                "line": 2551
               },
               "result": "pass"
             }
@@ -7058,13 +7281,13 @@
               "name": "authorizeDeclassificationOnCore",
               "module": "SeLe4n.Kernel.InformationFlow.Declassification",
               "path": "SeLe4n/Kernel/InformationFlow/Declassification.lean",
-              "line": 285
+              "line": 323
             },
             {
               "name": "declassificationDecision",
               "module": "SeLe4n.Kernel.InformationFlow.Enforcement.Soundness",
               "path": "SeLe4n/Kernel/InformationFlow/Enforcement/Soundness.lean",
-              "line": 634
+              "line": 724
             }
           ],
           "kind": "syscall",
@@ -7091,7 +7314,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -7102,7 +7325,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -7110,10 +7333,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 1, the public endpoint)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -7124,7 +7347,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -7135,7 +7358,7 @@
                 "name": "declassifyObjectFromCore",
                 "module": "SeLe4n.Kernel.InformationFlow.Declassification",
                 "path": "SeLe4n/Kernel/InformationFlow/Declassification.lean",
-                "line": 509
+                "line": 530
               },
               "result": "pass"
             }
@@ -7180,12 +7403,11 @@
     {
       "id": "smp-affinity",
       "title": "Two cores and thread affinity",
-      "summary": "Each core has its own run queue and current thread. Rebinding a queued thread to another core moves its queue entry; rebinding a thread that is running elsewhere is refused, because a running thread is in no queue to move.",
+      "summary": "Each core has its own run queue and current thread. Rebinding a queued thread to another core moves its queue entry; rebinding a thread that is running on its old core takes it off that core and queues it on the new one, and the old core chooses again.",
       "focus": "scheduler",
       "properties": [
         "authority",
-        "scheduling",
-        "failureAtomic"
+        "scheduling"
       ],
       "initialState": {
         "cores": [
@@ -7326,7 +7548,7 @@
               "name": "setThreadCpuAffinityWithMigration",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 3123
+              "line": 4014
             }
           ],
           "kind": "syscall",
@@ -7359,7 +7581,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -7370,7 +7592,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -7378,10 +7600,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 2, w3's TCB)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -7392,7 +7614,7 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
@@ -7403,7 +7625,7 @@
                 "name": "setThreadCpuAffinityOnCore",
                 "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
                 "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-                "line": 3198
+                "line": 4080
               },
               "result": "pass"
             }
@@ -7456,11 +7678,23 @@
               "name": "setThreadCpuAffinityWithMigration",
               "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
               "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 3123
+              "line": 4014
+            },
+            {
+              "name": "vacateForAffinityChange",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 3927
+            },
+            {
+              "name": "requeueVacatedOnNewHome",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
+              "line": 3938
             }
           ],
           "kind": "syscall",
-          "title": "w0: bind w1 to core 0 (refused)",
+          "title": "w0: bind w1 to core 0 while it runs",
           "traceTag": "AFFINITY",
           "actor": "w0",
           "syscall": {
@@ -7489,7 +7723,7 @@
                 "name": "syscallEntryChecked",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 4787
+                "line": 5671
               },
               "result": "pass"
             },
@@ -7500,7 +7734,7 @@
                 "name": "decodeSyscallArgsFromState",
                 "module": "SeLe4n.Kernel.Architecture.RegisterDecode",
                 "path": "SeLe4n/Kernel/Architecture/RegisterDecode.lean",
-                "line": 169
+                "line": 259
               },
               "result": "pass"
             },
@@ -7508,10 +7742,10 @@
               "stage": "lookup",
               "label": "Resolve x0 in the caller's CSpace (slot 3, w1's TCB)",
               "ref": {
-                "name": "syscallLookupCap",
+                "name": "syscallResolveCap",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 307
+                "line": 246
               },
               "result": "pass"
             },
@@ -7522,93 +7756,101 @@
                 "name": "syscallRequiredRight",
                 "module": "SeLe4n.Kernel.API",
                 "path": "SeLe4n/Kernel/API.lean",
-                "line": 1008
+                "line": 839
               },
               "result": "pass"
             },
             {
               "stage": "operation",
-              "label": "Refuse: w1 is running on a core the new affinity excludes",
+              "label": "Set the affinity, vacate the old core and queue on the new one",
               "ref": {
                 "name": "setThreadCpuAffinityOnCore",
                 "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
                 "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-                "line": 3198
+                "line": 4080
               },
-              "result": "fail",
-              "error": "threadOnDifferentCore"
+              "result": "pass"
             }
           ],
-          "narrative": "w1 is running on core 1. A running thread is in no run queue, so there is no entry to migrate, and leaving it running where its affinity forbids would break the scheduler's invariants. The kernel refuses with threadOnDifferentCore.",
-          "delta": {
-            "ops": []
-          },
-          "outcome": {
-            "status": "error",
-            "error": "threadOnDifferentCore"
-          },
-          "guarantees": [
-            "failureAtomic"
-          ],
-          "invariants": {
-            "preserved": [
-              "runQueueUnique",
-              "queueCurrentConsistent"
-            ]
-          }
-        },
-        {
-          "index": 3,
-          "core": 1,
-          "sourceRefs": [
-            {
-              "name": "timerTickOnCore",
-              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
-              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1715
-            },
-            {
-              "name": "sliceExpireOnCore",
-              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
-              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1444
-            },
-            {
-              "name": "scheduleEffectiveOnCore",
-              "module": "SeLe4n.Kernel.Scheduler.Operations.Core",
-              "path": "SeLe4n/Kernel/Scheduler/Operations/Core.lean",
-              "line": 1248
-            }
-          ],
-          "kind": "timer",
-          "title": "core 1 tick: w1's slice runs out",
-          "traceTag": "TICK",
-          "narrative": "Core 1 ticks independently of core 0. w1's slice runs out and it is requeued, but it is still the highest priority thread on core 1, so it is picked again with a fresh slice.",
+          "narrative": "w1 is running on core 1. The change takes it off that core in the same transition: core 1's current thread is cleared and the core is flagged to choose again, and w1 joins core 0's run queue. It does not preempt w0, whose priority is equal. No other core resumes w1 until core 1 has saved its registers.",
           "delta": {
             "ops": [
+              {
+                "op": "deschedule",
+                "thread": "w1",
+                "core": 1
+              },
               {
                 "op": "threadPatch",
                 "id": "w1",
                 "set": {
-                  "timeSlice": 5
+                  "core": 0,
+                  "affinity": 0
                 }
               },
               {
                 "op": "enqueue",
                 "thread": "w1",
-                "core": 1,
+                "core": 0,
                 "prio": 100
-              },
-              {
-                "op": "dispatch",
-                "core": 1,
-                "thread": "w1"
               }
             ]
           },
           "outcome": {
             "status": "ok"
           },
+          "guarantees": [
+            "authority",
+            "scheduling"
+          ],
+          "invariants": {
+            "preserved": [
+              "runQueueUnique",
+              "queueCurrentConsistent",
+              "currentThreadValid",
+              "blockedNotRunnable"
+            ]
+          }
+        },
+        {
+          "index": 3,
+          "core": 1,
+          "kind": "schedule",
+          "title": "core 1: chooses again",
+          "traceTag": "SCHED",
+          "narrative": "Core 1 was left with no current thread and a pending reschedule. It picks from its own queue, where only w2 remains: w3 and w1 now belong to core 0.",
+          "outcome": {
+            "status": "ok"
+          },
+          "delta": {
+            "ops": [
+              {
+                "op": "dispatch",
+                "core": 1,
+                "thread": "w2"
+              }
+            ]
+          },
+          "sourceRefs": [
+            {
+              "name": "handleRescheduleSgiOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 3421
+            },
+            {
+              "name": "chooseThreadEffectiveOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 831
+            },
+            {
+              "name": "switchToThreadOnCore",
+              "module": "SeLe4n.Kernel.Scheduler.Operations.Selection",
+              "path": "SeLe4n/Kernel/Scheduler/Operations/Selection.lean",
+              "line": 1678
+            }
+          ],
           "guarantees": [
             "scheduling"
           ],
@@ -7624,7 +7866,7 @@
       ]
     }
   ],
-  "sourceRef": "d75a4d7d0e14771a60ef5b29e3e18e2c29eddbce",
-  "kernelCommit": "d75a4d7",
-  "kernelVersion": "0.36.121"
+  "sourceRef": "e93b82bbf7c844489f0e614db3b05db355218a14",
+  "kernelCommit": "e93b82b",
+  "kernelVersion": "0.37.19"
 }

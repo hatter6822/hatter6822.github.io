@@ -57,7 +57,7 @@ honest in a way it would *not* be for a conventional C kernel:
    Lean predicate over the whole `SystemState`, and the guarantee that it holds is its
    **preservation theorems** — a transition that starts in a state satisfying the
    predicate ends in one that satisfies it too. `syscallEntry_preserves_proofLayerInvariantBundle`
-   lifts the 16-conjunct bundle to the syscall entry, taking per-operation
+   lifts the whole bundle to the syscall entry, taking per-operation
    preservation as a hypothesis that the per-operation theorems discharge. `SeLe4n.Testing.InvariantChecks` also carries
    executable boolean checks (`schedulerRunQueueUniqueB`, `currentThreadValidB`,
    `cdtChildMapConsistentCheck`, …) that the kernel's test harness runs; those are
@@ -150,8 +150,8 @@ different lens over the same folded state and the same step:
 | **IPC** (`ipc`) | the state has an endpoint or a notification | Threads on the left; endpoints (send and receive queues), notifications (the pending word drawn bit by bit, its state and its waiters) and reply objects (the caller waiting for the answer) on the right. Wait edges join each blocked thread to the object it waits on; a delivered message is drawn sender → object → receiver with its label, length and badge. |
 | **Scheduler** (`scheduler`) | always | One box per core: the running thread with its time-slice or budget meter, then the run queue as priority buckets, highest first, with the next pick marked and every ineligible entry labelled with the reason. Not-runnable threads below, then the scheduling contexts (budget, remaining, period, EDF deadline, next refill). |
 | **CSpace** (`cspace`) | the state has a CNode | Each CNode as its slot strip (2^radix slots) with its geometry: depth = guard bits (and guard value) + radix bits. An occupied slot shows its kind, target, rights and badge; a slot this step looked up, inserted, deleted or revoked is marked. Derivation edges arch over the grid from parent slot to child slot. |
-| **Memory** (`memory`) | the state has an untyped region or an address space | Untyped regions drawn to scale, with the carved children laid out from the base and the watermark marked. A refused retype draws the request where it would have gone, cut with a jagged edge at the region's end (`untypedRegionExhausted`). Each address space lists its mappings with permissions, a W^X verdict and the core's TLB state (cached, uncached, shot down); a refused W+X mapping is drawn as a rejected row and never stored. |
-| **Information flow** (`infoflow`) | the state has at least two labels | The four-point label lattice (confidentiality low/high × integrity trusted/untrusted) with the order arrows, each label's members, the declassification policy as curves under the lattice, this step's flow checks recomputed from the labels (allowed, denied, same label), and the declassification audit log. |
+| **Memory** (`memory`) | the state has an untyped region or an address space | Untyped regions drawn to scale, with the carved children laid out at their offsets and the untyped capability's free index marked (the field is still called `watermark` in the schema). A refused retype draws the request where it would have gone, cut with a jagged edge at the region's end (`untypedRegionExhausted`). Each address space lists its mappings with permissions, a W^X verdict and the core's TLB state (cached, uncached, shot down); a refused W+X mapping is drawn as a rejected row and never stored. |
+| **Information flow** (`infoflow`) | the state has at least two labels | The four-point label lattice (confidentiality low/high × integrity trusted/untrusted) with the order arrows (confidentiality low → high, integrity untrusted → trusted: the kernel's authority order, not Biba's), each label's members, the declassification policy as curves under the lattice, this step's flow checks recomputed from the labels (allowed, denied, same label), and the declassification audit log. |
 
 A scenario names its own default scene as `focus`; the URL's `scene=` overrides it
 when that scene is offered. The tabs are a WAI-ARIA tablist: arrow keys, `Home` and
@@ -308,15 +308,15 @@ The bundled document has 10 scenarios (60 steps), 9 properties and 17 invariants
 | Scenario | Opens on | Demonstrates | Refused steps |
 |----------|----------|--------------|---------------|
 | `ipc-call-reply` | IPC | authority, flowPolicy, invariants, scheduling | — |
-| `capability-gate` | Kernel path | authority, failureAtomic | `illegalAuthority`, `invalidCapability` |
+| `capability-gate` | Kernel path | authority, failureAtomic | `invalidCapability` (a missing right on an IPC syscall and an empty slot answer alike) |
 | `notification-signal` | IPC | authority, flowPolicy, invariants | — |
 | `scheduler-buckets` | Scheduler | scheduling, invariants | — |
 | `budget-edf` | Scheduler | scheduling, invariants | — |
-| `capability-derivation` | CSpace | authority, attenuation, failureAtomic, invariants | `invalidCapability` |
+| `capability-derivation` | CSpace | authority, attenuation, failureAtomic, invariants | `targetSlotOccupied` |
 | `untyped-retype` | Memory | memoryIsolation, authority, failureAtomic, invariants | `revocationRequired`, `untypedRegionExhausted` |
 | `vspace-wx` | Memory | wx, memoryIsolation, authority, failureAtomic | `invalidSyscallArgument` |
 | `information-flow` | Information flow | flowPolicy, noninterference, failureAtomic, authority | `flowDenied` |
-| `smp-affinity` | Scheduler | authority, scheduling, failureAtomic | `threadOnDifferentCore` |
+| `smp-affinity` | Scheduler | authority, scheduling | none: a thread running on its old core is moved, not refused |
 
 ### 4.2 Scenario
 
@@ -342,7 +342,7 @@ reader can check against the theorems it names.
   "label": "No capability, no access",
   "statement": "A syscall reaches its operation only after the caller's CSpace resolves …",
   "caveat": "…optional: what the theorem does not say…",
-  "theorems": [ { "name": "syscallLookupCap_implies_capability_held", "module": "SeLe4n.Kernel.API" } ],
+  "theorems": [ { "name": "syscallInvokeTyped_requires_right", "module": "SeLe4n.Kernel.API" } ],
   "invariants": []
 }
 ```
@@ -383,8 +383,8 @@ preservation theorems and runtime checks, step `sourceRefs`, and each path stage
 `ref` — is a reference:
 
 ```json
-{ "name": "syscallLookupCap", "module": "SeLe4n.Kernel.API",
-  "path": "SeLe4n/Kernel/API.lean", "line": 310 }
+{ "name": "syscallResolveCap", "module": "SeLe4n.Kernel.API",
+  "path": "SeLe4n/Kernel/API.lean", "line": 246 }
 ```
 
 An author (or a kernel exporter) writes `name` and `module`. The sync stamps `path` and
@@ -414,7 +414,7 @@ by `"<cnode>/<slot>"`.
   "cnodes": [ { "id", "name", "label", "depth", "guardWidth", "guardValue", "radixWidth",
                 "slots": { "1": { "kind", "target", "rights": ["read", …], "badge", "derivation" } } } ],
   "cdt":     { "cn.root/1": ["cn.app/2"] },            // derivation parent slot → child slots
-  "untyped": [ { "id", "name", "base", "size", "watermark",
+  "untyped": [ { "id", "name", "base", "size", "watermark",                // the free index of the capability carves go through
                  "children": [ { "id", "kind", "offset", "size" } ] } ],   // newest first
   "vspaces": [ { "id", "name", "asid", "mappings": [ { "vaddr", "frame", "perms": "rw-" } ],
                  "tlb": [ "vaddr" ] } ],               // translations cached on this core
@@ -428,7 +428,10 @@ The CNode geometry is the kernel's: a lookup consumes `guardWidth` bits that mus
 `guardValue`, then `radixWidth` bits that index one of `2^radixWidth` slots, and `depth`
 is their sum. A run queue's entries carry the priority they were inserted at, which is
 the bucket the scheduler reads. A security label is a point in the
-`SecurityLabel` lattice: confidentiality may only rise and integrity may only fall.
+`SecurityLabel` lattice: confidentiality may only rise, and a flow reaches only a
+destination at least as trusted as its source (`integrityFlowsTo dst src`: untrusted →
+trusted is allowed, trusted → untrusted is not — the kernel's authority order,
+deliberately not Biba's; `InformationFlow/Policy.lean` proves both directions).
 
 ### 4.7 Step, outcome, path + delta op vocabulary
 
@@ -453,13 +456,13 @@ the bucket the scheduler reads. A security label is a point in the
     { "stage": "decode", "label": "Decode x0, x1 and x7",  "ref": {…}, "result": "pass" },
     { "stage": "lookup", "label": "Resolve x0 in the caller's CSpace (slot 1)", "ref": {…}, "result": "pass" },
     { "stage": "rights", "label": "Require the write right", "ref": {…},
-      "result": "fail", "error": "illegalAuthority" },
+      "result": "fail", "error": "invalidCapability" },
     { "stage": "flow",   "label": "Sender → endpoint flow gate", "ref": {…}, "result": "skip" },
     { "stage": "operation", "label": "Send", "ref": {…}, "result": "skip" }
   ],
-  "outcome": { "status": "error", "error": "illegalAuthority" },   // or { "status": "ok" }
+  "outcome": { "status": "error", "error": "invalidCapability" },   // or { "status": "ok" }
   "narrative": "…plain language…",
-  "sourceRefs": [ { "name": "syscallResolveCap", "module": "SeLe4n.Kernel.API" } ],
+  "sourceRefs": [ { "name": "syscallMissingRightError", "module": "SeLe4n.Kernel.API" } ],
   "guarantees": [ "authority", "failureAtomic" ],                    // propertyCatalog ids
   "invariants": { "preserved": [ "runQueueUnique" ] },              // invariantCatalog ids
   "delta": { "ops": [] }
@@ -499,8 +502,8 @@ are recomputed and checked (§4.8):
 | `capInsert {slot, cap, parent?}` | Fill an empty, addressable slot; with `parent`, record the derivation edge. |
 | `capDelete {slot}` | Empty a slot; its children are spliced up to its parent. |
 | `capRevoke {slot}` | Delete every descendant of the slot's capability, deepest first, and **keep the capability** (`cspaceRevoke`). |
-| `untypedCarve {untyped, child}` | Carve an object at the watermark and advance it (`retypeFromUntyped`); it must fit. |
-| `untypedReset {untyped}` | Drop every carved object and reset the watermark. The kernel refuses this (`revocationRequired`) while children are live, so a trace revokes them first. |
+| `untypedCarve {untyped, slot, child}` | Carve an object through the untyped capability in `slot`. The carve starts at that capability's free index while its slot has derivation children and at 0 otherwise (`retypeFreeIndex`), rounded up to the object's boundary (`alignedCarveIndex`: a page for frames and page tables, its own size for anything else); it must fit, and the free index advances past it. |
+| `untypedReset {untyped, slot}` | Write the free index of the capability in `slot` back to 0 (`untypedResetSlot`). The kernel refuses this (`revocationRequired`) while the slot has a derivation child or the region still records a carved object, so a trace revokes first; nothing is erased here. Deleting the last capability to a carved object retires it (`capDelete`, `capRevoke`), which is what empties the region's `children`. |
 | `vspaceMap {vspace, mapping, cache?}` | Add a mapping; with `cache`, the executing core caches the translation. |
 | `vspaceUnmap {vspace, vaddr}` | Remove a mapping and shoot down its TLB entry. |
 | `auditAppend {entry}` | Append a declassification record; both labels must exist. It **never edits the policy**. |
@@ -559,7 +562,9 @@ Recomputed against the state before the step:
   radix bits, one level per CNode). It must fail exactly when the lookup stage says
   `fail`, with the same error.
 - **The rights:** the resolved capability must lack `requiredRight` exactly when the
-  rights stage fails, and a missing right is `illegalAuthority`.
+  rights stage fails, and a missing right is refused with the error
+  `syscallMissingRightError` gives that syscall (`engine.missingRightError`):
+  `invalidCapability` for the IPC syscalls, `illegalAuthority` for the rest.
 - **The flow:** a `flow` stage needs a `flowCheck`, and every `flowCheck` must agree
   with `E.flowsTo` over the two labels (`securityFlowsTo`); a denied flow is
   `flowDenied`.
@@ -593,7 +598,7 @@ All six scenes ship (§3.2). The kernel concepts each one stands on:
 | **IPC** | `Endpoint` dual queues, `ThreadIpcState`, `notificationSignal`/`notificationWait`, reply objects. |
 | **Scheduler** | `RunQueue` priority buckets, per-core scheduling, scheduling contexts (budget, period, EDF deadline, refill). |
 | **CSpace** | `CNode` guard/radix geometry, capability rights and badges, the capability derivation tree, `cspaceRevoke`. |
-| **Memory** | `UntypedObject` watermark, `retypeFromUntyped`, page mappings, `PagePermissions.wxCompliant`, per-core TLB shootdown. |
+| **Memory** | the untyped capability's free index (`retypeFreeIndex`), `retypeFromUntyped`, page mappings, `PagePermissions.wxCompliant`, per-core TLB shootdown. |
 | **Information flow** | `SecurityLabel`, `securityFlowsTo`, the declassification policy and its audit log. |
 
 Future depth, none of it built: priority-inheritance chains, domain-schedule timelines

@@ -229,7 +229,10 @@ function checkSyscallGates(step, pre, stp, errors) {
   const has = engine.capHasRight(r.cap, call.requiredRight);
   if (has && rights.result === 'fail') errors.push(`${stp}: the capability in ${r.slot} carries ${call.requiredRight}, but the rights stage says fail`);
   if (!has && rights.result !== 'fail') errors.push(`${stp}: the capability in ${r.slot} lacks ${call.requiredRight}, but the rights stage says ${rights.result}`);
-  if (!has && step.outcome && step.outcome.error !== 'illegalAuthority') errors.push(`${stp}: a missing right is refused with illegalAuthority, not ${step.outcome.error}`);
+  // `syscallMissingRightError`: an IPC syscall answers a missing right as an
+  // invalid capability, every other syscall as illegal authority.
+  const refusal = engine.missingRightError(call.id);
+  if (!has && step.outcome && step.outcome.error !== refusal) errors.push(`${stp}: ${call.id} without ${call.requiredRight} is refused with ${refusal} (syscallMissingRightError), not ${step.outcome.error}`);
 }
 
 /* ── Document validation ────────────────────────────────────── */

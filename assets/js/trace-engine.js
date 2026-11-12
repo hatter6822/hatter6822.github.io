@@ -70,8 +70,26 @@
   /* `SyscallRegisterLayout` on ARM64 (`arm64DefaultLayout`). */
   var REGISTERS = { capPtr: "x0", msgInfo: "x1", msgRegs: ["x2", "x3", "x4", "x5"], syscallNum: "x7" };
 
-  /* `MessageInfo` bounds (`maxMessageRegisters`, `maxExtraCaps`, `maxLabel`). */
-  var MSG_LIMITS = { length: 120, extraCaps: 3, label: 1048575 };
+  /* `MessageInfo` bounds (`maxMessageRegisters`, `maxExtraCaps`, `maxLabel`).
+     The kernel's label is 52 bits wide (seL4's `seL4_MessageInfo_t`); the
+     engine admits the labels whose x1 word, shifted twelve bits up, a double
+     still holds exactly, so `msgInfoWord` never rounds. */
+  var MSG_LIMITS = { length: 120, extraCaps: 3, label: 2199023255551 };
+
+  /* `syscallMissingRightError`: the answer to a capability of the syscall's
+     type that lacks its right. seL4 refuses an endpoint or notification
+     capability without `CanSend` or `CanReceive` as an invalid capability, and
+     so does the kernel; every other missing right is `illegalAuthority`. */
+  var MISSING_RIGHT_INVALID = ["send", "call", "notificationSignal", "declassifySignal", "receive", "notificationWait", "replyRecv"];
+  function missingRightError(syscallId) {
+    return MISSING_RIGHT_INVALID.indexOf(syscallId) !== -1 ? "invalidCapability" : "illegalAuthority";
+  }
+
+  /* `carveAlignment`: a frame, an address-space root and a page table are
+     carved on a page; every other kind, a child untyped included, on a
+     multiple of its own size. */
+  var PAGE_BYTES = 4096;
+  var PAGE_ALIGNED_KINDS = ["frame", "vspace", "pageTable"];
 
   var CAP_KINDS = ["endpoint", "notification", "cnode", "untyped", "frame", "vspace", "pageTable", "reply", "tcb", "schedContext"];
   var LABEL_CONF = ["low", "high"];
@@ -137,9 +155,9 @@
 
   /* ── Derivation tree (seL4's mapping database, `SlotLinks.lean`) ──
      `cdt[parent]` lists its children first-child first. `linkAddChild` makes a
-     new child the first child; `cdtSplice` unlinks a slot and adds each of its
-     children, in order, as a first child of its parent — so they arrive in
-     reverse; with no parent the children become roots. */
+     new child the first child; `cdtSplice` takes a slot out with its children
+     taking its place among its siblings, in their own order
+     (`linkSpliceNode`); with no parent the children become roots. */
 
   function cdtChildren(s, key) { return (s.cdt && Array.isArray(s.cdt[key])) ? s.cdt[key] : []; }
   function cdtParent(s, key) {
@@ -157,9 +175,12 @@
     if (!s.cdt) return;
     var parent = cdtParent(s, key);
     var kids = cdtChildren(s, key).slice();
-    if (parent) s.cdt[parent] = cdtChildren(s, parent).filter(function (k) { return k !== key; });
+    if (parent) {
+      var siblings = cdtChildren(s, parent);
+      var at = siblings.indexOf(key);
+      s.cdt[parent] = siblings.slice(0, at).concat(kids, siblings.slice(at + 1));
+    }
     delete s.cdt[key];
-    if (parent) kids.forEach(function (k) { cdtAddChild(s, parent, k); });
     if (parent && !s.cdt[parent].length) delete s.cdt[parent];
   }
   function cdtDescendants(s, key) {
@@ -177,7 +198,26 @@
     var ref = parseSlot(key);
     var cn = ref && cnode(s, ref.cnode);
     if (!cn || !cn.slots || !hasOwn(cn.slots, String(ref.slot))) throw new Error("no capability in slot " + key);
+    var gone = cn.slots[String(ref.slot)];
     delete cn.slots[String(ref.slot)];
+    retireIfFinal(s, gone);
+  }
+  /* seL4's `finaliseCap` on the last capability to an object: a carved object
+     leaves the store with its final capability, and the untyped that recorded
+     it forgets it (`retireCarvedObject`, `retireUnrecord`). The projection
+     keeps carved objects only as their untyped's child records, so that record
+     is what goes. */
+  function retireIfFinal(s, cap) {
+    if (!cap || !cap.target) return;
+    var named = (s.cnodes || []).some(function (cn) {
+      var slots = cn.slots || {};
+      for (var k in slots) if (hasOwn(slots, k) && slots[k] && slots[k].target === cap.target) return true;
+      return false;
+    });
+    if (named) return;
+    (s.untyped || []).forEach(function (u) {
+      u.children = (u.children || []).filter(function (ch) { return ch.id !== cap.target; });
+    });
   }
   /* `revokeFirstChildLoop`: delete the source's first child until it has none.
      Returns the deleted slots in the order the loop deletes them. */
@@ -201,6 +241,15 @@
     var th = thread(s, id);
     if (!th) throw new Error(op + ": unknown thread " + id);
     return th;
+  }
+
+  /* The slot of the untyped capability a carve or a reset is invoked through:
+     the free index is that capability's (seL4's `capFreeIndex`), and whether
+     its slot has derivation children decides where a carve starts. */
+  function untypedAuthority(s, op, name) {
+    var cap = capAt(s, op.slot);
+    if (!cap || cap.kind !== "untyped" || cap.target !== op.untyped) throw new Error(name + ": slot " + op.slot + " holds no capability to " + op.untyped);
+    return op.slot;
   }
 
   function applyOp(s, op) {
@@ -315,16 +364,32 @@
         if (!ut) throw new Error("untypedCarve: unknown untyped " + op.untyped);
         var child = op.child;
         if (!child || typeof child.id !== "string" || !(child.size > 0)) throw new Error("untypedCarve: child.id and child.size required");
-        if (ut.watermark + child.size > ut.size) throw new Error("untypedCarve: " + child.size + " bytes do not fit above watermark " + ut.watermark + " (untypedRegionExhausted)");
+        var via = untypedAuthority(s, op, "untypedCarve");
         if (!Array.isArray(ut.children)) ut.children = [];
-        ut.children.unshift({ id: child.id, kind: child.kind, offset: ut.watermark, size: child.size });
-        ut.watermark += child.size;
+        /* `retypeFreeIndex`: the capability's own free index while its slot
+           has a derivation child, and 0 otherwise — a childless untyped
+           capability is reset by the carve (seL4's `decodeUntypedInvocation`),
+           which refuses while the region still records a carved object. */
+        var from = cdtChildren(s, via).length ? ut.watermark : 0;
+        if (!cdtChildren(s, via).length && ut.children.length) throw new Error("untypedCarve: " + op.untyped + " still records carved objects (revocationRequired)");
+        /* `alignedCarveIndex`: rounded up so the carve's base is on its boundary. */
+        var align = PAGE_ALIGNED_KINDS.indexOf(child.kind) !== -1 ? PAGE_BYTES : child.size;
+        var base = Number(ut.base) || 0;
+        var at = Math.ceil((base + from) / align) * align - base;
+        if (at + child.size > ut.size) throw new Error("untypedCarve: " + child.size + " bytes do not fit at free index " + at + " (untypedRegionExhausted)");
+        ut.children.unshift({ id: child.id, kind: child.kind, offset: at, size: child.size });
+        ut.watermark = at + child.size;
         return s;
       }
       case "untypedReset": {
         var ur = untyped(s, op.untyped);
         if (!ur) throw new Error("untypedReset: unknown untyped " + op.untyped);
-        ur.children = [];
+        var rv = untypedAuthority(s, op, "untypedReset");
+        /* `untypedResetSlot`: refused while the slot has a derivation child or
+           the region records a carved object; otherwise one word, the
+           capability's free index, is written 0. Nothing is erased here: the
+           carved objects left with their final capabilities. */
+        if (cdtChildren(s, rv).length || (ur.children || []).length) throw new Error("untypedReset: " + op.untyped + " still has carved objects or derived capabilities (revocationRequired)");
         ur.watermark = 0;
         return s;
       }
@@ -485,7 +550,10 @@
     return m;
   }
 
-  /* `securityFlowsTo`: confidentiality may only rise, integrity may only fall. */
+  /* `securityFlowsTo`: confidentiality may only rise, and the destination must
+     be at least as trusted as the source (`integrityFlowsTo dst src`). This is
+     the kernel's authority order, deliberately not Biba's: an untrusted source
+     may reach a trusted destination, a trusted one may not reach an untrusted. */
   function labelOf(s, entityId) {
     var ent = thread(s, entityId) || endpoint(s, entityId) || notification(s, entityId) || cnode(s, entityId) || vspace(s, entityId) || untyped(s, entityId);
     return ent && ent.label ? label(s, ent.label) : label(s, entityId);
@@ -493,14 +561,16 @@
   function flowsTo(src, dst) {
     if (!src || !dst) return false;
     var conf = src.conf === "low" || dst.conf === "high";
-    var integ = dst.integ === "untrusted" || src.integ === "trusted";
+    var integ = dst.integ === "trusted" || src.integ === "untrusted";
     return conf && integ;
   }
 
-  /* `MessageInfo.encode`: length | extraCaps << 7 | label << 9. */
+  /* `MessageInfo.encode`: length | extraCaps << 7 | capsUnwrapped << 9 |
+     label << 12 (seL4's `seL4_MessageInfo_t`). A caller sends capsUnwrapped 0;
+     the kernel fills it for a receiver. */
   function msgInfoWord(mi) {
     mi = mi || {};
-    return (Number(mi.length) || 0) + (Number(mi.extraCaps) || 0) * 128 + (Number(mi.label) || 0) * 512;
+    return (Number(mi.length) || 0) + (Number(mi.extraCaps) || 0) * 128 + (Number(mi.capsUnwrapped) || 0) * 512 + (Number(mi.label) || 0) * 4096;
   }
 
   /* ── Derived views ───────────────────────────────────────── */
@@ -538,8 +608,8 @@
         case "ntfnPatch": case "replyPatch": case "scPatch": add(op.id); break;
         case "capInsert": add(op.slot); add(op.parent); break;
         case "capDelete": case "capRevoke": add(op.slot); break;
-        case "untypedCarve": add(op.untyped); if (op.child) add(op.child.id); break;
-        case "untypedReset": add(op.untyped); break;
+        case "untypedCarve": add(op.untyped); add(op.slot); if (op.child) add(op.child.id); break;
+        case "untypedReset": add(op.untyped); add(op.slot); break;
         case "vspaceMap": add(op.vspace); if (op.mapping) add(op.vspace + "@" + op.mapping.vaddr); break;
         case "vspaceUnmap": case "vspaceReject": add(op.vspace); add(op.vspace + "@" + op.vaddr); break;
         case "auditAppend": add("audit"); break;
@@ -650,10 +720,10 @@
     });
 
     (s.untyped || []).forEach(function (u) {
-      if (u.watermark > u.size) fail("untypedWatermark", u.id + " watermark " + u.watermark + " exceeds its " + u.size + " bytes");
+      if (u.watermark > u.size) fail("untypedWatermark", u.id + " free index " + u.watermark + " exceeds its " + u.size + " bytes");
       var kids = (u.children || []).slice().sort(function (a, b) { return a.offset - b.offset; });
       kids.forEach(function (ch, i) {
-        if (ch.offset + ch.size > u.watermark) fail("untypedWatermark", ch.id + " ends above " + u.id + "'s watermark");
+        if (ch.offset + ch.size > u.watermark) fail("untypedWatermark", ch.id + " ends above " + u.id + "'s free index");
         if (i && kids[i - 1].offset + kids[i - 1].size > ch.offset) fail("untypedNonOverlap", kids[i - 1].id + " and " + ch.id + " overlap");
       });
     });
@@ -706,6 +776,7 @@
     selectOnCore: selectOnCore,
     resolveCap: resolveCap,
     capHasRight: capHasRight,
+    missingRightError: missingRightError,
     rightsMask: rightsMask,
     labelOf: labelOf,
     flowsTo: flowsTo,

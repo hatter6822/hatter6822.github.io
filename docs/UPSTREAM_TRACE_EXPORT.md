@@ -83,7 +83,7 @@ exact shape is `docs/SIMULATOR_SPEC.md` §4.6.
 | `schedContexts[]` | each scheduling context (`budget`, `remaining`, `period`, `deadline`, `refillIn`) |
 | `cnodes[]` | each `CNode` (`depth`, `guardWidth`, `guardValue`, `radixWidth`, and occupied `slots` → `{ kind, target, rights, badge, derivation }`) |
 | `cdt` | `cdt : CapDerivationTree` as parent slot → child slots, slots written `"<cnode>/<index>"` |
-| `untyped[]` | each `UntypedObject` (`base`, `size`, `watermark`, `children` with `offset` and `size`) |
+| `untyped[]` | each `UntypedObject` (`base`, `size`, `children` with `offset` and `size`) with `watermark` = the free index of the capability carves go through (`Capability.freeIndex`; the object itself holds none) |
 | `vspaces[]` | each address space (`asid`; `mappings` = `vaddr` → `frame`/`perms` from the page tables; `tlb` = the virtual addresses this core has cached) |
 | `labels[]`, `declassify`, `audit` | the `SecurityLabel`s in use (`conf`, `integ`), the declassification policy, and the declassification audit log |
 
@@ -105,8 +105,8 @@ just performed. The op set is small and maps 1:1 to operations:
 | `cspaceMint` / `Copy` | `capInsert{slot, cap, parent}` — the validator checks `capAttenuates` |
 | `cspaceDelete` | `capDelete{slot}` |
 | `cspaceRevoke` | `capRevoke{slot}` — removes the capability's descendants and **keeps the capability** |
-| `retypeFromUntyped` | `untypedCarve{untyped, child}` |
-| untyped reset | `untypedReset{untyped}` — drops the carved objects, watermark back to zero |
+| `retypeFromUntyped` | `untypedCarve{untyped, slot, child}` — `slot` is the untyped capability invoked |
+| `untypedResetSlot` | `untypedReset{untyped, slot}` — the capability's free index back to zero; refused while the slot has a derivation child |
 | flow check (`securityFlowsTo`) | `flowCheck{from, to, allowed}` (event-only) — the validator recomputes it |
 | declassification | `auditAppend{entry: {from, to, actor, target, core}}` — the policy is **never** edited |
 | `mapPage` / `unmapPage` | `vspaceMap{vspace, mapping, cache?}` / `vspaceUnmap{vspace, vaddr}` (shoots down the `tlb` entry) |

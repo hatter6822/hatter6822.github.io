@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.32.0**.
+> Documentation baseline: website release **0.33.0**.
 
 ## Audit summary
 
@@ -426,9 +426,9 @@ New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.l
 
 ## Rust syscall wrapper layer
 
-The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.36.121 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (42 syscalls at 0.36.121, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.37.19 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (47 syscalls at 0.37.19, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
 
-The crate descriptions below were written at 0.2x (30 syscalls, a 55-variant `KernelError`, eight `sele4n-sys` modules) and are kept as history; at 0.36.41 `SyscallId` has 41 variants, `KernelError` 59 (58 mirroring Lean plus a Rust-only sentinel), and `sele4n-sys` adds `audit.rs` and `declassify.rs` plus `cspace_revoke`, `mint_reply_cap`, `untyped_retype`/`untyped_reset`, `page_table_map`/`unmap`, `tcb_set_space`, `tcb_set_fault_handler` and the notification bind/unbind wrappers.
+The crate descriptions below were written at 0.2x (30 syscalls, a 55-variant `KernelError`, eight `sele4n-sys` modules) and are kept as history; at 0.36.41 `SyscallId` had 41 variants and `KernelError` 59; at 0.37.19 `SyscallId` has 47 (numbered 0–47: `lifecycleRetype`, ID 8, is retired and its number is not reused), `KernelError` 61 (60 mirroring Lean plus a Rust-only sentinel), and `sele4n-sys` adds `audit.rs`, `declassify.rs` and `irq.rs` plus `sched_context_consumed`/`sched_context_yield_to`, `cspace_revoke`, `mint_reply_cap`, `untyped_retype`/`untyped_reset`, `page_table_map`/`unmap`, `tcb_set_space`, `tcb_set_fault_handler` and the notification bind/unbind wrappers.
 
 ### Crate architecture
 
@@ -869,8 +869,12 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
   count had fallen to 18.
 - **A table that enumerates a counted surface is held to the count.** The API
   Surface rows are hand-written (each names its implementing file), so
-  `static-values.test.mjs` requires them to list syscall IDs `0 … syscalls-1`
-  exactly once each. They stopped at ID 34 under a lead that said "All 41".
+  `static-values.test.mjs` requires them to list every number in
+  `site-data.json#syscallNumbers` exactly once. They stopped at ID 34 under a
+  lead that said "All 41". The list is `SyscallId.toNat` of each constructor,
+  read from the same source as the count (`syscallSurfaceNumbers`); the test
+  expected the range `0 … syscalls-1` until 0.37.19 retired `lifecycleRetype`
+  (ID 8) without renumbering, leaving 47 syscalls numbered 0–47.
 - **The footer and the sitemap are stamped as well.** The no-JS footer read
   "Commit main · Updated live from repository" on a page whose CSP forbids
   contacting the repository; `apply-static-values.mjs` now writes the

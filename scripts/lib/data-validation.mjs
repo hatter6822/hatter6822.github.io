@@ -325,6 +325,20 @@ export function validateSiteDataObject(data) {
   if (typeof data.sourceDigest === 'string' && !/^[0-9a-f]{64}$/.test(data.sourceDigest)) {
     errors.push('site-data.json: sourceDigest must be the artifact\'s sha256 source digest');
   }
+  // `SyscallId.toNat` of every syscall, ascending: what the API table's IDs
+  // are held to. One number per syscall, none repeated — but not a range, a
+  // retired number stays retired.
+  const numbers = data.syscallNumbers;
+  if (!Array.isArray(numbers) || numbers.some((n) => !Number.isInteger(n) || n < 0)) {
+    errors.push('site-data.json: syscallNumbers must be an array of non-negative integers');
+  } else {
+    if (numbers.length !== data.syscalls) {
+      errors.push(`site-data.json: syscallNumbers lists ${numbers.length} number(s) for ${data.syscalls} syscall(s)`);
+    }
+    if (numbers.some((n, i) => i > 0 && n <= numbers[i - 1])) {
+      errors.push('site-data.json: syscallNumbers must be strictly ascending');
+    }
+  }
   for (const key of requiredNumber) {
     if (typeof data[key] !== 'number' || Number.isNaN(data[key])) {
       errors.push(`site-data.json: expected number at ${key}`);

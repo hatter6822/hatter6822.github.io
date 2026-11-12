@@ -452,7 +452,7 @@
       x += bw + gap;
     });
     y += 66;
-    var lines = [tt("run.msginfo_fields", "x1 = MessageInfo: length {{len}} | extraCaps {{caps}} << 7 | label {{label}} << 9", { len: mi.length || 0, caps: mi.extraCaps || 0, label: mi.label || 0 })];
+    var lines = [tt("run.msginfo_fields", "x1 = MessageInfo: length {{len}} | extraCaps {{caps}} << 7 | label {{label}} << 12", { len: mi.length || 0, caps: mi.extraCaps || 0, label: mi.label || 0 })];
     (call.args || []).forEach(function (a) { lines.push(a.reg + " = " + fmtNum(a.value) + " · " + a.name); });
     lines.forEach(function (line, i) { c.text(MARGIN, y + 12 + i * 17, line, "reg-legend", { max: SCENE_W - 2 * MARGIN }); });
     return y + lines.length * 17 + 14;
@@ -545,7 +545,7 @@
     if (required) {
       var has = E.capHasRight(cap, required);
       var rights = stageOf(step, "rights");
-      c.text(x + w + 10, y + 39, has ? tt("run.right_ok", "has {{r}} ✓", { r: required }) : tt("run.right_missing", "lacks {{r}} → illegalAuthority", { r: required }), has ? "walk-ok" : "walk-fail");
+      c.text(x + w + 10, y + 39, has ? tt("run.right_ok", "has {{r}} ✓", { r: required }) : tt("run.right_missing", "lacks {{r}} → {{e}}", { r: required, e: E.missingRightError(step.syscall && step.syscall.id) }), has ? "walk-ok" : "walk-fail");
       if (rights && rights.result === "skip") c.text(x + w + 10, y + 22, tt("run.right_not_reached", "(rights check not reached)"), "scene-note");
     }
     c.extend(x + w + 220, y + 52);
@@ -958,7 +958,7 @@
       var h = 128;
       var g = boxFrame(c, u.id, u.name, MARGIN, y, SCENE_W - MARGIN, h, "memory", touched[u.id]);
       c.text(MARGIN + 12, y + 18, tt("run.untyped", "Untyped") + " · " + u.name, "box-title", { parent: g }).setAttribute("data-accent", "memory");
-      c.text(MARGIN + 12, y + 36, tt("run.untyped_line", "{{size}} at {{base}} · watermark {{wm}} · {{free}} free", { size: bytes(u.size), base: hex(u.base), wm: fmtNum(u.watermark), free: bytes(u.size - u.watermark) }), "box-sub", { parent: g, max: SCENE_W - 60 });
+      c.text(MARGIN + 12, y + 36, tt("run.untyped_line", "{{size}} at {{base}} · free index {{wm}} · {{free}} free", { size: bytes(u.size), base: hex(u.base), wm: fmtNum(u.watermark), free: bytes(u.size - u.watermark) }), "box-sub", { parent: g, max: SCENE_W - 60 });
       var bx = MARGIN + 14, bw = SCENE_W - MARGIN - 28, by = y + 50, bh = 40;
       var scale = bw / Math.max(1, u.size);
       c.rect(bx, by, bw, bh, "mem-track", { rx: 4 }, g);
@@ -972,7 +972,7 @@
       });
       var wx = bx + u.watermark * scale;
       c.path("M" + wx + "," + (by - 6) + " L" + wx + "," + (by + bh + 6), "mem-watermark", null, c.over);
-      c.text(wx < bx + 80 ? Math.max(bx, wx - 4) : Math.min(wx, bx + bw - 4), by + bh + 20, "▲ " + tt("run.watermark", "watermark {{n}}", { n: fmtNum(u.watermark) }), "mem-wm-label", { anchor: wx > bx + bw - 80 ? "end" : wx < bx + 80 ? "start" : "middle" });
+      c.text(wx < bx + 80 ? Math.max(bx, wx - 4) : Math.min(wx, bx + bw - 4), by + bh + 20, "▲ " + tt("run.watermark", "free index {{n}}", { n: fmtNum(u.watermark) }), "mem-wm-label", { anchor: wx > bx + bw - 80 ? "end" : wx < bx + 80 ? "start" : "middle" });
       c.text(bx, by + bh + 34, "0", "mem-scale");
       c.text(bx + bw, by + bh + 34, fmtNum(u.size), "mem-scale", { anchor: "end" });
       // A refused carve: the request drawn where it would have gone.
@@ -1047,7 +1047,7 @@
     var nw = 250, nh = 108, gx = 140, gy = 70;
     var x0 = MARGIN + 30, y0 = MARGIN + 36;
     function slot(conf, integ) { return { x: x0 + (conf === "high" ? nw + gx : 0), y: y0 + (integ === "untrusted" ? nh + gy : 0) }; }
-    c.text(x0, MARGIN + 12, tt("run.lattice_axis", "confidentiality may only rise (→) and integrity may only fall (↓)"), "section-label");
+    c.text(x0, MARGIN + 12, tt("run.lattice_axis", "confidentiality may only rise (→) and a flow may only reach equal or higher integrity (↑)"), "section-label");
     var byLabel = {};
     (s.labels || []).forEach(function (l) { byLabel[l.conf + "/" + l.integ] = l; });
     var nodes = {};
@@ -1071,11 +1071,14 @@
       }
       nodes[ci[0] + "/" + ci[1]] = p;
     });
-    // The lattice's own order: low → high, trusted → untrusted.
-    [["low/trusted", "high/trusted"], ["low/untrusted", "high/untrusted"], ["low/trusted", "low/untrusted"], ["high/trusted", "high/untrusted"]].forEach(function (e) {
+    // The order `securityFlowsTo` allows: low → high confidentiality, and
+    // untrusted → trusted integrity (`integrityFlowsTo dst src`, the kernel's
+    // authority order, not Biba's). The untrusted row is drawn below, so the
+    // integrity arrows point up.
+    [["low/trusted", "high/trusted"], ["low/untrusted", "high/untrusted"], ["low/untrusted", "low/trusted"], ["high/untrusted", "high/trusted"]].forEach(function (e) {
       var a = nodes[e[0]], b = nodes[e[1]];
       if (a.y === b.y) c.arrow(a.x + nw + 4, a.y + nh / 2, b.x - 6, b.y + nh / 2, "if-order", "arrow-muted");
-      else c.arrow(a.x + nw / 2, a.y + nh + 4, b.x + nw / 2, b.y - 6, "if-order", "arrow-muted");
+      else c.arrow(a.x + nw / 2, a.y - 4, b.x + nw / 2, b.y + nh + 6, "if-order", "arrow-muted");
     });
     function center(labelId) {
       var l = E.byId(s.labels, labelId);
@@ -1197,7 +1200,7 @@
     ipc: [["running", "run.legend_running", "Running"], ["ready", "run.legend_ready", "Ready"], ["blocked", "run.legend_blocked", "Blocked"], ["message", "run.legend_message", "Message delivered"], ["touched", "run.legend_touched", "Changed by this step"]],
     scheduler: [["running", "run.legend_running", "Running"], ["ready", "run.legend_ready", "Ready"], ["chosen", "run.legend_chosen", "Next pick"], ["dim", "run.legend_ineligible", "Ineligible"], ["touched", "run.legend_touched", "Changed by this step"]],
     cspace: [["cap", "run.legend_cap", "Capability"], ["cdt", "run.legend_cdt", "Derived from (parent → child)"], ["gone", "run.legend_deleted", "Deleted by this step"], ["touched", "run.legend_touched", "Changed by this step"]],
-    memory: [["frame", "run.legend_frame", "Frame"], ["untyped", "run.legend_untyped", "Untyped"], ["free", "run.legend_free", "Free (above the watermark)"], ["bad", "run.legend_refused", "Refused"]],
+    memory: [["frame", "run.legend_frame", "Frame"], ["untyped", "run.legend_untyped", "Untyped"], ["free", "run.legend_free", "Free (above the free index)"], ["bad", "run.legend_refused", "Refused"]],
     infoflow: [["order", "run.legend_order", "Lattice order"], ["ok", "run.legend_flow_ok", "Flow allowed"], ["bad", "run.legend_flow_bad", "Flow denied"], ["declass", "run.legend_declass", "Declassification policy"]]
   };
   function renderLegend() {
@@ -1446,7 +1449,7 @@
       case "capDelete": return tt("run.op_cap_delete", "Delete {{slot}}; its children move up to its parent", { slot: n(op.slot) });
       case "capRevoke": return tt("run.op_cap_revoke", "Revoke everything derived from {{slot}} (the slot stays)", { slot: n(op.slot) });
       case "untypedCarve": return tt("run.op_carve", "Carve {{kind}} {{id}} ({{size}}) from {{ut}}", { kind: op.child.kind, id: op.child.id, size: bytes(op.child.size), ut: n(op.untyped) });
-      case "untypedReset": return tt("run.op_reset", "Reset {{ut}}: watermark to 0", { ut: n(op.untyped) });
+      case "untypedReset": return tt("run.op_reset", "Reset {{ut}}: free index to 0", { ut: n(op.untyped) });
       case "vspaceMap": return tt("run.op_map", "Map {{va}} → {{frame}} [{{perms}}]", { va: op.mapping.vaddr, frame: n(op.mapping.frame), perms: op.mapping.perms });
       case "vspaceUnmap": return tt("run.op_unmap", "Unmap {{va}} and shoot down its TLB entry", { va: op.vaddr });
       case "vspaceReject": return tt("run.op_reject", "Mapping {{va}} [{{perms}}] refused: writable and executable", { va: op.vaddr, perms: op.perms });

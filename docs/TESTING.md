@@ -2,7 +2,7 @@
 
 This repository uses lightweight Node-based checks.
 
-> Documentation baseline: website release **0.32.0**.
+> Documentation baseline: website release **0.33.0**.
 
 ## Automated checks
 
@@ -180,14 +180,14 @@ node --check assets/js/theme-init.js
 
 ### Simulator (`run.html`)
 
-- Confirm `run.html` loads from a static server, shows the source badge (e.g. "hand-written scenarios · names grounded in seLe4n 0.36.121"), the "Every link opens the kernel at commit …" line linking to that tree, and the fixture note when `source` is not `"kernel"`.
+- Confirm `run.html` loads from a static server, shows the source badge (e.g. "hand-written scenarios · names grounded in seLe4n 0.37.19"), the "Every link opens the kernel at commit …" line linking to that tree, and the fixture note when `source` is not `"kernel"`.
 - Confirm in DevTools' Network panel that the page requests `data/execution-traces.json` and no GitHub URL, and that the console reports no CSP violation.
 - Confirm the scenario bar: the selector switches scenarios, and the summary and "Demonstrates" chips follow; a chip scrolls to its card in the guarantees band.
 - Confirm the transport bar: play auto-advances and stops at the last step; prev/next and the scrubber seek correctly; the step counter and caption update.
 - Confirm keyboard transport works off-input: `Space` play/pause, `←`/`→` (and `h`/`l`) step, `Home`/`End` jump to first/last.
 - Confirm each scene draws the kernel's own structure: the kernel path shows x0/x1/x7 with the `MessageInfo` bit fields, the CPtr walked through guard and radix bits to its slot, and the six gates; the IPC scene puts each blocked thread on its object's queue with a wait edge; the scheduler scene shows one box per core with priority buckets and the next pick marked; touched objects are highlighted and a delivered message's path draws itself in.
 - Confirm the scene tabs: Scheduler always, the others only for scenarios carrying their state; arrow keys, `Home` and `End` move between tabs. In `capability-derivation`, the revoke removes the derived capabilities and keeps the revoked one; in `untyped-retype`, the oversized retype is drawn as a jagged overrun, the first reset is refused and the region is reclaimed only after the revoke; in `information-flow`, the denied flow is red and the declassification adds an audit-log row without touching the policy curves; in `vspace-wx`, the W+X request is a refused row and the unmap shoots the TLB entry down.
-- Confirm the inspector on a refused step (e.g. `capability-gate` step 1): the outcome badge reads "refused · illegalAuthority"; the kernel path shows the syscall, its required right, a ✕ on the refusing stage with the `KernelError` it returns, and "not reached" on every later stage; "Why it's safe" opens with the failure-atomicity note; "State changes" says "None". On a successful step, confirm the diff rows, the guarantees with their first theorem and the preserved invariants with their first preservation theorem; confirm clicking an object on the stage shows its field table.
+- Confirm the inspector on a refused step (e.g. `capability-gate` step 1): the outcome badge reads "refused · invalidCapability"; the kernel path shows the syscall, its required right, a ✕ on the refusing stage with the `KernelError` it returns, and "not reached" on every later stage; "Why it's safe" opens with the failure-atomicity note; "State changes" says "None". On a successful step, confirm the diff rows, the guarantees with their first theorem and the preserved invariants with their first preservation theorem; confirm clicking an object on the stage shows its field table.
 - Confirm every source link opens `github.com/hatter6822/seLe4n/blob/<40-hex commit>/<path>#L<line>` on the declaration it names, and that a Source entry's module link opens that module on `map.html` (no map link for `SeLe4n.Testing.*` modules).
 - Confirm the Security guarantees band: the scenario's own properties come first, the cards the step names are highlighted, caveats appear under "Scope", and the summary line changes for a refused step, a step with guarantees, the boot step and a bookkeeping step.
 - Confirm the Kernel invariants disclosure: entries grouped by subsystem with predicate, preserved-by and (where present) a runtime check labelled "test harness, not a proof"; entries the step preserves are marked; following an `#invariant-…` link opens the disclosure.
@@ -226,7 +226,7 @@ and clear of the declaration's name (an overflow check cannot see generated
 content, which is how a chip painted across the row's corner survived a
 release), and the open search listbox's rows must carry no marker and keep
 their own inset. It also opens `SystemState`, the densest declaration in the
-kernel (10,712 callers): the closed lanes must state their size and draw a
+kernel (18,880 callers at seLe4n 0.37.19): the closed lanes must state their size and draw a
 summary, opening a caller subsystem, a module and every page there is must
 stay inside `DECL_LANE_NODE_BUDGET` (read from `map.js`) and end in a "not
 drawn" note, no task may run 1.5 s or longer, and the lane filter must keep

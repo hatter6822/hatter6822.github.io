@@ -290,17 +290,43 @@ test('resolveCap walks guard then radix bits and names why a lookup fails', () =
   assert.equal(engine.resolveCap(s, actor, 0x0f).reason, 'empty');
 });
 
-test('securityFlowsTo: confidentiality only rises, integrity only falls', () => {
+test('securityFlowsTo: confidentiality only rises, and only a destination at least as trusted is reached', () => {
+  // The kernel's own theorems, `InformationFlow/Policy.lean`: public →
+  // kernelTrusted is allowed, kernelTrusted → public is not, and lowTrusted →
+  // highUntrusted is denied on integrity alone. The engine had the integrity
+  // order backwards (Biba's), which the fixture never noticed because every
+  // label it used was untrusted.
   const L = (conf, integ) => ({ conf, integ });
-  assert.equal(engine.flowsTo(L('low', 'trusted'), L('high', 'untrusted')), true);
+  assert.equal(engine.flowsTo(L('low', 'untrusted'), L('high', 'trusted')), true);
+  assert.equal(engine.flowsTo(L('low', 'untrusted'), L('low', 'trusted')), true);
+  assert.equal(engine.flowsTo(L('low', 'trusted'), L('high', 'untrusted')), false);
+  assert.equal(engine.flowsTo(L('high', 'trusted'), L('low', 'untrusted')), false);
   assert.equal(engine.flowsTo(L('high', 'trusted'), L('low', 'trusted')), false);
-  assert.equal(engine.flowsTo(L('low', 'untrusted'), L('low', 'trusted')), false);
   assert.equal(engine.flowsTo(L('high', 'untrusted'), L('high', 'untrusted')), true);
 });
 
-test('msgInfoWord packs length | extraCaps << 7 | label << 9', () => {
-  assert.equal(engine.msgInfoWord({ length: 2, extraCaps: 1, label: 7 }), 2 + 128 + 7 * 512);
+test('msgInfoWord packs length | extraCaps << 7 | capsUnwrapped << 9 | label << 12', () => {
+  assert.equal(engine.msgInfoWord({ length: 2, extraCaps: 1, label: 7 }), 2 + 128 + 7 * 4096);
+  assert.equal(engine.msgInfoWord({ length: 1, capsUnwrapped: 5 }), 1 + 5 * 512);
   assert.equal(engine.msgInfoWord({}), 0);
+  assert.equal(engine.MSG_LIMITS.label, 2 ** 41 - 1);
+});
+
+test('a missing right is an invalid capability on the IPC syscalls and illegal authority elsewhere', () => {
+  for (const id of ['send', 'call', 'receive', 'replyRecv', 'notificationSignal', 'notificationWait', 'declassifySignal']) {
+    assert.equal(engine.missingRightError(id), 'invalidCapability', id);
+  }
+  for (const id of ['cspaceMint', 'untypedRetype', 'vspaceMap', 'tcbSetAffinity', 'reply']) {
+    assert.equal(engine.missingRightError(id), 'illegalAuthority', id);
+  }
+  // The validator holds a step to it: the fixture's refused send says so.
+  const refused = step(BUNDLED, 'capability-gate', 1);
+  assert.equal(refused.outcome.error, 'invalidCapability');
+  const mutated = structuredClone(BUNDLED);
+  const bad = scenario(mutated, 'capability-gate').steps[1];
+  bad.outcome.error = 'illegalAuthority';
+  bad.path.find((p) => p.stage === 'rights').error = 'illegalAuthority';
+  assert.ok(validateTraceDataObject(mutated).some((e) => /syscallMissingRightError/.test(e)));
 });
 
 test('capDelete splices children up to the parent; capRevoke keeps the capability and empties its subtree', () => {
@@ -310,7 +336,9 @@ test('capDelete splices children up to the parent; capRevoke keeps the capabilit
   applyOp(s, { op: 'capInsert', slot: 'cn.sup/5', parent: 'cn.sup/4', cap: cap(['write']) });
   applyOp(s, { op: 'capInsert', slot: 'cn.sup/6', parent: 'cn.sup/4', cap: cap(['write']) });
   applyOp(s, { op: 'capDelete', slot: 'cn.sup/4' });
-  assert.deepEqual([...engine.cdtChildren(s, 'cn.sup/1')].sort(), ['cn.sup/5', 'cn.sup/6']);
+  // The children take the deleted slot's place in their own order
+  // (`linkSpliceNode`): 6 was linked last, so it is first.
+  assert.deepEqual(engine.cdtChildren(s, 'cn.sup/1'), ['cn.sup/6', 'cn.sup/5']);
   assert.deepEqual(engine.revokeOrder(s, 'cn.sup/1').length, 2);
   applyOp(s, { op: 'capRevoke', slot: 'cn.sup/1' });
   assert.ok(engine.capAt(s, 'cn.sup/1'), 'the revoked capability stays');
@@ -319,16 +347,33 @@ test('capDelete splices children up to the parent; capRevoke keeps the capabilit
   assert.throws(() => applyOp(s, { op: 'capInsert', slot: 'cn.sup/1', cap: cap([]) }), /occupied/);
 });
 
-test('untypedCarve allocates at the watermark and refuses an overrun; untypedReset reclaims', () => {
+test('untypedCarve carves at the capability\'s free index, aligned; a reset waits for the revoke', () => {
   const s = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
   const u = s.untyped[0];
-  applyOp(s, { op: 'untypedCarve', untyped: u.id, child: { id: 'k1', kind: 'frame', size: 4096 } });
+  const via = 'cn.mgr/1';
+  const frameCap = (target) => ({ kind: 'frame', target, rights: ['read', 'write', 'grant'], derivation: 'retype' });
+  // The carve and the reset are invoked through a capability, and the free
+  // index is that capability's: an op that names no slot is not a kernel step.
+  assert.throws(() => applyOp(s, { op: 'untypedCarve', untyped: u.id, child: { id: 'k0', kind: 'frame', size: 4096 } }), /holds no capability/);
+  applyOp(s, { op: 'untypedCarve', untyped: u.id, slot: via, child: { id: 'k1', kind: 'frame', size: 4096 } });
+  applyOp(s, { op: 'capInsert', slot: 'cn.mgr/2', parent: via, cap: frameCap('k1') });
   assert.equal(u.children[0].offset, 0);
   assert.equal(u.watermark, 4096);
-  assert.throws(() => applyOp(s, { op: 'untypedCarve', untyped: u.id, child: { id: 'big', kind: 'untyped', size: u.size } }), /untypedRegionExhausted/);
-  applyOp(s, { op: 'untypedReset', untyped: u.id });
-  assert.equal(u.watermark, 0);
+  // `alignedCarveIndex`: an 8 KiB untyped starts on a multiple of 8 KiB.
+  applyOp(s, { op: 'untypedCarve', untyped: u.id, slot: via, child: { id: 'k2', kind: 'untyped', size: 8192 } });
+  applyOp(s, { op: 'capInsert', slot: 'cn.mgr/3', parent: via, cap: { kind: 'untyped', target: 'k2', rights: ['retype'], derivation: 'retype' } });
+  assert.equal(u.children[0].offset, 8192);
+  assert.equal(u.watermark, 16384);
+  assert.throws(() => applyOp(s, { op: 'untypedCarve', untyped: u.id, slot: via, child: { id: 'big', kind: 'frame', size: 4096 } }), /untypedRegionExhausted/);
+  // `untypedResetSlot` refuses while the slot has a derivation child.
+  assert.throws(() => applyOp(s, { op: 'untypedReset', untyped: u.id, slot: via }), /revocationRequired/);
+  // Revoking deletes the last capability to each carved object, which retires
+  // it (`retireCarvedObject`); only then is the reset one write.
+  applyOp(s, { op: 'capRevoke', slot: via });
   assert.deepEqual(u.children, []);
+  assert.equal(u.watermark, 16384, 'the revoke does not move the free index');
+  applyOp(s, { op: 'untypedReset', untyped: u.id, slot: via });
+  assert.equal(u.watermark, 0);
 });
 
 test('vspaceMap caches when asked; vspaceUnmap shoots the entry down; vspaceReject is an event', () => {
