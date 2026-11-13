@@ -26,6 +26,21 @@
 
   /* Allowed HTML tags for data-i18n-html translations (defense-in-depth). */
   var SAFE_TAGS = /^(a|br|code|em|span|strong|wbr)$/i;
+  var XHTML_NS = "http://www.w3.org/1999/xhtml";
+
+  /* Every page sends `require-trusted-types-for 'script'`, so a string cannot
+     reach an HTML sink anywhere on the site. This is the one policy the pages
+     allow (`trusted-types sele4n-i18n`), and it is deliberately not exported:
+     its only caller is `sanitizeToFragment`, which parses into an inert
+     <template> and walks the result against the allowlist before a node of it
+     reaches the document. A browser without Trusted Types gets the same
+     parse, sanitize and adopt, without the enforcement. */
+  var htmlPolicy = null;
+  try {
+    if (window.trustedTypes && typeof window.trustedTypes.createPolicy === "function") {
+      htmlPolicy = window.trustedTypes.createPolicy("sele4n-i18n", { createHTML: function (markup) { return markup; } });
+    }
+  } catch (e) { htmlPolicy = null; }
 
   var currentLocale = DEFAULT_LOCALE;
   var strings = {};
@@ -148,6 +163,8 @@
     var obj = strings;
     for (var i = 0; i < parts.length; i++) {
       if (obj === null || obj === undefined || typeof obj !== "object") return "";
+      // Own keys only: "constructor.name" is not a translation.
+      if (!Object.prototype.hasOwnProperty.call(obj, parts[i])) return "";
       obj = obj[parts[i]];
     }
     return typeof obj === "string" ? obj : "";
@@ -155,32 +172,49 @@
 
   /* ── DOM translation ──────────────────────────────────── */
 
-  /**
-   * Sanitize an HTML string by stripping tags not in the SAFE_TAGS allowlist.
-   * Attributes on allowed tags are preserved only for <a> (href, rel, target)
-   * and <span>/<code> (class, data-live, data-i18n). All others are removed.
-   */
   /* An absolute http(s) URL, a same-origin path, a fragment or a mailto. A
      protocol-relative "//host" (or "/\host", which browsers read the same way)
      is an external origin in disguise, and any other scheme is refused. */
   function isSafeHref(href) {
+    // The URL parser drops tabs and newlines anywhere in a URL and trims
+    // control characters and spaces at its ends, so "/\t/host" is "//host" by
+    // the time it is resolved. A reference carrying any of them is refused
+    // outright rather than judged by a prefix the parser will rewrite.
+    if (/[\u0000- \u007f]/.test(href)) return false;
     return /^https?:\/\//i.test(href) || /^\/(?![\/\\])/.test(href) || /^#/.test(href) || /^mailto:/i.test(href);
   }
 
-  function sanitizeHTML(raw) {
+  /* Sanitize a locale's markup: elements outside the SAFE_TAGS allowlist are
+     unwrapped (their text stays), and attributes survive only as href, rel
+     and target on <a>, and class, data-live and data-i18n anywhere.
+
+     Returns the sanitized nodes themselves, in a DocumentFragment. They are
+     adopted into the page as they are: serializing them and parsing the string
+     a second time is the step every mutation-XSS needs (the second parse can
+     read the same text as different markup), so there is no second parse. */
+  function sanitizeToFragment(raw) {
     // Parse into a <template>, whose content belongs to an inert document: an
     // <img onerror> or <svg onload> in a locale string is neither fetched nor
     // run while it is being inspected. A <div> from the live document would
     // start both the moment innerHTML is assigned, before the walk below can
     // strip anything.
     var tpl = document.createElement("template");
-    tpl.innerHTML = raw;
+    tpl.innerHTML = htmlPolicy ? htmlPolicy.createHTML(String(raw)) : String(raw);
     var tmp = tpl.content;
-    var walk = document.createTreeWalker(tmp, NodeFilter.SHOW_ELEMENT);
+    // Elements, and the comments and processing instructions no translation
+    // needs: 1 | 0x40 | 0x80 (SHOW_ELEMENT | SHOW_PROCESSING_INSTRUCTION | SHOW_COMMENT).
+    var walk = document.createTreeWalker(tmp, 0xC1);
     var toRemove = [];
+    var toDrop = [];
     while (walk.nextNode()) {
       var node = walk.currentNode;
-      if (!SAFE_TAGS.test(node.localName)) {
+      if (node.nodeType !== 1) {
+        toDrop.push(node);
+        continue;
+      }
+      // An allowed name in the HTML namespace only: <svg><a> is an SVG element
+      // that happens to be called "a".
+      if (node.namespaceURI !== XHTML_NS || !SAFE_TAGS.test(node.localName)) {
         toRemove.push(node);
         continue;
       }
@@ -204,7 +238,16 @@
         parent.removeChild(toRemove[r]);
       }
     }
-    return tpl.innerHTML;
+    for (var d = 0; d < toDrop.length; d++) {
+      if (toDrop[d].parentNode) toDrop[d].parentNode.removeChild(toDrop[d]);
+    }
+    return tmp;
+  }
+
+  function setSanitizedHTML(el, raw) {
+    var fragment = sanitizeToFragment(raw);
+    while (el.firstChild) el.removeChild(el.firstChild);
+    el.appendChild(fragment);
   }
 
   function applyTranslation(el, key, setter) {
@@ -215,7 +258,7 @@
   /* Attribute → setter mapping for single-pass DOM translation. */
   var I18N_ATTRS = [
     { attr: "data-i18n",            setter: function (el, v) { el.textContent = v; } },
-    { attr: "data-i18n-html",       setter: function (el, v) { el.innerHTML = sanitizeHTML(v); } },
+    { attr: "data-i18n-html",       setter: setSanitizedHTML },
     { attr: "data-i18n-placeholder", setter: function (el, v) { el.setAttribute("placeholder", v); } },
     { attr: "data-i18n-aria-label", setter: function (el, v) { el.setAttribute("aria-label", v); } },
     { attr: "data-i18n-title",      setter: function (el, v) { el.title = v; } },
@@ -381,7 +424,7 @@
     }
 
     function buildMenu() {
-      menu.innerHTML = "";
+      menu.textContent = "";
       for (var i = 0; i < SUPPORTED_LOCALES.length; i++) {
         var loc = SUPPORTED_LOCALES[i];
         var li = document.createElement("li");

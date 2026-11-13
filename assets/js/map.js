@@ -2029,7 +2029,7 @@
     var prevInput = document.getElementById("interior-symbol-filter");
     var hadFocus = Boolean(prevInput && document.activeElement === prevInput);
     var savedCaret = hadFocus ? normalizeCaretRange(prevInput.value, prevInput.selectionStart, prevInput.selectionEnd) : null;
-    menu.innerHTML = "";
+    menu.textContent = "";
     if (!selected) {
       menu.textContent = t("map.select_module") || "Select a module to inspect interior declarations.";
       return;
@@ -2217,7 +2217,7 @@
     var emptyNote = null;
 
     function showEmptyNote(message) {
-      list.innerHTML = "";
+      list.textContent = "";
       if (list.parentNode) list.parentNode.removeChild(list);
       if (!emptyNote) {
         emptyNote = document.createElement("p");
@@ -2233,7 +2233,7 @@
     }
 
     function repaintList() {
-      list.innerHTML = "";
+      list.textContent = "";
       var activeKind = select.value;
       var items = interiorItemsForSelection(interior, group.kinds, activeKind, query);
       if (!items.length) {
@@ -2809,7 +2809,7 @@
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
     var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
     var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
-    wrap.innerHTML = "";
+    wrap.textContent = "";
     flowClipIdCounter = 0;
 
     var selected = state.selectedModule;
@@ -3446,7 +3446,7 @@
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
     var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
     var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
-    wrap.innerHTML = "";
+    wrap.textContent = "";
     flowClipIdCounter = 0;
 
     var selected = state.selectedModule;
@@ -3728,7 +3728,7 @@
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
     var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
     var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
-    wrap.innerHTML = "";
+    wrap.textContent = "";
     flowClipIdCounter = 0;
 
     var declName = state.selectedDeclaration;
@@ -5841,7 +5841,7 @@
     var options = DOM.moduleSearchOptions || document.getElementById("module-search-options");
     if (!options) return;
     options.hidden = true;
-    options.innerHTML = "";
+    options.textContent = "";
     state.searchVisibleOptions = [];
     state.searchActiveOption = -1;
     state.searchDeclSuggestions = [];
@@ -5859,7 +5859,7 @@
       return;
     }
 
-    options.innerHTML = "";
+    options.textContent = "";
     var declSuggestionMap = Object.create(null);
     for (var ds = 0; ds < (state.searchDeclSuggestions || []).length; ds++) {
       declSuggestionMap[state.searchDeclSuggestions[ds].hint] = state.searchDeclSuggestions[ds];
