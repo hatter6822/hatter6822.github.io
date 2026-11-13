@@ -800,7 +800,9 @@
       if (cap.badge !== undefined && cap.badge !== null) fields.push(["badge", cap.badge]);
       if (cap.freeIndex !== undefined) fields.push([tt("run.free_index_label", "free index"), "0x" + Number(cap.freeIndex).toString(16)]);
       if (cap.derivation) fields.push(["derivation", cap.derivation]);
-      fields.push([tt("run.derived_from", "derived from"), E.cdtParent(s, id) || "—"]);
+      /* The parent the tree records now: a delete splices a slot out and its
+         children move up, so this is not always where the capability came from. */
+      fields.push([tt("run.derived_from", "derivation parent"), E.cdtParent(s, id) || "—"]);
       fields.push([tt("run.children", "children"), E.cdtChildren(s, id).join(", ") || "—"]);
       fields.push([tt("run.descendants", "descendants"), E.cdtDescendants(s, id).length]);
     } else if ((m = /^irq:(\d+)$/.exec(id)) && E.irqLine(s, Number(m[1]))) {

@@ -988,8 +988,17 @@
     /* ── Scene: capability spaces ────────────────────────────── */
 
     var CARD_W = 208, CARD_GAP = 16;
-    var DERIVATION_KEYS = { mint: ["deriv_mint", "minted from"], copy: ["deriv_copy", "copied from"], retype: ["deriv_retype", "retyped from"], ipcTransfer: ["deriv_ipc", "transferred from"], issue: ["deriv_issue", "issued by"] };
-    function derivationText(d) { var k = DERIVATION_KEYS[d]; return k ? L(k[0], k[1]) : L("deriv_other", "derived from"); }
+    /* Two facts, kept apart. How a capability was derived is its own and never
+       changes; its parent in the tree does. A delete splices a slot out and its
+       children are "derived from [its] own parent instead, by the operation
+       [they were] derived by" (`CapDerivationTree.spliceNode`), so "minted
+       from <current parent>" would name a slot the capability was never
+       minted from. The label says the operation, then the parent it has now. */
+    var DERIVATION_KEYS = { mint: ["deriv_mint", "minted"], copy: ["deriv_copy", "copied"], retype: ["deriv_retype", "retyped"], ipcTransfer: ["deriv_ipc", "transferred"], issue: ["deriv_issue", "issued"] };
+    function derivationText(d, parent) {
+      var k = Object.prototype.hasOwnProperty.call(DERIVATION_KEYS, d) ? DERIVATION_KEYS[d] : null;
+      return (k ? L(k[0], k[1]) : L("deriv_other", "derived")) + " · " + L("cdt_parent", "parent {{slot}}", { slot: parent });
+    }
     function slotNumbers(cn) { return Object.keys(cn.slots || {}).map(Number).sort(function (a, b) { return a - b; }); }
 
     function sceneCspace(m) {
@@ -1014,7 +1023,7 @@
           var gone = !cap;
           if (gone) cap = was.slots[String(k)];
           var parent = gone ? E.cdtParent(other, key) : E.cdtParent(s, key);
-          c.text(x, y + 11, L("slot_n", "slot {{n}}", { n: k }) + (gone ? " · " + L("slot_removed", "removed by this step") : parent ? " · " + derivationText(cap.derivation) + " " + parent : ""), "tx-small", { max: CARD_W, tone: gone ? "bad" : null });
+          c.text(x, y + 11, L("slot_n", "slot {{n}}", { n: k }) + (gone ? " · " + L("slot_removed", "removed by this step") : parent ? " · " + derivationText(cap.derivation, parent) : ""), "tx-small", { max: CARD_W, tone: gone ? "bad" : null });
           capCard(c, gone ? other : s, cap, key, x, y + 16, CARD_W, { changed: ch[key], ghost: gone, tone: gone ? "bad" : "accent" });
         });
         y += 100;
@@ -1034,7 +1043,7 @@
         if (cap) c.text(x + 322, y + 17, rightsText(cap.rights), "right-text", { anchor: "end", parent: g, max: 50 });
         if (depth) {
           c.line("M" + (x - 16) + "," + parentY + " L" + (x - 16) + "," + (y + 13) + " L" + (x - 2) + "," + (y + 13), "accent");
-          if (cap) c.text(x + 342, y + 17, derivationText(cap.derivation) + " " + E.cdtParent(s, key), "tx-small", { max: W - (x + 342 - M), tone: "accent" });
+          if (cap) c.text(x + 342, y + 17, derivationText(cap.derivation, E.cdtParent(s, key)), "tx-small", { max: W - (x + 342 - M), tone: "accent" });
         } else c.text(x + 342, y + 17, L("cdt_root", "original"), "tx-small", { max: 200 });
         var myY = y + 26;
         y += 32;

@@ -243,8 +243,79 @@ export const ENGINE_TABLE_SOURCES = Object.freeze({
   missingRight: { path: 'SeLe4n/Kernel/API.lean', table: 'syscallMissingRightError' },
   truncation: { path: 'SeLe4n/Kernel/Architecture/SyscallArgDecode.lean', table: 'truncationMinimum' },
   overflow: { path: 'SeLe4n/Kernel/Architecture/RegisterDecode.lean', table: 'syscallReadsOverflow' },
-  targetAccepted: { path: 'SeLe4n/Kernel/API.lean', table: 'syscallTargetAccepted' }
+  targetAccepted: { path: 'SeLe4n/Kernel/API.lean', table: 'syscallTargetAccepted' },
+  // The two tiers of the checked dispatch: the arms that are handed the
+  // labeling context are the only ones that can ask the policy anything.
+  checkedTiers: { path: 'SeLe4n/Kernel/API.lean', tables: ['dispatchWithCapChecked', 'dispatchCapabilityOnlyChecked'] },
+  // The kernel's own classification of its operations, whose entry count a
+  // theorem pins (`enforcementBoundaryExtended_count`).
+  enforcement: { path: 'SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean', table: 'enforcementBoundary' }
 });
+
+/**
+ * The operation `enforcementBoundary` lists as `.policyGated` for each syscall
+ * whose arm a policy decides: the thirteen the engine calls flow-gated, and
+ * the two declassifications, which the same table lists because their policy
+ * decides them too (they proceed only where the lattice denies). The names are
+ * the kernel's; one that is renamed, added or dropped there fails the sync
+ * until this says so too.
+ */
+export const POLICY_GATED_OPERATIONS = Object.freeze({
+  declassify: 'declassifyObjectFromCore',
+  declassifySignal: 'notificationSignalDeclassifiedCrossCoreDispatch',
+  send: 'endpointSendDualChecked',
+  receive: 'endpointReceiveDualChecked',
+  call: 'endpointCallChecked',
+  reply: 'endpointReplyChecked',
+  replyRecv: 'endpointReplyRecvChecked',
+  cspaceMint: 'cspaceMintChecked',
+  cspaceCopy: 'cspaceCopyChecked',
+  cspaceMove: 'cspaceMoveChecked',
+  serviceRegister: 'registerServiceChecked',
+  serviceQuery: 'lookupServiceChecked',
+  serviceRevoke: 'revokeServiceChecked',
+  notificationSignal: 'notificationSignalChecked',
+  notificationWait: 'notificationWaitChecked'
+});
+
+/**
+ * The text of `def name`, comments stripped: from its header to the next line
+ * that starts in column 0. `undefined` when the definition is not there.
+ */
+export function definitionBody(sourceText, name) {
+  const source = stripLeanComments(String(sourceText ?? ''));
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const header = new RegExp(`^(?:@\\[[^\\]]*\\][^\\S\\n]*)?def[^\\S\\n]+${escaped}(?![A-Za-z0-9_?!'])`, 'm').exec(source);
+  if (!header) return undefined;
+  const rest = source.slice(header.index + header[0].length);
+  const end = /\n(?=\S)/.exec(rest);
+  return end ? rest.slice(0, end.index) : rest;
+}
+
+/**
+ * The outermost `| .ctor [| .ctor…] =>` arms of a dispatcher, as
+ * `{ ctor: armText }`. Outermost means the least-indented arms of the body;
+ * the matches nested inside an arm belong to that arm's text.
+ */
+export function dispatchArms(body) {
+  const lines = String(body ?? '').split('\n');
+  const head = /^(\s*)\|((?:\s*\.[A-Za-z_][A-Za-z0-9_]*\s*\|?)+)\s*=>/;
+  let indent = Infinity;
+  for (const line of lines) {
+    const m = head.exec(line);
+    if (m && m[1].length < indent) indent = m[1].length;
+  }
+  const arms = {};
+  let open = null;
+  for (const line of lines) {
+    const m = head.exec(line);
+    if (m && m[1].length === indent) {
+      open = { names: [...m[2].matchAll(/\.([A-Za-z_][A-Za-z0-9_]*)/g)].map((x) => x[1]), text: [line.slice(m[0].length)] };
+      for (const ctor of open.names) arms[ctor] = open;
+    } else if (open) open.text.push(line);
+  }
+  return Object.fromEntries(Object.entries(arms).map(([ctor, arm]) => [ctor, arm.text.join('\n')]));
+}
 
 /** The engine's capability kind for a kernel `KernelObjectType`. */
 const OBJECT_KIND_NAMES = { vspaceRoot: 'vspace' };
@@ -310,6 +381,49 @@ export function checkEngineTables(engine, readSource) {
       else if (lean.join(',') !== got.join(',')) issues.push(`${src.targetAccepted.table} accepts a .${ctor} capability for ${lean.join(', ')}; the engine's SYSCALL_TARGET_KIND says ${got.join(', ') || 'none'}`);
     }
     if (!/\|\s*none\s*=>\s*sid\s*==\s*\.declassify\b/.test(body)) issues.push(`${src.targetAccepted.table} no longer accepts any object capability for exactly .declassify`);
+  }
+
+  /* Which arms gate the information flow. Two readings of the checkout, and
+     the engine's table has to agree with both.
+
+     The dispatcher: an arm can ask the policy something only if it is handed
+     the labeling context, so the arms of the checked tiers that name `ctx`
+     must be exactly the engine's gated arms plus the ones it says read the
+     context for another reason (declassification, the audit pair). A gate
+     that lands on a new arm, or leaves one, changes that set.
+
+     The kernel's own table: the `.policyGated` entries of
+     `enforcementBoundary` must be exactly the operations of the engine's
+     gated arms and of the two declassifications. What neither reading can see
+     is an arm that swapped a lattice gate for another use of the context
+     while keeping its operation's name. */
+  const tierSource = readSource(src.checkedTiers.path) ?? '';
+  const reads = new Set();
+  let tiersFound = true;
+  for (const table of src.checkedTiers.tables) {
+    const body = definitionBody(tierSource, table);
+    if (body === undefined) { issues.push(`${table} not found in ${src.checkedTiers.path}`); tiersFound = false; continue; }
+    for (const [ctor, text] of Object.entries(dispatchArms(body))) if (/\bctx\b/.test(text)) reads.add(ctor);
+  }
+  const gated = Array.isArray(engine.FLOW_GATED) ? engine.FLOW_GATED : [];
+  const otherwise = Array.isArray(engine.CONTEXT_ARMS_UNGATED) ? engine.CONTEXT_ARMS_UNGATED : [];
+  if (tiersFound) for (const id of syscalls) {
+    const expected = gated.includes(id) || otherwise.includes(id);
+    if (reads.has(id) && !expected) issues.push(`the checked dispatch hands the labeling context to the .${id} arm; the engine's FLOW_GATED says it runs no flow gate`);
+    if (!reads.has(id) && expected) issues.push(`the checked dispatch's .${id} arm does not read the labeling context; the engine's ${gated.includes(id) ? 'FLOW_GATED says it gates the flow' : 'CONTEXT_ARMS_UNGATED says it reads it'}`);
+  }
+  for (const id of gated) if (otherwise.includes(id)) issues.push(`the engine lists .${id} as both flow-gated and not`);
+
+  const boundary = definitionBody(readSource(src.enforcement.path) ?? '', src.enforcement.table);
+  if (boundary === undefined) issues.push(`${src.enforcement.table} not found in ${src.enforcement.path}`);
+  else {
+    const policyGated = [...boundary.matchAll(/\.policyGated\s+"([^"]+)"/g)].map((m) => m[1]).sort();
+    const wrappers = [
+      ...gated.map((id) => POLICY_GATED_OPERATIONS[id] ?? `(no operation recorded for ${id})`),
+      ...otherwise.filter((id) => POLICY_GATED_OPERATIONS[id]).map((id) => POLICY_GATED_OPERATIONS[id])
+    ].sort();
+    for (const name of policyGated) if (!wrappers.includes(name)) issues.push(`${src.enforcement.table} lists ${name} as policy-gated; no arm in the engine's FLOW_GATED or CONTEXT_ARMS_UNGATED stands for it`);
+    for (const name of wrappers) if (!policyGated.includes(name)) issues.push(`the engine expects a policy-gated ${name}; ${src.enforcement.table} lists none`);
   }
   return issues;
 }

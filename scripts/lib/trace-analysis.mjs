@@ -385,6 +385,9 @@ function checkArmEffects(step, pre, r, stp, errors) {
     else if (req.kind && (carve.child.kind !== req.kind || carve.child.size !== req.size)) {
       errors.push(`${stp}: x2 asks for a ${req.kind} of ${req.size} bytes (decodeUntypedRetypeArgs), the step carves a ${carve.child.kind} of ${carve.child.size}`);
     }
+    // `resolveIssuingSlots`: the new capability goes into slot x5 of the CNode
+    // x4 names, as a derivation child of the invoked untyped capability's slot.
+    checkIssuedInto(step, pre, r, 2, 3, ops.find((o) => o.op === 'capInsert'), stp, errors);
   }
 
   const irqOps = ops.filter((o) => o.op === 'irqPatch');
@@ -400,9 +403,23 @@ function checkArmEffects(step, pre, r, stp, errors) {
       if (!insert || insert.parent !== r.slot || !insert.cap || insert.cap.kind !== 'irqHandler' || insert.cap.line !== lineNo || !sameOps((insert.cap.rights || []).slice().sort(), ['write'])) {
         errors.push(`${stp}: irqControlGet installs a write-only handler capability for line ${lineNo} as a derivation child of ${r.slot}`);
       }
+      // MR1 names the destination CNode and MR2 its slot (`resolveIssuingSlots`).
+      checkIssuedInto(step, pre, r, 1, 2, insert, stp, errors);
     }
   } else if (call.id === 'irqHandlerAck') {
-    if (ok && !sameOps(irqOps, [{ op: 'irqPatch', line: r.cap.line, set: { masked: false } }])) errors.push(`${stp}: irqHandlerAck unmasks line ${r.cap.line} and writes nothing else`);
+    // `irqHandlerAck` refuses a line the board does not have before it writes.
+    if (!engine.irqLine(pre, r.cap.line)) {
+      if (ok || step.outcome.error !== 'invalidIrq') errors.push(`${stp}: line ${r.cap.line} is no line of this board, so irqHandlerAck is refused with invalidIrq`);
+    } else if (ok && !sameOps(irqOps, [{ op: 'irqPatch', line: r.cap.line, set: { masked: false } }])) errors.push(`${stp}: irqHandlerAck unmasks line ${r.cap.line} and writes nothing else`);
+  } else if (call.id === 'irqHandlerClear') {
+    // `irqHandlerClear`: the line's node slot emptied, and nothing of the line's state written.
+    if (irqOps.length) errors.push(`${stp}: irqHandlerClear empties the line's node slot, not its state`);
+    if (ok) {
+      const nodeSlot = engine.irqNodeSlot(pre, r.cap.line);
+      const want = nodeSlot && engine.capAt(pre, nodeSlot) ? [nodeSlot] : [];
+      const got = ops.filter((o) => o.op === 'capDelete').map((o) => o.slot);
+      if (!sameOps(got, want)) errors.push(`${stp}: irqHandlerClear deletes ${want.length ? want[0] : 'nothing (the node slot is empty)'}; the step deletes ${got.join(', ') || 'nothing'}`);
+    }
   } else if (call.id === 'irqHandlerSetNotification') {
     if (irqOps.length) errors.push(`${stp}: irqHandlerSetNotification writes the line's node slot, not its state`);
     if (ok) {
@@ -417,6 +434,19 @@ function checkArmEffects(step, pre, r, stp, errors) {
   } else if (irqOps.length) {
     errors.push(`${stp}: ${call.id} writes no interrupt line`);
   }
+}
+
+/**
+ * Where an issuing invocation puts its new capability: the slot the arguments
+ * name through the caller's own CSpace (`resolveIssuingSlots`), as a
+ * derivation child of the slot the invoked capability was resolved from.
+ */
+function checkIssuedInto(step, pre, r, cnodeArg, slotArg, insert, stp, errors) {
+  const args = Array.isArray(step.syscall.args) ? step.syscall.args : [];
+  if (!insert || !isObject(args[cnodeArg]) || !isObject(args[slotArg])) return;
+  const dst = engine.issuingDestination(pre, step.actor, args[cnodeArg].value, args[slotArg].value);
+  if (dst.error) errors.push(`${stp}: the destination CNode at ${args[cnodeArg].value} does not resolve to a writable CNode capability (${dst.error}), so ${step.syscall.id} is refused before it installs anything`);
+  else if (insert.slot !== dst.slot || insert.parent !== r.slot) errors.push(`${stp}: ${step.syscall.id} installs its capability in ${dst.slot} as a derivation child of ${r.slot} (resolveIssuingSlots); the step records ${insert.slot} under ${insert.parent}`);
 }
 
 /**

@@ -183,6 +183,12 @@
   function vspace(s, id) { return byId(s.vspaces, id); }
   function core(s, id) { return byId(s.cores, id); }
   function label(s, id) { return byId(s.labels, id); }
+  /* Whether an id names an object of the projected store, or one an untyped
+     records as carved. */
+  function objectExists(s, id) {
+    if (thread(s, id) || endpoint(s, id) || notification(s, id) || reply(s, id) || schedContext(s, id) || cnode(s, id) || untyped(s, id) || vspace(s, id)) return true;
+    return (s.untyped || []).some(function (u) { return (u.children || []).some(function (ch) { return ch.id === id; }); });
+  }
 
   /* `"cn.app/3"` → `{ cnode: "cn.app", slot: 3 }`. */
   function parseSlot(key) {
@@ -224,7 +230,7 @@
      taking its place among its siblings, in their own order
      (`linkSpliceNode`); with no parent the children become roots. */
 
-  function cdtChildren(s, key) { return (s.cdt && Array.isArray(s.cdt[key])) ? s.cdt[key] : []; }
+  function cdtChildren(s, key) { return (s.cdt && hasOwn(s.cdt, key) && Array.isArray(s.cdt[key])) ? s.cdt[key] : []; }
   function cdtParent(s, key) {
     var cdt = s.cdt || {};
     for (var p in cdt) if (hasOwn(cdt, p) && (cdt[p] || []).indexOf(key) !== -1) return p;
@@ -406,11 +412,25 @@
         if (!cn.slots) cn.slots = {};
         if (hasOwn(cn.slots, String(ref.slot))) throw new Error("capInsert: slot " + op.slot + " is occupied (targetSlotOccupied)");
         if (!op.cap || typeof op.cap.kind !== "string") throw new Error("capInsert: cap.kind required");
-        cn.slots[String(ref.slot)] = clone(op.cap);
-        if (op.parent) {
-          if (!capAt(s, op.parent)) throw new Error("capInsert: parent slot " + op.parent + " is empty");
-          cdtAddChild(s, op.parent, op.slot);
+        var source = op.parent ? capAt(s, op.parent) : null;
+        if (op.parent && !source) throw new Error("capInsert: parent slot " + op.parent + " is empty");
+        /* A capability to an untyped derived from another capability to the
+           same untyped (a mint, a copy or an IPC transfer; a retype's child
+           names a different object). seL4's `ensureNoChildren` in `deriveCap`:
+           refused while the source slot has a derivation child
+           (`untypedDeriveRefused`). The derived capability takes the source's
+           free index, and the source is then set full (`untypedSourceSetFull`,
+           `cteInsert`'s `setUntypedCapAsFull`), so of the two only the
+           derived one can carve. */
+        var derivesUntyped = !!(source && source.kind === "untyped" && op.cap.kind === "untyped" && op.cap.target === source.target && untyped(s, source.target));
+        if (derivesUntyped && cdtChildren(s, op.parent).length) throw new Error("capInsert: " + op.parent + " has a derivation child, so its untyped capability is not derived again (revocationRequired)");
+        var placed = clone(op.cap);
+        if (derivesUntyped) {
+          placed.freeIndex = Number(source.freeIndex) || 0;
+          source.freeIndex = untyped(s, source.target).size;
         }
+        cn.slots[String(ref.slot)] = placed;
+        if (op.parent) cdtAddChild(s, op.parent, op.slot);
         return s;
       }
       case "capDelete": {
@@ -429,6 +449,9 @@
         var child = op.child;
         if (!child || typeof child.id !== "string" || !(child.size > 0)) throw new Error("untypedCarve: child.id and child.size required");
         var via = untypedAuthority(s, op, "untypedCarve");
+        /* `retypeFromUntyped` refuses a child id that names an object the
+           store already holds, or one an untyped already records. */
+        if (objectExists(s, child.id)) throw new Error("untypedCarve: " + child.id + " already names an object (childIdCollision)");
         if (!Array.isArray(ut.children)) ut.children = [];
         /* `retypeFreeIndex`: the capability's own free index while its slot
            has a derivation child, and 0 otherwise — a childless untyped
@@ -706,15 +729,26 @@
     if (hasOwn(SYSCALL_TARGET_KIND, syscallId)) return SYSCALL_TARGET_KIND[syscallId];
     return null;
   }
-  /* The arms of `dispatchSyscallChecked` that put an information-flow gate in
-     front of their operation: the endpoint-keyed gate on the IPC syscalls, the
-     lattice itself on a reply (replier → caller), on a notification signal or
-     wait, and on a mint, copy or move between CNodes, and on a service
-     registration. The capability-only arms (delete, revoke, the untyped,
-     address-space, interrupt and thread-control syscalls) run none.
-     `declassify` is the inverse: it proceeds only where the lattice denies. */
+  /* The arms of the checked dispatch that put an information-flow gate in
+     front of their operation. In `dispatchWithCapChecked`: the endpoint-keyed
+     gate on the IPC syscalls, the lattice itself on a reply (replier →
+     caller), on a notification signal or wait, on a mint, copy or move between
+     CNodes, and on a service registration. In `dispatchCapabilityOnlyChecked`:
+     the two service arms that read or write the registration an endpoint
+     records (a query runs only when the endpoint's label flows to the
+     caller's, a revoke only when the caller's flows to the endpoint's). Every
+     other capability-only arm (delete, CSpace revoke, the untyped,
+     address-space, interrupt and thread-control syscalls) runs none.
+     These are the kernel's thirteen `.policyGated` entries of
+     `enforcementBoundary`; the sync compares the two, and the arms that read
+     the labeling context, at the revision the trace is grounded in
+     (`checkEngineTables`). */
   var FLOW_GATED = ["send", "receive", "call", "reply", "replyRecv", "cspaceMint", "cspaceCopy", "cspaceMove",
-    "serviceRegister", "notificationSignal", "notificationWait"];
+    "serviceRegister", "serviceQuery", "serviceRevoke", "notificationSignal", "notificationWait"];
+  /* The arms that read the labeling context for something other than that
+     gate: a declassification proceeds only where the lattice denies (its
+     policy is the context's), and the audit pair reads the monitor clearance. */
+  var CONTEXT_ARMS_UNGATED = ["declassify", "declassifySignal", "auditRead", "auditDrain"];
   function flowGated(syscallId) { return FLOW_GATED.indexOf(syscallId) !== -1; }
   function truncationMinimum(syscallId) { return hasOwn(TRUNCATION_MIN, syscallId) ? TRUNCATION_MIN[syscallId] : 0; }
   function readsOverflow(syscallId) { return READS_OVERFLOW.indexOf(syscallId) !== -1; }
@@ -751,6 +785,18 @@
     var out = { from: from, reset: !derived, align: align, at: at, end: at + child.size, skipped: at - from };
     if (at + child.size > ut.size) { out.error = "untypedRegionExhausted"; out.message = child.size + " bytes do not fit at free index " + at; }
     return out;
+  }
+
+  /* `resolveIssuingSlots`: where an issuing invocation (a retype, an interrupt
+     handler issue) installs its new capability. The destination CNode is the
+     one a capability in the caller's CSpace names, looked up with the write
+     right; the slot is taken verbatim. */
+  function issuingDestination(s, threadId, cnodeCPtr, slot) {
+    var r = resolveCap(s, threadId, cnodeCPtr);
+    if (r.error) return r;
+    if (!capHasRight(r.cap, "write")) return { error: "illegalAuthority", slot: r.slot };
+    if (r.cap.kind !== "cnode" || !cnode(s, r.cap.target)) return { error: "invalidCapability", slot: r.slot };
+    return { slot: slotKey(r.cap.target, Number(slot) || 0), via: r.slot };
   }
 
   /* What x2 of an `untypedRetype` asks for (`decodeUntypedRetypeArgs`): the
@@ -1124,7 +1170,7 @@
 
   /* Ids each op names, so a renderer can mark what a step changed. */
   function touched(ops) {
-    var out = {};
+    var out = Object.create(null);
     function add(id) { if (id !== undefined && id !== null && id !== "") out[String(id)] = true; }
     (ops || []).forEach(function (op) {
       if (!op) return;
@@ -1188,7 +1234,9 @@
     var out = [];
     function fail(id, message) { out.push({ id: id, message: message }); }
     var threads = s.threads || [];
-    var queued = {};
+    /* Maps keyed by ids a trace supplies have no prototype: an object named
+       `constructor` must not read as already queued. */
+    var queued = Object.create(null);
     var rqs = s.runQueues || {};
     for (var k in rqs) {
       if (!hasOwn(rqs, k)) continue;
@@ -1213,7 +1261,7 @@
       if (st !== "ready" && currentCoreOf(s, th.id) !== null) fail("blockedNotRunnable", th.id + " is " + st + " but running");
     });
 
-    var inQueue = {};
+    var inQueue = Object.create(null);
     (s.endpoints || []).forEach(function (ep) {
       ["send", "recv"].forEach(function (qn) {
         (ep[qn] || []).forEach(function (tid) {
@@ -1251,7 +1299,7 @@
       if (!th || !th.ipc || th.ipc.state !== "blockedOnReply") fail("replyWaiters", r.id + " names " + r.caller + ", which is not blocked on a reply");
     });
 
-    var releasedOn = {};
+    var releasedOn = Object.create(null);
     var rlq = s.releaseQueues || {};
     for (var rk in rlq) {
       if (!hasOwn(rlq, rk)) continue;
@@ -1281,7 +1329,7 @@
     });
 
     var cdt = s.cdt || {};
-    var parentOf = {};
+    var parentOf = Object.create(null);
     for (var p in cdt) {
       if (!hasOwn(cdt, p)) continue;
       if (!capAt(s, p)) fail("cdtLinksAgree", "derivation parent " + p + " is an empty slot");
@@ -1292,7 +1340,7 @@
       });
     }
     Object.keys(parentOf).forEach(function (c) {
-      var seen = {};
+      var seen = Object.create(null);
       var at = c;
       while (parentOf[at]) {
         if (seen[at]) { fail("cdtAcyclic", "the derivation tree has a cycle through " + c); break; }
@@ -1327,11 +1375,11 @@
       });
     });
 
-    var asids = {};
+    var asids = Object.create(null);
     (s.vspaces || []).forEach(function (v) {
       if (asids[v.asid]) fail("vspaceAsidUnique", v.id + " reuses ASID " + v.asid);
       asids[v.asid] = true;
-      var mapped = {};
+      var mapped = Object.create(null);
       (v.mappings || []).forEach(function (m) {
         mapped[m.vaddr] = true;
         var perms = String(m.perms || "");
@@ -1352,6 +1400,8 @@
     PATH_ARM_STAGES: PATH_ARM_STAGES,
     SYSCALL_OBJECT_KIND: SYSCALL_OBJECT_KIND,
     SYSCALL_TARGET_KIND: SYSCALL_TARGET_KIND,
+    FLOW_GATED: FLOW_GATED,
+    CONTEXT_ARMS_UNGATED: CONTEXT_ARMS_UNGATED,
     TRUNCATION_MIN: TRUNCATION_MIN,
     READS_OVERFLOW: READS_OVERFLOW,
     MISSING_RIGHT_INVALID: MISSING_RIGHT_INVALID,
@@ -1391,6 +1441,8 @@
     msgInfoFields: msgInfoFields,
     bitsAt: bitsAt,
     carvePlacement: carvePlacement,
+    issuingDestination: issuingDestination,
+    objectExists: objectExists,
     retypeRequest: retypeRequest,
     scTickExhausts: scTickExhausts,
     scChargeBudget: scChargeBudget,

@@ -26,7 +26,10 @@ import {
   checkEngineTables,
   checkTraceKernelFacts,
   collectTraceRefs,
+  definitionBody,
+  dispatchArms,
   matchArmTable,
+  POLICY_GATED_OPERATIONS,
   requiredRightTable,
   syscallNumberTable
 } from './trace-anchors.mjs';
@@ -677,7 +680,24 @@ test('checkEngineTables compares the engine\'s gate tables with the kernel\'s, e
       '  | .irqHandler _ =>', '      sid == .irqHandlerAck || sid == .irqHandlerSetNotification || sid == .irqHandlerClear',
       '  | .cnodeSlotWord word => false', '',
       'def syscallMissingRightError : SyscallId → KernelError',
-      '  | .send => .invalidCapability', '  | .cspaceMint | .reply | .yield => .illegalAuthority', ''
+      '  | .send => .invalidCapability', '  | .cspaceMint | .reply | .yield => .illegalAuthority', '',
+      '/-- The checked tier: `ctx` in a comment is not a read of it. -/',
+      'def dispatchCapabilityOnlyChecked (ctx : LabelingContext) (sid : SyscallId) (k : Kernel Unit) : Kernel Unit :=',
+      '  match sid with', '  | _ => k', '',
+      'def dispatchWithCapChecked (ctx : LabelingContext) (decoded : D) : Kernel Unit :=',
+      '  match decoded.syscallId with',
+      '  | .send =>', '    match cap.target with', '    | .object epId => endpointSendChecked ctx epId', '    | _ => fun _ => .error .invalidCapability',
+      '  | .reply => fun st => if securityFlowsTo (ctx.threadLabelOf a) (ctx.threadLabelOf b) then k st else .error .replyCapInvalid',
+      '  | .cspaceMint => cspaceMintChecked ctx src dst',
+      '  -- the yield names ctx only here, in a comment',
+      '  | .yield => fun _ => .error .illegalState', '',
+      'theorem after (ctx : LabelingContext) : True := trivial', ''
+    ].join('\n'),
+    'SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean': [
+      'def enforcementBoundary : List EnforcementClass :=',
+      '  [ ' + Object.values(POLICY_GATED_OPERATIONS).map((name) => `.policyGated "${name}"`).join('\n  , '),
+      '  -- .policyGated "commentedOut"',
+      '  , .capabilityOnly "cspaceRevoke"', '  ]', ''
     ].join('\n'),
     'SeLe4n/Kernel/Architecture/SyscallArgDecode.lean': 'def truncationMinimum : SyscallId → Nat\n  | .cspaceMint => 5\n  | _ => 0\n',
     'SeLe4n/Kernel/Architecture/RegisterDecode.lean': 'def syscallReadsOverflow : SyscallId → Bool\n  | .send | .reply | .cspaceMint => true\n  | .yield => false\n'
@@ -688,6 +708,33 @@ test('checkEngineTables compares the engine\'s gate tables with the kernel\'s, e
   assert.ok(issues.some((m) => m.includes('truncationMinimum .send is 0')));
   assert.ok(issues.some((m) => m.includes('syscallObjectKind? .send is endpoint')));
   assert.ok(checkEngineTables(engine, () => undefined).length >= 1);
+
+  // The flow table is held to the dispatcher and to the kernel's own table.
+  const ungated = { ...engine, FLOW_GATED: engine.FLOW_GATED.filter((id) => id !== 'cspaceMint') };
+  const lost = checkEngineTables(ungated, read);
+  assert.ok(lost.some((m) => m.includes('hands the labeling context to the .cspaceMint arm')), lost.join('\n'));
+  assert.ok(lost.some((m) => m.includes('lists cspaceMintChecked as policy-gated')), lost.join('\n'));
+  const invented = { ...engine, FLOW_GATED: engine.FLOW_GATED.concat('yield') };
+  const extra = checkEngineTables(invented, read);
+  assert.ok(extra.some((m) => m.includes('.yield arm does not read the labeling context')), extra.join('\n'));
+  assert.ok(extra.some((m) => m.includes('no operation recorded for yield')), extra.join('\n'));
+  const noTier = (path) => (path === 'SeLe4n/Kernel/API.lean' ? read(path).replace('def dispatchWithCapChecked', 'def renamedDispatch') : read(path));
+  assert.ok(checkEngineTables(engine, noTier).some((m) => m.includes('dispatchWithCapChecked not found')));
+});
+
+test('dispatchArms reads the outermost arms of a dispatcher, nested matches and all', () => {
+  const body = definitionBody([
+    'def other := 1', '',
+    '@[inline] def tier (ctx : C) : K :=', '  match sid with',
+    '  | .a | .b =>', '    match t with', '    | .object x => run ctx x', '    | _ => k',
+    '  | .c => k', '',
+    'def next := 2'
+  ].join('\n'), 'tier');
+  assert.ok(body && !body.includes('next'));
+  const arms = dispatchArms(body);
+  assert.deepEqual(Object.keys(arms).sort(), ['a', 'b', 'c']);
+  assert.ok(/run ctx x/.test(arms.a) && arms.a === arms.b && !/ctx/.test(arms.c));
+  assert.equal(definitionBody('def tierX := 1', 'tier'), undefined, 'a name is matched whole');
 });
 
 /* ── Schema v4: the type gate, the arm's stages, whole entries ── */
@@ -943,6 +990,68 @@ test('carvePlacement says where a retype lands and why', () => {
   assert.deepEqual([second.from, second.reset, second.at, second.skipped], [4096, false, 8192, 4096]);
   assert.equal(engine.carvePlacement(s, 'cn.mgr/1', { kind: 'frame', size: 16384 }).error, 'untypedRegionExhausted');
   assert.equal(engine.carvePlacement(s, 'cn.mgr/2', { kind: 'frame', size: 4096 }).error, 'untypedTypeMismatch');
+});
+
+test('deriving an untyped capability follows seL4: refused over a child, the copy takes the index, the source is set full', () => {
+  const s = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
+  const size = engine.byId(s.untyped, 'ut.pool').size;
+  // untypedSourceSetFull (Capability/Operations.lean): a mint, a copy or an
+  // IPC transfer of an untyped capability leaves the source unable to carve.
+  s.cnodes[0].slots['1'].freeIndex = 4096;
+  applyOp(s, { op: 'capInsert', slot: 'cn.mgr/5', parent: 'cn.mgr/1', cap: { kind: 'untyped', target: 'ut.pool', rights: ['read', 'retype'], derivation: 'copy' } });
+  assert.equal(engine.capAt(s, 'cn.mgr/5').freeIndex, 4096, 'the derived capability takes the source\'s free index');
+  assert.equal(engine.capAt(s, 'cn.mgr/1').freeIndex, size, 'the source is set full');
+  assert.deepEqual(engine.checkState(s), []);
+  // untypedDeriveRefused: a source slot with a derivation child is not derived from again.
+  assert.throws(() => applyOp(s, { op: 'capInsert', slot: 'cn.mgr/6', parent: 'cn.mgr/1', cap: { kind: 'untyped', target: 'ut.pool', rights: ['read'], derivation: 'mint' } }), /revocationRequired/);
+  // A retype's child names another object: the carve's own free-index write stands.
+  const t = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
+  applyOp(t, { op: 'untypedCarve', untyped: 'ut.pool', slot: 'cn.mgr/1', child: { id: 'ut.kid', kind: 'untyped', size: 4096 } });
+  applyOp(t, { op: 'capInsert', slot: 'cn.mgr/2', parent: 'cn.mgr/1', cap: { kind: 'untyped', target: 'ut.kid', rights: ['read', 'retype'], derivation: 'retype' } });
+  assert.equal(engine.capAt(t, 'cn.mgr/1').freeIndex, 4096);
+  // retypeFromUntyped: a child id that already names an object is a collision.
+  assert.throws(() => applyOp(t, { op: 'untypedCarve', untyped: 'ut.pool', slot: 'cn.mgr/1', child: { id: 'ut.kid', kind: 'frame', size: 4096 } }), /childIdCollision/);
+  assert.throws(() => applyOp(t, { op: 'untypedCarve', untyped: 'ut.pool', slot: 'cn.mgr/1', child: { id: 'ut.pool', kind: 'frame', size: 4096 } }), /childIdCollision/);
+});
+
+test('an issuing invocation installs where its arguments say, through the caller\'s own CSpace', () => {
+  const pre = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
+  assert.deepEqual(engine.issuingDestination(pre, 'mgr', 0, 2), { slot: 'cn.mgr/2', via: 'cn.mgr/0' });
+  assert.equal(engine.issuingDestination(pre, 'mgr', 1, 2).error, 'invalidCapability', 'slot 1 holds the untyped capability, not a CNode');
+  const elsewhere = bundled();
+  step(elsewhere, 'untyped-retype', 1).syscall.args[3].value = 7;
+  hasError(elsewhere, 'installs its capability in cn.mgr/7');
+  const irq = bundled();
+  step(irq, 'irq-delivery', 2).syscall.args[2].value = 6;
+  hasError(irq, 'installs its capability in cn.drv/6');
+});
+
+test('irqHandlerClear empties the node slot and writes no line state; an off-board line is not acknowledged', () => {
+  const data = bundled();
+  const ack = step(data, 'irq-delivery', 9);
+  const pre = reconstructState(scenario(data, 'irq-delivery'), 8);
+  assert.ok(engine.capAt(pre, 'irqnode.33/0'), 'the line is bound before the step');
+  ack.syscall.id = 'irqHandlerClear';
+  const errors = errorsOf(data).filter((m) => m.includes('irqHandlerClear'));
+  assert.ok(errors.some((m) => m.includes('empties the line\'s node slot, not its state')), errors.join('\n'));
+  assert.ok(errors.some((m) => m.includes('irqHandlerClear deletes irqnode.33/0')), errors.join('\n'));
+});
+
+test('the type gate and the flow table agree with the checked dispatch on the service arms', () => {
+  // dispatchCapabilityOnlyChecked (API.lean): the query and the revoke are the
+  // two capability-only arms that run a flow gate.
+  assert.ok(engine.flowGated('serviceQuery') && engine.flowGated('serviceRevoke') && engine.flowGated('serviceRegister'));
+  assert.equal(engine.FLOW_GATED.length, 13);
+  assert.ok(engine.CONTEXT_ARMS_UNGATED.every((id) => !engine.flowGated(id)));
+});
+
+test('checkState keys its maps without a prototype: an object may be named like an Object method', () => {
+  const s = cloneState(scenario(BUNDLED, 'ipc-call-reply').initialState);
+  const first = s.threads[0].id;
+  const rename = (v) => JSON.parse(JSON.stringify(v).split(JSON.stringify(first)).join('"constructor"'));
+  const renamed = rename(s);
+  assert.deepEqual(engine.checkState(renamed), engine.checkState(s));
+  assert.ok(!('constructor' in engine.touched([])), 'touched() answers only for what the ops name');
 });
 
 test('msgInfoFields places each field of x1 where MessageInfo.encode does', () => {
