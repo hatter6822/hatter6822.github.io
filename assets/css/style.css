@@ -2044,3 +2044,20 @@ a.tier-script:hover {
 .lang-switcher-menu li[aria-selected="true"]::before {
   content: "\2713\00a0";
 }
+
+/* Forced colours (Windows High Contrast and the like) replace every background
+   and text colour with the user's own, so a state shown only by a fill — the
+   current page in the menu, the chosen language — disappears. Those states
+   take the system's selection colours here; `forced-color-adjust: none` is
+   what lets a background be set at all in this mode. map.css and run.css do
+   the same for their own controls. */
+@media (forced-colors: active) {
+  .nav-links a[aria-current="page"],
+  .nav-links a[aria-current="location"],
+  .lang-switcher-menu li.active {
+    forced-color-adjust: none;
+    background: SelectedItem;
+    color: SelectedItemText;
+  }
+  .btn-primary, .nav-links a.nav-cta { border: 1px solid ButtonText; }
+}

@@ -684,6 +684,30 @@ for (const [width, height, locale, bound] of [[1440, 900, 'en', 0.02], [1200, 80
   await context.close();
 }
 
+{
+  // Forced colours replace every fill with the user's palette, so a state the
+  // page shows only by a fill has to be given the system's selection colours
+  // or it cannot be told from its neighbours.
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, forcedColors: 'active' });
+  const page = await context.newPage();
+  await page.goto(`${BASE}/map.html`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+  console.log('\n[forced colours]');
+  const states = await page.evaluate((pairs) => pairs.map(([on, off]) => {
+    const a = document.querySelector(on);
+    const b = document.querySelector(off);
+    if (!a || !b) return [on, 'missing'];
+    return [on, getComputedStyle(a).backgroundColor !== getComputedStyle(b).backgroundColor ? 'distinct' : 'same'];
+  }), [
+    ['.map-scope-option.is-active', '.map-scope-option:not(.is-active)'],
+    ['.interior-menu-tab[aria-selected="true"]', '.interior-menu-tab[aria-selected="false"]'],
+    ['.nav-links a[aria-current]', '.nav-links a:not([aria-current]):not(.nav-cta)']
+  ]);
+  const lost = states.filter(([, verdict]) => verdict !== 'distinct');
+  check(lost.length === 0, `the chosen scope, the open sidebar tab and the current page still stand out${lost.length ? ` — ${lost.map(([sel, v]) => `${sel}: ${v}`).join(', ')}` : ''}`);
+  await context.close();
+}
+
 await browser.close();
 console.log(failures ? `\n${failures} check(s) failed` : '\nmap-smoke: all checks passed');
 process.exit(failures ? 1 : 0);

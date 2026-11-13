@@ -394,6 +394,31 @@ for (const [width, height, locale, bound] of [[1440, 900, 'en', 0.02], [1024, 76
   }
 }
 
+{
+  // Forced colours replace every fill with the user's palette, so a state the
+  // page shows only by a fill has to be given the system's selection colours
+  // or it cannot be told from its neighbours.
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, forcedColors: 'active' });
+  const page = await context.newPage();
+  await page.goto(`${BASE}/run.html?scenario=capability-gate&step=1&scene=path`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+  console.log('\n[forced colours]');
+  const states = await page.evaluate((pairs) => pairs.map(([on, off]) => {
+    const a = document.querySelector(on);
+    const b = document.querySelector(off);
+    if (!a || !b) return [on, 'missing'];
+    return [on, getComputedStyle(a).backgroundColor !== getComputedStyle(b).backgroundColor ? 'distinct' : 'same'];
+  }), [
+    ['.step-chip[data-active="true"]', '.step-chip[data-active="false"]'],
+    ['.scene-tab[data-active="true"]', '.scene-tab:not([data-active="true"])'],
+    ['.view-option[aria-checked="true"]', '.view-option[aria-checked="false"]'],
+    ['.nav-links a[aria-current]', '.nav-links a:not([aria-current]):not(.nav-cta)']
+  ]);
+  const lost = states.filter(([, verdict]) => verdict !== 'distinct');
+  check(lost.length === 0, `the current step, the open scene, the chosen view and the current page still stand out${lost.length ? ` — ${lost.map(([sel, v]) => `${sel}: ${v}`).join(', ')}` : ''}`);
+  await context.close();
+}
+
 await browser.close();
 console.log(failures ? `\nrun-smoke: ${failures} check(s) failed` : '\nrun-smoke: all checks passed');
 process.exit(failures ? 1 : 0);

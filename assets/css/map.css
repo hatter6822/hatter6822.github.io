@@ -1137,3 +1137,21 @@
     }
   }
 }
+
+/* Forced colours: see the note in style.css. The chosen scope, the open
+   sidebar tab, the selected declaration and the highlighted search result are
+   each shown by a fill, which this mode removes. */
+@media (forced-colors: active) {
+  .map-scope-option.is-active,
+  .interior-menu-tab[aria-selected="true"],
+  .interior-menu-item-active,
+  .module-search-option[aria-selected="true"] {
+    forced-color-adjust: none;
+    background: SelectedItem;
+    color: SelectedItemText;
+    border-color: SelectedItem;
+  }
+  .interior-menu-item-active .interior-menu-item-btn,
+  .interior-menu-item-active::after,
+  .interior-menu-tab[aria-selected="true"] .interior-menu-count { color: SelectedItemText; }
+}

@@ -619,3 +619,26 @@ a.ref-link::after { content: "↗"; font-size: 0.66rem; margin-left: 0.2rem; col
 @media (max-width: 40rem) {
   .theater-transport .transport-scrub { display: none; }
 }
+
+/* Forced colours: see the note in style.css. The current step, the open
+   scene, the chosen view, the properties at work and the sandbox being on are
+   each shown by a fill, and a path stage's outcome by the colour of its mark;
+   this mode removes both. */
+@media (forced-colors: active) {
+  .step-chip[data-active="true"],
+  .step-chip[data-active="true"] .chip-num,
+  .scene-tab[data-active="true"],
+  .view-option[aria-checked="true"],
+  .sandbox-toggle[data-on="true"],
+  #theater-play {
+    forced-color-adjust: none;
+    background: SelectedItem;
+    color: SelectedItemText;
+    border-color: SelectedItem;
+  }
+  .step-chip[data-active="true"] .chip-kind,
+  .step-chip[data-active="true"] .chip-title { color: SelectedItemText; }
+  .prop-card[data-active="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .step-kind, .path-mark { border: 1px solid CanvasText; }
+  .path-stage[data-result="fail"] .path-mark { forced-color-adjust: none; background: Mark; color: MarkText; }
+}
