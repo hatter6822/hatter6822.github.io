@@ -243,6 +243,59 @@ test('a flow check that disagrees with the lattice is caught', () => {
   hasError(data, 'securityFlowsTo');
 });
 
+test('the arm decides whether a flow gate runs: a gated arm shows it, an ungated one records no check', () => {
+  assert.ok(['send', 'receive', 'call', 'reply', 'cspaceMint', 'cspaceCopy', 'notificationSignal', 'notificationWait'].every(engine.flowGated));
+  assert.ok(!['cspaceDelete', 'cspaceRevoke', 'untypedRetype', 'vspaceMap', 'irqHandlerAck', 'tcbSetAffinity', 'declassify', 'yield'].some(engine.flowGated));
+  // The reply arm checks replier → caller, and a denial reads as an unlinked reply.
+  assert.equal(engine.flowDeniedError('reply'), 'replyCapInvalid');
+  assert.equal(engine.flowDeniedError('send'), 'flowDenied');
+  const noGate = bundled();
+  const reply = step(noGate, 'ipc-call-reply', 5);
+  assert.equal(reply.syscall.id, 'reply');
+  reply.path = reply.path.filter((s) => s.stage !== 'flow');
+  hasError(noGate, 'must have a flow stage: the reply arm gates the flow');
+  // A queued waiter was gated when it waited; the signal asks about the signaller alone.
+  const twice = bundled();
+  const signal = step(twice, 'notification-signal', 1);
+  signal.delta.ops.unshift({ op: 'flowCheck', from: 'n.alarm', to: 'handler', allowed: true });
+  hasError(twice, 'asks the policy 1 time(s), the step records 2 flow checks');
+  const ungated = bundled();
+  const del = step(ungated, 'capability-derivation', 6);
+  assert.equal(del.syscall.id, 'cspaceDelete');
+  del.delta.ops.unshift({ op: 'flowCheck', from: 'cn.sup', to: 'cn.sup', allowed: true });
+  hasError(ungated, 'the cspaceDelete arm asks the policy 0 time(s)');
+  // A declassification is the inverse: it needs the lattice to deny the flow.
+  const allowed = bundled();
+  const declass = scenario(allowed, 'information-flow').steps.find((s) => s.syscall && s.syscall.id === 'declassify');
+  declass.delta.ops = declass.delta.ops.filter((o) => o.op !== 'flowCheck');
+  hasError(allowed, 'proceeds only where the lattice denies the flow');
+});
+
+test('a yield is recomputed: the slice is reset, the caller goes to the back of its band, the core re-selects', () => {
+  const s = schedState([{ thread: 'b', prio: 50 }], [
+    { id: 'a', priority: 50, timeSlice: 2, ipc: { state: 'ready' } },
+    { id: 'b', priority: 50, timeSlice: 5, ipc: { state: 'ready' } }
+  ]);
+  s.cores[0].current = 'a';
+  assert.deepEqual(engine.yieldOps(s, 0), [
+    { op: 'threadPatch', id: 'a', set: { timeSlice: engine.DEFAULT_TIME_SLICE } },
+    { op: 'enqueue', thread: 'a', core: 0, prio: 50 },
+    { op: 'dispatch', core: 0, thread: 'b' }
+  ]);
+  // Alone at its priority, the caller is its own best candidate and runs again.
+  const alone = schedState([], [{ id: 'a', priority: 50, timeSlice: 2, ipc: { state: 'ready' } }]);
+  alone.cores[0].current = 'a';
+  assert.equal(engine.yieldOps(alone, 0)[2].thread, 'a');
+  // Bound to a scheduling context, a yield forfeits the head refill: not modelled, and said so.
+  const bound = schedState([], [{ id: 'a', priority: 50, sc: 'sc.a', ipc: { state: 'ready' } }], [{ id: 'sc.a', budget: 2, period: 6, remaining: 2, refills: [] }]);
+  bound.cores[0].current = 'a';
+  assert.equal(engine.yieldOps(bound, 0), null);
+  const data = bundled();
+  const y = scenario(data, 'information-flow').steps.find((x) => x.syscall && x.syscall.id === 'yield');
+  y.delta.ops = y.delta.ops.filter((o) => o.op !== 'threadPatch');
+  hasError(data, 'yieldOnCore on core 0 writes');
+});
+
 test('a derived capability may not gain a right its parent lacks (capAttenuates)', () => {
   const data = bundled();
   const st = scenario(data, 'capability-derivation').steps.find((s) => s.delta.ops.some((o) => o.op === 'capInsert' && o.cap && o.cap.derivation === 'copy'));

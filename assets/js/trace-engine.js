@@ -706,6 +706,16 @@
     if (hasOwn(SYSCALL_TARGET_KIND, syscallId)) return SYSCALL_TARGET_KIND[syscallId];
     return null;
   }
+  /* The arms of `dispatchSyscallChecked` that put an information-flow gate in
+     front of their operation: the endpoint-keyed gate on the IPC syscalls, the
+     lattice itself on a reply (replier → caller), on a notification signal or
+     wait, and on a mint, copy or move between CNodes, and on a service
+     registration. The capability-only arms (delete, revoke, the untyped,
+     address-space, interrupt and thread-control syscalls) run none.
+     `declassify` is the inverse: it proceeds only where the lattice denies. */
+  var FLOW_GATED = ["send", "receive", "call", "reply", "replyRecv", "cspaceMint", "cspaceCopy", "cspaceMove",
+    "serviceRegister", "notificationSignal", "notificationWait"];
+  function flowGated(syscallId) { return FLOW_GATED.indexOf(syscallId) !== -1; }
   function truncationMinimum(syscallId) { return hasOwn(TRUNCATION_MIN, syscallId) ? TRUNCATION_MIN[syscallId] : 0; }
   function readsOverflow(syscallId) { return READS_OVERFLOW.indexOf(syscallId) !== -1; }
 
@@ -1036,6 +1046,32 @@
     }
     return ops;
   }
+
+  /* `yieldOnCore`: the caller forfeits its allotment (`yieldChargeOnCore`)
+     and the core re-selects (`scheduleEffectiveOnCore`). An unbound caller's
+     time slice ends (`sliceExpireOnCore`, the tick's own arm): the slice is
+     reset and the thread goes to the back of its priority band. A caller
+     bound to a scheduling context forfeits its whole head refill
+     (`spendBudgetOnCore` with `sc.budget`), which this engine has no op for:
+     null, and the validator refuses the step rather than guess. */
+  function yieldOps(s, coreId) {
+    var w = clone(s);
+    var ops = [];
+    function emit(op) { ops.push(op); applyOp(w, op); }
+    var c = core(w, coreId);
+    var cur = c && c.current !== null && c.current !== undefined ? thread(w, c.current) : null;
+    if (!cur) return ops;
+    if (cur.sc) return null;
+    emit({ op: "threadPatch", id: cur.id, set: { timeSlice: DEFAULT_TIME_SLICE } });
+    emit({ op: "enqueue", thread: cur.id, core: coreId, prio: Number(cur.priority) || 0 });
+    emit({ op: "dispatch", core: coreId, thread: selectOnCore(w, coreId).thread });
+    return ops;
+  }
+
+  /* What a denied flow gate answers. The reply arm collapses a denied
+     replier → caller flow to the error an unlinked reply returns, so a holder
+     cannot learn that the reply is linked (API.lean, `.reply`). */
+  function flowDeniedError(syscallId) { return syscallId === "reply" ? "replyCapInvalid" : "flowDenied"; }
 
   function orBits(a, b) {
     var out = 0;
@@ -1371,6 +1407,9 @@
     BOOT_CORE: BOOT_CORE,
     rescheduleOps: rescheduleOps,
     timerTickOps: timerTickOps,
+    yieldOps: yieldOps,
+    flowGated: flowGated,
+    flowDeniedError: flowDeniedError,
     interruptOps: interruptOps,
     orBits: orBits,
     capHasRight: capHasRight,

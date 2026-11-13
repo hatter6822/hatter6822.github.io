@@ -515,7 +515,9 @@
         var ty = fd.name === "extraCaps" ? y + 51 : y + 38;
         c.text(x0 + wpx / 2, ty, fd.name + " = " + fd.value, "tx-small", { anchor: fd.name === "capsUnwrapped" ? "end" : "middle", tone: fd.name === "length" ? "accent" : fd.name === "extraCaps" ? "purple" : null });
       });
-      c.text(cx + 12 * CELL + 14, y + 14, L("msginfo_length_note", "x2–x5 carry the first four message words"), "tx-note", { max: W - (cx + 12 * CELL + 14 - M) });
+      /* Under the row's own label, where the line has room in every locale;
+         beside the bit cells it was cut to an ellipsis. */
+      c.text(M, y + 38, L("msginfo_length_note", "x2–x5 carry the first four message words"), "tx-note", { max: cx - M - 90 });
       y += 60;
       (call.ipcBuffer || []).forEach(function (wd, i) {
         c.text(M, y + 12, L("ipcbuf_word", "IPC buffer, message word {{n}}: {{name}} = {{value}}", { n: 4 + i, name: wd.name, value: wd.value }), "tx-note", { max: W });

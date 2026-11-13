@@ -302,6 +302,15 @@ function checkSyscallGates(step, pre, stp, errors) {
     errors.push(`${stp}: ${step.actor} is not current on core ${coreId}, so dispatchSyscallChecked would refuse with illegalState`);
     return;
   }
+  /* A yield takes no argument, so what it writes is the engine's to say
+     (`yieldOnCore`: the slice ends, the caller goes to the back of its band,
+     the core re-selects). */
+  if (call.id === 'yield' && isObject(step.outcome) && step.outcome.status === 'ok') {
+    const want = engine.yieldOps(pre, coreId);
+    const got = (isObject(step.delta) && Array.isArray(step.delta.ops) ? step.delta.ops : []).filter((o) => isObject(o) && EVENT_OPS.indexOf(o.op) === -1);
+    if (want === null) errors.push(`${stp}: the caller is bound to a scheduling context, and a yield then forfeits its head refill (spendBudgetOnCore), which the engine does not model`);
+    else if (!sameOps(got, want)) errors.push(`${stp}: yieldOnCore on core ${coreId} writes ${describeOps(want)}; the step records ${describeOps(got)}`);
+  }
   const lookup = stageOf(step, 'lookup');
   if (!lookup || lookup.result === 'skip') return;
   const r = engine.resolveCap(pre, step.actor, call.capPtr);
@@ -556,10 +565,34 @@ export function validateTraceDataObject(data) {
         }
       }
       const flow = stageOf(step, 'flow');
+      const flowChecks = ops.filter((op) => isObject(op) && op.op === 'flowCheck');
+      if (step.kind === 'syscall' && isObject(step.syscall)) {
+        // The arm decides whether a gate runs at all: a gated arm shows its
+        // gate, an ungated one records no check it never made.
+        const gated = engine.flowGated(step.syscall.id);
+        // A refused step may have been refused before its arm reached the
+        // gate (a mint whose destination slot is occupied is refused by
+        // `resolveCNodeOpSlots`, ahead of `cspaceMintChecked`'s flow test),
+        // so only a step that committed must show the gate it passed.
+        const committed = isObject(step.outcome) && step.outcome.status === 'ok';
+        if (gated ? (committed && !flow) : !!flow) errors.push(`${stp}.path ${gated ? 'must have' : 'must not have'} a flow stage: the ${step.syscall.id} arm ${gated ? 'gates the flow before its operation' : 'runs no flow gate'}`);
+        // One gate, one check. The one exception the kernel has is a signal
+        // that will hand its badge to a *bound* thread blocked on a receive
+        // (`boundDeliveryTarget?`), which this engine does not model; a plain
+        // waiter was gated when it waited, and is not gated again.
+        const allowedChecks = gated ? 1 : step.syscall.id === 'declassify' ? 1 : 0;
+        if (flowChecks.length > allowedChecks) errors.push(`${stp}: the ${step.syscall.id} arm asks the policy ${allowedChecks} time(s), the step records ${flowChecks.length} flow checks`);
+        if (step.syscall.id === 'declassify' && isObject(step.outcome) && step.outcome.status === 'ok' && (flowChecks.length !== 1 || flowChecks[0].allowed)) {
+          errors.push(`${stp}: a declassification proceeds only where the lattice denies the flow (declassificationDecision); the step must record that denied check`);
+        }
+      } else if (flowChecks.length) {
+        errors.push(`${stp}: only a syscall asks the policy about a flow; a ${step.kind} step records ${flowChecks.length} flow check(s)`);
+      }
       if (flow && flow.result !== 'skip') {
+        const denied = isObject(step.syscall) ? engine.flowDeniedError(step.syscall.id) : 'flowDenied';
         if (!flowSeen) errors.push(`${stp}: the path has a flow stage but the step records no flowCheck`);
         else if ((flow.result === 'pass') !== !!flowSeen.allowed) errors.push(`${stp}: the flow stage says ${flow.result} but the flow check says ${flowSeen.allowed ? 'allowed' : 'denied'}`);
-        if (flow.result === 'fail' && step.outcome && step.outcome.error !== 'flowDenied') errors.push(`${stp}: a denied flow is refused with flowDenied, not ${step.outcome.error}`);
+        if (flow.result === 'fail' && step.outcome && step.outcome.error !== denied) errors.push(`${stp}: a denied flow on ${isObject(step.syscall) ? step.syscall.id : 'this step'} is refused with ${denied}, not ${step.outcome.error}`);
       }
       for (const v of engine.checkState(state)) {
         errors.push(`${stp}: ${v.message} (${v.id})`);

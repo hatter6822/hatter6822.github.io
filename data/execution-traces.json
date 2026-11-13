@@ -2028,6 +2028,16 @@
               "result": "pass"
             },
             {
+              "stage": "flow",
+              "label": "Replier → caller flow gate, once the reply object names the caller",
+              "ref": {
+                "name": "securityFlowsTo",
+                "module": "SeLe4n.Kernel.InformationFlow.Policy",
+                "line": 211
+              },
+              "result": "pass"
+            },
+            {
               "stage": "operation",
               "label": "Transfer the reply to the caller the reply object names",
               "ref": {
@@ -3156,19 +3166,13 @@
               "result": "pass"
             }
           ],
-          "narrative": "A signal sends no message words: the badge is the one minted into the capability in slot 1. The handler is waiting, so the badge does not touch the notification word: the kernel pops the handler off the wait queue and delivers badge 1 straight to it, after checking that the flow onward to the handler is allowed too. The handler becomes runnable but does not preempt the driver: equal priority never does.",
+          "narrative": "A signal sends no message words: the badge is the one minted into the capability in slot 1. The handler is waiting, so the badge does not touch the notification word: the kernel pops the handler off the wait queue and delivers badge 1 straight to it. The signal's gate is signaller → notification; the notification → handler flow was gated when the handler waited, and is not asked again for a queued waiter. The handler becomes runnable but does not preempt the driver: equal priority never does.",
           "delta": {
             "ops": [
               {
                 "op": "flowCheck",
                 "from": "driver",
                 "to": "n.alarm",
-                "allowed": true
-              },
-              {
-                "op": "flowCheck",
-                "from": "n.alarm",
-                "to": "handler",
                 "allowed": true
               },
               {
@@ -8199,6 +8203,13 @@
           "delta": {
             "ops": [
               {
+                "op": "threadPatch",
+                "id": "sec",
+                "set": {
+                  "timeSlice": 5
+                }
+              },
+              {
                 "op": "enqueue",
                 "thread": "sec",
                 "core": 0,
@@ -8426,6 +8437,13 @@
           "narrative": "pub yields; sec is at the head of the bucket and runs.",
           "delta": {
             "ops": [
+              {
+                "op": "threadPatch",
+                "id": "pub",
+                "set": {
+                  "timeSlice": 5
+                }
+              },
               {
                 "op": "enqueue",
                 "thread": "pub",
