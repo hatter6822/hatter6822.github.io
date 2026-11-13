@@ -100,14 +100,15 @@ function isString(v) { return typeof v === 'string'; }
 function isNonNegInt(v) { return Number.isInteger(v) && v >= 0; }
 
 /**
- * A declaration reference: `{ name, module }`, plus the `path` and `line` the
- * sync stamps once it has found the declaration in the checkout.
+ * A declaration reference: `{ name, module }`, plus the `line` the sync stamps
+ * once it has found the declaration in the checkout. The file is the
+ * module's (`engine.modulePath`); a stored copy could only disagree with it.
  */
 function checkRef(ref, path, errors) {
   if (!isObject(ref)) { errors.push(`${path} must be a { name, module } reference`); return; }
   if (!isString(ref.name) || !ref.name) errors.push(`${path}.name must be a non-empty string`);
-  if (!isString(ref.module) || !/^[A-Z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/.test(ref.module)) errors.push(`${path}.module must be a Lean module name`);
-  if (ref.path !== undefined && !isString(ref.path)) errors.push(`${path}.path must be a string when present`);
+  if (!isString(ref.module) || !engine.modulePath(ref.module)) errors.push(`${path}.module must be a Lean module name`);
+  if (ref.path !== undefined) errors.push(`${path}.path was a v3 field; a declaration's file is its module's`);
   if (ref.line !== undefined && !(Number.isInteger(ref.line) && ref.line > 0)) errors.push(`${path}.line must be a positive integer when present`);
 }
 
@@ -453,7 +454,27 @@ export function validateTraceDataObject(data) {
         if (!isString(inv[field]) || !inv[field]) errors.push(`${ip}.${field} must be a non-empty string`);
       }
       checkRef(inv.predicate, `${ip}.predicate`, errors);
-      checkRefList(inv.preservedBy, `${ip}.preservedBy`, errors, 1);
+      checkRefList(inv.preservedBy, `${ip}.preservedBy`, errors, 0);
+      let covering = 0;
+      (Array.isArray(inv.preservedBy) ? inv.preservedBy : []).forEach((proof, j) => {
+        const pp = `${ip}.preservedBy[${j}]`;
+        if (!isObject(proof)) return;
+        // What the theorem is about, and the transitions that function is.
+        checkRef(proof.subject, `${pp}.subject`, errors);
+        if (!Array.isArray(proof.covers) || proof.covers.some((k) => !isString(k) || !ID_RE.test(k))) errors.push(`${pp}.covers must list the transitions the theorem's subject is (syscall ids, step kinds, or "${engine.ANY_SYSCALL}")`);
+        else {
+          if (new Set(proof.covers).size !== proof.covers.length) errors.push(`${pp}.covers repeats a transition`);
+          if (proof.covers.length) covering += 1;
+        }
+        // A theorem that proves a bundle names the bundles between its
+        // conclusion and the predicate, outermost first.
+        if (proof.within !== undefined) checkRefList(proof.within, `${pp}.within`, errors, 1);
+      });
+      if (inv.scope !== undefined && (!isString(inv.scope) || !inv.scope)) errors.push(`${ip}.scope must be a non-empty string when present`);
+      // An invariant some step is not proved to preserve says so in words.
+      if (Array.isArray(inv.preservedBy) && (!covering || inv.preservedBy.some((p) => isObject(p) && Array.isArray(p.covers) && !p.covers.length)) && !inv.scope) {
+        errors.push(`${ip}.scope must say what its proofs do not cover: ${covering ? 'a theorem here is about a function no step runs' : 'no theorem here is about a transition a step runs'}`);
+      }
       if (inv.runtimeCheck !== undefined) checkRef(inv.runtimeCheck, `${ip}.runtimeCheck`, errors);
       if (isString(inv.id)) {
         if (catalogIds.has(inv.id)) errors.push(`invariantCatalog: duplicate id ${inv.id}`);
@@ -547,7 +568,167 @@ export function validateTraceDataObject(data) {
     });
   });
 
+  // A `covers` entry must be a transition some step makes: a claim about a
+  // syscall no scenario runs has nothing here to be checked against.
+  const made = new Set([engine.ANY_SYSCALL]);
+  data.scenarios.forEach((sc) => (isObject(sc) && Array.isArray(sc.steps) ? sc.steps : []).forEach((step) => {
+    if (isObject(step) && step.kind !== 'boot') made.add(engine.transitionKey(step));
+  }));
+  (Array.isArray(data.invariantCatalog) ? data.invariantCatalog : []).forEach((inv, i) => {
+    (isObject(inv) && Array.isArray(inv.preservedBy) ? inv.preservedBy : []).forEach((proof, j) => {
+      (isObject(proof) && Array.isArray(proof.covers) ? proof.covers : []).forEach((key) => {
+        if (!made.has(key)) errors.push(`invariantCatalog[${i}].preservedBy[${j}].covers names "${key}", a transition no step makes`);
+      });
+    });
+  });
+
   return errors;
+}
+
+/**
+ * What a `covers` claim is checked against: for each transition key, the
+ * declarations the steps that make it name as the operation they run — the
+ * `operation` stage of a successful syscall step, and the `sourceRefs` of a
+ * timer tick, a reschedule or an interrupt.
+ */
+export function transitionRoots(data) {
+  const roots = new Map();
+  const add = (key, ref) => {
+    if (!isObject(ref) || !isString(ref.name) || !isString(ref.module)) return;
+    if (!roots.has(key)) roots.set(key, new Map());
+    roots.get(key).set(`${ref.module}#${ref.name}`, { name: ref.name, module: ref.module });
+  };
+  (Array.isArray(data && data.scenarios) ? data.scenarios : []).forEach((sc) => (Array.isArray(sc.steps) ? sc.steps : []).forEach((step) => {
+    if (!isObject(step) || step.kind === 'boot' || (step.outcome && step.outcome.status === 'error')) return;
+    const key = engine.transitionKey(step);
+    if (step.kind === 'syscall') (step.path || []).forEach((stage) => { if (isObject(stage) && stage.stage === 'operation') add(key, stage.ref); });
+    else (step.sourceRefs || []).forEach((ref) => add(key, ref));
+  }));
+  return new Map([...roots].map(([key, refs]) => [key, [...refs.values()]]));
+}
+
+/**
+ * Hold every `preservedBy` claim to the kernel's own call graph.
+ *
+ * `callGraph` is `map-callgraph.json`'s `{ module: { declaration: [targets] } }`
+ * at the trace's commit; a target is a bare name when the caller's module (or
+ * exactly one module) declares it, else `Module#name`. For each proof:
+ *
+ *   - the theorem refers to its `subject` (it is a statement about it);
+ *   - it reaches the invariant's predicate: directly, or through `within`,
+ *     each bundle a direct reference of the one before it and the predicate a
+ *     direct reference of the last (a conjunct, not something merely
+ *     mentioned three definitions down);
+ *   - for every transition in `covers`, each operation a step of that kind
+ *     names is the subject, is reached from it, or reaches it;
+ *   - a proof with no `covers` is about a function **no** step's operation
+ *     reaches — otherwise it should have claimed the step.
+ *
+ * Returns the issues. Reachability is over references, so it can admit a
+ * theorem about a helper deep inside an operation; choosing an operation-level
+ * theorem is editorial. What it cannot admit is what shipped before: a theorem
+ * about a function the dispatched path never runs.
+ */
+export function checkProofCoverage(data, callGraph) {
+  const issues = [];
+  if (!isObject(callGraph)) return ['the call graph is missing'];
+  const declaredIn = new Map(); // bare name → [modules]
+  for (const [module, decls] of Object.entries(callGraph)) {
+    for (const name of Object.keys(decls)) {
+      if (!declaredIn.has(name)) declaredIn.set(name, []);
+      declaredIn.get(name).push(module);
+    }
+  }
+  const idOf = (ref) => `${ref.module}#${ref.name}`;
+  const lookup = (id) => { const at = id.indexOf('#'); const m = callGraph[id.slice(0, at)]; return m ? m[id.slice(at + 1)] : undefined; };
+  // A trace reference may be written qualified (`SchedContext.chargeBudget`)
+  // where the graph lists the name as declared in its namespace.
+  const nodeOf = (ref) => {
+    if (lookup(idOf(ref)) !== undefined) return idOf(ref);
+    const last = ref.name.split('.').pop();
+    return lookup(`${ref.module}#${last}`) !== undefined ? `${ref.module}#${last}` : null;
+  };
+  const targetsOf = (id) => {
+    const module = id.slice(0, id.indexOf('#'));
+    return (lookup(id) || []).map((t) => {
+      if (t.indexOf('#') !== -1) return t;
+      if (callGraph[module] && callGraph[module][t] !== undefined) return `${module}#${t}`;
+      const homes = declaredIn.get(t) || [];
+      return homes.length === 1 ? `${homes[0]}#${t}` : null;
+    }).filter(Boolean);
+  };
+  const reachCache = new Map();
+  const reach = (id) => {
+    if (reachCache.has(id)) return reachCache.get(id);
+    const seen = new Set();
+    const queue = [id];
+    while (queue.length) {
+      const at = queue.pop();
+      if (seen.has(at)) continue;
+      seen.add(at);
+      for (const t of targetsOf(at)) if (!seen.has(t)) queue.push(t);
+    }
+    reachCache.set(id, seen);
+    return seen;
+  };
+  const related = (a, b) => a === b || reach(a).has(b) || reach(b).has(a);
+
+  const roots = transitionRoots(data);
+  const rootNodes = new Map();
+  for (const [key, refs] of roots) {
+    const nodes = [];
+    for (const ref of refs) {
+      const node = nodeOf(ref);
+      if (!node) issues.push(`transition "${key}": ${ref.name} (${ref.module}) is not in the call graph`);
+      else nodes.push(node);
+    }
+    rootNodes.set(key, nodes);
+  }
+  const syscallKeys = new Set();
+  (data.scenarios || []).forEach((sc) => (sc.steps || []).forEach((step) => { if (step.kind === 'syscall') syscallKeys.add(engine.transitionKey(step)); }));
+
+  (data.invariantCatalog || []).forEach((inv) => {
+    const predicate = isObject(inv.predicate) ? nodeOf(inv.predicate) : null;
+    if (!predicate) { issues.push(`invariant "${inv.id}": predicate ${inv.predicate && inv.predicate.name} is not in the call graph`); return; }
+    (inv.preservedBy || []).forEach((proof) => {
+      const at = `invariant "${inv.id}": ${proof.name}`;
+      const theorem = nodeOf(proof);
+      const subject = isObject(proof.subject) ? nodeOf(proof.subject) : null;
+      if (!theorem) { issues.push(`${at} is not in the call graph`); return; }
+      if (!subject) { issues.push(`${at}: its subject ${proof.subject && proof.subject.name} is not in the call graph`); return; }
+      const direct = new Set(targetsOf(theorem));
+      if (!direct.has(subject)) issues.push(`${at} does not refer to ${proof.subject.name}, so it is not a statement about it`);
+      let holder = theorem;
+      let holderName = proof.name;
+      let chainOk = true;
+      for (const bundle of proof.within || []) {
+        const node = nodeOf(bundle);
+        if (!node || !new Set(targetsOf(holder)).has(node)) { issues.push(`${at}: ${holderName} does not refer to ${bundle.name}`); chainOk = false; break; }
+        holder = node;
+        holderName = bundle.name;
+      }
+      if (chainOk && !new Set(targetsOf(holder)).has(predicate)) issues.push(`${at}: ${holderName} does not refer to ${inv.predicate.name}${(proof.within || []).length ? ', so the predicate is not one of its conjuncts' : ''}`);
+
+      const covers = Array.isArray(proof.covers) ? proof.covers : [];
+      const keys = [];
+      covers.forEach((key) => { if (key === engine.ANY_SYSCALL) keys.push(...syscallKeys); else keys.push(key); });
+      for (const key of keys) {
+        for (const root of rootNodes.get(key) || []) {
+          // A syscall names one operation; an entry step names every function
+          // it cites, so the subject need only be related to one of them.
+          if (syscallKeys.has(key) && !related(subject, root)) issues.push(`${at} is about ${proof.subject.name}, which the ${key} arm's ${root.slice(root.indexOf('#') + 1)} neither is, reaches, nor is reached from`);
+        }
+        if (!syscallKeys.has(key) && !(rootNodes.get(key) || []).some((root) => related(subject, root))) issues.push(`${at} is about ${proof.subject.name}, which no function a ${key} step cites is, reaches, or is reached from`);
+      }
+      if (!covers.length) {
+        for (const [key, nodes] of rootNodes) {
+          const hit = nodes.find((root) => subject === root || reach(root).has(subject));
+          if (hit) { issues.push(`${at} claims no transition, but ${proof.subject.name} is reached from the ${key} step's ${hit.slice(hit.indexOf('#') + 1)}: say so in covers`); break; }
+        }
+      }
+    });
+  });
+  return issues;
 }
 
 /** The checks one op needs from the state just before it applies. */
@@ -650,9 +831,11 @@ function validateStepShape(step, idx, stp, ids, errors) {
   if (!Array.isArray(step.guarantees)) errors.push(`${stp}.guarantees must be an array`);
   else step.guarantees.forEach((id) => { if (!ids.propertyIds.has(id)) errors.push(`${stp}.guarantees references unknown property ${id}`); });
 
-  if (!isObject(step.invariants) || !Array.isArray(step.invariants.preserved)) errors.push(`${stp}.invariants.preserved must be an array`);
-  else step.invariants.preserved.forEach((id) => { if (!ids.catalogIds.has(id)) errors.push(`${stp}.invariants.preserved references unknown invariant ${id}`); });
-  if (isObject(step.invariants) && step.invariants.failed !== undefined) errors.push(`${stp}.invariants.failed: a kernel trace never records a failing invariant`);
+  // Which invariants a step is proved to preserve is not the step's to say: it
+  // follows from the catalogue's `covers` (`engine.proofsCovering`), which the
+  // build checks against the kernel's call graph. A hand-kept list beside it
+  // claimed `timerTick`'s theorem for an endpoint call.
+  if (step.invariants !== undefined) errors.push(`${stp}.invariants was a v3 field; the proofs that cover a step are derived from invariantCatalog[].preservedBy[].covers`);
 }
 
 export default { validateTraceDataObject, reconstructState, scenarioStates, applyOp, applyDelta, cloneState, engine };

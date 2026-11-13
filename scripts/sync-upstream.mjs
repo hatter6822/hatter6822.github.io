@@ -68,7 +68,7 @@ import {
 import { collectSourceAnchors, resolveSourceAnchors } from './lib/source-anchors.mjs';
 import { extractImportTokens, inductiveConstructors } from './lib/lean-analysis.mjs';
 import { buildRustInventory, stripRustCommentsAndStrings } from './lib/rust-analysis.mjs';
-import { validateTraceDataObject, scenarioStates, engine as traceEngine } from './lib/trace-analysis.mjs';
+import { validateTraceDataObject, scenarioStates, checkProofCoverage, engine as traceEngine } from './lib/trace-analysis.mjs';
 import { groundTrace } from './lib/trace-anchors.mjs';
 
 const REPO = 'hatter6822/seLe4n';
@@ -559,7 +559,7 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
  * (trace-anchors.mjs). A name that no longer resolves fails the sync rather
  * than shipping a simulator that cites code the kernel no longer has.
  */
-async function writeTraces(work, head, version) {
+async function writeTraces(work, head, version, callGraph) {
   const path = join(work, TRACES_PATH);
   const upstream = existsSync(path);
   if (!upstream) console.warn(`⚠️  ${REPO} has no ${TRACES_PATH} yet — keeping the bundled reference fixture.`);
@@ -580,6 +580,13 @@ async function writeTraces(work, head, version) {
   });
   if (issues.length) {
     throw new Error(`${label} names kernel facts this checkout does not have:\n  ${issues.join('\n  ')}`);
+  }
+
+  // A resolved name is not a relevant one: each preservation theorem must be
+  // about the transition it is cited for, by this revision's own call graph.
+  const coverage = checkProofCoverage(traces, callGraph);
+  if (coverage.length) {
+    throw new Error(`${label} cites theorems for transitions they are not about:\n  ${coverage.join('\n  ')}`);
   }
 
   let steps = 0;
@@ -614,7 +621,7 @@ try {
   // indented; they are small and people do read them.
   await writeFile(MAP_FILE, JSON.stringify(mapData) + '\n');
   await writeFile(CALLGRAPH_FILE, JSON.stringify(callGraphData) + '\n');
-  await writeTraces(work, head, siteData.version);
+  await writeTraces(work, head, siteData.version, callGraphData.callGraph);
 
   const edges = Object.values(mapData.importsFrom).reduce((total, deps) => total + deps.length, 0);
   console.log(`Synced ${REPO}@${head.commitSha.slice(0, 7)}${PINNED_COMMIT ? ' (SELE4N_REF)' : currentWithRef ? ` (${REF})` : ' (pinned to the artifact\'s commit)'}`);

@@ -153,11 +153,17 @@ test('run.js renders the stage, inspector, guarantees, invariants and log after 
 test('run.js highlights exactly the guarantees and invariants the current step names', async () => {
   const { byId } = await bootRunJs('?scenario=vspace-wx&step=1');
   const step = sc('vspace-wx').steps[1];
-  assert.ok(step.guarantees.length > 0 && step.invariants.preserved.length > 0);
+  // Which invariants a step preserves by proof follows from the catalogue: a
+  // theorem covers a syscall step by its syscall id or by the "syscall" wildcard.
+  assert.equal(step.outcome.status, 'ok');
+  const covered = TRACES.invariantCatalog.filter((inv) => inv.preservedBy.some((p) => p.covers.includes(step.syscall.id) || p.covers.includes('syscall')));
+  assert.ok(step.guarantees.length > 0 && covered.length > 0 && covered.length < TRACES.invariantCatalog.length);
   const active = [];
   (function walk(n) { if (klass(n).split(/\s+/).includes('prop-card') && n.dataset.active === 'true') active.push(n.attrs.id); (n.childNodes || []).forEach(walk); })(byId['guarantee-grid']);
   assert.deepEqual(active.sort(), step.guarantees.map((id) => 'property-' + id).sort());
-  assert.equal(countStatus(byId['invariant-list'], 'preserved'), step.invariants.preserved.length);
+  assert.equal(countStatus(byId['invariant-list'], 'preserved'), covered.length);
+  const refused = await bootRunJs('?scenario=capability-gate&step=1');
+  assert.equal(countStatus(refused.byId['invariant-list'], 'preserved'), 0, 'a refused step changed nothing: no proof is cited for it');
 });
 
 test('run.js lists the checked path in the inspector and names the stage that refused', async () => {

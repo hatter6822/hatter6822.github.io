@@ -11,8 +11,8 @@
  *
  * So a name is not prose. The sync resolves every `{ name, module }` reference
  * in the trace against the pinned checkout — the same digest-verified tree the
- * code map is generated from — and stamps the file and line it is declared on,
- * with the commit as `sourceRef`. A reference it cannot place fails the sync,
+ * code map is generated from — and stamps the line it is declared on in its
+ * module's file, with the commit as `sourceRef`. A reference it cannot place fails the sync,
  * naming it: a declaration that left its module is an editorial decision (the
  * step may need rewriting, not repointing), the same rule the landing page's
  * deep links follow (`source-anchors.mjs`).
@@ -56,6 +56,13 @@ export function collectTraceRefs(data) {
   (data?.invariantCatalog ?? []).forEach((inv) => {
     note(inv.predicate, `invariant "${inv.id}".predicate`);
     noteAll(inv.preservedBy, `invariant "${inv.id}".preservedBy`);
+    // A proof names the function it is about and, when it proves a bundle,
+    // the bundles the predicate sits in: each is a declaration too.
+    (Array.isArray(inv.preservedBy) ? inv.preservedBy : []).forEach((proof, i) => {
+      if (!isRef(proof)) return;
+      note(proof.subject, `invariant "${inv.id}".preservedBy[${i}].subject`);
+      noteAll(proof.within, `invariant "${inv.id}".preservedBy[${i}].within`);
+    });
     note(inv.runtimeCheck, `invariant "${inv.id}".runtimeCheck`);
   });
   (data?.scenarios ?? []).forEach((sc) => (sc.steps ?? []).forEach((step, i) => {
@@ -81,10 +88,11 @@ export function refLine(text, name, path) {
 }
 
 /**
- * Stamp `path` and `line` on every reference; return the ones that did not resolve.
+ * Stamp `line` on every reference; return the ones that did not resolve.
  *
- * `readSource(path)` returns a file's text, or undefined when the checkout has
- * no such file.
+ * A reference's file is its module's (`modulePath`), so no path is stored: a
+ * second copy of it could only disagree. `readSource(path)` returns a file's
+ * text, or undefined when the checkout has no such file.
  */
 export function anchorTraceRefs(data, readSource) {
   const unresolved = [];
@@ -100,7 +108,7 @@ export function anchorTraceRefs(data, readSource) {
       delete ref.line;
       continue;
     }
-    ref.path = path;
+    delete ref.path;
     ref.line = line;
   }
   return unresolved;

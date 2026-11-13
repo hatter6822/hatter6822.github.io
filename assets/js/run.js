@@ -12,8 +12,10 @@
  * `assets/js/trace-engine.js` — the same file the validator runs — so the page
  * cannot show a decision the build did not check. Every name is grounded: the
  * sync resolves each `{ name, module }` in the pinned kernel checkout and
- * stamps `path` and `line`; a link is built from those fields only, at
- * `data.sourceRef` (`scripts/lib/trace-anchors.mjs`).
+ * stamps its `line`; a link is built from the module's file, that line and
+ * `data.sourceRef`, and from nothing else (`scripts/lib/trace-anchors.mjs`).
+ * Which theorems speak for a step is the engine's to say too
+ * (`proofsCovering`), from claims the build checks against the call graph.
  *
  * Constraints (as on the rest of the site): a plain IIFE, no framework, strict
  * CSP (no inline style or script, no eval). Bundle-only: one fetch of
@@ -185,10 +187,11 @@
   var LEAN_PATH_RE = /^[A-Za-z0-9_]+(?:\/[A-Za-z0-9_]+)*\.lean$/;
   function sourceHref(ref) {
     var sha = app.data && app.data.sourceRef;
-    if (!ref || !SHA_RE.test(String(sha || "")) || !LEAN_PATH_RE.test(String(ref.path || ""))) return "";
+    var path = ref ? E.modulePath(ref.module) : "";
+    if (!ref || !SHA_RE.test(String(sha || "")) || !LEAN_PATH_RE.test(path)) return "";
     var line = Number(ref.line);
     if (!(line > 0) || Math.floor(line) !== line) return "";
-    return "https://github.com/" + REPO + "/blob/" + sha + "/" + ref.path + "#L" + line;
+    return "https://github.com/" + REPO + "/blob/" + sha + "/" + path + "#L" + line;
   }
   /* The code map draws production modules only; the testing framework is outside it. */
   function mapHref(module) {
@@ -201,13 +204,42 @@
     var code = el("code", { text: ref.name });
     var klass = cls || "ref-link";
     if (!href) return el("span", { "class": klass + " ref-unlinked", title: ref.module }, [code]);
-    return el("a", { "class": klass, href: href, target: "_blank", rel: "noopener noreferrer", title: ref.module + " · " + ref.path + ":" + ref.line }, [code]);
+    return el("a", { "class": klass, href: href, target: "_blank", rel: "noopener noreferrer", title: ref.module + " · " + E.modulePath(ref.module) + ":" + ref.line }, [code]);
   }
 
   function propertyById(id) { return E.byId(app.data && app.data.propertyCatalog, id); }
   function invariantById(id) { return E.byId(app.data && app.data.invariantCatalog, id); }
   function stepGuarantees(step) { return (step && Array.isArray(step.guarantees)) ? step.guarantees : []; }
-  function stepPreserved(step) { return (step && step.invariants && Array.isArray(step.invariants.preserved)) ? step.invariants.preserved : []; }
+  /* The invariants some catalogue theorem is about this step's transition
+     for, each with those theorems: [{ inv, proofs }]. Derived, never listed. */
+  function stepProofs(step) {
+    var out = [];
+    ((app.data && app.data.invariantCatalog) || []).forEach(function (inv) {
+      var proofs = E.proofsCovering(inv, step);
+      if (proofs.length) out.push({ inv: inv, proofs: proofs });
+    });
+    return out;
+  }
+  function stepPreserved(step) { return stepProofs(step).map(function (p) { return p.inv.id; }); }
+  /* What a theorem's `covers` says, in words. */
+  function coversText(proof) {
+    return (proof.covers || []).map(function (key) {
+      if (key === E.ANY_SYSCALL) return tt("run.proof_any_syscall", "every syscall");
+      return E.STEP_KINDS.indexOf(key) !== -1 ? kindLabel(key) : key;
+    }).join(", ");
+  }
+  /* One theorem as the catalogue states it: the name, the function it is
+     about, the bundle it proves the predicate inside, and the transitions
+     that function is — or that it is about the reference model only. */
+  function proofRow(proof, here) {
+    var bits = [refLink(proof)];
+    if (proof.subject) bits.push(el("span", { "class": "proof-about" }, [tt("run.proof_about", "about") + " ", refLink(proof.subject, "ref-link ref-quiet")]));
+    if (proof.within && proof.within.length) bits.push(el("span", { "class": "proof-within" }, [tt("run.proof_within", "as a conjunct of") + " ", refLink(proof.within[proof.within.length - 1], "ref-link ref-quiet")]));
+    bits.push((proof.covers || []).length
+      ? el("span", { "class": "proof-covers", text: tt("run.proof_covers", "covers: {{list}}", { list: coversText(proof) }) })
+      : el("span", { "class": "proof-covers proof-reference", text: tt("run.proof_reference", "reference model only: the dispatched path does not run it") }));
+    return el("li", { "class": "proof-row", dataset: { here: here ? "true" : "false" } }, bits);
+  }
 
   /* ════════════════════════════════════════════════════════════
      Stage: step header, scene tabs, before/after, scene, legend
@@ -440,8 +472,9 @@
         var rows = el("dl", { "class": "inv-refs" });
         if (inv.predicate) { rows.appendChild(el("dt", { text: tt("run.inv_predicate", "Predicate") })); rows.appendChild(el("dd", {}, [refLink(inv.predicate)])); }
         if (inv.preservedBy && inv.preservedBy.length) {
+          var here = E.proofsCovering(inv, step);
           rows.appendChild(el("dt", { text: tt("run.inv_preserved_by", "Preserved by") }));
-          rows.appendChild(el("dd", {}, inv.preservedBy.map(function (ref) { return refLink(ref); })));
+          rows.appendChild(el("dd", {}, [el("ul", { "class": "proof-list" }, inv.preservedBy.map(function (proof) { return proofRow(proof, !app.sandbox && here.indexOf(proof) !== -1); }))]));
         }
         if (inv.runtimeCheck) {
           rows.appendChild(el("dt", { text: tt("run.inv_runtime", "Runtime check") }));
@@ -456,6 +489,7 @@
             status === "violated" ? el("span", { "class": "inv-badge", text: tt("run.inv_violated", "violated") }) : null
           ]),
           inv.meaning ? el("p", { "class": "inv-meaning", text: inv.meaning }) : null,
+          inv.scope ? el("p", { "class": "inv-scope" }, [el("strong", { text: tt("run.caveat", "Scope") + ": " }), inv.scope]) : null,
           status === "violated" ? el("p", { "class": "inv-why", text: violations[inv.id].join(" · ") }) : null,
           rows
         ]));
@@ -479,7 +513,9 @@
       } else if (preserved.length) {
         text = tt("run.inv_summary_preserved", "{{count}} of {{total}} preserved by a theorem covering this step", { count: preserved.length, total: catalog.length });
       } else {
-        text = tt("run.inv_summary_none", "This step changes no state these invariants constrain");
+        text = step && step.kind === "boot" ? tt("run.inv_summary_boot", "The initial state: every check below holds on it")
+          : isRefused(step) ? tt("run.inv_summary_refused", "Refused: the state is unchanged, so every invariant holds as it did")
+            : tt("run.inv_summary_none", "No theorem in this catalogue is about this step's transition; the checks below hold on its state");
         tone = "neutral";
       }
       DOM.invariantSummary.textContent = text;
@@ -691,7 +727,7 @@
     }
 
     var guarantees = stepGuarantees(step);
-    var preserved = stepPreserved(step);
+    var preserved = stepProofs(step);
     if (guarantees.length || preserved.length) {
       var why = section(tt("run.why_safe", "Why it's safe"), "insp-why");
       if (guarantees.length) {
@@ -708,12 +744,10 @@
       }
       if (preserved.length) {
         var il = el("ul", { "class": "insp-preserved", "aria-label": tt("run.preserved", "Invariants preserved") });
-        preserved.forEach(function (id) {
-          var inv = invariantById(id);
-          if (!inv) return;
+        preserved.forEach(function (p) {
           il.appendChild(el("li", {}, [
-            el("a", { href: "#invariant-" + id, "class": "insp-inv", text: "✓ " + inv.label }),
-            inv.preservedBy && inv.preservedBy[0] ? refLink(inv.preservedBy[0]) : null
+            el("a", { href: "#invariant-" + p.inv.id, "class": "insp-inv", text: "✓ " + p.inv.label }),
+            refLink(p.proofs[0])
           ]));
         });
         why.appendChild(el("p", { "class": "insp-subhead", text: tt("run.preserved", "Invariants preserved") }));

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
-import { validateTraceDataObject, scenarioStates } from './lib/trace-analysis.mjs';
+import { validateTraceDataObject, scenarioStates, checkProofCoverage } from './lib/trace-analysis.mjs';
 import { collectTraceRefs, modulePath } from './lib/trace-anchors.mjs';
 
 function fail(message) {
@@ -20,8 +20,8 @@ async function validateTraceDataAndCapture() {
 /**
  * Every declaration a trace names must be grounded at the code map's revision.
  *
- * The sync resolves each `{ name, module }` reference to the file and line it
- * is declared on (scripts/lib/trace-anchors.mjs) and records the commit as
+ * The sync resolves each `{ name, module }` reference to the line it is
+ * declared on in its module's file (scripts/lib/trace-anchors.mjs) and records the commit as
  * `sourceRef`. Here that is checked against the other snapshot from the same
  * pipeline: the revision must be map-data's, every reference must carry its
  * stamp, and wherever the code map lists the module's declarations, the name
@@ -57,7 +57,7 @@ async function validateGrounding() {
 
   let grounded = 0;
   for (const { ref, where } of collectTraceRefs(traceData)) {
-    if (ref.path !== modulePath(ref.module) || !Number.isInteger(ref.line)) {
+    if (!modulePath(ref.module) || !Number.isInteger(ref.line)) {
       fail(`trace ${where}: ${ref.name} (${ref.module}) carries no source anchor — run scripts/sync-upstream.mjs`);
       continue;
     }
@@ -72,8 +72,40 @@ async function validateGrounding() {
   if (!process.exitCode) console.log(`   ${grounded} declaration reference(s) agree with data/map-data.json at ${String(mapData.commitSha).slice(0, 7)}`);
 }
 
+/**
+ * Every theorem an invariant cites must be about the transition it is cited
+ * for. The catalogue says which function each theorem is about (`subject`) and
+ * which steps that function is (`covers`); the kernel's call graph, bundled
+ * from the same commit, says whether that is so (`checkProofCoverage`). This
+ * is what a line anchor cannot catch: `timerTick_preserves_…` resolved, and
+ * was cited for every step, while the dispatched path runs `timerTickOnCore`.
+ */
+async function validateProofCoverage() {
+  if (!traceData || process.exitCode) return;
+  let graph;
+  try {
+    graph = JSON.parse(await readFile(new URL('../data/map-callgraph.json', import.meta.url), 'utf8'));
+  } catch (e) {
+    // The call graph is bundled beside the traces; without it the claim that a
+    // theorem covers a step is unchecked, which is a failure and not a skip.
+    fail(`map-callgraph.json could not be read, so proof coverage is unchecked — ${e.message}`);
+    return;
+  }
+  if (graph.commitSha !== traceData.sourceRef) {
+    fail(`map-callgraph.json is at ${graph.commitSha}, execution-traces.json at ${traceData.sourceRef} — re-run scripts/sync-upstream.mjs`);
+    return;
+  }
+  const issues = checkProofCoverage(traceData, graph.callGraph);
+  for (const issue of issues) fail(`proof coverage — ${issue}`);
+  if (!issues.length) {
+    const proofs = traceData.invariantCatalog.reduce((n, inv) => n + (inv.preservedBy || []).length, 0);
+    console.log(`   ${proofs} preservation theorem(s) are about the transitions they are cited for (data/map-callgraph.json)`);
+  }
+}
+
 await validateTraceDataAndCapture();
 await validateGrounding();
+await validateProofCoverage();
 
 if (traceData && !process.exitCode) {
   let stepCount = 0;

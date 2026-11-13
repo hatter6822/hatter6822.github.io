@@ -1116,6 +1116,35 @@
     return out;
   }
 
+  /* ── Which proofs speak for a step ───────────────────────── */
+
+  /* A step is one kernel transition: a syscall's arm, or an entry that takes
+     no argument. Its key is what a catalogue theorem's `covers` names. */
+  var ANY_SYSCALL = "syscall";
+  function transitionKey(step) {
+    if (!step) return "";
+    return step.kind === "syscall" && step.syscall ? String(step.syscall.id) : String(step.kind || "");
+  }
+  /* The `preservedBy` theorems of an invariant that are about the transition
+     this step is. A refused step is no transition (an error carries no
+     state), and neither is the initial state, so nothing covers them. The
+     build checks each `covers` claim against the kernel's call graph
+     (`scripts/validate-traces.mjs`); nothing here is believed for itself. */
+  function proofsCovering(inv, step) {
+    if (!inv || !step || step.kind === "boot") return [];
+    if (step.outcome && step.outcome.status === "error") return [];
+    var key = transitionKey(step);
+    return (inv.preservedBy || []).filter(function (p) {
+      var covers = (p && p.covers) || [];
+      return covers.indexOf(key) !== -1 || (step.kind === "syscall" && covers.indexOf(ANY_SYSCALL) !== -1);
+    });
+  }
+  /* `SeLe4n.Kernel.API` → `SeLe4n/Kernel/API.lean`: a module is its file. */
+  function modulePath(module) {
+    var m = String(module === null || module === undefined ? "" : module);
+    return /^[A-Z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/.test(m) ? m.replace(/\./g, "/") + ".lean" : "";
+  }
+
   /* ── Executable mirrors of the catalogue's invariants ────── */
 
   /* Returns [{ id, message }], one per violated check, keyed by invariant id. */
@@ -1136,8 +1165,9 @@
     (s.cores || []).forEach(function (c) {
       if (c.current === null || c.current === undefined) return;
       var th = thread(s, c.current);
+      /* `currentThreadValidOnCore` says only that the current thread resolves;
+         that it is not blocked is `blockedNotRunnable`'s to say, below. */
       if (!th) { fail("currentThreadValid", "core " + c.id + " runs unknown thread " + c.current); return; }
-      if (((th.ipc && th.ipc.state) || "ready") !== "ready") fail("currentThreadValid", "core " + c.id + " runs " + c.current + ", which is " + th.ipc.state);
       if (queued[c.current] !== undefined) fail("queueCurrentConsistent", c.current + " runs on core " + c.id + " and is still queued on core " + queued[c.current]);
     });
     threads.forEach(function (th) {
@@ -1352,6 +1382,10 @@
     threadStatus: threadStatus,
     notificationState: notificationState,
     touched: touched,
+    ANY_SYSCALL: ANY_SYSCALL,
+    transitionKey: transitionKey,
+    proofsCovering: proofsCovering,
+    modulePath: modulePath,
     checkState: checkState
   };
 

@@ -17,6 +17,8 @@ import {
   applyOp,
   cloneState,
   engine,
+  checkProofCoverage,
+  transitionRoots,
   SCENES
 } from './trace-analysis.mjs';
 import {
@@ -91,12 +93,98 @@ test('ops the kernel has no path for are rejected by name', () => {
 test('catalogue references must resolve', () => {
   const data = bundled();
   step(data, 'ipc-call-reply', 1).guarantees.push('no-such-property');
-  step(data, 'ipc-call-reply', 1).invariants.preserved.push('noSuchInvariant');
   hasError(data, 'references unknown property no-such-property');
-  hasError(data, 'references unknown invariant noSuchInvariant');
-  const failed = bundled();
-  step(failed, 'ipc-call-reply', 1).invariants.failed = ['runQueueUnique'];
-  hasError(failed, 'a kernel trace never records a failing invariant');
+});
+
+/* ── Which proofs cover which transition ────────────────────── */
+
+const invariant = (data, id) => data.invariantCatalog.find((i) => i.id === id);
+
+test('a step no longer lists its invariants, and a reference no longer carries its path', () => {
+  const data = bundled();
+  step(data, 'ipc-call-reply', 1).invariants = { preserved: ['runQueueUnique'] };
+  hasError(data, '.invariants was a v3 field');
+  const withPath = bundled();
+  withPath.propertyCatalog[0].theorems[0].path = 'SeLe4n/Kernel/API.lean';
+  hasError(withPath, '.path was a v3 field');
+});
+
+test('modulePath derives a file from a module name and refuses anything else', () => {
+  assert.equal(engine.modulePath('SeLe4n.Kernel.API'), 'SeLe4n/Kernel/API.lean');
+  assert.equal(engine.modulePath('Main'), 'Main.lean');
+  for (const bad of ['', 'SeLe4n..API', '../etc/passwd', 'SeLe4n/Kernel', 'a b', null, 7]) assert.equal(engine.modulePath(bad), '', String(bad));
+});
+
+test('transitionKey and proofsCovering: a syscall by id, any other step by kind, nothing for a boot or a refusal', () => {
+  const call = step(BUNDLED, 'ipc-call-reply', 1);
+  assert.equal(engine.transitionKey(call), call.syscall.id);
+  const tick = BUNDLED.scenarios.flatMap((s) => s.steps).find((s) => s.kind === 'timer');
+  assert.equal(engine.transitionKey(tick), 'timer');
+  const inv = {
+    preservedBy: [
+      { name: 'a', covers: ['call'] }, { name: 'b', covers: [engine.ANY_SYSCALL] },
+      { name: 'c', covers: ['timer'] }, { name: 'd', covers: [] }
+    ]
+  };
+  assert.deepEqual(engine.proofsCovering(inv, call).map((p) => p.name), call.syscall.id === 'call' ? ['a', 'b'] : ['b']);
+  assert.deepEqual(engine.proofsCovering(inv, tick).map((p) => p.name), ['c']);
+  assert.deepEqual(engine.proofsCovering(inv, step(BUNDLED, 'ipc-call-reply', 0)), []);
+  const refused = step(BUNDLED, 'capability-gate', 1);
+  assert.equal(refused.outcome.status, 'error');
+  assert.deepEqual(engine.proofsCovering(inv, refused), [], 'a refused step changed nothing, so nothing was preserved by a proof');
+});
+
+test('a proof entry names its subject and the transitions it covers; an uncovered invariant says so', () => {
+  const noSubject = bundled();
+  delete invariant(noSubject, 'runQueueUnique').preservedBy[0].subject;
+  assert.ok(errorsOf(noSubject).some((m) => m.includes('preservedBy[0].subject')));
+  const noCovers = bundled();
+  delete invariant(noCovers, 'runQueueUnique').preservedBy[0].covers;
+  hasError(noCovers, '.covers must list the transitions');
+  const twice = bundled();
+  invariant(twice, 'runQueueUnique').preservedBy[0].covers = ['timer', 'timer'];
+  hasError(twice, '.covers repeats a transition');
+  const unmade = bundled();
+  invariant(unmade, 'runQueueUnique').preservedBy[0].covers = ['timer', 'hypercall'];
+  hasError(unmade, 'names "hypercall", a transition no step makes');
+  const silent = bundled();
+  const reference = invariant(silent, 'blockedNotRunnable');
+  assert.deepEqual(reference.preservedBy.map((p) => p.covers.length), [0], 'the fixture has a reference-only entry to test with');
+  delete reference.scope;
+  hasError(silent, '.scope must say what its proofs do not cover');
+});
+
+const CALL_GRAPH = JSON.parse(readFileSync(new URL('../../data/map-callgraph.json', import.meta.url), 'utf8')).callGraph;
+
+test('checkProofCoverage accepts the bundle, and reads its roots off the steps', () => {
+  assert.deepEqual(checkProofCoverage(BUNDLED, CALL_GRAPH), []);
+  assert.deepEqual(checkProofCoverage(BUNDLED, null), ['the call graph is missing']);
+  const roots = transitionRoots(BUNDLED);
+  assert.ok(roots.get('timer').some((r) => r.name === 'timerTickOnCore'));
+  assert.ok(roots.get('call').length >= 1 && !roots.has('boot'));
+});
+
+test('checkProofCoverage rejects a theorem cited for a transition its subject is not on', () => {
+  // The timer-tick theorem is about timerTickOnCore; no syscall arm runs it.
+  const wrongTransition = bundled();
+  invariant(wrongTransition, 'runQueueUnique').preservedBy[0].covers = ['timer', 'call'];
+  assert.ok(checkProofCoverage(wrongTransition, CALL_GRAPH).some((m) => m.includes('timerTickOnCore_preserves_runQueueUniqueOnCore') && m.includes('call arm')));
+
+  // A theorem that never mentions the function it is said to be about.
+  const wrongSubject = bundled();
+  const proof = invariant(wrongSubject, 'runQueueUnique').preservedBy[0];
+  proof.subject = { ...invariant(wrongSubject, 'cdtAcyclic').preservedBy[0].subject };
+  assert.ok(checkProofCoverage(wrongSubject, CALL_GRAPH).some((m) => m.includes('does not refer to')));
+
+  // A theorem about a bundle is not a theorem about a predicate outside it.
+  const wrongPredicate = bundled();
+  invariant(wrongPredicate, 'runQueueUnique').predicate = { ...invariant(wrongPredicate, 'cdtAcyclic').predicate };
+  assert.ok(checkProofCoverage(wrongPredicate, CALL_GRAPH).some((m) => m.includes('does not refer to')));
+
+  // "Reference only" is a claim too: it fails for a function a step runs.
+  const hidden = bundled();
+  invariant(hidden, 'runQueueUnique').preservedBy[0].covers = [];
+  assert.ok(checkProofCoverage(hidden, CALL_GRAPH).some((m) => m.includes('say so in covers')));
 });
 
 /* ── Refusals ───────────────────────────────────────────────── */
@@ -418,7 +506,7 @@ const ref = (name, module = 'SeLe4n.Kernel.Demo') => ({ name, module });
 function anchorDoc() {
   return {
     propertyCatalog: [{ id: 'p1', theorems: [ref('p1_thm')] }],
-    invariantCatalog: [{ id: 'inv1', predicate: ref('inv1'), preservedBy: [ref('send_preserves_inv1')] }],
+    invariantCatalog: [{ id: 'inv1', predicate: ref('inv1'), preservedBy: [{ ...ref('send_preserves_inv1'), subject: ref('send'), covers: ['send'], within: [ref('bundle1')] }] }],
     scenarios: [{
       id: 'demo',
       steps: [
@@ -445,6 +533,7 @@ const DEMO_SOURCES = {
     'def inv1 : Prop := True',
     'theorem send_preserves_inv1 : True := trivial',
     'def send : Nat := 2',
+    'def bundle1 : Prop := inv1',
     'end Demo'
   ].join('\n'),
   'SeLe4n/Model/Object/Types.lean': [
@@ -458,16 +547,19 @@ const readDemo = (path) => DEMO_SOURCES[path];
 
 test('collectTraceRefs finds every reference: catalogue theorems, predicates, step refs and path stages', () => {
   const names = collectTraceRefs(anchorDoc()).map(({ ref: r }) => r.name).sort();
-  assert.deepEqual(names, ['entry', 'inv1', 'lookup', 'p1_thm', 'send', 'send', 'send_preserves_inv1'].sort());
+  assert.deepEqual(names, ['bundle1', 'entry', 'inv1', 'lookup', 'p1_thm', 'send', 'send', 'send', 'send_preserves_inv1'].sort());
   assert.ok(collectTraceRefs(BUNDLED).length > 100, 'the bundle cites its declarations');
 });
 
-test('anchorTraceRefs stamps path and line, skips comments, and reports what it cannot place', () => {
+test('anchorTraceRefs stamps the line, skips comments, and reports what it cannot place', () => {
   const data = anchorDoc();
+  data.scenarios[0].steps[1].sourceRefs[0].path = 'SeLe4n/Stale.lean';
   assert.deepEqual(anchorTraceRefs(data, readDemo), []);
   const send = data.scenarios[0].steps[1].sourceRefs[0];
-  assert.equal(send.path, 'SeLe4n/Kernel/Demo.lean');
+  assert.equal(send.path, undefined, 'the file is the module\'s; a stored copy is removed');
   assert.equal(send.line, 9);
+  const proof = data.invariantCatalog[0].preservedBy[0];
+  assert.deepEqual([proof.line, proof.subject.line, proof.within[0].line], [8, 9, 10]);
   assert.equal(data.propertyCatalog[0].theorems[0].line, 6);
 
   const missing = anchorDoc();
