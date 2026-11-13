@@ -19,6 +19,8 @@ import {
   canonicalMetricsIssues,
   canonicalSourceDigest,
   canonicalSourcePaths,
+  checkoutRelativePath,
+  isSafeGitRef,
   compareCanonicalPaths,
   crossCoreNonInterferenceCount,
   declarationIndexFromModules,
@@ -634,4 +636,21 @@ test('syscallSurfaceNumbers reads the number of every syscall, gaps included', (
   assert.equal(syscallSurfaceNumbers(map, () => source.replace("  | .yield => 41\n", '')), undefined);
   assert.equal(syscallSurfaceNumbers(map, () => source.replace('=> 41', '=> 1')), undefined);
   assert.equal(syscallSurfaceNumbers(map, null), undefined);
+});
+
+test('checkoutRelativePath admits a git-tree path and refuses anything that could leave the checkout', () => {
+  for (const ok of ['lakefile.toml', 'SeLe4n/Kernel/API.lean', 'rust/sele4n-abi/src/lib.rs', 'docs/codebase_map.json', 'a..b/c.lean']) {
+    assert.equal(checkoutRelativePath(ok), ok);
+  }
+  for (const bad of ['', '/etc/passwd', '../x', 'a/../../x', 'a//b', './a', 'a/./b', 'a\\..\\b', 'C:/x', 'a\u0000b', 'a\nb',
+    '.git/config', 'x/.git/config', 'a/', undefined, null, 7, ['a'], 'x'.repeat(2000)]) {
+    assert.throws(() => checkoutRelativePath(bad), /not a path inside the checkout/, JSON.stringify(bad));
+  }
+});
+
+test('isSafeGitRef refuses anything git would read as an option or a ref expression', () => {
+  for (const ok of ['main', 'v0.37.19', 'release/1.0', 'e93b82bbf7c844489f0e614db3b05db355218a14']) assert.ok(isSafeGitRef(ok), ok);
+  for (const bad of ['', '-b', '--upload-pack=x', 'a b', 'a..b', 'a~1', 'a^', 'a:b', 'a\nb', 'x/', 'x.lock', '@{u}', undefined, 'x'.repeat(300)]) {
+    assert.ok(!isSafeGitRef(bad), JSON.stringify(bad));
+  }
 });

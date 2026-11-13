@@ -54,6 +54,8 @@ import {
   productionLocReproduction,
   canonicalSourceDigest,
   canonicalSourcePaths,
+  checkoutRelativePath,
+  isSafeGitRef,
   declarationIndexFromModules,
   externBridgeSize,
   syscallSurfaceSize,
@@ -88,6 +90,16 @@ const MAP_FILE = new URL('data/map-data.json', ROOT);
 const CALLGRAPH_FILE = new URL('data/map-callgraph.json', ROOT);
 const TRACE_FILE = new URL('data/execution-traces.json', ROOT);
 const LOCALES_DIR = new URL('locales/', ROOT);
+
+/* Every read of the checkout goes through here; see checkoutRelativePath. */
+function inCheckout(work, path) {
+  return join(work, checkoutRelativePath(path));
+}
+
+if (!isSafeGitRef(REF)) {
+  console.error(`SELE4N_REF=${JSON.stringify(REF)} is not a branch, tag or commit name`);
+  process.exit(1);
+}
 
 function git(cwd, args) {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -127,7 +139,7 @@ function physicalLineCount(buffer) {
  * rather than silent.
  */
 function readProjectVersion(work) {
-  const manifestPath = join(work, MANIFEST_PATH);
+  const manifestPath = inCheckout(work, MANIFEST_PATH);
   if (!existsSync(manifestPath)) {
     throw new Error(`${REPO}@${REF} has no ${MANIFEST_PATH}; the published version is declared there`);
   }
@@ -141,7 +153,7 @@ function readProjectVersion(work) {
 }
 
 function sourceReader(work) {
-  return (path) => readFileSync(join(work, path), 'utf8');
+  return (path) => readFileSync(inCheckout(work, path), 'utf8');
 }
 
 /**
@@ -164,7 +176,7 @@ async function buildSourceAnchors(work) {
   for (const file of surfaces) anchors.push(...collectSourceAnchors(await readFile(file, 'utf8')));
 
   const { resolved, unresolved } = resolveSourceAnchors(anchors, (path) => {
-    try { return readFileSync(join(work, path), 'utf8'); } catch { return undefined; }
+    try { return readFileSync(inCheckout(work, path), 'utf8'); } catch { return undefined; }
   });
 
   for (const entry of unresolved) {
@@ -194,7 +206,7 @@ function assertSyscallWrapperCoverage(codebaseMap, work, rust, published) {
     (moduleInfo.declarations || []).some((d) => d?.name === 'SyscallId' && d?.kind === 'inductive'));
   if (!owner) throw new Error('syscall wrapper coverage: no production module declares `inductive SyscallId`');
 
-  const constructors = inductiveConstructors(readFileSync(join(work, owner.path), 'utf8'), 'SyscallId') || [];
+  const constructors = inductiveConstructors(readFileSync(inCheckout(work, owner.path), 'utf8'), 'SyscallId') || [];
   if (constructors.length !== published) {
     throw new Error(
       `syscall wrapper coverage: the snapshot publishes ${published} syscalls but \`SyscallId\` has ` +
@@ -218,7 +230,7 @@ function assertSyscallWrapperCoverage(codebaseMap, work, rust, published) {
   let text = '';
   for (const file of crate.files || []) {
     if (file.role === 'test') continue;
-    try { text += `\n${stripRustCommentsAndStrings(readFileSync(join(work, file.path), 'utf8'))}`; }
+    try { text += `\n${stripRustCommentsAndStrings(readFileSync(inCheckout(work, file.path), 'utf8'))}`; }
     catch { /* listed but unreadable */ }
   }
 
@@ -239,7 +251,7 @@ function assertSyscallWrapperCoverage(codebaseMap, work, rust, published) {
 function lineCounter(work) {
   return (path) => {
     try {
-      return physicalLineCount(readFileSync(join(work, path)));
+      return physicalLineCount(readFileSync(inCheckout(work, path)));
     } catch {
       return undefined;
     }
@@ -276,7 +288,7 @@ function checkoutHead(work) {
 
 function digestOf(work, files) {
   return canonicalSourceDigest(createHash('sha256'), canonicalSourcePaths(files), (path) =>
-    readFileSync(join(work, path)));
+    readFileSync(inCheckout(work, path)));
 }
 
 /**
@@ -300,21 +312,28 @@ async function acquire() {
   }
 }
 
+/* The checkout is data. Links are written out as plain files holding their
+   target (core.symlinks=false), so nothing read through a checkout path can
+   be a file outside it; no submodule is fetched; and no hook is installed
+   from a template directory. */
+const CLONE_FLAGS = ['--quiet', '--depth', '1', '--no-recurse-submodules', '--template=',
+  '--config', 'core.symlinks=false', '--config', 'core.hooksPath=/dev/null'];
+
 async function acquireInto(work) {
   if (PINNED_COMMIT) {
     // A pinned revision: shallow-clone the default branch, then fetch the
     // commit by SHA (GitHub serves reachable commits) and check it out.
-    execFileSync('git', ['clone', '--quiet', '--depth', '1', CLONE_URL, work],
+    execFileSync('git', ['clone', ...CLONE_FLAGS, CLONE_URL, work],
       { stdio: ['ignore', 'ignore', 'pipe'] });
     execFileSync('git', ['-C', work, 'fetch', '--quiet', '--depth', '1', 'origin', PINNED_COMMIT],
       { stdio: ['ignore', 'ignore', 'pipe'] });
     git(work, ['checkout', '--quiet', 'FETCH_HEAD']);
   } else {
-    execFileSync('git', ['clone', '--quiet', '--depth', '1', '--branch', REF, CLONE_URL, work],
+    execFileSync('git', ['clone', ...CLONE_FLAGS, '--branch', REF, CLONE_URL, work],
       { stdio: ['ignore', 'ignore', 'pipe'] });
   }
 
-  const mapPath = join(work, METRICS_PATH);
+  const mapPath = inCheckout(work, METRICS_PATH);
   if (!existsSync(mapPath)) throw new Error(`${REPO}@${REF} has no ${METRICS_PATH}`);
   const codebaseMap = JSON.parse(readFileSync(mapPath, 'utf8'));
 
@@ -501,7 +520,7 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
 
     let source = '';
     try {
-      source = readFileSync(join(work, moduleInfo.path), 'utf8');
+      source = readFileSync(inCheckout(work, moduleInfo.path), 'utf8');
     } catch {
       // The digest guarantees the file is present; treat a read failure as an
       // import-less module rather than losing the node from the graph.
@@ -542,7 +561,7 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
     externalImportsFrom,
     // The production Rust crates, from the same checkout: the map renders them
     // beside the Lean modules as the other half of the production code.
-    rust: buildRustInventory(head.files, (path) => readFileSync(join(work, path), 'utf8')),
+    rust: buildRustInventory(head.files, (path) => readFileSync(inCheckout(work, path), 'utf8')),
     commitSha: head.commitSha,
     metricsSource: METRICS_PATH,
     sourceDigest,
@@ -560,7 +579,7 @@ function buildMapData(codebaseMap, head, sourceDigest, work) {
  * than shipping a simulator that cites code the kernel no longer has.
  */
 async function writeTraces(work, head, version, callGraph) {
-  const path = join(work, TRACES_PATH);
+  const path = inCheckout(work, TRACES_PATH);
   const upstream = existsSync(path);
   if (!upstream) console.warn(`⚠️  ${REPO} has no ${TRACES_PATH} yet — keeping the bundled reference fixture.`);
   const traces = JSON.parse(readFileSync(upstream ? path : TRACE_FILE, 'utf8'));
@@ -571,7 +590,7 @@ async function writeTraces(work, head, version, callGraph) {
     throw new Error(`${label} failed validation; refusing to write the snapshot:\n  ${errors.join('\n  ')}`);
   }
   const issues = groundTrace(traces, {
-    readSource: (file) => (existsSync(join(work, file)) ? readFileSync(join(work, file), 'utf8') : undefined),
+    readSource: (file) => (existsSync(inCheckout(work, file)) ? readFileSync(inCheckout(work, file), 'utf8') : undefined),
     commitSha: head.commitSha,
     version,
     // The tables the engine decides gates from are the kernel's: compared

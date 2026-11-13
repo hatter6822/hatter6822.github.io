@@ -994,3 +994,35 @@ export function canonicalCrossChecks(codebaseMap, options = {}) {
 
   return notes;
 }
+
+/**
+ * A path inside the upstream checkout, or a thrown refusal.
+ *
+ * The sync reads files by paths it is handed: the artifact's
+ * `modules[].path`, a trace's cited `module`, a deep link's path on the page.
+ * Each is joined to the checkout directory and read, and what is read is
+ * published. `../../etc/passwd` joined to a directory is a file outside it, so
+ * a path is held to the shape a git tree can contain — relative, forward
+ * slashes, no empty, `.` or `..` segment — before it is joined to anything.
+ * (The checkout is made with `core.symlinks=false`, so a path of this shape
+ * cannot leave the directory through a link either.)
+ */
+export function checkoutRelativePath(path) {
+  const refuse = () => { throw new Error(`refusing to read ${JSON.stringify(path)}: not a path inside the checkout`); };
+  if (typeof path !== 'string' || path === '' || path.length > 1024) refuse();
+  if (/[\u0000-\u001f\u007f\\]/.test(path) || /^[A-Za-z]:/.test(path) || path.startsWith('/')) refuse();
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.' || segment === '..' || segment === '.git') refuse();
+  }
+  return path;
+}
+
+/**
+ * A branch or tag name safe to hand git as an argument: it cannot start with
+ * `-` (an option), and carries none of the characters git's own ref format
+ * forbids. A 40-hex commit passes too; the caller tells the two apart.
+ */
+export function isSafeGitRef(ref) {
+  return typeof ref === 'string' && ref.length <= 200 &&
+    /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref) && !ref.includes('..') && !ref.endsWith('/') && !ref.endsWith('.lock');
+}
