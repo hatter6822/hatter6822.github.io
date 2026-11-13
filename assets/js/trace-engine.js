@@ -743,6 +743,22 @@
     return out;
   }
 
+  /* What x2 of an `untypedRetype` asks for (`decodeUntypedRetypeArgs`): the
+     object type tag in the low byte (`KernelObjectType.ofNat?`) and the size
+     exponent above it. `carveRequestOf` gives the two kinds the scenarios
+     carve a size: a frame is one page and takes sizeBits 0; an untyped is
+     2^sizeBits bytes. `kind` is null for a tag this projection does not
+     model, and for a size the kernel would refuse. */
+  var RETYPE_TAG_FRAME = 8;
+  var RETYPE_TAG_UNTYPED = 5;
+  function retypeRequest(word) {
+    var w = Number(word) || 0;
+    var out = { tag: w % 256, sizeBits: Math.floor(w / 256), kind: null, size: null };
+    if (out.tag === RETYPE_TAG_FRAME && out.sizeBits === 0) { out.kind = "frame"; out.size = PAGE_BYTES; }
+    else if (out.tag === RETYPE_TAG_UNTYPED && out.sizeBits > 0) { out.kind = "untyped"; out.size = pow2(out.sizeBits); }
+    return out;
+  }
+
   /* ── Sporadic refills (`SchedContext/Budget.lean`) ───────────
      A context's head refill is `remaining` ticks released at `periodStart`;
      `refills` are the pending ones behind it, oldest first, each
@@ -1309,6 +1325,7 @@
     msgInfoFields: msgInfoFields,
     bitsAt: bitsAt,
     carvePlacement: carvePlacement,
+    retypeRequest: retypeRequest,
     scTickExhausts: scTickExhausts,
     scChargeBudget: scChargeBudget,
     scReleaseReadyHead: scReleaseReadyHead,

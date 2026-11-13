@@ -1,5 +1,5 @@
 /**
- * Trace schema v3: the shared engine (assets/js/trace-engine.js), the
+ * Trace schema v4: the shared engine (assets/js/trace-engine.js), the
  * validator that re-runs every gate a step claims, and the grounding helpers.
  *
  * Most validator tests start from the bundled document and break one thing,
@@ -807,4 +807,21 @@ test('msgInfoFields places each field of x1 where MessageInfo.encode does', () =
   let word = 0;
   for (const f of fields) word += f.value * 2 ** f.lo;
   assert.equal(word, engine.msgInfoWord(mi));
+});
+
+test('retypeRequest decodes x2 as decodeUntypedRetypeArgs does, and a carve must be what x2 asked for', () => {
+  // type tag = x2 % 256 (KernelObjectType.ofNat?), sizeBits = x2 / 256.
+  assert.deepEqual(engine.retypeRequest(8), { tag: 8, sizeBits: 0, kind: 'frame', size: engine.PAGE_BYTES });
+  assert.deepEqual(engine.retypeRequest(5 + 13 * 256), { tag: 5, sizeBits: 13, kind: 'untyped', size: 8192 });
+  // A kind the engine does not model is decoded but not sized: nothing is guessed.
+  const tcb = engine.retypeRequest(0);
+  assert.deepEqual([tcb.tag, tcb.kind, tcb.size], [0, null, null]);
+  assert.equal(engine.retypeRequest(5).kind, null, 'an untyped needs a size exponent');
+  assert.deepEqual(errorsOf(bundled()), []);
+  const wrongSize = bundled();
+  step(wrongSize, 'untyped-retype', 2).syscall.args[0].value = 5 + 12 * 256;
+  hasError(wrongSize, 'x2 asks for a untyped of 4096 bytes');
+  const wrongKind = bundled();
+  step(wrongKind, 'untyped-retype', 1).syscall.args[0].value = 5 + 12 * 256;
+  hasError(wrongKind, 'the step carves a frame of 4096');
 });

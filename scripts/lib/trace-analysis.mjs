@@ -366,6 +366,17 @@ function checkArmEffects(step, pre, r, stp, errors) {
     errors.push(`${stp}: ${call.id} transfers no capability, but the step records an ipcTransfer install`);
   }
 
+  /* A retype carves the object x2 asks for: its type tag and size exponent
+     (`decodeUntypedRetypeArgs`), where the engine models the kind. */
+  if (call.id === 'untypedRetype' && ok) {
+    const req = engine.retypeRequest(call.args && call.args[0] ? call.args[0].value : 0);
+    const carve = ops.find((o) => o.op === 'untypedCarve');
+    if (!carve || !isObject(carve.child)) errors.push(`${stp}: a successful untypedRetype carves an object`);
+    else if (req.kind && (carve.child.kind !== req.kind || carve.child.size !== req.size)) {
+      errors.push(`${stp}: x2 asks for a ${req.kind} of ${req.size} bytes (decodeUntypedRetypeArgs), the step carves a ${carve.child.kind} of ${carve.child.size}`);
+    }
+  }
+
   const irqOps = ops.filter((o) => o.op === 'irqPatch');
   if (call.id === 'irqControlGet') {
     const lineNo = call.args && call.args[0] ? call.args[0].value : null;

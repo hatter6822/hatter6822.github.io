@@ -132,24 +132,48 @@
           <span id="theater-step-label" class="transport-step">– / –</span>
           <button id="sandbox-toggle" class="sandbox-toggle" type="button" aria-pressed="false" data-on="false" data-i18n="run.sandbox">Sandbox</button>
         </div>
-        <p id="theater-caption" class="transport-caption" aria-live="polite"></p>
+        <nav class="step-nav" aria-label="Steps" data-i18n-aria-label="run.timeline">
+          <ol id="theater-log" class="step-strip"></ol>
+        </nav>
+        <p class="key-hint" data-i18n-html="run.key_hint"><code>←</code> <code>→</code> step · <code>Space</code> play · <code>Home</code> <code>End</code> first and last · <code>B</code> <code>A</code> before and after</p>
 
         <div class="theater-grid">
           <div class="theater-card stage-card">
-            <div class="stage-header">
-              <h2 data-i18n="run.stage">Kernel state</h2>
+            <div id="theater-step-head" class="step-head" aria-live="polite"></div>
+            <div class="stage-toolbar">
               <div id="theater-scenes" class="scene-tabs" role="tablist" aria-label="Scene" data-i18n-aria-label="run.scene"></div>
+              <div id="theater-view" class="view-toggle" role="radiogroup" aria-label="State shown" data-i18n-aria-label="run.view_label">
+                <button type="button" class="view-option" role="radio" aria-checked="false" tabindex="-1" data-view="before" data-i18n="run.view_before">Before</button>
+                <button type="button" class="view-option" role="radio" aria-checked="true" tabindex="0" data-view="after" data-i18n="run.view_after">After</button>
+              </div>
             </div>
-            <div class="theater-stage-shell" id="theater-stage-shell" tabindex="0" role="region" aria-label="Kernel system state" data-i18n-aria-label="run.stage_region">
+            <div id="sandbox-verdict" class="sandbox-verdict" role="status" hidden></div>
+            <div class="theater-stage-shell" id="theater-stage-shell" tabindex="0" role="tabpanel">
               <div id="theater-stage"></div>
             </div>
-            <ul class="theater-legend" id="theater-legend" aria-hidden="true"></ul>
+            <p id="theater-alt" class="visually-hidden"></p>
+            <ul class="theater-legend" id="theater-legend"></ul>
           </div>
-          <aside class="theater-card inspector-card" aria-label="Step detail" data-i18n-aria-label="run.step_detail">
-            <h2 class="visually-hidden" data-i18n="run.step_detail">Step detail</h2>
-            <div id="theater-inspector" class="theater-inspector" aria-live="polite"></div>
+          <aside class="theater-card inspector-card" aria-labelledby="inspector-title">
+            <h2 id="inspector-title" class="inspector-title" data-i18n="run.step_detail">Step detail</h2>
+            <div id="theater-inspector" class="theater-inspector"></div>
           </aside>
         </div>
+
+        <section class="theater-sandbox" id="sandbox-panel" hidden aria-label="Sandbox (unverified preview)" data-i18n-aria-label="run.sandbox_region">
+          <p class="sandbox-banner" data-i18n-html="run.sandbox_banner"><strong>Unverified preview.</strong> These structural checks run in JavaScript, not Lean. Perturb the state below and watch a check break — exactly what the machine-checked proofs guarantee can never happen in the real kernel.</p>
+          <div class="sandbox-actions">
+            <button class="btn btn-secondary" type="button" data-perturb="enqueue-current" data-i18n="run.sb_enqueue">Enqueue the running thread</button>
+            <button class="btn btn-secondary" type="button" data-perturb="dup-runqueue" data-i18n="run.sb_dup">Duplicate a run-queue entry</button>
+            <button class="btn btn-secondary" type="button" data-perturb="wake-blocked" data-i18n="run.sb_wake">Wake a blocked thread</button>
+            <button class="btn btn-secondary" type="button" data-perturb="orphan-cdt" data-i18n="run.sb_orphan">Derive a capability into an empty slot</button>
+            <button class="btn btn-secondary" type="button" data-perturb="map-wx" data-i18n="run.sb_wx">Map a page writable and executable</button>
+            <button class="btn btn-secondary" type="button" data-perturb="stale-tlb" data-i18n="run.sb_tlb">Leave a stale TLB entry</button>
+            <button class="btn btn-secondary" type="button" data-perturb="overspend" data-i18n="run.sb_overspend">Overspend a budget</button>
+            <button class="btn btn-secondary" type="button" data-perturb="overlap" data-i18n="run.sb_overlap">Overlap two retyped objects</button>
+            <button class="btn" type="button" data-sandbox-reset data-i18n="run.sb_reset">Reset to trace</button>
+          </div>
+        </section>
 
         <section class="theater-card guarantee-card" id="guarantees" aria-labelledby="guarantees-title">
           <div class="guarantee-head">
@@ -167,26 +191,6 @@
           <p class="invariant-intro" data-i18n="run.invariant_intro">Each invariant is a Lean predicate over the whole kernel state. A preservation theorem proves that a transition which starts in a state satisfying it ends in one that does too. Runtime checks are the test harness's executable mirrors of the same predicates; they test, they do not prove.</p>
           <div id="invariant-list" class="invariant-list"></div>
         </details>
-
-        <section class="theater-sandbox" id="sandbox-panel" hidden aria-label="Sandbox (unverified preview)" data-i18n-aria-label="run.sandbox_region">
-          <p class="sandbox-banner" data-i18n-html="run.sandbox_banner"><strong>Unverified preview.</strong> These structural checks run in JavaScript, not Lean. Perturb the state below and watch a check break — exactly what the machine-checked proofs guarantee can never happen in the real kernel.</p>
-          <div class="sandbox-actions">
-            <button class="btn btn-secondary" type="button" data-perturb="enqueue-current" data-i18n="run.sb_enqueue">Enqueue the running thread</button>
-            <button class="btn btn-secondary" type="button" data-perturb="dup-runqueue" data-i18n="run.sb_dup">Duplicate a run-queue entry</button>
-            <button class="btn btn-secondary" type="button" data-perturb="wake-blocked" data-i18n="run.sb_wake">Wake a blocked thread</button>
-            <button class="btn btn-secondary" type="button" data-perturb="orphan-cdt" data-i18n="run.sb_orphan">Derive a capability into an empty slot</button>
-            <button class="btn btn-secondary" type="button" data-perturb="map-wx" data-i18n="run.sb_wx">Map a page writable and executable</button>
-            <button class="btn btn-secondary" type="button" data-perturb="stale-tlb" data-i18n="run.sb_tlb">Leave a stale TLB entry</button>
-            <button class="btn btn-secondary" type="button" data-perturb="overspend" data-i18n="run.sb_overspend">Overspend a budget</button>
-            <button class="btn btn-secondary" type="button" data-perturb="overlap" data-i18n="run.sb_overlap">Overlap two retyped objects</button>
-            <button class="btn" type="button" data-sandbox-reset data-i18n="run.sb_reset">Reset to trace</button>
-          </div>
-        </section>
-
-        <div class="theater-card theater-log-shell">
-          <h2 data-i18n="run.timeline">Steps</h2>
-          <div id="theater-log" class="theater-log" role="list" aria-label="Execution trace steps" data-i18n-aria-label="run.timeline"></div>
-        </div>
       </div>
     </section>
   </main>
@@ -205,6 +209,7 @@
 
   <script src="assets/js/header-nav.js" defer></script>
   <script src="assets/js/trace-engine.js" defer></script>
+  <script src="assets/js/run-scenes.js" defer></script>
   <script src="assets/js/run.js" defer></script>
 </body>
 </html>

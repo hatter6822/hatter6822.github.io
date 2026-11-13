@@ -3,13 +3,16 @@
  * Headless-Chromium smoke probe for run.html (Tier 3/4).
  *
  * run-runtime.test.mjs boots run.js in a DOM shim, which cannot measure. This
- * renders the page in a browser and walks every scenario through every step
- * and every scene it offers, asserting what only layout can show: each scene
- * is drawn at 1:1, no label runs past the edge of its SVG, the page never
- * scrolls sideways (on a phone the stage scrolls inside its own shell), both
- * themes and a translated locale paint, the scene tabs answer the keyboard,
- * the sandbox's perturbations break the invariant they name, and no request
- * leaves the origin.
+ * renders the page in a browser and walks every scenario through every step,
+ * every scene it offers and both readings of the step (before and after), in
+ * every locale, asserting what only layout can show: each scene is drawn at
+ * 1:1, no label runs past the edge of its SVG or of the box it sits in, the
+ * page never scrolls sideways (on a phone the stage scrolls inside its own
+ * shell), the transport stays in reach while the page scrolls, both themes
+ * paint, the tabs, the before/after toggle and the step keys answer the
+ * keyboard, each scene carries a text alternative, the sandbox's
+ * perturbations break the invariant they name and say so beside the stage,
+ * and no request leaves the origin.
  *
  * Requirements (not repository dependencies):
  *   npm install --no-save playwright-core       # or any directory on NODE_PATH
@@ -78,18 +81,36 @@ const measureStage = (page) => page.evaluate(() => {
   const w = Number(svg.getAttribute('width'));
   const h = Number(svg.getAttribute('height'));
   const out = [];
+  const boxed = [];
   for (const t of svg.querySelectorAll('text')) {
     if (!t.textContent.trim()) continue;
     const b = t.getBBox();
     if (b.x < -1 || b.y < -1 || b.x + b.width > w + 1 || b.y + b.height > h + 1) out.push(t.textContent.slice(0, 40));
+    /* A label drawn inside a box stays inside it: the nearest rect of the
+       text's own group that contains the text's start must contain its end. */
+    const group = t.parentNode;
+    let host = null;
+    for (const r of group.children) {
+      if (r.tagName !== 'rect' || !/\b(bx|cell)\b/.test(r.getAttribute('class') || '')) continue;
+      const rb = r.getBBox();
+      const cx = b.x + b.width / 2;
+      const cy = b.y + b.height / 2;
+      if (cx >= rb.x && cx <= rb.x + rb.width && cy >= rb.y && cy <= rb.y + rb.height && (!host || rb.width * rb.height < host.width * host.height)) host = rb;
+    }
+    if (host && (b.x < host.x - 1 || b.x + b.width > host.x + host.width + 1)) boxed.push(t.textContent.slice(0, 40));
   }
   const shell = document.getElementById('theater-stage-shell');
-  return { scene: svg.getAttribute('data-scene'), scale: box.width / w, overflow: out, scrolls: shell.scrollWidth > shell.clientWidth };
+  const alt = document.getElementById(svg.getAttribute('aria-describedby') || '');
+  return {
+    scene: svg.getAttribute('data-scene'), scale: box.width / w, overflow: out, boxed,
+    scrolls: shell.scrollWidth > shell.clientWidth,
+    described: !!(alt && alt.textContent.trim().length > 10),
+    fallback: !!document.querySelector('#theater-stage .stage-fallback')
+  };
 });
 
-{
-  const { context, page, errors } = await open(1440, 900, { theme: 'dark' });
-  console.log('\n[every scenario, every step, every scene — 1440px dark]');
+/** Every scenario, step, scene and reading the page offers, measured. */
+async function walk(page, { stageFits }) {
   let drawn = 0;
   const bad = [];
   for (const sc of TRACES.scenarios) {
@@ -99,19 +120,72 @@ const measureStage = (page) => page.evaluate(() => {
       const tabs = await page.$$eval('#theater-scenes .scene-tab', (els) => els.map((e) => e.dataset.scene));
       for (const scene of tabs) {
         await page.click(`#theater-scenes .scene-tab[data-scene="${scene}"]`);
-        const m = await measureStage(page);
-        drawn += 1;
-        if (m.scene !== scene) bad.push(`${sc.id}/${i}/${scene}: tab shows ${m.scene}`);
-        if (Math.abs(m.scale - 1) > 0.01) bad.push(`${sc.id}/${i}/${scene}: drawn at ${m.scale.toFixed(2)}`);
-        if (m.scrolls) bad.push(`${sc.id}/${i}/${scene}: wider than the stage at 1440px`);
-        if (m.overflow.length) bad.push(`${sc.id}/${i}/${scene}: past the edge — ${m.overflow.slice(0, 2).join(' | ')}`);
+        for (const view of i ? ['before', 'after'] : ['after']) {
+          if (i) await page.click(`#theater-view [data-view="${view}"]`);
+          const m = await measureStage(page);
+          const at = `${sc.id}/${i}/${scene}/${view}`;
+          drawn += 1;
+          if (m.fallback) bad.push(`${at}: the scene failed to draw`);
+          if (m.scene !== scene) bad.push(`${at}: tab shows ${m.scene}`);
+          if (Math.abs(m.scale - 1) > 0.01) bad.push(`${at}: drawn at ${m.scale.toFixed(2)}`);
+          if (stageFits && m.scrolls) bad.push(`${at}: wider than the stage`);
+          if (m.overflow.length) bad.push(`${at}: past the edge — ${m.overflow.slice(0, 2).join(' | ')}`);
+          if (m.boxed.length) bad.push(`${at}: out of its box — ${m.boxed.slice(0, 2).join(' | ')}`);
+          if (!m.described) bad.push(`${at}: no text alternative`);
+        }
       }
     }
   }
-  check(drawn >= TRACES.scenarios.reduce((n, s) => n + s.steps.length, 0) * 2, `walked ${drawn} scene renders`);
-  check(bad.length === 0, `every scene at 1:1 and inside the stage, nothing past its edge${bad.length ? ` — ${bad.slice(0, 4).join('; ')}` : ''}`);
+  return { drawn, bad };
+}
+const RENDERS = TRACES.scenarios.reduce((n, s) => n + s.steps.length, 0);
+
+{
+  const { context, page, errors } = await open(1440, 900, { theme: 'dark' });
+  console.log('\n[every scenario, every step, every scene, before and after — 1440px dark]');
+  const { drawn, bad } = await walk(page, { stageFits: true });
+  check(drawn >= RENDERS * 4, `walked ${drawn} scene renders`);
+  check(bad.length === 0, `every scene at 1:1 and inside the stage, nothing past its edge or out of its box, each described in words${bad.length ? ` — ${bad.length}: ${bad.slice(0, 6).join('; ')}` : ''}`);
   check(await sideways(page) <= 0, 'no sideways overflow');
   check(errors.length === 0, `clean console, same-origin only${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
+  await context.close();
+}
+
+for (const locale of ['es', 'fr', 'ja', 'uk', 'zh-CN']) {
+  const { context, page, errors } = await open(1440, 900, { theme: 'light', locale });
+  console.log(`\n[every scene of every step in ${locale} — 1440px light]`);
+  // i18n.js writes zh-CN to <html lang> as the script tag it means, zh-Hans.
+  await page.waitForFunction((l) => document.documentElement.lang === l, locale === 'zh-CN' ? 'zh-Hans' : locale);
+  await page.waitForTimeout(300);
+  const { drawn, bad } = await walk(page, { stageFits: true });
+  check(drawn >= RENDERS * 4, `walked ${drawn} scene renders`);
+  check(bad.length === 0, `translated labels stay inside the scene and inside their boxes${bad.length ? ` — ${bad.length}: ${bad.slice(0, 6).join('; ')}` : ''}`);
+  check(await sideways(page) <= 0, 'no sideways overflow');
+  check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
+  await context.close();
+}
+
+for (const width of [1920, 1024, 768]) {
+  const { context, page, errors } = await open(width, 900, { theme: 'dark', query: '?scenario=budget-edf&step=3&scene=scheduler' });
+  console.log(`\n[layout at ${width}px]`);
+  const m = await measureStage(page);
+  check(Math.abs(m.scale - 1) < 0.01, `the scene is drawn at 1:1 (${m.scale.toFixed(2)})`);
+  check(await sideways(page) <= 0, `no sideways page overflow (${await sideways(page)}px)`);
+  const beside = await page.evaluate(() => {
+    const stage = document.querySelector('.stage-card').getBoundingClientRect();
+    const insp = document.querySelector('.inspector-card').getBoundingClientRect();
+    return insp.left >= stage.right - 1;
+  });
+  check(beside === (width > 1200), width > 1200 ? 'the step detail sits beside the stage' : 'the step detail stacks under the stage');
+  await page.evaluate(() => window.scrollTo(0, document.querySelector('.stage-card').getBoundingClientRect().top + window.scrollY + 300));
+  await page.waitForTimeout(100);
+  const pinned = await page.evaluate(() => {
+    const r = document.querySelector('.theater-transport').getBoundingClientRect();
+    const nav = document.getElementById('nav').getBoundingClientRect();
+    return r.top >= nav.bottom - 1 && r.bottom < window.innerHeight / 2;
+  });
+  check(pinned, 'the transport stays pinned under the navigation while the page scrolls');
+  check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
   await context.close();
 }
 
@@ -125,8 +199,44 @@ const measureStage = (page) => page.evaluate(() => {
   check(scene === 'ipc' && focused === 'ipc', `ArrowRight moves to the next scene and its tab (${scene}, focus ${focused})`);
   check(new URL(page.url()).searchParams.get('scene') === 'ipc', 'the URL carries the scene');
 
+  const tabState = await page.$$eval('#theater-scenes .scene-tab', (els) => els.map((e) => [e.getAttribute('aria-selected'), e.tabIndex]));
+  check(tabState.filter((t) => t[0] === 'true').length === 1 && tabState.filter((t) => t[1] === 0).length === 1, 'one tab is selected and it alone is in the tab order');
+  check(await page.$eval('#theater-stage-shell', (s) => s.getAttribute('role') === 'tabpanel' && s.getAttribute('aria-labelledby') === 'scene-tab-ipc'), 'the stage is the tab panel the selected tab labels');
+
+  /* Before / after: the radio group, its keys, and the URL. */
+  const status = () => page.$eval('#theater-stage [data-object="client"] .chip', (e) => e.getAttribute('data-status'));
+  check(await status() === 'blocked', 'after the call the caller is blocked');
+  await page.focus('#theater-view [aria-checked="true"]');
+  await page.keyboard.press('ArrowLeft');
+  check(await status() === 'running' && new URL(page.url()).searchParams.get('view') === 'before', 'ArrowLeft on the toggle shows the state the step found, and the URL carries it');
+  await page.evaluate(() => document.activeElement.blur());
+  await page.keyboard.press('a');
+  check(await status() === 'blocked' && !new URL(page.url()).searchParams.get('view'), 'the A key returns to the state the step left');
+  check(await page.$$eval('#theater-stage [data-changed="true"]', (els) => els.length) > 0, 'what the step changed is marked on the scene');
+
+  /* The step keys, from the page and from the transport button just pressed. */
+  const label = () => page.$eval('#theater-step-label', (e) => e.textContent);
+  const total = TRACES.scenarios.find((s) => s.id === 'ipc-call-reply').steps.length;
+  await page.keyboard.press('ArrowRight');
+  check(await label() === `5 / ${total}`, `ArrowRight steps forward (${await label()})`);
+  await page.click('#theater-prev');
+  await page.keyboard.press('ArrowLeft');
+  check(await label() === `3 / ${total}`, `the arrows still step with the transport button focused (${await label()})`);
+  await page.evaluate(() => document.activeElement.blur());
+  await page.keyboard.press('End');
+  check(await label() === `${total} / ${total}`, 'End goes to the last step');
+  await page.keyboard.press('Home');
+  check(await label() === `1 / ${total}`, 'Home goes to the first');
+  check(await page.$$eval('#theater-view [data-view]', (els) => els.every((e) => e.disabled)), 'the initial state has no "before" to show');
+  await page.click('#theater-log .step-chip >> nth=3');
+  check(await label() === `4 / ${total}`, 'a chip in the step strip jumps to its step');
+  check(await page.$$eval('#theater-log [aria-current="step"]', (els) => els.length) === 1, 'and exactly one chip is current');
+  check((await page.$eval('#theater-step-head .step-title', (e) => e.textContent)).length > 0, 'the step is titled above the stage');
+
   await page.click('#theater-stage [data-object]');
   check(await page.$('#theater-inspector .insp-object') !== null, 'clicking an object on the stage opens it in the inspector');
+  await page.focus('#theater-stage [data-object]');
+  check(await page.evaluate(() => document.activeElement.hasAttribute('data-object')), 'an object on the stage takes keyboard focus');
 
   await page.click('#sandbox-toggle');
   const offered = await page.$$eval('#sandbox-panel [data-perturb]:not([hidden])', (els) => els.map((e) => e.dataset.perturb));
@@ -134,6 +244,7 @@ const measureStage = (page) => page.evaluate(() => {
   await page.click(`#sandbox-panel [data-perturb="${offered[0]}"]`);
   const violated = await page.$$eval('#invariant-list .inv-item[data-status="violated"]', (els) => els.length);
   check(violated > 0, `${offered[0]} breaks an invariant (${violated})`);
+  check(await page.$eval('#sandbox-verdict', (v) => !v.hidden && v.dataset.tone === 'bad' && v.textContent.trim().length > 0), 'and the verdict beside the stage says so');
   check(await page.$eval('#invariant-details', (d) => d.open), 'the invariant list opens to show it');
   await page.click('#sandbox-panel [data-sandbox-reset]');
   check(await page.$$eval('#invariant-list .inv-item[data-status="violated"]', (els) => els.length) === 0, 'reset returns to the trace');
@@ -151,6 +262,11 @@ const measureStage = (page) => page.evaluate(() => {
   check(shell, 'the stage scrolls inside its own shell');
   const tabs = await page.$$eval('#theater-scenes .scene-tab', (els) => els.map((e) => e.getBoundingClientRect().height));
   check(tabs.every((h) => h >= 24), 'the scene tabs are tappable');
+  const { drawn, bad } = await walk(page, { stageFits: false });
+  check(drawn >= RENDERS * 4 && bad.length === 0, `all ${drawn} scene renders stay at 1:1 on a phone${bad.length ? ` — ${bad.length}: ${bad.slice(0, 4).join('; ')}` : ''}`);
+  check(await sideways(page) <= 0, 'and the page never scrolls sideways along the way');
+  const controls = await page.$$eval('.theater-transport button, #theater-view button, #theater-log .step-chip', (els) => els.filter((e) => e.offsetParent).map((e) => e.getBoundingClientRect().height));
+  check(controls.length > 4 && controls.every((h) => h >= 24), 'the transport, the toggle and the step strip are tappable');
   check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
   await context.close();
 }
@@ -165,7 +281,10 @@ const measureStage = (page) => page.evaluate(() => {
   const legend = await page.$eval('#theater-legend', (e) => e.textContent);
   check(legend.includes(ES.run.legend_pass), 'the legend is translated');
   const svgText = await page.$eval('#theater-stage svg', (s) => s.textContent);
-  check(svgText.includes(ES.run.pipeline), 'the scene\'s own labels are translated');
+  check(svgText.includes(ES.run.sec_gates), 'the scene\'s own labels are translated');
+  check((await page.$eval('#theater-view [data-view="before"]', (e) => e.textContent)) === ES.run.view_before, 'the before/after toggle is translated');
+  const alt = await page.$eval('#theater-alt', (e) => e.textContent);
+  check(alt.includes(ES.run.scene_path), 'and so is the scene\'s text alternative');
   check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
   await context.close();
 }

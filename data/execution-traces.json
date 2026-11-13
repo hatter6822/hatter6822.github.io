@@ -9811,7 +9811,7 @@
               "result": "pass"
             }
           ],
-          "narrative": "x2 names the notification capability in the driver's own CSpace; it must be a notification capability with the send right. The kernel copies it, badge and all, into line 33's interrupt node: a one-slot CNode at a reserved id that no capability names. The copy is a derivation child of the driver's capability, so deleting or revoking that one unbinds the line. From now on the node slot is what an interrupt on line 33 reads.",
+          "narrative": "x2 names the notification capability in the driver's own CSpace; it must be a notification capability with the write right, the right to signal. The kernel copies it, badge and all, into line 33's interrupt node: a one-slot CNode at a reserved id that no capability names. The copy is a derivation child of the driver's capability, so deleting or revoking that one unbinds the line. From now on the node slot is what an interrupt on line 33 reads.",
           "delta": {
             "ops": [
               {
@@ -10214,7 +10214,7 @@
           "kind": "interrupt",
           "title": "line 33 fires: the driver is woken",
           "traceTag": "IRQ",
-          "narrative": "The controller raises line 33 on core 0 while the application runs. The kernel acknowledges and ends the interrupt at the controller, then reads the line's node slot: a notification capability with the send right, badge 4. That notification is signalled with that badge. The driver is the head of its wait queue, so it is taken off, made ready with the badge in its message, and queued on its home core. The line is then masked: it will not fire again until the driver acknowledges it.",
+          "narrative": "The controller raises line 33 on core 0 while the application runs. The kernel acknowledges and ends the interrupt at the controller, then reads the line's node slot: a notification capability with the write right, badge 4. That notification is signalled with that badge. The driver is the head of its wait queue, so it is taken off, made ready with the badge in its message, and queued on its home core. The line is then masked: it will not fire again until the driver acknowledges it.",
           "delta": {
             "ops": [
               {
