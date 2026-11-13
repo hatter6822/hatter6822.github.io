@@ -66,6 +66,8 @@ async function loadMapTestHooks({ search = '', fetch = null } = {}) {
       atob: (input) => Buffer.from(String(input), 'base64').toString('binary'),
       /* No-op: nothing paints, so a scheduled render never runs. */
       requestAnimationFrame: () => 0,
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (id) => clearTimeout(id),
       addEventListener: () => {},
       matchMedia: () => ({ matches: false, addEventListener: () => {} }),
       location: { search, pathname: '/map.html' },
@@ -1031,6 +1033,40 @@ test('caller lookups are memoized per snapshot and never hand out the memo', asy
   });
   hooks.applyTestState(replaced);
   assert.equal(hooks.declarationCallerCount('hub', 'A'), 1, 'a new reverse graph starts the memo afresh');
+});
+
+test('lane order is the reference module first, then by name, and a hub is ordered once per snapshot', async () => {
+  const hooks = await loadMapTestHooks();
+  // The order the chart used before the keys were precomputed: one stable
+  // sort on (other module?, lowercased name).
+  const reference = (refs, mod) => refs.slice().sort((a, b) => {
+    const sameA = a.module === mod ? 0 : 1;
+    const sameB = b.module === mod ? 0 : 1;
+    if (sameA !== sameB) return sameA - sameB;
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  });
+  const refs = hubRefs(3000).map((ref, i) => ({ name: (i % 3 ? 'Zeta' : 'alpha') + (i % 7 ? '_' : '.') + ((i * 7919) % 500), module: ref.module }));
+  const center = 'SeLe4n.Kernel.S3.M2';
+  const sorted = hooks.sortRefsByModuleRelevance(refs, center);
+  assert.deepEqual(local(sorted), reference(refs, center), 'the same order, ties in their given order');
+  assert.equal(refs[0].name, 'alpha.0', 'the input is left as it was');
+
+  const declarations = [{ kind: 'def', name: 'hub', line: 1, called: [] }];
+  for (const name of ['b2', 'B1', 'a3']) declarations.push({ kind: 'def', name, line: 2, called: ['hub'] });
+  const snapshot = (extra) => hooks.normalizeMapData({
+    modules: [
+      { module: 'A', path: 'A.lean', declarations },
+      { module: 'B', path: 'B.lean', imports: ['A'], declarations: [{ kind: 'def', name: 'aa', line: 1, called: ['hub'] }].concat(extra) }
+    ]
+  });
+  hooks.applyTestState(snapshot([]));
+  const first = hooks.declarationCallerRefsSorted('hub', 'A');
+  assert.deepEqual(local(first.map((r) => r.module + '.' + r.name)), ['A.a3', 'A.B1', 'A.b2', 'B.aa']);
+  first.reverse();
+  assert.deepEqual(local(hooks.declarationCallerRefsSorted('hub', 'A').map((r) => r.name)), ['a3', 'B1', 'b2', 'aa'], 'a caller gets a copy');
+  hooks.applyTestState(snapshot([{ kind: 'def', name: 'a0', line: 2, called: ['hub'] }]));
+  assert.deepEqual(local(hooks.declarationCallerRefsSorted('hub', 'A').map((r) => r.name)), ['a3', 'B1', 'b2', 'a0', 'aa'],
+    'a new snapshot is ordered afresh');
 });
 
 /* The sync resolves every call target upstream, by full name, and writes
@@ -3292,6 +3328,12 @@ test('the call graph loads lazily, once, and only for the snapshot commit', asyn
   const requests = [];
   const respond = (body) => (url) => { requests.push(url); return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(JSON.stringify(body))) }); };
 
+  // The graph is indexed in slices, a task apiece, so "loaded" is a state to
+  // wait for rather than a fixed delay.
+  const settled = async (h) => {
+    for (let i = 0; i < 2000 && h.callGraphStatus() === 'loading'; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  };
+
   const hooks = await loadMapTestHooks({ fetch: respond(graph) });
   hooks.applyData(hooks.normalizeMapData(raw));
   assert.equal(hooks.callGraphStatus(), 'idle', 'the module view needs no call graph');
@@ -3302,15 +3344,15 @@ test('the call graph loads lazily, once, and only for the snapshot commit', asyn
   hooks.ensureCallGraph();
   hooks.ensureCallGraph();
   assert.equal(hooks.callGraphStatus(), 'loading');
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await settled(hooks);
   assert.deepEqual(requests, ['data/map-callgraph.json'], 'one request, same origin, relative');
-  assert.equal(hooks.callGraphStatus(), 'ready');
+  assert.equal(hooks.callGraphStatus(), 'ready', hooks.callGraphError());
   assert.deepEqual(Array.from(hooks.declarationCalls(caller, module)), graph.callGraph[module][caller]);
 
   const stale = await loadMapTestHooks({ fetch: respond({ ...graph, commitSha: 'f'.repeat(40) }) });
   stale.applyData(stale.normalizeMapData(raw));
   stale.ensureCallGraph();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await settled(stale);
   assert.equal(stale.callGraphStatus(), 'failed', 'a graph from another commit is refused');
   assert.match(stale.callGraphError(), /from commit fffffff/);
   assert.equal(stale.declarationCalls(caller, module).length, 0, 'and nothing of it is merged');
@@ -3318,9 +3360,27 @@ test('the call graph loads lazily, once, and only for the snapshot commit', asyn
   const broken = await loadMapTestHooks({ fetch: () => Promise.resolve({ ok: false, status: 404 }) });
   broken.applyData(broken.normalizeMapData(raw));
   broken.ensureCallGraph();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await settled(broken);
   assert.equal(broken.callGraphStatus(), 'failed');
   assert.equal(broken.callGraphError(), 'HTTP 404');
+
+  // Built in slices or in one pass, the indexes are the same indexes.
+  const whole = await loadMapTestHooks();
+  whole.applyData(whole.normalizeMapData(raw));
+  assert.equal(whole.applyCallGraphPayload(JSON.parse(JSON.stringify(graph))), '');
+  for (const name of ['SystemState', 'KernelError', caller]) {
+    assert.deepEqual(local(hooks.declarationCalledBy(name)), local(whole.declarationCalledBy(name)), `callers of ${name}`);
+  }
+  const hub = whole.declarationCallerRefs('SystemState', 'SeLe4n.Model.State');
+  assert.ok(hub.length > 10000, `SystemState's callers are all there (${hub.length})`);
+  assert.deepEqual(local(hooks.declarationCallerRefs('SystemState', 'SeLe4n.Model.State')), local(hub));
+
+  // Nothing of a graph is visible until all of it is: a render between two
+  // slices must not find callees whose callers are not indexed yet.
+  const mapSource = await fs.readFile(mapScriptPath, 'utf8');
+  const sliced = /function applyCallGraphPayloadInSlices\(payload\) \{[\s\S]*?\n {2}\}/.exec(mapSource)[0];
+  assert.match(sliced, /commitCallGraph\(payload, indexes\);/);
+  assert.doesNotMatch(sliced, /symbols\.callGraph\s*=/, 'the slices write to no live state');
 });
 
 test('the declaration view says the call graph is loading or missing instead of claiming no calls', async () => {
