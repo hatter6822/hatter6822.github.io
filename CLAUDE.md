@@ -2,16 +2,17 @@
 
 ## Project Overview
 
-This repository is the static website for **seLe4n**, a formally verified microkernel written in Lean 4. It consists of two pages and a data pipeline:
+This repository is the static website for **seLe4n**, a formally verified microkernel written in Lean 4. It consists of three pages and a data pipeline:
 
 - `index.html` — Marketing/overview landing page
 - `map.html` — Interactive codebase map with dependency graph, theorem coupling, and declaration explorer
+- `run.html` — Simulator: hand-written scenarios replayed step by step, every kernel decision recomputed and every cited name grounded in the kernel source
 - `data/*.json` — Bundled snapshots consumed by the browser runtime
 - `scripts/*.mjs` — Node.js tooling to regenerate and validate those snapshots
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.33.0`
+**Website version:** `0.35.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -37,6 +38,8 @@ node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
 node scripts/lib/csp-html.test.mjs
+node scripts/lib/theme-contrast.test.mjs
+node scripts/lib/workflows.test.mjs
 
 # Bundled data integrity
 node scripts/validate-data.mjs
@@ -45,6 +48,7 @@ node scripts/validate-traces.mjs
 # JavaScript syntax checks
 node --check assets/js/map.js
 node --check assets/js/run.js
+node --check assets/js/run-scenes.js
 node --check assets/js/trace-engine.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
@@ -67,7 +71,7 @@ node scripts/apply-static-values.mjs   # stamp index.html + locales/*.json from 
 | 1 | Unit tests (`scripts/lib/*.test.mjs`) | Every commit |
 | 2 | Data validation (`scripts/validate-data.mjs`) | Every commit, after data changes |
 | 3 | Manual browser verification (desktop + mobile) | UI/layout changes |
-| 4 | Playwright probes: `scripts/map-smoke.mjs` (code map layout and behaviour in headless Chromium), `scripts/index-smoke.mjs` (landing page: every stamped figure survives hydration, no label clipped, card grids even and inside the viewport, deep links match the resolved inventory), `scripts/run-smoke.mjs` (simulator: every scene of every step at 1:1 with nothing past its edge, tabs, sandbox, phone, a translated locale) — CI runs all three on every push — and `scripts/nav-stability-smoke.py` (navigation) | Map layout, landing-page figures, simulator scenes, navigation or scroll behaviour changes |
+| 4 | Playwright probes: `scripts/map-smoke.mjs` (code map layout and behaviour in headless Chromium), `scripts/index-smoke.mjs` (landing page: every stamped figure survives hydration, no label clipped, card grids even and inside the viewport, deep links match the resolved inventory), `scripts/run-smoke.mjs` (simulator: every scene of every step at 1:1 with nothing past its edge, tabs, sandbox, phone, a translated locale, focus kept across re-renders, the inspector following the before/after toggle, failure states, first-paint layout shift, forced colours) — CI runs all three on every push, and `index-smoke.mjs` also serves a poisoned locale string and checks Trusted Types is enforced — and `scripts/nav-stability-smoke.py` (navigation) | Map layout, landing-page figures, simulator scenes, navigation or scroll behaviour changes |
 
 Run at least Tiers 0-2 before any commit. Tier 3 for front-end changes. Tier 4 when touching navigation, scroll behaviour, the code map's layout, the simulator's scenes, or any published figure.
 
@@ -77,17 +81,18 @@ Several files exceed 500 lines:
 
 | File | Lines | Notes |
 |------|-------|-------|
-| `assets/js/map.js` | ~6,700 | Largest runtime; read in chunks of ≤500 lines |
-| `scripts/lib/map-runtime.test.mjs` | ~3,300 | Map runtime tests |
-| `assets/css/style.css` | ~2,040 | Global design system |
-| `assets/js/run.js` | ~2,090 | Simulator runtime (six SVG scenes, inspector, guarantees, sandbox) |
-| `assets/js/trace-engine.js` | ~720 | Shared trace engine (fold, kernel decisions, invariant mirrors) |
-| `assets/css/run.css` | ~620 | Simulator styles (scene primitives per scene) |
-| `assets/css/map.css` | ~1,100 | Map-specific styles (hero, workspace, scope toggle, chart, sidebar) |
+| `assets/js/map.js` | ~6,800 | Largest runtime; read in chunks of ≤500 lines |
+| `scripts/lib/map-runtime.test.mjs` | ~3,390 | Map runtime tests |
+| `assets/css/style.css` | ~2,060 | Global design system |
+| `assets/js/trace-engine.js` | ~1,480 | Shared trace engine (fold, kernel decisions, invariant mirrors) |
+| `assets/js/run-scenes.js` | ~1,370 | Simulator scenes (seven SVG scenes and their text alternatives; decides nothing) |
+| `assets/js/run.js` | ~1,360 | Simulator controller (transport, inspector, guarantees, sandbox, URL state) |
+| `assets/css/run.css` | ~640 | Simulator styles (scene primitives per scene) |
+| `assets/css/map.css` | ~1,160 | Map-specific styles (hero, workspace, scope toggle, chart, sidebar) |
 | `assets/js/header-nav.js` | ~749 | Shared navigation controller |
 | `scripts/lib/rust-analysis.mjs` | ~1,660 | Rust crate inventory scanner, TOML reader |
 | `scripts/lib/rust-analysis.test.mjs` | ~1,390 | Rust scanner tests |
-| `assets/js/site.js` | ~265 | Landing page runtime (renders the bundled snapshot; derives nothing) |
+| `assets/js/site.js` | ~260 | Landing page runtime (renders the bundled snapshot; derives nothing) |
 
 **Rules:**
 - Never read an entire large file in one operation. Use offset/limit (≤500 lines per read).
@@ -285,7 +290,7 @@ the kernel generates it, and seLe4n's own README table is rendered from its
 
 ### Locale files embed live metrics
 
-`data-i18n-html` sets `el.innerHTML` wholesale, so each `locales/*.json` carries
+`data-i18n-html` replaces the element's children wholesale with sanitized nodes, so each `locales/*.json` carries
 its own copy of the `data-live` spans **and the numbers inside them**. They
 silently drifted to `546` while `index.html` said `574`. Any change touching a
 metric must run `apply-static-values.mjs`, and `index.html`, `data/` and
@@ -384,8 +389,18 @@ scope toggle. Production code is the subject in every scope.
   one edge spine (`drawLaneSpine`). Never reintroduce an uncapped expansion;
   `map-smoke.mjs` reads the budget from `map.js` and holds the page to it.
 - Caller lookups are memoized against the identity of the indexes they read
-  (`callerRefsDeps`). Replace an index object rather than mutating it in
-  place, or the memo keeps answering for the old one.
+  (`callerRefsDeps`), and so is their sorted order
+  (`declarationCallerRefsSorted`): `SystemState`'s callers were re-sorted on
+  every open, page and filter. Replace an index object rather than mutating
+  it in place, or the memo keeps answering for the old one.
+- The call graph is indexed in slices (`buildCallGraphIndexesInSlices`,
+  `CALL_GRAPH_SLICE_MS`) into fresh objects and swapped in at once by
+  `commitCallGraph()`. Never index into the live objects: a half-built index
+  answers "no callers" for everything it has not reached yet.
+- The hero stats strip's geometry is content-independent (`--stat-cols`, four
+  columns, two below 64rem; the status line reserves two lines). Never size it
+  by its text, which arrives after first paint: it shifted the page by 0.41.
+  `map-smoke.mjs` holds first-paint layout shift under 0.02.
 - Re-selecting the current module must not repaint the declaration sidebar
   unless it shows another module: the search field's `change` fires on blur,
   and rebuilding the list under the pointer swallowed the click that caused it.
@@ -691,84 +706,143 @@ statistic**; the landing page stays canonical-or-absent.
 ### Simulator (`run.html`)
 
 The simulator shows, for every step of a scenario, what the kernel did (the
-state change), how it got there (the checked syscall path, stage by stage) and
+state change), how it got there (the checked syscall path, gate by gate) and
 why that is safe (the security properties the step relies on and the
-invariants it preserves). Its data is `data/execution-traces.json`, schema
-**v3**, validated by `scripts/lib/trace-analysis.mjs`.
+theorems that preserve each invariant across it). Its data is
+`data/execution-traces.json`, schema **v4**, validated by
+`scripts/lib/trace-analysis.mjs`. `docs/SIMULATOR_SPEC.md` is the full
+specification; this section is the set of rules a change must not break.
 
-- **One engine, two consumers.** `assets/js/trace-engine.js`
+- **Three files, one direction.** `assets/js/trace-engine.js`
   (`window.sele4nTraceEngine`) is the only fold, the only op vocabulary and
-  the only copy of the decisions a trace is checked against. The page loads it
-  before `run.js`; `trace-analysis.mjs` evaluates the same file with
-  `new Function`. Keep it plain ES5 with no DOM. Never copy any of it into
-  `run.js` or the validator: the two copies it replaced were held equal only
-  by a test.
+  the only copy of the decisions a trace is checked against.
+  `assets/js/run-scenes.js` draws the scenes and **decides nothing**: every
+  fact it shows is read off the state or asked of the engine.
+  `assets/js/run.js` is the controller. `run.html` loads them in that order;
+  `trace-analysis.mjs` evaluates the engine with `new Function`. Keep the
+  engine plain ES5 with no DOM, and never copy any of it into `run.js`,
+  `run-scenes.js` or the validator: the two copies it replaced were held equal
+  only by a test.
 - **A trace records effects; the validator recomputes decisions.** A step
   carries the registers the kernel decodes (x0 `capPtr`, x1 `msgInfo`, x2–x5
-  `args`, x7 `number`), and the validator checks, rather than believes, that
-  the caller is current on its core, where x0 resolves (`resolveCap`, guard
-  then radix bits), whether the right is held, whether a `flowCheck` agrees
-  with `flowsTo`, that every `dispatch` is the thread `selectOnCore` picks
-  (highest bucket, EDF within a priority, FIFO, budget and domain
-  eligibility, full-scan fallback), that a mint or copy attenuates, and that
-  only a `ready` thread is enqueued. `checkState`'s sixteen executable mirrors
-  run after the initial state and every step, and each must have a catalogue
-  entry. A scenario that needs the kernel to decide differently from the
-  engine is a bug in one of the two — find which, against the Lean.
-
+  `args`, x7 `number`; a word past x5, such as a mint's badge, comes from the
+  IPC buffer), and the validator checks, rather than believes, each decision
+  the kernel makes from the state: the caller is current on its core, where x0
+  resolves (`resolveCap`), the type gate (`targetAccepted`), the right and the
+  error without it (`missingRightError`), message truncation, whether the arm
+  gates the flow and what a denial answers (`flowGated`, `flowDeniedError`), a
+  flow check's answer (`flowsTo`), every dispatch (`selectOnCore`), and a
+  reschedule, a timer tick, a yield and an interrupt **whole**
+  (`rescheduleOps`, `timerTickOps`, `yieldOps`, `interruptOps`: the step's ops
+  must equal what the engine derives). Where a retype carves
+  (`carvePlacement`), what an IPC rendezvous transfers (`transferPlan`) and
+  where a kernel-issued capability lands (`issuingDestination`) are
+  recomputed too. `docs/SIMULATOR_SPEC.md` §4.8 maps each to its Lean.
+  `checkState`'s seventeen executable mirrors run after the initial state and
+  every step, and each must have a catalogue entry (the catalogue has
+  eighteen: `auditLogBounded` has no mirror). A scenario that needs the kernel
+  to decide differently from the engine is a bug in one of the two — find
+  which, against the Lean.
+- **The flow table is grounded, never hand-edited.** `FLOW_GATED` is the
+  thirteen syscalls whose arm consults the policy (it was eleven, and nothing
+  noticed, because no scenario ran `serviceQuery` or `serviceRevoke`).
+  `checkEngineTables` (`trace-anchors.mjs`) compares it with two things the
+  kernel writes independently: the dispatch arms that take the labelling
+  context `ctx` (minus `CONTEXT_ARMS_UNGATED`), and `enforcementBoundary`'s
+  `.policyGated` entries (`POLICY_GATED_OPERATIONS`). The sync fails when
+  either disagrees. A gated arm's committed step shows exactly one `flow`
+  stage; an ungated arm shows none.
 - **The scenarios are hand-written; their names are not.** The kernel exports
   no JSON traces yet (`source: "fixture"`). Every `{ name, module }` the trace
   cites — a property's theorems, an invariant's predicate, preservation
   theorems and runtime check, a step's source refs and each path stage — is
   resolved by `scripts/lib/trace-anchors.mjs` in the same digest-verified
-  checkout the map is generated from, and stamped with `path` and `line`;
-  `sourceRef` records the commit. `checkTraceKernelFacts` also checks what a
-  step restates about the interface: the syscall is a `SyscallId`
-  constructor, its x7 `number` is `SyscallId.toNat`, its `requiredRight` is
-  the `syscallRequiredRight` arm, every error is a `KernelError`. `sync-upstream.mjs` refuses to write the traces
-  when any of this fails, and `validate-traces.mjs` cross-checks every
+  checkout the map is generated from and stamped with its `line`; the file
+  path is derived from the module, not stored. `sourceRef` records the commit.
+  `checkTraceKernelFacts` also checks what a step restates about the
+  interface: the syscall is a `SyscallId` constructor, its x7 `number` is
+  `SyscallId.toNat`, its `requiredRight` is the `syscallRequiredRight` arm,
+  every error is a `KernelError`. `sync-upstream.mjs` refuses to write the
+  traces when any of this fails, and `validate-traces.mjs` cross-checks every
   stamped line against `map-data.json` at the same commit. The 0.33.6 fixture
   is why: by 0.36.41 fifteen of its names were off the executed path, two
   required rights and one syscall were wrong, and nothing noticed. A name that
   stops resolving is an editorial call — rewrite the step, do not repoint it.
+- **A preservation theorem is cited for the transitions it is about.** Each
+  `preservedBy` entry names its `subject`, the transition kinds it `covers`
+  and optionally the bundle it sits `within`. `checkProofCoverage` holds every
+  claim to `data/map-callgraph.json` at the same commit: the theorem refers to
+  its subject, reaches the predicate (directly or through the `within` chain),
+  and the operation of every step of each covered kind is the subject, reaches
+  it or is reached from it. `covers: []` means a theorem about a function no
+  step runs (a single-core reference definition): it is shown as reference
+  only and never counted. This is reachability over references, not a proof
+  check; what it rules out is what shipped before, a theorem about code the
+  executed path does not contain.
 - **A refused step changes nothing.** A kernel transition is
   `σ → Except ε (α × σ)`: an error carries no state. The validator rejects a
   step with `outcome.status: "error"` whose ops are anything but event ops
   (`flowCheck`, `vspaceReject`, `note`), and the runtime's adoption
   gate refuses the whole document. A syscall `path` has exactly one `fail`
-  stage, matching `outcome.error`, and every later stage is `skip`.
+  stage, matching `outcome.error`, and every later stage is `skip`. The gates
+  run in kernel order: `entry → decode → lookup → type → rights`, then the
+  arm's own `args` and `flow` in the arm's order, then `operation`.
 - **Ops follow the kernel, not a story about it.** Capabilities live in CNode
   slots, so `capInsert`/`capDelete`/`capRevoke` act on `"<cnode>/<slot>"` and
-  the CDT is slot → slots. `capRevoke` removes a capability's derivations and
-  keeps the capability (`cspaceRevoke`). A carve and a reset name the untyped
+  the CDT is slot → slots; a delete splices the slot's children up to its
+  parent. `capRevoke` removes a capability's derivations and keeps the
+  capability (`cspaceRevoke`). A carve and a reset name the untyped
   capability's `slot`, because the free index is the capability's:
-  `untypedCarve` starts there (or at 0 when the slot has no derivation child)
-  and rounds up to the object's boundary, `untypedReset` writes it back to 0
-  and is refused until the capability's children are revoked, and deleting the
-  last capability to a carved object retires it. A missing right is refused
-  with `syscallMissingRightError`'s answer (`invalidCapability` on the IPC
-  syscalls, `illegalAuthority` elsewhere); a mint masks the rights it is asked
-  for rather than refusing; `flowsTo` follows `integrityFlowsTo dst src`
-  (untrusted → trusted allowed, not Biba); declassification is `auditAppend` — it never edits the
-  policy. Endpoint and notification queues are FIFO: `epPopHead` /
+  `untypedCarve` starts there (or at 0 when the slot has no derivation child),
+  rounds up to the object's boundary and refuses an id that already names an
+  object (`childIdCollision`); `untypedReset` writes the index back to 0 and is
+  refused until the capability's children are revoked; deleting the last
+  capability to a carved object retires it. Deriving from an untyped
+  capability follows `untypedDeriveRefused` / `untypedSourceSetFull`. A missing
+  right is refused with `syscallMissingRightError`'s answer
+  (`invalidCapability` on the IPC syscalls, `illegalAuthority` elsewhere); a
+  mint masks the rights it is asked for rather than refusing; `flowsTo`
+  follows `integrityFlowsTo dst src` (untrusted → trusted allowed, not Biba);
+  declassification is `auditAppend` — it never edits the policy. Scheduling
+  contexts follow the refill algebra of `SchedContext/Budget.lean`
+  (`scCharge`, `scRelease`, the per-core release queue; used budget returns
+  one period after the refill it came from) and the clock advances only by
+  `clockTick`. Endpoint and notification queues are FIFO: `epPopHead` /
   `ntfnPopHead` throw on anything but the head. The v1 ops (`untypedRevoke`,
-  `ifPolicyAdd/Remove`, `servicePatch`) and the v2 ops (`setCurrent`,
-  `rqInsert/Remove`, `epDequeue`, `notifPatch`, `cdt*`, `untypedRetype`) are
-  rejected by name.
-- **Six scenes, each a lens on the one folded state** (`SCENES`): `path`
-  (registers, the CPtr walk, the six gates, the scheduler's candidates),
-  `ipc`, `scheduler`, `cspace`, `memory`, `infoflow`. A scene is offered only
-  when the scenario's state carries what it draws; a scenario's `focus` names
-  the one it opens on.
+  `ifPolicyAdd/Remove`, `servicePatch`), the v2 ops (`setCurrent`,
+  `rqInsert/Remove`, `epDequeue`, `notifPatch`, `cdt*`, `untypedRetype`) and
+  the v3 `scPatch` are rejected by name.
+- **Seven scenes, each a lens on the one folded state** (`SCENES` in
+  `run-scenes.js`): `path` (the register file, x1's `MessageInfo` fields at
+  their encoded bit positions, the CPtr walk, every gate in kernel order, or a
+  tick's, reschedule's or interrupt's own mechanism), `ipc`, `scheduler`
+  (per-core priority buckets, eligibility, the next pick, release queues,
+  refills), `cspace` (slots and the derivation tree), `memory` (untyped
+  regions to scale, aligned carves, VSpace and TLB), `infoflow` (the lattice,
+  the flow checks, the declassification audit log) and `irq` (line → node slot
+  → notification → waiter). A scene is offered only when the scenario's state
+  carries what it draws; a scenario's `focus` names the one it opens on. Each
+  scene reads as **before** or **after** the step, marks what the step's ops
+  touched (`E.touched`, not a structural diff), and has a translated text
+  alternative that labels the SVG. The only motion sits inside
+  `prefers-reduced-motion: no-preference`.
 - **Every scene is drawn at 1:1, at every width.** `.theater-svg` is
   `max-width: none`; a scene wider than the stage scrolls inside
   `#theater-stage-shell`, and `.theater-page .container` is 92rem so the
-  954px stage fits at 1440px. Scaled to fit, the scenes shrank to 0.86 on a
+  stage fits at 1440px. Scaled to fit, the scenes shrank to 0.86 on a
   desktop and to about six-pixel labels on a phone. A label that could outgrow
   its box goes through `fitText` with `clip` (ellipsis plus a `<title>`), and
   `Canvas.text` grows the SVG to what it drew. `scripts/run-smoke.mjs` walks
-  every scene of every step and fails on any text past the SVG's edge.
-- **The sandbox is judged by the validator's own mirrors.** Each of its eight
+  every scene of every step, before and after, and fails on any text past the
+  SVG's edge.
+- **Re-renders keep the reader's place.** `render()`, `selectObject()` and the
+  before/after toggle rebuild their panels, so each takes `focusToken()` first
+  and calls `restoreFocus()` after; a new re-render path must do the same. The
+  inspector reads a selected object from the state on show, so anything that
+  changes the view re-renders it too. Containers the trace fills reserve their
+  height while `:empty`, and `run-smoke.mjs` holds first-paint layout shift
+  under 0.02.
+- **The sandbox is judged by the validator's own mirrors.** Each of its
   perturbations (`PERTURB` in `run.js`) breaks one named invariant on a copy
   of the state and is offered only where it applies; `E.checkState` decides
   what broke. Never add a second set of browser-only checks.
@@ -783,10 +857,13 @@ invariants it preserves). Its data is `data/execution-traces.json`, schema
   `data/execution-traces.json` and nothing else, keeps no trace cache, and
   `run.html`'s `connect-src` is `'self'`. A remote document could not have been
   grounded against the revision the bundle was.
-- `run-runtime.test.mjs` boots the real `trace-engine.js` and `run.js` in a
-  DOM shim; the shim must
-  implement every DOM call the runtime makes (it lacked `createTextNode`, and
-  boot failed silently into "Could not load trace data").
+- **Trace prose is data.** Titles, narratives and stage labels stay in
+  English in every locale; every other visible string goes through the
+  locale files.
+- `run-runtime.test.mjs` boots the real `trace-engine.js`, `run-scenes.js`
+  and `run.js` in a DOM shim; the shim must implement every DOM call the
+  runtime makes (it lacked `createTextNode`, and boot failed silently into
+  "Could not load trace data").
 
 ### Map data normalization
 
@@ -936,14 +1013,54 @@ any `nav.*` value; a wide window hides the defect rather than revealing it.
 
 ### Security posture
 
-Both HTML pages enforce:
-- `Content-Security-Policy` (strict `default-src 'self'`)
-- `Permissions-Policy` (geolocation, microphone, camera, payment, USB, browsing-topics disabled)
+Every HTML page (`index.html`, `map.html`, `run.html`, `404.html`) carries:
+- `Content-Security-Policy`: `default-src 'none'` with each type the page
+  uses named `'self'` (script, style, img, connect), `object-src 'none'`,
+  `base-uri 'none'`, `form-action`, `require-trusted-types-for 'script'` and
+  `trusted-types sele4n-i18n` (`'none'` on the 404 page, which has no
+  translated markup). `csp-html.test.mjs` pins the whole policy per page.
+- **One HTML sink on the site**: `sanitizeToFragment` in `i18n.js` parses a
+  locale string into an inert `<template>` through the `sele4n-i18n` policy,
+  walks it against the allowlist and returns **nodes**, which are adopted and
+  never re-serialised (a second parse is the precondition for mutation XSS).
+  Never assign `innerHTML` anywhere else — under Trusted Types it throws — and
+  clear a container with `textContent` or `replaceChildren()`.
+  `i18n-runtime.test.mjs` scans for a second sink; `index-smoke.mjs` serves a
+  poisoned locale string and proves both the sanitizer and the enforcement.
+- `isSafeHref` refuses any control character or whitespace in a locale href,
+  not only a bad scheme: the URL parser strips them (`java\tscript:`).
 - `referrer` policy (`strict-origin-when-cross-origin`)
-- `X-Content-Type-Options: nosniff`
+- `Permissions-Policy` and `X-Content-Type-Options` as `<meta http-equiv>` are
+  **inert**: GitHub Pages cannot send headers, and browsers honour neither in
+  markup. They stay as documentation of intent; do not count them as controls.
+  For the same reason there is no `frame-ancestors`; nothing on the site
+  changes state, so framing has nothing to hijack.
 - All external links hardened with `rel="noopener noreferrer"`
 - No third-party origin on the landing page: the hero logo is self-hosted
   (`assets/images/logo{,-dark}-{128,640,1024}.webp`), so `img-src` is `'self'`
+
+The pipeline and CI:
+- Both workflows check out with `persist-credentials: false`; the sync
+  workflow hands its token to the one `git push` step through
+  `http.extraheader` and nowhere else, so it is not on disk while an upstream
+  clone is read or a browser runs. Installs use `--ignore-scripts` and exact
+  versions; each workflow has a concurrency group and timeouts; actions are
+  pinned by SHA. `workflows.test.mjs` holds all of this.
+- The sync treats the upstream checkout as hostile input: artifact-supplied
+  paths go through `checkoutRelativePath` / `inCheckout()`, the clone sets
+  `core.symlinks=false`, and `SELE4N_REF` must pass `isSafeGitRef`.
+
+### Colour and contrast
+
+- Text on a filled control uses `--on-accent`, defined per theme.
+- Never de-emphasise text with `opacity`: it lowers contrast against whatever
+  is behind it. Use a muted ink token, and a dashed border where a state must
+  read as inactive.
+- Each stylesheet ends in a `forced-colors: active` block; a new state
+  indicator (current step, chosen scope, open tab) needs an entry there, or it
+  disappears in Windows high-contrast mode. The probes check it.
+- `theme-contrast.test.mjs` computes the text tokens' contrast against the
+  surfaces they sit on, in both themes, and fails below 4.5:1.
 
 ### Operations/Invariant split (upstream seLe4n convention)
 
@@ -974,11 +1091,14 @@ The codebase map recognizes the Operations.lean/Invariant.lean pair pattern. Pro
 | Data validation | `scripts/lib/data-validation.mjs` |
 | Global styles | `assets/css/style.css` |
 | Simulator (kernel-in-action) | `run.html`, `assets/js/run.js`, `assets/css/run.css` |
+| Simulator scenes | `assets/js/run-scenes.js` |
 | Trace engine (fold, decisions, invariant mirrors) | `assets/js/trace-engine.js` |
 | Trace data + validator | `data/execution-traces.json`, `scripts/lib/trace-analysis.mjs` |
 | Simulator browser smoke probe | `scripts/run-smoke.mjs` |
 | Trace grounding (names → kernel lines) | `scripts/lib/trace-anchors.mjs` |
 | Tiers 0-2 gate | `scripts/check.sh` |
+| Workflow hardening | `.github/workflows/*.yml`, `scripts/lib/workflows.test.mjs` |
+| Colour contrast | `scripts/lib/theme-contrast.test.mjs` |
 
 ## Documentation Sync Requirements
 
