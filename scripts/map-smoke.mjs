@@ -429,6 +429,42 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   const m = await metrics(page);
   check(m.search === 'SeLe4n.Kernel.API', 'default module (light)');
   check(chartAtScale(m), 'flow chart at 1:1 (light)');
+  // Colours painted for the dark canvas, read on the light one. Lane labels
+  // carry their lane's colour as a fill attribute (mint, orange, pale blue:
+  // 1.3-1.7:1 on this background) and each sidebar row ends in a kind label
+  // tinted with the kind's pastel; both were unreadable in this theme. A
+  // canvas resolves whatever colour syntax the browser computed.
+  const ink = await page.evaluate(() => {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 1;
+    const cx = cv.getContext('2d', { willReadFrequently: true });
+    const rgb = (colour) => { cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = colour; cx.fillRect(0, 0, 1, 1); return [...cx.getImageData(0, 0, 1, 1).data]; };
+    const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+    const ratio = (a, b) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+    const over = (top, under) => { const a = top[3] / 255; return [0, 1, 2].map((i) => top[i] * a + under[i] * (1 - a)).concat(255); };
+    const backdrop = (el) => {
+      const layers = [];
+      for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+        const c = rgb(getComputedStyle(n).backgroundColor);
+        if (c[3] > 0) layers.push(c);
+        if (c[3] === 255) break;
+      }
+      return layers.reverse().reduce((under, top) => over(top, under), [255, 255, 255, 255]);
+    };
+    const wrap = document.getElementById('flowchart-wrap');
+    const labels = [...document.querySelectorAll('.flow-lane-label')].map((label) => {
+      const cs = getComputedStyle(label);
+      const dim = Number((/brightness\(([\d.]+)\)/.exec(cs.filter) || [])[1] || 1);
+      const fill = rgb(cs.fill).map((v, i) => (i < 3 ? v * dim : v));
+      return [label.textContent.slice(0, 24), ratio(fill, backdrop(wrap))];
+    });
+    const rows = [...document.querySelectorAll('.interior-menu-item')].slice(0, 40).map((row) =>
+      [row.getAttribute('data-kind-label'), ratio(rgb(getComputedStyle(row, '::after').color), backdrop(row))]);
+    return { labels, rows };
+  });
+  const faint = [...ink.labels, ...ink.rows].filter(([, r]) => r < 4.5);
+  check(ink.labels.length >= 2 && ink.rows.length > 5 && faint.length === 0,
+    `lane labels and the sidebar's kind labels are at least 4.5:1 on the light canvas (${ink.labels.length} + ${ink.rows.length} read${faint.length ? `; ${faint.slice(0, 4).map(([t, r]) => `${t} ${r.toFixed(2)}`).join(', ')}` : ''})`);
   check(errors.length === 0, 'no console errors (light)');
   await shot(page, 'desktop-light');
   await context.close();

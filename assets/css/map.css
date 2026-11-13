@@ -1072,6 +1072,13 @@
   --flow-node-bg: color-mix(in oklab, var(--surface) 96%, transparent);
   background: color-mix(in oklab, var(--bg-alt) 92%, transparent);
 }
+/* Lane labels and the chart's hints are painted in the lane's own colour,
+   chosen for the dark canvas: mint, orange and pale blue are 1.3-1.7:1 on the
+   light one. Halving their brightness keeps each hue and brings every one of
+   them past 4.5:1. */
+[data-theme="light"] .flow-lane-label { filter: brightness(0.5); }
+/* See run.css: the hero label's shadow is for the landing page's artwork. */
+[data-theme="light"] .code-map-hero .hero-label { text-shadow: none; }
 [data-theme="light"] .flow-node.lane-group rect { fill: color-mix(in oklab, var(--bg-alt) 80%, transparent); }
 [data-theme="light"] .flow-node.lane-more rect { fill: color-mix(in oklab, var(--bg-alt) 80%, transparent); }
 [data-theme="light"] .flow-node-interior-menu {
@@ -1082,6 +1089,17 @@
 }
 [data-theme="light"] .interior-menu-item {
   background: color-mix(in oklab, var(--interior-kind-color, var(--surface)) 10%, var(--surface) 90%);
+}
+/* The kind colours are pastels chosen for the dark sidebar. As text on the
+   light one they are 1.3-1.7:1: the kind label at the end of every row could
+   not be read, and a declaration's name faded out when it was hovered or
+   focused. In the light theme both take a dark ink tinted with the kind. */
+[data-theme="light"] .interior-menu-item::after {
+  color: color-mix(in oklab, var(--interior-kind-color, var(--text-muted)) 30%, var(--text-bright));
+}
+[data-theme="light"] .interior-menu-item-btn:hover,
+[data-theme="light"] .interior-menu-item-btn:focus-visible {
+  color: color-mix(in oklab, var(--interior-kind-color, var(--accent)) 30%, var(--text-bright));
 }
 [data-theme="light"] .interior-menu-tab { background: color-mix(in oklab, var(--surface) 96%, transparent); }
 [data-theme="light"] .legend-item {
