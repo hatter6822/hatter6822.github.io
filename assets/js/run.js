@@ -872,8 +872,56 @@
     if (activeChip) keepWithin(DOM.theaterLog, activeChip);
   }
 
+  /* Every panel is rebuilt on each render, so the control that was focused
+     when the step, the selection or the sandbox changed is gone by the time
+     it returns, and focus falls back to <body>: pressing Enter on a step chip
+     or on an object in the scene threw a keyboard user out of the simulator.
+     The focused control is described before the rebuild and its successor is
+     focused after it: the current step's chip, the same object in the scene,
+     or the control in the same position of the same panel. */
+  var FOCUSABLE = 'a[href], button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+  function focusToken() {
+    var active = document.activeElement;
+    if (!active || active === document.body || typeof active.closest !== "function") return null;
+    var zones = [DOM.theaterLog, DOM.theaterStage, DOM.theaterInspector, DOM.guaranteeGrid, DOM.invariantList, DOM.theaterStepHead, DOM.sandboxPanel];
+    for (var z = 0; z < zones.length; z++) {
+      var zone = zones[z];
+      if (!zone || typeof zone.contains !== "function" || !zone.contains(active)) continue;
+      var object = zone === DOM.theaterStage ? active.closest("[data-object]") : null;
+      return {
+        zone: zone,
+        object: object ? object.getAttribute("data-object") : "",
+        index: Array.prototype.indexOf.call(zone.querySelectorAll(FOCUSABLE), active),
+        tag: active.tagName
+      };
+    }
+    return null;
+  }
+
+  function restoreFocus(token) {
+    if (!token) return;
+    var active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    var target = null;
+    if (token.zone === DOM.theaterLog) {
+      target = token.zone.querySelector('[aria-current="step"]');
+    } else if (token.object) {
+      var drawn = token.zone.querySelectorAll("[data-object]");
+      for (var i = 0; i < drawn.length && !target; i++) if (drawn[i].getAttribute("data-object") === token.object) target = drawn[i];
+    } else if (token.index >= 0) {
+      var same = token.zone.querySelectorAll(FOCUSABLE)[token.index];
+      if (same && same.tagName === token.tag) target = same;
+    }
+    if (!target) target = DOM.theaterStageShell;
+    if (target && typeof target.focus === "function") {
+      try { target.focus({ preventScroll: true }); } catch (e) { /* not focusable */ }
+    }
+  }
+
   function render() {
     if (!app.scenario) return;
+    var focused = focusToken();
     renderStepHead();
     renderStage();
     renderInspector();
@@ -882,6 +930,7 @@
     renderLog();
     renderSandboxActions();
     updateTransport();
+    restoreFocus(focused);
   }
 
   function updateTransport() {
@@ -923,9 +972,13 @@
   function togglePlay() { if (app.playing) stopPlay(); else startPlay(); }
 
   function selectObject(id) {
+    var focused = focusToken();
+    /* "Clear selection" removes itself; its focus goes back to the object. */
+    if (focused && focused.zone === DOM.theaterInspector && !id && app.selected) focused = { zone: DOM.theaterStage, object: app.selected, index: -1, tag: "" };
     app.selected = (app.selected === id) ? "" : id;
     renderStage();
     renderInspector();
+    restoreFocus(focused);
     syncUrl();
   }
 

@@ -268,6 +268,46 @@ for (const width of [1920, 1024, 768]) {
 }
 
 {
+  // Every panel is rebuilt on each render. A control that is focused when it
+  // is pressed must still be focused afterwards, or a keyboard user is put
+  // back at <body> each time they act.
+  const { context, page, errors } = await open(1280, 800, { query: '?scenario=ipc-call-reply&step=1&scene=ipc' });
+  console.log('\n[keyboard focus survives a re-render — 1280px]');
+  const focus = () => page.evaluate(() => {
+    const a = document.activeElement;
+    if (!a || a === document.body) return 'body';
+    return (a.id ? `#${a.id}` : a.tagName.toLowerCase()) + (a.getAttribute('aria-current') ? '[current]' : '') +
+      (a.getAttribute('data-object') ? `[${a.getAttribute('data-object')}]` : '') + (a.classList.contains('insp-clear') ? '.insp-clear' : '');
+  });
+  await page.focus('#theater-log li:nth-child(3) .step-chip');
+  await page.keyboard.press('Enter');
+  check(await focus() === 'button[current]' && (await page.textContent('#theater-step-label')).startsWith('3 /'),
+    `Enter on a step chip moves to that step and stays on its chip (${await focus()})`);
+  await page.keyboard.press('Tab');
+  check(/^button$/.test(await focus()) && await page.evaluate(() => document.activeElement.closest('#theater-log li') === document.querySelector('#theater-log li:nth-child(4)')),
+    'and Tab goes on to the next chip');
+
+  await page.focus('#theater-stage [data-object]');
+  const object = await page.evaluate(() => document.activeElement.getAttribute('data-object'));
+  await page.keyboard.press('Enter');
+  check(await focus() === `g[${object}]` && await page.$$eval('#theater-inspector .insp-clear', (els) => els.length) === 1,
+    `Enter on an object in the scene selects it and stays on it (${await focus()})`);
+  await page.focus('#theater-inspector .insp-clear');
+  await page.keyboard.press('Enter');
+  check(await focus() === `g[${object}]` && await page.$$eval('#theater-inspector .insp-clear', (els) => els.length) === 0,
+    `clearing the selection returns focus to the object (${await focus()})`);
+
+  await page.focus('#guarantee-grid a[href]');
+  const before = await page.evaluate(() => [...document.querySelectorAll('#guarantee-grid a[href], #guarantee-grid button, #guarantee-grid summary')].indexOf(document.activeElement));
+  await page.keyboard.press('ArrowRight');
+  const after = await page.evaluate(() => document.activeElement.closest('#guarantee-grid') ? 'guarantees' : document.activeElement.id || document.activeElement.tagName);
+  check(after === 'guarantees' || after === 'theater-stage-shell',
+    `stepping with the arrows from a link in a rebuilt panel leaves focus in the simulator (${after}, was link ${before})`);
+  check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
+  await context.close();
+}
+
+{
   const { context, page, errors } = await open(390, 844, { theme: 'light', query: '?scenario=capability-gate&step=1&scene=path' });
   console.log('\n[phone, 390px]');
   check(await sideways(page) <= 0, `no sideways page overflow (${await sideways(page)}px)`);
