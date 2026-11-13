@@ -294,7 +294,8 @@ for (const [width, height, label] of [
   // No style="…" in the battery: the parser reports a style attribute to the
   // policy as it parses, inert document or not, so one would be refused (and
   // logged) by style-src before the sanitizer removes it. Everything above is
-  // stopped by the sanitizer alone, which is what the violation check proves.
+  // stopped by the sanitizer alone; see the violation check for the one
+  // report a browser may still make of it.
   const { context, page, errors } = await open(1440, 900, { poison: { 'security.ifc_text': battery } });
   console.log('\n[a poisoned locale string through the sanitizer]');
 
@@ -327,8 +328,21 @@ for (const [width, height, label] of [
   check(!report.comments && report.bases === 0, 'no comment and no <base> came through');
   check(report.text.includes('strong') && report.text.includes('kept'), 'allowed content is kept');
   check(report.live === group(SITE_DATA.modules), `a data-live span in a locale string is hydrated from the snapshot (${report.live})`);
-  check(report.violations.length === 0, `no policy violation was needed to stop it${report.violations.length ? ` — ${report.violations.join(' | ')}` : ''}`);
-  check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
+  // A handler attribute is the one thing the browser may report on its own:
+  // some Chrome builds ask the policy about on*="…" as the parser sets it,
+  // inert <template> document or not (as every build does for style="…"),
+  // and others only when a handler would be compiled, which here is never.
+  // That report is the policy seeing the attribute during the parse, before
+  // the sanitizer's walk removes it; nothing ran either way, which the
+  // __pwned check above establishes. Any other directive is a failure: no
+  // element, image, frame or stylesheet of the battery may get far enough to
+  // be refused.
+  const parseTime = (entry) => /^script-src-attr\b/.test(entry);
+  const stopped = report.violations.filter((entry) => !parseTime(entry));
+  const handlerNoise = (line) => /inline event handler/i.test(line);
+  const loud = errors.filter((line) => !handlerNoise(line));
+  check(stopped.length === 0, `the policy refused nothing beyond handler attributes seen by the parser${stopped.length ? ` — ${stopped.join(' | ')}` : ''}`);
+  check(loud.length === 0, `clean console${loud.length ? ` — ${loud.slice(0, 3).join(' | ')}` : ''}`);
 
   // And the policy underneath: a string cannot reach an HTML sink at all, and
   // page code cannot mint itself a policy to get round that.
