@@ -474,7 +474,23 @@
         if (inv.preservedBy && inv.preservedBy.length) {
           var here = E.proofsCovering(inv, step);
           rows.appendChild(el("dt", { text: tt("run.inv_preserved_by", "Preserved by") }));
-          rows.appendChild(el("dd", {}, [el("ul", { "class": "proof-list" }, inv.preservedBy.map(function (proof) { return proofRow(proof, !app.sandbox && here.indexOf(proof) !== -1); }))]));
+          /* The theorems about this step's transition are shown; the ones
+             about other transitions fold away, so a row reads as "what
+             covers this step" first and the whole catalogue on request. */
+          var covering = app.sandbox ? [] : inv.preservedBy.filter(function (proof) { return here.indexOf(proof) !== -1; });
+          var others = inv.preservedBy.filter(function (proof) { return covering.indexOf(proof) === -1; });
+          var proofCell = [];
+          if (covering.length) proofCell.push(el("ul", { "class": "proof-list" }, covering.map(function (proof) { return proofRow(proof, true); })));
+          if (others.length) {
+            var otherList = el("ul", { "class": "proof-list" }, others.map(function (proof) { return proofRow(proof, false); }));
+            proofCell.push(inv.preservedBy.length <= 2 && !covering.length ? otherList : el("details", { "class": "proof-more" }, [
+              el("summary", { text: covering.length
+                ? tt("run.proof_elsewhere", "{{count}} more, about other transitions", { count: others.length })
+                : tt("run.proof_none_here", "{{count}} theorems, none about this step", { count: others.length }) }),
+              otherList
+            ]));
+          }
+          rows.appendChild(el("dd", {}, proofCell));
         }
         if (inv.runtimeCheck) {
           rows.appendChild(el("dt", { text: tt("run.inv_runtime", "Runtime check") }));

@@ -107,6 +107,8 @@
     "proof_within": "次の連言の一部として",
     "proof_covers": "対象の遷移：{{list}}",
     "proof_any_syscall": "すべてのシステムコール",
+    "proof_elsewhere_other": "ほか {{count}} 件（別の遷移が対象）",
+    "proof_none_here_other": "定理 {{count}} 件（このステップは対象外）",
     "proof_reference": "参照モデルのみ：実際に実行される経路はこれを通りません",
     "outcome_ok": "完了",
     "outcome_refused": "拒否 · {{error}}",

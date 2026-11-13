@@ -107,6 +107,8 @@
     "proof_within": "作为其合取项：",
     "proof_covers": "覆盖：{{list}}",
     "proof_any_syscall": "所有系统调用",
+    "proof_elsewhere_other": "另有 {{count}} 条，针对其他转换",
+    "proof_none_here_other": "{{count}} 条定理，均不针对本步骤",
     "proof_reference": "仅参考模型：实际分发路径不运行它",
     "outcome_ok": "已完成",
     "outcome_refused": "已拒绝 · {{error}}",
