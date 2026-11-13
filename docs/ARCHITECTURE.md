@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.34.0**.
+> Documentation baseline: website release **0.35.0**.
 
 ## Audit summary
 
@@ -2085,3 +2085,82 @@ Tightened at the same time:
   not a 40-hex SHA before passing it to `git fetch`, where a value starting
   with `-` would have been read as an option.
 - The weekly sync runs the simulator probe too, since it rewrites the traces.
+
+## The third audit (0.35.0)
+
+Two audits had been over the site; this one measured before it changed
+anything and went where the first two had not: the browser's enforcement of
+the policy, the workflows, first paint, and the simulator rebuilt for schema
+v4.
+
+### One HTML sink, enforced by the browser
+
+- **`default-src 'none'`**, with every resource type the pages use named
+  (`script-src`, `style-src`, `img-src`, `connect-src` `'self'`), and
+  `base-uri 'none'`. Under `default-src 'self'` a type nobody had considered
+  (a font, a frame, a worker, a manifest) was allowed by inheritance.
+- **Trusted Types.** Every page sends `require-trusted-types-for 'script'` and
+  `trusted-types sele4n-i18n` (`'none'` on `404.html`, which loads no i18n).
+  The locale sanitizer's `<template>` parse is the one place a string becomes
+  markup; `map.js` had eight `innerHTML = ""` clears, now `textContent`, and
+  `site.js` no longer rewrites the JSON-LD block (it is stamped offline like
+  every other figure).
+- **The sanitizer adopts what it inspected.** It used to walk a template,
+  serialize the survivors and assign the string to the target: a second parse,
+  in another context, of text the first parse had approved. No payload was
+  found that survives the allowlist and changes meaning on the way, but that
+  second parse is the precondition of every mutation-XSS, and removing it
+  removes the class. Allowed names count only in the HTML namespace.
+  `isSafeHref` also refuses any href containing a control character or
+  whitespace, since the URL parser strips tabs and newlines before it reads a
+  scheme (`java\tscript:`, `/\t/host`).
+- **What a meta tag cannot do.** `frame-ancestors`, `X-Content-Type-Options`
+  and `Permissions-Policy` are response headers; in `<meta http-equiv>` the
+  browser ignores them, and GitHub Pages sends no custom headers. The tags
+  stay as a statement of intent for a host that can send them. Nothing on the
+  site is state-changing or authenticated, so framing has nothing to hijack.
+
+### The pipeline
+
+- Both workflows check out with `persist-credentials: false`. The sync job's
+  token is supplied to the one `git push`, through `http.extraheader`, after
+  `check.sh` and all three probes have passed; before, it sat in `.git/config`
+  while a fresh upstream clone was read and a browser ran. Test-time installs
+  pass `--ignore-scripts`; each workflow has a concurrency group and each job a
+  timeout. `workflows.test.mjs` pins all of it.
+- Every path the sync reads out of the checkout goes through
+  `checkoutRelativePath()` (no absolute path, no `..`, no backslash, no NUL)
+  and `inCheckout()`, and the clone sets `core.symlinks=false`, so a path in
+  the artifact or a link in the tree cannot lead a read outside it.
+  `isSafeGitRef()` guards `SELE4N_REF` and the artifact's commit.
+
+### Nothing moves when the data lands
+
+The code map's stats strip and the simulator's header were sized by text that
+arrives after first paint. Cumulative layout shift, before and after: map
+0.414 → 0.002 (1440px) and 0.150 → 0 (390px); simulator 0.086 → 0 and
+0.331 → 0. The strip is a fixed grid; the simulator's containers reserve their
+height while `:empty`. A translated locale still shifts by up to 0.07 when its
+strings replace the English ones; closing that would mean hiding the page
+until the locale loads, which trades a small shift for a blank screen.
+
+### Hub declarations
+
+`SystemState`'s 18,880 callers were re-sorted on every interaction and the
+call graph was indexed in one task. With the ordering memoized and the index
+built in slices (see `docs/CODEBASE_MAP.md`), opening a caller module went
+from 179 ms to 76 ms on a desktop and 767 ms to 257 ms at 4× CPU throttle, and
+the longest task of a `SystemState` deep link from 163 ms to 95 ms. Growing the
+snapshot by 40% costs 12–13%; nothing in the path is quadratic.
+
+### Contrast and forced colours
+
+Contrast is fixed at the token: light theme's muted text, accent, green and
+yellow were between 3.7 and 4.4 to 1 on the surfaces they are drawn on, and
+dark theme's text on the accent fill was 2.7. De-emphasis by `opacity` is gone
+from text (a dimmed card read 2.5 to 1 in light theme); a quieter state is a
+muted ink and a dashed border. `theme-contrast.test.mjs` computes the pairs.
+Each stylesheet ends in a `forced-colors: active` block that restores, with
+system colours, the states the palette override erases (current step, selected
+tab and row, a failing invariant).
+

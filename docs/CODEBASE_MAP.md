@@ -1,6 +1,6 @@
 # Codebase Map: End-to-End Guide
 
-> Documentation baseline: website release **0.34.0**.
+> Documentation baseline: website release **0.35.0**.
 
 ## Purpose
 The map page provides a single operational and proof-aware architecture view of the `seLe4n` codebase. It combines:
@@ -40,6 +40,13 @@ timestamp and a one-line stats strip (`Lean modules`, `Theorems`,
 (`formatCount()`), and every count label is a plural family resolved by
 `t(key, { count })`. The jump-link row is gone with the sections it pointed at,
 and so is the `Files` stat, whose subject was the inventory.
+
+The strip's geometry does not depend on its contents. It is a grid of
+`--stat-cols` equal columns (four, two below 64rem), each card a label track
+and a right-aligned figure, and the status line reserves two lines. As a
+wrapping flex row sized by its text it re-flowed when the snapshot replaced
+the placeholders, moving the whole workspace: a cumulative layout shift of
+0.414 at 1440px, now 0.002. `map-smoke.mjs` holds first paint to 0.02.
 
 ### Default view
 
@@ -210,7 +217,22 @@ in 457 modules at seLe4n 0.37.19), so a declaration lane is built by `buildDecla
   per neighbour.
 
 Caller lookups are memoized per index identity, so a lane node's `←N` count
-costs one pass per declaration per snapshot.
+costs one pass per declaration per snapshot. The lane's ordering is memoized
+beside it (`declarationCallerRefsSorted`, keyed in the same memo): sorting
+18,880 references by module relevance used to run on every open, page and
+filter keystroke, with the relevance recomputed inside the comparator; it now
+runs once per declaration, over keys computed once per module.
+
+The call graph's indexes are built in slices. `map-callgraph.json` describes
+about 61,000 edges, and indexing them in one task held the main thread for
+several hundred milliseconds on a phone. `buildCallGraphIndexesInSlices()`
+indexes module by module into fresh objects, yields every `CALL_GRAPH_SLICE_MS`
+(32 ms; one pass when the tab is hidden, where timers are throttled), and
+`commitCallGraph()` swaps the finished indexes in at once — the page never
+reads a half-built index, and replacing the objects is what invalidates the
+caller memo. A payload is checked (`callGraphPayloadProblem`) before any of it
+is indexed, and a module's graph is read with an own-property test, so a
+module named like an `Object.prototype` member resolves to nothing.
 
 ## Rust scope
 

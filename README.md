@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.34.0`
+- Website version: `0.35.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -113,6 +113,8 @@ node scripts/lib/static-values.test.mjs
 node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
+node scripts/lib/workflows.test.mjs
+node scripts/lib/theme-contrast.test.mjs
 ```
 
 `./scripts/check.sh` runs steps 2 and 3 plus `node --check` on every

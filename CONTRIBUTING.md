@@ -2,7 +2,7 @@
 
 Thanks for improving the seLe4n website.
 
-> Current release target: **0.34.0**
+> Current release target: **0.35.0**
 
 ## Repository principles
 
@@ -47,6 +47,8 @@ node scripts/lib/static-values.test.mjs
 node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
+node scripts/lib/workflows.test.mjs
+node scripts/lib/theme-contrast.test.mjs
 node scripts/validate-data.mjs
 node scripts/validate-traces.mjs
 node --check assets/js/map.js

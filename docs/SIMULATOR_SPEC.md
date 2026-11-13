@@ -380,7 +380,28 @@ and third on the bundle and cross-checks every stamped line against `map-data.js
 | where a retype carves, and what x2 asked for | `carvePlacement`, `retypeRequest` | `retypeFreeIndex`, `alignedCarveIndex`, `decodeUntypedRetypeArgs` |
 | capabilities an IPC rendezvous transfers | `transferPlan` | `resolveExtraCaps`, `ipcUnwrapCaps` |
 | the interrupt syscalls' writes | `irqLine`, `irqNodeSlot` | `irqControlLineRefusal`, `irqNotificationCapAdmitted` |
+| the slot a kernel-issued capability lands in | `issuingDestination` | `resolveIssuingSlots` |
 | a mint or copy attenuates | — | `capAttenuates` |
+
+Four decisions were added or corrected when the engine was re-derived against the
+kernel at `e93b82b` (0.35.0):
+
+- **The flow table.** `FLOW_GATED` is thirteen syscalls, not eleven:
+  `dispatchCapabilityOnlyChecked` also gates `serviceQuery` and `serviceRevoke`
+  (`lookupServiceChecked`, `revokeServiceChecked`). No scenario runs either, which is
+  how the omission survived; the table is now grounded (below) so the next one cannot.
+- **Untyped derivation.** A mint, copy or transfer of an untyped capability onto the
+  same region is refused with `revocationRequired` while the source has derivation
+  children (`untypedDeriveRefused`), and afterwards the source is full: its free index
+  is the region's size and the child carries the watermark the source had
+  (`untypedSourceSetFull`). `capInsert` does both.
+- **A carve cannot reuse an object id.** `untypedCarve` throws `childIdCollision`
+  (`retypeFromUntyped`'s check) when the id already names an object.
+- **Where a kernel-issued capability lands.** `untypedRetype` and `irqControlGet` name a
+  CNode and an index in their arguments, and the validator holds the `capInsert` a step
+  records to the slot `issuingDestination` resolves them to; an `irqHandlerAck` on a
+  line the board does not declare must be refused with `invalidIrq`, and
+  `irqHandlerClear` deletes the node slot's capability and nothing else.
 
 A flow gate is held to the arm that runs it: a committed step on a gated arm must show
 its `flow` stage, an ungated arm may record no check, a gated arm records exactly one,
@@ -395,6 +416,23 @@ module }` resolves to a line; each syscall is a `SyscallId` constructor, its x7 
 `SyscallId.toNat`, its `requiredRight` is the `syscallRequiredRight` arm, each error is
 a `KernelError`; and the engine's gate tables are compared with the kernel's, entry for
 entry (`checkEngineTables`).
+
+The flow table is grounded twice, against two things the kernel writes independently:
+
+- **The dispatch arms.** In `dispatchWithCapChecked` and `dispatchCapabilityOnlyChecked`
+  the arms that take the labelling context `ctx` are exactly the arms that gate
+  something on a label. They must be `FLOW_GATED` plus `CONTEXT_ARMS_UNGATED`, the four
+  arms that read the context for another reason (`declassify`, `declassifySignal`,
+  `auditRead`, `auditDrain`), syscall for syscall.
+- **The enforcement boundary.** `enforcementBoundary` (`InformationFlow/Enforcement/
+  Wrappers.lean`) classifies every operation, and its `.policyGated` entries must be
+  the operations `POLICY_GATED_OPERATIONS` names for the thirteen gated syscalls and
+  the two declassifications, no more and no fewer.
+
+What this does **not** establish: that each arm calls its wrapper with the right pair
+of labels, or that a wrapper refuses when it should. The first is read off the arm's
+text (it names `ctx`); the second is the kernel's theorem, not this check's. A syscall
+whose arm stopped consulting the policy while still naming `ctx` would pass.
 
 **Proof coverage** (`checkProofCoverage`, against `data/map-callgraph.json` at the same
 commit). For each `preservedBy` entry:
@@ -423,6 +461,24 @@ trace and to drive the sandbox. Known differences from the Lean predicates:
 - `currentThreadValid` checks that the running thread exists; that a blocked thread is
   not running is `blockedNotRunnable`'s.
 - `auditLogBounded` has no mirror.
+
+Two things the state projection assumes rather than models, because the kernel reads
+them from memory the projection does not carry:
+
+- **The receiver's IPC buffer.** The kernel unwraps capabilities only for a receiver
+  with a writable IPC buffer (`receiverHasBuffer`; without one the receiver gets
+  nothing, badges included) and reads the receive slot out of that buffer's words
+  (`receiveSlot?`). The projection states the outcome as a thread's `recvSlot` field: a
+  thread that has one is a thread with a buffer naming that slot.
+- **`retypeFromUntyped`'s early refusals.** Capacity, the device-untyped restriction,
+  `addressOutOfBounds` and `allocSizeTooSmall` are not recomputed; a scenario that
+  needed one would have to state it as the step's refusal, and none does. The order the
+  engine does model is the kernel's: `revocationRequired` before
+  `untypedRegionExhausted`, then the id collision.
+
+Capability transfer is checked on `send` and `call`. A transfer on `reply` or
+`replyRecv` is refused by the validator rather than checked: conservative, and no
+scenario has one.
 
 ### 4.10 What is left out, deliberately
 
@@ -506,7 +562,29 @@ Re-ground after any trace edit:
   paints both.
 - **Performance.** A step renders one scene; states are folded once per scenario and
   cached; nothing measures layout in a loop except `fitText`, which measures a label
-  once when it is drawn.
+  once when it is drawn. Measured at 0.35.0: a step costs 27 ms of script and layout on
+  a desktop and about 100 ms at 4x CPU throttling; 522 steps across the twelve
+  scenarios leave the heap at 4.1 MB and the listener count where it started.
+- **Nothing moves after first paint.** The page is drawn from the trace, which arrives
+  after the markup. The badge row and the four boxes the trace fills (summary,
+  properties, step strip, step heading) reserve the height the opening scenario gives
+  them, and only while they are `:empty`. Cumulative layout shift while loading is 0 in
+  English; a translated page keeps the shift of the locale replacing the English text.
+- **Focus.** Every panel is rebuilt on each render. `render()` and `selectObject()`
+  describe the focused control before the rebuild (`focusToken`) and focus its
+  successor after it (`restoreFocus`): the current step's chip, the same object in the
+  scene, the control in the same position of the same panel, or the stage. Clearing a
+  selection returns focus to the object.
+- **Contrast and forced colours.** Text on an accent fill is `--on-accent`, dark in the
+  dark theme and white in the light one; a de-emphasised property or an unreached stage
+  is muted and desaturated, never faded with `opacity` (which took its text below
+  4.5:1). In forced-colours mode the selected step, scene, view and the properties at
+  work take the system's selection colours.
+- **The derivation tree's labels.** A node reads `minted · parent <slot>`: the
+  operation the capability was derived by, and its *current* parent. Deleting a node
+  splices its children onto its own parent (`CapDerivationTree.spliceNode`), keeping
+  each child's operation, so "minted from <parent>" would name a capability the child
+  was never minted from.
 
 ## 9. URL state
 
@@ -522,6 +600,14 @@ offer falls back to its `focus`.
   unknown op, a refused step that changes state, or an op the fold throws on (a
   dangling reference, a pop that is not the queue's head). The mirrors run in the
   validator before the bundle ships, not again at load.
+- **Policy.** `default-src 'none'` with each resource type the page uses named,
+  `base-uri 'none'`, and `require-trusted-types-for 'script'`: no string reaches an HTML
+  sink. `run.js` and `run-scenes.js` build the DOM with `createElement`,
+  `createElementNS`, `textContent` and `setAttribute` only; the one Trusted Types
+  policy the page allows belongs to the locale sanitizer in `i18n.js`.
+- **Null-prototype tables.** The engine's lookup tables keyed by trace data (object
+  ids, slot addresses) are created with `Object.create(null)`, so an id such as
+  `__proto__` or `constructor` is a key like any other.
 - **Links from stamped fields only.** `sourceHref()` takes the 40-hex `sourceRef`, a
   path derived from a validated module name, and an integer line. An unstamped
   reference is shown as text.
@@ -543,7 +629,13 @@ sideways page overflow at desktop and phone widths, the stage scrolling inside i
 shell, the transport staying in reach, both themes, the tablist, the before/after
 toggle and the step keys answering the keyboard, a text alternative per scene, the
 sandbox breaking the invariant it names, a translated locale, a clean console and no
-request that leaves the origin.
+request that leaves the origin; and, since 0.35.0, that nothing moves after first
+paint (layout shift below 0.02 in English at three widths, below 0.1 translated), that
+the policy refuses nothing, that a trace which is missing, not JSON, empty, of another
+schema version or carrying a refused step that changes state ends in the status line
+saying so with nothing drawn, that keyboard focus survives a re-render (a step chip, an
+object in the scene, clearing a selection, stepping from a link in a rebuilt panel),
+and that the selected states still stand out in forced-colours mode.
 
 ## 12. Roadmap
 
