@@ -229,6 +229,20 @@ for (const width of [1920, 1024, 768]) {
   check(await status() === 'blocked' && !new URL(page.url()).searchParams.get('view'), 'the A key returns to the state the step left');
   check(await page.$$eval('#theater-stage [data-changed="true"]', (els) => els.length) > 0, 'what the step changed is marked on the scene');
 
+  /* The inspector reads the selected object from the state on show: it must
+     follow the toggle, or it describes one side of the step beside a scene
+     drawing the other. The caller is running before the call and blocked after. */
+  await page.click('#theater-stage [data-object="client"]');
+  const inspected = () => page.$eval('#theater-inspector .insp-object', (e) => e.textContent);
+  const shownAfter = await inspected();
+  await page.click('#theater-view [data-view="before"]');
+  const shownBefore = await inspected();
+  await page.click('#theater-view [data-view="after"]');
+  check(shownBefore !== shownAfter && await inspected() === shownAfter,
+    'the inspector follows the before/after toggle for the selected object');
+  await page.click('#theater-inspector .insp-clear');
+  await page.evaluate(() => document.activeElement && document.activeElement.blur());
+
   /* The step keys, from the page and from the transport button just pressed. */
   const label = () => page.$eval('#theater-step-label', (e) => e.textContent);
   const total = TRACES.scenarios.find((s) => s.id === 'ipc-call-reply').steps.length;

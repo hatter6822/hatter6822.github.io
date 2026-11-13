@@ -349,6 +349,14 @@
     if (viewLocked() || (v !== "before" && v !== "after")) return;
     app.view = v;
     renderStage();
+    /* The selected object's fields are read from the state on show, so the
+       inspector follows the toggle; otherwise it keeps describing the other
+       side of the step beside a scene that has moved. */
+    if (app.selected) {
+      var token = focusToken();
+      renderInspector();
+      restoreFocus(token);
+    }
     syncUrl();
   }
 
