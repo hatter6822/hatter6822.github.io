@@ -52,13 +52,28 @@ function check(condition, message) {
   if (!condition) failures += 1;
 }
 
-async function open(width, height, { theme = 'dark', query = '', locale = 'en' } = {}) {
+async function open(width, height, { theme = 'dark', query = '', locale = 'en', intercept = null } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, locale });
   await context.addInitScript(([t, l]) => {
     try { localStorage.setItem('sele4n-theme', t); } catch (e) {}
     try { localStorage.setItem('sele4n-locale-v1', l); } catch (e) {}
   }, [theme, locale]);
+  /* What the browser itself reports while the page loads: layout shifts not
+     caused by input, and anything the Content-Security-Policy refused. */
+  await context.addInitScript(() => {
+    window.__layoutShift = 0;
+    window.__cspViolations = [];
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.__layoutShift += entry.value;
+      }).observe({ type: 'layout-shift', buffered: true });
+    } catch (e) {}
+    document.addEventListener('securitypolicyviolation', (event) => {
+      window.__cspViolations.push(`${event.violatedDirective} ${event.blockedURI}`);
+    });
+  });
   const page = await context.newPage();
+  if (intercept) await page.route(intercept[0], intercept[1]);
   const errors = [];
   page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
   page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
@@ -68,7 +83,7 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en' }
     if (!url.startsWith('data:') && new URL(url).origin !== ORIGIN) errors.push(`cross-origin request: ${url}`);
   });
   await page.goto(`${BASE}/run.html${query}`, { waitUntil: 'networkidle' });
-  await page.waitForSelector('#theater-stage svg');
+  if (!intercept) await page.waitForSelector('#theater-stage svg');
   return { context, page, errors };
 }
 
@@ -287,6 +302,56 @@ for (const width of [1920, 1024, 768]) {
   check(alt.includes(ES.run.scene_path), 'and so is the scene\'s text alternative');
   check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
   await context.close();
+}
+
+for (const [width, height, locale, bound] of [[1440, 900, 'en', 0.02], [1024, 768, 'en', 0.02], [390, 844, 'en', 0.02], [1440, 900, 'ja', 0.1]]) {
+  // The whole simulator is drawn from the trace, which arrives after first
+  // paint. The boxes it fills reserve their height while they are empty; when
+  // they collapsed instead, the stage was drawn 80px above where it ended up
+  // (a layout shift of 0.09 at 1440px and 0.33 on a phone, on every visit).
+  // A translated page is held to the looser "good" bound, 0.1: the English
+  // text is painted before the locale replaces it, and text of another length
+  // wraps differently. That swap is what is left, and it is not zero.
+  const { context, page, errors } = await open(width, height, { locale });
+  console.log(`\n[first paint ${width}x${height}, ${locale}]`);
+  await page.waitForTimeout(600);
+  const shift = await page.evaluate(() => window.__layoutShift);
+  check(shift < bound, `cumulative layout shift while loading is ${shift.toFixed(4)} (< ${bound})`);
+  const violations = await page.evaluate(() => window.__cspViolations);
+  check(violations.length === 0, `the policy refused nothing${violations.length ? ` — ${violations.join(' | ')}` : ''}`);
+  check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
+  await context.close();
+}
+
+{
+  console.log('\n[the trace cannot be loaded, or is not one the page can fold]');
+  const refusedStep = JSON.parse(JSON.stringify(TRACES));
+  {
+    // A refused step that changes state: the kernel has no such transition,
+    // so the adoption gate refuses the whole document.
+    const EVENTS = ['flowCheck', 'vspaceReject', 'note'];
+    const opsOf = (st) => (st.delta && st.delta.ops) || [];
+    const scenario = refusedStep.scenarios.find((s) => s.steps.some((st) => st.outcome && st.outcome.status === 'error'));
+    const step = scenario.steps.find((st) => st.outcome && st.outcome.status === 'error');
+    const donor = scenario.steps.find((st) => st !== step && opsOf(st).some((op) => !EVENTS.includes(op.op)));
+    step.delta = { ...(step.delta || {}), ops: opsOf(step).concat(opsOf(donor).filter((op) => !EVENTS.includes(op.op)).slice(0, 1)) };
+  }
+  for (const [label, want, handler] of [
+    ['missing', 'Could not load trace data.', (route) => route.fulfill({ status: 404, body: 'not found' })],
+    ['not JSON', 'Could not load trace data.', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>x</title>' })],
+    ['an empty object', 'Bundled trace data is invalid.', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })],
+    ['another schema version', 'Bundled trace data is invalid.', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...TRACES, schemaVersion: TRACES.schemaVersion - 1 }) })],
+    ['a refused step that changes state', 'Bundled trace data is invalid.', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(refusedStep) })]
+  ]) {
+    const { context, page, errors } = await open(1440, 900, { intercept: [/\/data\/execution-traces\.json(\?.*)?$/, handler] });
+    await page.waitForFunction(() => document.getElementById('theater-status').classList.contains('error'), null, { timeout: 10000 }).catch(() => {});
+    const status = await page.$eval('#theater-status', (el) => [el.classList.contains('error'), el.textContent]);
+    const drawn = await page.$$eval('#theater-stage svg', (els) => els.length);
+    const thrown = errors.filter((e) => /^pageerror/.test(e));
+    check(status[0] && status[1] === want && drawn === 0 && thrown.length === 0,
+      `${label}: "${status[1]}", nothing drawn${thrown.length ? ` — ${thrown[0]}` : ''}`);
+    await context.close();
+  }
 }
 
 await browser.close();

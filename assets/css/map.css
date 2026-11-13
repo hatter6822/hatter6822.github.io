@@ -76,37 +76,48 @@
   text-align: right;
   min-width: 0;
 }
-.map-status { margin: 0; color: var(--text-muted); font-size: 0.82rem; line-height: 1.4; }
+/* Two lines are reserved: "Loading…" is one and the ready line that replaces
+   it is two, which moved everything below it on a phone. */
+.map-status { margin: 0; color: var(--text-muted); font-size: 0.82rem; line-height: 1.4; min-height: 2.8em; }
 .map-status.error { color: var(--red); }
 .results-note { margin: 0; color: var(--text-muted); font-size: 0.76rem; }
 .snapshot-note { margin: 0; color: var(--text-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
 
-/* The stats strip on a rule-off row of its own. It shared this row with the
-   section jump links until the page lost the sections they pointed at, so the
-   row carries one child now and the strip does its own wrapping. */
+/* The stats strip on a rule-off row of its own.
+
+   Its shape must not depend on its content. The figures arrive after first
+   paint ("-" until the snapshot lands) and the labels change when a locale
+   does, so a strip that wrapped by content re-wrapped on both: as a flex row
+   it went from one line to two when the numbers filled in and pushed the
+   whole workspace down 33px — a layout shift of 0.41 at 1440px, on every
+   visit. A grid's column count is a property of the viewport alone, and each
+   card gives its figure a fixed column, so a label wraps (or does not) by the
+   label's own length whatever the number beside it. */
 .map-stats-row {
   grid-column: 1 / -1;
-  display: flex;
   margin-top: 0.1rem;
   padding-top: 0.6rem;
   border-top: 1px solid var(--border);
 }
 .map-stats {
-  display: flex;
-  flex-wrap: wrap;
+  --stat-cols: 4;
+  display: grid;
+  grid-template-columns: repeat(var(--stat-cols), minmax(0, 1fr));
   gap: 0.3rem 1.25rem;
   margin: 0;
   min-width: 0;
 }
 .stat-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(3.9rem, auto) minmax(0, 1fr);
   align-items: baseline;
-  gap: 0.4rem;
+  gap: 0.45rem;
   min-width: 0;
 }
 .stat-card dd {
   margin: 0;
   order: -1;
+  text-align: right;
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--heading);
@@ -118,7 +129,11 @@
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+/* Two columns once four no longer hold a figure and its label side by side. */
+@media (max-width: 64rem) {
+  .map-stats { --stat-cols: 2; }
 }
 
 /* --- Section chrome ------------------------------------------------------ */

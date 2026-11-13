@@ -98,6 +98,12 @@ async function open(width, height, { theme = 'dark', query = '', locale = 'en', 
   }, [theme, locale]);
   await context.addInitScript(() => {
     window.__cspViolations = [];
+    window.__layoutShift = 0;
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.__layoutShift += entry.value;
+      }).observe({ type: 'layout-shift', buffered: true });
+    } catch (e) {}
     document.addEventListener('securitypolicyviolation', (event) => {
       window.__cspViolations.push(`${event.violatedDirective} ${event.blockedURI}`);
     });
@@ -201,6 +207,12 @@ for (const [width, height, label] of [
   check(overflow <= 0, `no sideways overflow (${overflow}px)`);
   const cards = await cardGridDefects(page);
   check(cards.length === 0, `card grids have even columns inside the viewport${cards.length ? ` — ${cards.slice(0, 4).join(' | ')}` : ''}`);
+  // The figures are stamped into the markup from the same snapshot the page
+  // then fetches, so hydration has nothing to move.
+  const shift = await page.evaluate(() => window.__layoutShift);
+  check(shift < 0.02, `cumulative layout shift while loading is ${shift.toFixed(4)} (< 0.02)`);
+  const violations = await page.evaluate(() => window.__cspViolations);
+  check(violations.length === 0, `the policy refused nothing${violations.length ? ` — ${violations.join(' | ')}` : ''}`);
   check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
   await context.close();
 }

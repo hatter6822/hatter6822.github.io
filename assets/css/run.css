@@ -34,7 +34,20 @@
   .theater-hero .section-lead { font-size: 0.9rem; line-height: 1.5; }
   .theater-fixture-note { font-size: 0.74rem; }
 }
-.theater-meta { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; margin: 0; }
+/* The badge and the provenance line are written once the trace has loaded,
+   so the row reserves the height they take: empty it was 15px, filled 28px on
+   a desktop and 78px on a phone, and everything under it — the whole
+   simulator — moved by the difference on every visit (a layout shift of 0.09
+   at 1440px and 0.33 at 390px). Below 45rem the two always stack, so the
+   reserved height does not depend on whether a locale's badge happens to
+   leave room beside it. */
+.theater-meta { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; margin: 0; min-height: 1.75rem; }
+@media (max-width: 45rem) {
+  .theater-meta { flex-direction: column; align-items: flex-start; flex-wrap: nowrap; justify-content: flex-start; min-height: 3.7rem; }
+}
+@media (max-width: 26rem) {
+  .theater-meta { min-height: 4.9rem; }
+}
 .theater-status { margin: 0; color: var(--text-muted); font-size: 0.9rem; }
 .theater-status:empty { display: none; }
 .theater-provenance { font-size: 0.78rem; color: var(--text-muted); }
@@ -82,6 +95,24 @@
 .scenario-props-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; }
 .scenario-props-label { color: var(--text-muted); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; }
 .scenario-props { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0; padding: 0; }
+/* Placeholders for what the trace fills in. The page is drawn from the
+   bundled trace, which arrives after first paint; until then these four
+   boxes are empty, and an empty box collapsing to nothing meant the stage
+   was drawn 80px higher than where it ended up a moment later. Each reserves
+   the height the opening scenario gives it, and only while it is :empty, so
+   nothing is reserved once there is content to measure. */
+.scenario-summary:empty { min-height: 3.95rem; }
+.scenario-props:empty { min-height: 1.8rem; }
+.step-strip:empty { min-height: 3.5rem; }
+.step-head:empty { min-height: 7.5rem; }
+@media (max-width: 64rem) {
+  .scenario-props:empty { min-height: 3.3rem; flex-basis: 100%; }
+}
+@media (max-width: 40rem) {
+  .scenario-summary:empty { min-height: 5.25rem; }
+  .scenario-props:empty { min-height: 6rem; }
+  .step-head:empty { min-height: 11.6rem; }
+}
 .scenario-prop {
   display: inline-block; font-size: 0.74rem; font-weight: 600;
   padding: 0.16rem 0.6rem; border-radius: 999px;
