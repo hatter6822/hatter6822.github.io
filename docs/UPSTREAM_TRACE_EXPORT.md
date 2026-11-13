@@ -3,8 +3,11 @@
 > **Status: reference / design.** This document specifies the upstream (kernel-repo)
 > work that flips the Simulator's data `source` from `"fixture"` to `"kernel"`,
 > so the website replays *real* kernel runs instead of hand-authored illustrations.
-> None of it exists upstream yet. The contract is trace schema **v3**
-> (`docs/SIMULATOR_SPEC.md` §4). The Lean below is an **uncompiled reference sketch** written against
+> None of it exists upstream yet. The contract is trace schema **v4**
+> (`docs/SIMULATOR_SPEC.md` §4, which is authoritative wherever this document still
+> describes a v3 field: v4 adds the `type` path stage, the kernel clock, release queues,
+> exact refills, interrupt lines, capability transfer on IPC and per-transition proof
+> coverage, and moves the free index onto the untyped capability). The Lean below is an **uncompiled reference sketch** written against
 > the kernel's known API (`SeLe4n.Model.State`, `SeLe4n.Testing.*`); it is a starting
 > point for the kernel maintainer to compile and adjust against the live signatures —
 > not drop-in code.
@@ -80,10 +83,12 @@ exact shape is `docs/SIMULATOR_SPEC.md` §4.6.
 | `endpoints[]` | each `Endpoint` (`send`/`recv` thread ids from the intrusive dual queue, and its `label`) |
 | `notifications[]` | each `Notification` (`pending` badge word or `null`, `waiters`, `label`) |
 | `replies[]` | each reply object and the `caller` waiting on it |
-| `schedContexts[]` | each scheduling context (`budget`, `remaining`, `period`, `deadline`, `refillIn`) |
+| `schedContexts[]` | each scheduling context: `budget`, `period`, `deadline`, `periodStart`, `consumed`, `remaining` (the head refill's amount) and `refills[]` (`{ amount, at }`, the pending refills with their release times). v3's `refillIn` is gone: the release time is the refill's own |
+| `time`, `releaseQueues` | the kernel clock in ticks, and each core's release queue (scheduling-context ids in release order) |
+| `irqs[]` | each declared interrupt line (`line`, `name`, `active`, `masked`); the IRQ node is a CNode marked `irqNode` whose slot per line holds the notification capability the line signals |
 | `cnodes[]` | each `CNode` (`depth`, `guardWidth`, `guardValue`, `radixWidth`, and occupied `slots` → `{ kind, target, rights, badge, derivation }`) |
 | `cdt` | `cdt : CapDerivationTree` as parent slot → child slots, slots written `"<cnode>/<index>"` |
-| `untyped[]` | each `UntypedObject` (`base`, `size`, `children` with `offset` and `size`) with `watermark` = the free index of the capability carves go through (`Capability.freeIndex`; the object itself holds none) |
+| `untyped[]` | each `UntypedObject` (`base`, `size`, `children` with `offset` and `size`) . The free index is **not** here: it is `freeIndex` on the untyped capability's slot in `cnodes[].slots` (`Capability.freeIndex`; the object itself holds none, and v3's `watermark` is rejected) |
 | `vspaces[]` | each address space (`asid`; `mappings` = `vaddr` → `frame`/`perms` from the page tables; `tlb` = the virtual addresses this core has cached) |
 | `labels[]`, `declassify`, `audit` | the `SecurityLabel`s in use (`conf`, `integ`), the declassification policy, and the declassification audit log |
 
@@ -178,14 +183,20 @@ sync, naming it. References appear in:
   `statement`, an optional `caveat` stating its scope honestly, `theorems` (≥ 1
   reference), and the `invariants` ids it rests on.
 - `invariantCatalog[]` — each invariant: `id`, `label`, `subsystem`, `meaning`, its
-  `predicate` (the Lean definition), `preservedBy` (≥ 1 preservation theorem) and an
+  `predicate` (the Lean definition), `preservedBy` and an optional `scope`. Each
+  `preservedBy` entry is a reference plus `subject` (the function the theorem is
+  about), `covers` (the transitions that function is: syscall ids, `timer`, `schedule`,
+  `interrupt`, or `syscall` for every syscall; empty for a reference-model theorem) and
+  optionally `within` (the bundle the theorem proves the predicate inside). The website
+  checks each entry against its call graph of the same commit and refuses a theorem
+  whose subject is not on the path of a transition it claims. And an
   optional `runtimeCheck` (an executable check in `SeLe4n.Testing.InvariantChecks`,
   which the page labels "test harness, not a proof").
 - each step's `sourceRefs` and each `path[].ref`.
 
-Per step, `guarantees` lists the property ids the step relies on, and `invariants`
-records `preserved` (the catalogue ids a preservation theorem covers for this
-transition). Schema v1's `invariants.allHold`,
+Per step, `guarantees` lists the property ids the step relies on. A step records no
+invariants (v3's `invariants.preserved` is rejected): which theorems cover a step is
+derived from the catalogue's `covers`. Schema v1's `invariants.allHold`,
 `invariants.checked` and `invariantCatalog[].check`/`mapModule` are gone: a list of
 boolean checks that passed is a test result, and the page now cites the theorems.
 
@@ -280,8 +291,9 @@ def stepJson (r : StepRecord) : Json :=
     -- … ("syscall", …) and ("path", …) when present
     ("sourceRefs", Json.arr r.sourceRefs),
     ("guarantees", Json.arr (r.guarantees.map Json.str)),
-    ("delta", Json.mkObj [("ops", Json.arr r.ops)]),
-    ("invariants", Json.mkObj [("preserved", Json.arr (r.preserved.map Json.str))])]
+    ("delta", Json.mkObj [("ops", Json.arr r.ops)])]
+    -- v4: a step lists no invariants; which theorems cover it follows from
+    -- invariantCatalog[].preservedBy[].covers.
 
 /-- A scenario: id/title/summary, the properties it demonstrates, the initial
     projection and the recorded steps. -/
@@ -297,7 +309,7 @@ def scenarioJson (id title summary : String) (properties : Array String)
     stamped by the website's sync; the exporter does not write them. -/
 def export (properties invariants scenarios : Array Json) : Json :=
   Json.mkObj [
-    ("schemaVersion", (3 : Nat)), ("source", "kernel"),
+    ("schemaVersion", (4 : Nat)), ("source", "kernel"),
     ("generator", "SeLe4n.Testing.TraceExport"),
     ("disclaimer", "Exported from a kernel run."),
     ("kernelVersion", /- lakefile -/ "0.0.0"),

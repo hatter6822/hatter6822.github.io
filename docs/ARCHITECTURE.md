@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.33.0**.
+> Documentation baseline: website release **0.34.0**.
 
 ## Audit summary
 
@@ -1044,6 +1044,37 @@ Schema v3 (the 0.36.121 resync) goes from *names* to *decisions*:
   (`scripts/run-smoke.mjs`) for text past the edge on every step.
 - **The sandbox uses the same mirrors.** Its eight perturbations are judged by
   `checkState`, the function the validator runs, not by a second set of checks.
+
+Schema v4 (website 0.34.0, kernel 0.37.19) goes from *decisions* to *mechanism*,
+and closes the gap v3 left between a resolved name and a relevant one:
+
+- **Three files, one direction.** `trace-engine.js` decides, `run-scenes.js`
+  draws, `run.js` controls. The scenes were split out of the controller so that
+  "the scenes decide nothing" is a property a test can hold: every decision a
+  scene draws is a call into the engine.
+- **Whole entries are recomputed.** A timer tick, a reschedule, a yield and an
+  interrupt take no argument, so the engine writes the step
+  (`timerTickOps`, `rescheduleOps`, `yieldOps`, `interruptOps`) and the
+  validator compares op for op. The MCS refill algebra is transcribed from
+  `SchedContext/Budget.lean`; a budget charge and a refill release are ops that
+  name only their subject, so a trace cannot record a wrong number.
+- **The type gate, and gates held to their arm.** `syscallTargetAccepted` is a
+  stage of its own, before any right. Whether an arm runs a flow gate at all is
+  the engine's to say (`flowGated`); v3 let a step record a check its arm never
+  makes, and one did (a signal to a queued waiter asked about the waiter too).
+- **A theorem is cited for the transitions it is about.** v3 listed
+  preservation theorems per invariant and invariants per step, and nothing
+  related the two: `timerTick_preserves_…` resolved to a line and was cited for
+  every step, while the dispatched path runs `timerTickOnCore`. Each
+  `preservedBy` entry now names its `subject`, the transitions it `covers` and
+  the bundle it proves the predicate `within`, and `checkProofCoverage` holds
+  each claim to the bundled call graph of the same commit. Where the kernel has
+  no per-core theorem for a predicate at this revision, the entry says so
+  (`scope`) and the page shows "holds", not "preserved".
+- **What cannot be transcribed is left out and named.** Scheduling-context
+  donation, priority inheritance, bound-notification delivery and a yield on a
+  bound context are not modelled; the scenarios avoid them and the spec lists
+  them (`SIMULATOR_SPEC.md` §4.10).
 
 The design is specified in `docs/SIMULATOR_SPEC.md`; the kernel-side contract
 in `docs/UPSTREAM_TRACE_EXPORT.md`.

@@ -2,7 +2,7 @@
 
 Thanks for improving the seLe4n website.
 
-> Current release target: **0.33.0**
+> Current release target: **0.34.0**
 
 ## Repository principles
 
@@ -51,6 +51,7 @@ node scripts/validate-data.mjs
 node scripts/validate-traces.mjs
 node --check assets/js/map.js
 node --check assets/js/run.js
+node --check assets/js/run-scenes.js
 node --check assets/js/trace-engine.js
 node --check assets/js/header-nav.js
 node --check assets/js/site.js
