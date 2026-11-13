@@ -106,9 +106,33 @@ test('locale HTML is sanitized in an inert document, against a tag allowlist', a
   // the moment innerHTML is assigned — before the allowlist walk can strip it.
   // A <template>'s content belongs to an inert document, which does neither.
   const source = await fs.readFile(path.join(repoRoot, 'assets/js/i18n.js'), 'utf8');
-  const body = /function sanitizeHTML\(raw\) \{([^]*?)\n {2}\}/.exec(source)?.[1] ?? '';
-  assert.match(body, /createElement\("template"\)/, 'sanitizeHTML parses into a <template>');
-  assert.doesNotMatch(body, /createElement\("div"\)/, 'sanitizeHTML must not parse into a live-document element');
+  const body = /function sanitizeToFragment\(raw\) \{([^]*?)\n {2}\}/.exec(source)?.[1] ?? '';
+  assert.match(body, /createElement\("template"\)/, 'the sanitizer parses into a <template>');
+  assert.doesNotMatch(body, /createElement\("div"\)/, 'the sanitizer must not parse into a live-document element');
+  // The walked nodes are adopted as they are. Serializing them and assigning
+  // the string to the target is a second parse, and a second parse is what
+  // every mutation-XSS needs.
+  assert.match(body, /return tmp;/, 'the sanitizer returns the nodes it walked');
+  assert.doesNotMatch(body, /return [^;]*innerHTML/, 'the sanitizer must not hand back a string to be parsed again');
+  assert.match(body, /namespaceURI !== XHTML_NS/, 'an allowed name counts only in the HTML namespace');
+  // One HTML sink on the whole site: the template parse above. Every page
+  // sends require-trusted-types-for 'script', so a second one would throw in
+  // a browser — this says so before a browser is involved.
+  const scripts = (await fs.readdir(path.join(repoRoot, 'assets/js'))).filter((name) => name.endsWith('.js'));
+  const sinks = [];
+  for (const name of scripts) {
+    const text = await fs.readFile(path.join(repoRoot, 'assets/js', name), 'utf8');
+    text.split('\n').forEach((line, index) => {
+      const code = line.replace(/\/\/.*$/, '');
+      if (/\.(innerHTML|outerHTML)\s*[+]?=[^=]|insertAdjacentHTML\s*\(|document\.write(ln)?\s*\(|\bDOMParser\b|createContextualFragment|\bsrcdoc\b|\beval\s*\(|new Function\s*\(|set(Timeout|Interval)\s*\(\s*["'`]/.test(code)) {
+        sinks.push(`${name}:${index + 1}`);
+      }
+    });
+  }
+  assert.equal(sinks.length, 1, `exactly one HTML sink is expected, found: ${sinks.join(', ')}`);
+  assert.match(sinks[0], /^i18n\.js:/);
+  assert.equal((source.match(/createPolicy\(/g) || []).length, 1, 'one Trusted Types policy');
+  assert.doesNotMatch(source, /window\.\w+\s*=\s*htmlPolicy|htmlPolicy\s*:/, 'the policy is not exported');
 
   const allow = /var SAFE_TAGS = \/\^\(([^)]*)\)\$\/i;/.exec(source)?.[1]?.split('|') ?? [];
   assert.ok(allow.length > 0, 'SAFE_TAGS is an anchored alternation');
@@ -120,4 +144,16 @@ test('locale HTML is sanitized in an inert document, against a tag allowlist', a
   const isSafeHref = new Function('href', fn);
   for (const ok of ['https://github.com/hatter6822/seLe4n', '/map.html', '#about', 'mailto:a@b.c']) assert.ok(isSafeHref(ok), `${ok} is kept`);
   for (const bad of ['javascript:alert(1)', '//evil.example', '/\\evil.example', 'data:text/html,x', 'ftp://x', '']) assert.ok(!isSafeHref(bad), `${bad || '(empty)'} is dropped`);
+  // The URL parser removes tabs and newlines and trims leading controls, so
+  // each of these is "//evil.example" or "javascript:" by the time it resolves.
+  for (const bad of ['/\t/evil.example', '/\n/evil.example', ' //evil.example', '\u0001javascript:alert(1)', 'java\tscript:alert(1)', '/ok path']) {
+    assert.ok(!isSafeHref(bad), `${JSON.stringify(bad)} is dropped`);
+  }
+
+  // Every link a shipped locale carries passes the same test, so the
+  // sanitizer never has to drop one in production.
+  for (const name of (await fs.readdir(path.join(repoRoot, 'locales'))).filter((n) => n.endsWith('.json'))) {
+    const text = JSON.stringify(JSON.parse(await fs.readFile(path.join(repoRoot, 'locales', name), 'utf8')));
+    for (const m of text.matchAll(/href=\\"([^"\\]*)\\"/g)) assert.ok(isSafeHref(m[1]), `${name}: ${m[1]}`);
+  }
 });

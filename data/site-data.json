@@ -1,99 +1,148 @@
 {
-  "version": "0.36.121",
+  "version": "0.37.19",
   "leanVersion": "4.28.0",
-  "modules": 419,
-  "lines": "474,784",
-  "theorems": 17336,
-  "syscalls": 42,
-  "externs": 84,
-  "niSteps": 35,
-  "niCrossCore": 39,
-  "enforcementOps": 52,
-  "enforcementOpsPerCore": 67,
+  "modules": 605,
+  "lines": "616,088",
+  "theorems": 24025,
+  "syscalls": 47,
+  "syscallNumbers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47
+  ],
+  "externs": 83,
+  "niSteps": 36,
+  "niCrossCore": 46,
+  "enforcementOps": 55,
+  "enforcementOpsPerCore": 69,
   "frozenSyscalls": 18,
-  "scripts": 73,
-  "docs": 256,
+  "scripts": 72,
+  "docs": 257,
   "admitted": 0,
   "subsystems": {
     "scheduler": {
-      "modules": 64,
-      "theorems": 2955
+      "modules": 68,
+      "theorems": 3425
     },
     "capability": {
-      "modules": 14,
-      "theorems": 353
+      "modules": 22,
+      "theorems": 781
     },
     "capability-authority": {
       "modules": 1,
-      "theorems": 39
+      "theorems": 43
     },
     "capability-defs": {
       "modules": 1,
-      "theorems": 47
+      "theorems": 65
     },
     "capability-preservation": {
-      "modules": 7,
-      "theorems": 104
+      "modules": 13,
+      "theorems": 281
     },
     "ipc": {
-      "modules": 94,
-      "theorems": 4493
+      "modules": 171,
+      "theorems": 6837
     },
     "lifecycle": {
-      "modules": 17,
-      "theorems": 733
+      "modules": 18,
+      "theorems": 741
     },
     "service": {
-      "modules": 7,
-      "theorems": 118
+      "modules": 5,
+      "theorems": 52
     },
     "frozen-ops": {
-      "modules": 6,
-      "theorems": 57
+      "modules": 7,
+      "theorems": 55
     },
     "frozen-ops-commutativity": {
       "modules": 1,
-      "theorems": 16
+      "theorems": 14
     },
     "radix-tree": {
       "modules": 4,
       "theorems": 56
     },
     "sched-context": {
-      "modules": 16,
-      "theorems": 316
+      "modules": 25,
+      "theorems": 1060
     },
     "concurrency": {
       "modules": 34,
-      "theorems": 1431
+      "theorems": 1453
     },
     "information-flow": {
-      "modules": 24,
-      "theorems": 1526
+      "modules": 28,
+      "theorems": 1912
     },
     "architecture": {
-      "modules": 46,
-      "theorems": 1515
+      "modules": 50,
+      "theorems": 1690
     },
     "register-decode": {
       "modules": 1,
-      "theorems": 41
+      "theorems": 45
     },
     "syscall-arg-decode": {
       "modules": 1,
-      "theorems": 86
+      "theorems": 98
     },
     "robin-hood": {
-      "modules": 11,
-      "theorems": 259
+      "modules": 10,
+      "theorems": 275
     },
     "robin-hood-bridge": {
       "modules": 1,
-      "theorems": 52
+      "theorems": 62
     },
     "robin-hood-lookup": {
       "modules": 1,
-      "theorems": 49
+      "theorems": 52
     },
     "robin-hood-preservation": {
       "modules": 1,
@@ -101,7 +150,7 @@
     },
     "ipc-structural": {
       "modules": 5,
-      "theorems": 673
+      "theorems": 652
     },
     "ipc-endpoint-preservation": {
       "modules": 1,
@@ -109,85 +158,85 @@
     },
     "ipc-cap-transfer": {
       "modules": 1,
-      "theorems": 31
+      "theorems": 27
     },
     "model": {
-      "modules": 16,
-      "theorems": 1362
+      "modules": 24,
+      "theorems": 2117
     },
     "model-object": {
-      "modules": 7,
-      "theorems": 577
+      "modules": 9,
+      "theorems": 857
     },
     "model-state": {
       "modules": 1,
-      "theorems": 482
+      "theorems": 670
     },
     "model-object-state": {
-      "modules": 8,
-      "theorems": 1059
+      "modules": 10,
+      "theorems": 1527
     }
   },
   "sourceAnchors": {
     "SeLe4n/Prelude.lean": {
-      "KernelM": 1251,
-      "ObjId": 85,
-      "ThreadId": 141,
-      "DomainId": 327,
-      "Priority": 350,
-      "CPtr": 749,
-      "Slot": 809,
-      "ASID": 1045,
-      "VAddr": 1080,
-      "PAddr": 1217
+      "KernelM": 1351,
+      "ObjId": 78,
+      "ThreadId": 134,
+      "DomainId": 320,
+      "Priority": 343,
+      "CPtr": 755,
+      "Slot": 815,
+      "ASID": 1160,
+      "VAddr": 1192,
+      "PAddr": 1323
     },
     "SeLe4n/Kernel/API.lean": {
-      "apiInvariantBundle": 154
+      "apiInvariantBundle": 153
     },
     "SeLe4n/Machine.lean": {
       "RegName": 26
     },
     "SeLe4n/Model/State.lean": {
-      "SystemState": 1086
+      "SystemState": 1284
     },
     "SeLe4n/Kernel/Scheduler/RunQueue.lean": {
-      "RunQueueEnds": 1781
+      "RunQueueEnds": 1974
     },
     "SeLe4n/Kernel/Scheduler/Invariant.lean": {
-      "schedulerWellFormed": 93
+      "schedulerWellFormed": 95
     },
     "SeLe4n/Model/Object/Types.lean": {
-      "CNode": 3207,
-      "IpcMessage": 876,
-      "Capability": 451,
-      "AccessRightSet": 108,
-      "TCB": 1160,
-      "Endpoint": 2692,
-      "Notification": 2839,
-      "Untyped": 3296
+      "CNode": 4210,
+      "IpcMessage": 1072,
+      "Capability": 533,
+      "AccessRightSet": 92,
+      "TCB": 1666,
+      "Endpoint": 3673,
+      "Notification": 3916,
+      "Untyped": 4324
     },
     "SeLe4n/Model/Object/DerivationLinks.lean": {
       "LinkField": 28
     },
     "SeLe4n/Kernel/Capability/Invariant/Defs.lean": {
-      "cdtLinksAgree": 98
+      "cdtLinksAgree": 109
     },
     "SeLe4n/Model/Object/Structures.lean": {
-      "spliceNode": 2893,
-      "CapDerivationTree": 2307,
-      "VSpaceRoot": 271
+      "spliceNode": 3288,
+      "CapDerivationTree": 2488,
+      "VSpaceRoot": 269
     },
     "SeLe4n/Kernel/Capability/FrameFinalise.lean": {
-      "cspaceRevokeCdtFinalising": 1143
+      "cspaceRevokeCdtFinalising": 2181
     },
     "SeLe4n/Kernel/RobinHood/Core.lean": {
       "RHTable": 39
     },
     "SeLe4n/Platform/Contract.lean": {
-      "PlatformBinding": 85
+      "PlatformBinding": 86
     },
     "SeLe4n/Kernel/IPC/DualQueue/SenderMessage.lean": {
-      "resolveExtraCaps": 88
+      "resolveExtraCaps": 86
     },
     "SeLe4n/Kernel/InformationFlow/Policy.lean": {
       "DomainFlowPolicy": 301
@@ -195,31 +244,31 @@
     "SeLe4n/Kernel/InformationFlow/Projection.lean": {
       "ObservableState": 46
     },
-    "SeLe4n/Kernel/Service/Operations.lean": {
-      "serviceHasPathTo": 178
+    "SeLe4n/Kernel/Service/Registry.lean": {
+      "lookupServiceByRecordedRegistration": 273
     },
     "SeLe4n/Kernel/Architecture/Invariant.lean": {
-      "proofLayerInvariantBundle": 159
+      "proofLayerInvariantBundle": 206
     },
     "SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean": {
       "endpointSendDualChecked": 31,
       "cspaceMintChecked": 52,
-      "registerServiceChecked": 641
+      "registerServiceChecked": 681
     },
     "SeLe4n/Kernel/Scheduler/Operations/Core.lean": {
-      "schedule": 315,
-      "handleYield": 386,
-      "timerTick": 445
+      "schedule": 348,
+      "handleYield": 419,
+      "timerTick": 478
     }
   },
-  "sourceAnchorRef": "d75a4d7d0e14771a60ef5b29e3e18e2c29eddbce",
-  "commitSha": "d75a4d7",
-  "updatedAt": "2026-10-21T05:30:18.000Z",
+  "sourceAnchorRef": "e93b82bbf7c844489f0e614db3b05db355218a14",
+  "commitSha": "e93b82b",
+  "updatedAt": "2026-11-12T14:35:32.000Z",
   "sourceRepo": "hatter6822/seLe4n",
   "sourceRef": "main",
   "metricsSource": "docs/codebase_map.json",
   "metricsScope": "production",
   "schemaVersion": "2.0.0",
-  "sourceDigest": "db3c19b83d81fc811b21c31ce54dd3e9d7b6829db518470558ddca59e014983b",
-  "generatedAt": "2026-10-21T19:45:06.606Z"
+  "sourceDigest": "f685ecf84b79e9d2e65097c8602a2f30d72faa292bb643feec456a61e18765e2",
+  "generatedAt": "2026-11-12T23:12:42.289Z"
 }

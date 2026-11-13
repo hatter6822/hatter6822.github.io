@@ -49,6 +49,57 @@ for (const page of SELF_ONLY_CONNECT) {
   });
 }
 
+/* The whole policy, directive by directive. Nothing is inherited: default-src
+   is 'none', so a resource type the pages do not use has no source at all, and
+   adding one is a reviewed edit to this table rather than a side effect of
+   'self'. The Trusted Types pair is what keeps a string out of every HTML
+   sink; the one policy named is the locale sanitizer's (assets/js/i18n.js),
+   and 404.html, which loads no i18n, allows none. */
+const POLICY = {
+  'default-src': "'none'",
+  'script-src': "'self'",
+  'style-src': "'self'",
+  'img-src': "'self'",
+  'connect-src': "'self'",
+  'object-src': "'none'",
+  'base-uri': "'none'",
+  'form-action': "'self'",
+  'require-trusted-types-for': "'script'",
+  'trusted-types': 'sele4n-i18n',
+  'upgrade-insecure-requests': ''
+};
+const POLICY_OVERRIDES = { '404.html': { 'form-action': "'none'", 'trusted-types': "'none'" } };
+
+for (const page of PAGES) {
+  test(`${page} carries exactly the reviewed policy, ahead of anything it governs`, async () => {
+    const html = await readFile(new URL(page, ROOT), 'utf8');
+    const csp = cspOf(html);
+    const got = {};
+    for (const part of csp.split(';').map((p) => p.trim()).filter(Boolean)) {
+      const space = part.indexOf(' ');
+      const name = space === -1 ? part : part.slice(0, space);
+      assert.ok(!(name in got), `${page}: ${name} is declared twice (the second is ignored)`);
+      got[name] = space === -1 ? '' : part.slice(space + 1).trim();
+    }
+    assert.deepEqual(got, { ...POLICY, ...(POLICY_OVERRIDES[page] || {}) });
+    assert.doesNotMatch(csp, /unsafe-|data:|blob:|\*/, `${page}: no unsafe keyword, scheme source or wildcard`);
+
+    // A meta policy governs only what the parser reaches after it.
+    const at = html.search(/<meta\s+http-equiv="Content-Security-Policy"/i);
+    const firstLoad = html.search(/<script\b|<link\b[^>]*\brel="(?:stylesheet|preload|modulepreload)"/i);
+    assert.ok(at !== -1 && at < firstLoad, `${page}: the policy must precede the first script, stylesheet or preload`);
+    assert.equal((html.match(/http-equiv="Content-Security-Policy"/gi) || []).length, 1);
+
+    // script-src 'self' with no nonce: an inline script or handler never runs.
+    for (const tag of html.match(/<script\b[^>]*>/gi) || []) {
+      if (/type="application\/ld\+json"/.test(tag)) continue;
+      assert.match(tag, /\ssrc="(?!https?:|\/\/)[^"]+"/, `${page}: ${tag} must load a same-origin file`);
+    }
+    assert.doesNotMatch(html, /\son[a-z]+\s*=\s*["']/i, `${page}: no inline event handler`);
+    assert.doesNotMatch(html, /href\s*=\s*["']\s*javascript:/i, `${page}: no javascript: link`);
+  });
+}
+
 for (const page of PAGES) {
   test(`${page} has no inline style attributes (CSP style-src 'self')`, async () => {
     const html = await readFile(new URL(page, ROOT), 'utf8');

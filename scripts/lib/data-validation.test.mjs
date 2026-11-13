@@ -18,6 +18,7 @@ function siteData(overrides = {}) {
     lines: '25,648',
     theorems: 734,
     syscalls: 31,
+    syscallNumbers: Array.from({ length: 31 }, (_, id) => id),
     externs: 64,
     niSteps: 29,
     niCrossCore: 31,

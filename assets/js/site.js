@@ -75,6 +75,9 @@
 
     for (var key in subsystems) {
       if (!Object.prototype.hasOwnProperty.call(subsystems, key)) continue;
+      // The key is spliced into an attribute selector; a snapshot key is a
+      // plain identifier, and anything else is not one of the page's spans.
+      if (!/^[A-Za-z0-9_-]+$/.test(key)) continue;
       var entry = subsystems[key];
       if (!entry || typeof entry !== "object") continue;
       update("subsystem." + key + ".modules", entry.modules);
@@ -142,16 +145,10 @@
 
     updateMetadata(data);
 
-    if (!data.version) return;
-    var ld = document.querySelector('script[type="application/ld+json"]');
-    if (!ld) return;
-
-    try {
-      var obj = JSON.parse(ld.textContent);
-      obj.version = data.version;
-      if (data.updatedAt) obj.dateModified = data.updatedAt;
-      ld.textContent = JSON.stringify(obj, null, 2);
-    } catch (e) {}
+    // The JSON-LD block is not rewritten here. Its version is stamped into the
+    // markup from this same snapshot (scripts/lib/static-values.mjs), which is
+    // the copy a crawler reads; rewriting a <script>'s text at runtime is a
+    // script sink, and the page's Trusted Types policy refuses it.
   }
 
   /**

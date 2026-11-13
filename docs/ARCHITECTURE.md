@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.32.0**.
+> Documentation baseline: website release **0.35.0**.
 
 ## Audit summary
 
@@ -426,9 +426,9 @@ New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.l
 
 ## Rust syscall wrapper layer
 
-The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.36.121 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (42 syscalls at 0.36.121, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.37.19 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (47 syscalls at 0.37.19, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
 
-The crate descriptions below were written at 0.2x (30 syscalls, a 55-variant `KernelError`, eight `sele4n-sys` modules) and are kept as history; at 0.36.41 `SyscallId` has 41 variants, `KernelError` 59 (58 mirroring Lean plus a Rust-only sentinel), and `sele4n-sys` adds `audit.rs` and `declassify.rs` plus `cspace_revoke`, `mint_reply_cap`, `untyped_retype`/`untyped_reset`, `page_table_map`/`unmap`, `tcb_set_space`, `tcb_set_fault_handler` and the notification bind/unbind wrappers.
+The crate descriptions below were written at 0.2x (30 syscalls, a 55-variant `KernelError`, eight `sele4n-sys` modules) and are kept as history; at 0.36.41 `SyscallId` had 41 variants and `KernelError` 59; at 0.37.19 `SyscallId` has 47 (numbered 0–47: `lifecycleRetype`, ID 8, is retired and its number is not reused), `KernelError` 61 (60 mirroring Lean plus a Rust-only sentinel), and `sele4n-sys` adds `audit.rs`, `declassify.rs` and `irq.rs` plus `sched_context_consumed`/`sched_context_yield_to`, `cspace_revoke`, `mint_reply_cap`, `untyped_retype`/`untyped_reset`, `page_table_map`/`unmap`, `tcb_set_space`, `tcb_set_fault_handler` and the notification bind/unbind wrappers.
 
 ### Crate architecture
 
@@ -869,8 +869,12 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
   count had fallen to 18.
 - **A table that enumerates a counted surface is held to the count.** The API
   Surface rows are hand-written (each names its implementing file), so
-  `static-values.test.mjs` requires them to list syscall IDs `0 … syscalls-1`
-  exactly once each. They stopped at ID 34 under a lead that said "All 41".
+  `static-values.test.mjs` requires them to list every number in
+  `site-data.json#syscallNumbers` exactly once. They stopped at ID 34 under a
+  lead that said "All 41". The list is `SyscallId.toNat` of each constructor,
+  read from the same source as the count (`syscallSurfaceNumbers`); the test
+  expected the range `0 … syscalls-1` until 0.37.19 retired `lifecycleRetype`
+  (ID 8) without renumbering, leaving 47 syscalls numbered 0–47.
 - **The footer and the sitemap are stamped as well.** The no-JS footer read
   "Commit main · Updated live from repository" on a page whose CSP forbids
   contacting the repository; `apply-static-values.mjs` now writes the
@@ -1040,6 +1044,37 @@ Schema v3 (the 0.36.121 resync) goes from *names* to *decisions*:
   (`scripts/run-smoke.mjs`) for text past the edge on every step.
 - **The sandbox uses the same mirrors.** Its eight perturbations are judged by
   `checkState`, the function the validator runs, not by a second set of checks.
+
+Schema v4 (website 0.34.0, kernel 0.37.19) goes from *decisions* to *mechanism*,
+and closes the gap v3 left between a resolved name and a relevant one:
+
+- **Three files, one direction.** `trace-engine.js` decides, `run-scenes.js`
+  draws, `run.js` controls. The scenes were split out of the controller so that
+  "the scenes decide nothing" is a property a test can hold: every decision a
+  scene draws is a call into the engine.
+- **Whole entries are recomputed.** A timer tick, a reschedule, a yield and an
+  interrupt take no argument, so the engine writes the step
+  (`timerTickOps`, `rescheduleOps`, `yieldOps`, `interruptOps`) and the
+  validator compares op for op. The MCS refill algebra is transcribed from
+  `SchedContext/Budget.lean`; a budget charge and a refill release are ops that
+  name only their subject, so a trace cannot record a wrong number.
+- **The type gate, and gates held to their arm.** `syscallTargetAccepted` is a
+  stage of its own, before any right. Whether an arm runs a flow gate at all is
+  the engine's to say (`flowGated`); v3 let a step record a check its arm never
+  makes, and one did (a signal to a queued waiter asked about the waiter too).
+- **A theorem is cited for the transitions it is about.** v3 listed
+  preservation theorems per invariant and invariants per step, and nothing
+  related the two: `timerTick_preserves_…` resolved to a line and was cited for
+  every step, while the dispatched path runs `timerTickOnCore`. Each
+  `preservedBy` entry now names its `subject`, the transitions it `covers` and
+  the bundle it proves the predicate `within`, and `checkProofCoverage` holds
+  each claim to the bundled call graph of the same commit. Where the kernel has
+  no per-core theorem for a predicate at this revision, the entry says so
+  (`scope`) and the page shows "holds", not "preserved".
+- **What cannot be transcribed is left out and named.** Scheduling-context
+  donation, priority inheritance, bound-notification delivery and a yield on a
+  bound context are not modelled; the scenarios avoid them and the spec lists
+  them (`SIMULATOR_SPEC.md` §4.10).
 
 The design is specified in `docs/SIMULATOR_SPEC.md`; the kernel-side contract
 in `docs/UPSTREAM_TRACE_EXPORT.md`.
@@ -2050,3 +2085,82 @@ Tightened at the same time:
   not a 40-hex SHA before passing it to `git fetch`, where a value starting
   with `-` would have been read as an option.
 - The weekly sync runs the simulator probe too, since it rewrites the traces.
+
+## The third audit (0.35.0)
+
+Two audits had been over the site; this one measured before it changed
+anything and went where the first two had not: the browser's enforcement of
+the policy, the workflows, first paint, and the simulator rebuilt for schema
+v4.
+
+### One HTML sink, enforced by the browser
+
+- **`default-src 'none'`**, with every resource type the pages use named
+  (`script-src`, `style-src`, `img-src`, `connect-src` `'self'`), and
+  `base-uri 'none'`. Under `default-src 'self'` a type nobody had considered
+  (a font, a frame, a worker, a manifest) was allowed by inheritance.
+- **Trusted Types.** Every page sends `require-trusted-types-for 'script'` and
+  `trusted-types sele4n-i18n` (`'none'` on `404.html`, which loads no i18n).
+  The locale sanitizer's `<template>` parse is the one place a string becomes
+  markup; `map.js` had eight `innerHTML = ""` clears, now `textContent`, and
+  `site.js` no longer rewrites the JSON-LD block (it is stamped offline like
+  every other figure).
+- **The sanitizer adopts what it inspected.** It used to walk a template,
+  serialize the survivors and assign the string to the target: a second parse,
+  in another context, of text the first parse had approved. No payload was
+  found that survives the allowlist and changes meaning on the way, but that
+  second parse is the precondition of every mutation-XSS, and removing it
+  removes the class. Allowed names count only in the HTML namespace.
+  `isSafeHref` also refuses any href containing a control character or
+  whitespace, since the URL parser strips tabs and newlines before it reads a
+  scheme (`java\tscript:`, `/\t/host`).
+- **What a meta tag cannot do.** `frame-ancestors`, `X-Content-Type-Options`
+  and `Permissions-Policy` are response headers; in `<meta http-equiv>` the
+  browser ignores them, and GitHub Pages sends no custom headers. The tags
+  stay as a statement of intent for a host that can send them. Nothing on the
+  site is state-changing or authenticated, so framing has nothing to hijack.
+
+### The pipeline
+
+- Both workflows check out with `persist-credentials: false`. The sync job's
+  token is supplied to the one `git push`, through `http.extraheader`, after
+  `check.sh` and all three probes have passed; before, it sat in `.git/config`
+  while a fresh upstream clone was read and a browser ran. Test-time installs
+  pass `--ignore-scripts`; each workflow has a concurrency group and each job a
+  timeout. `workflows.test.mjs` pins all of it.
+- Every path the sync reads out of the checkout goes through
+  `checkoutRelativePath()` (no absolute path, no `..`, no backslash, no NUL)
+  and `inCheckout()`, and the clone sets `core.symlinks=false`, so a path in
+  the artifact or a link in the tree cannot lead a read outside it.
+  `isSafeGitRef()` guards `SELE4N_REF` and the artifact's commit.
+
+### Nothing moves when the data lands
+
+The code map's stats strip and the simulator's header were sized by text that
+arrives after first paint. Cumulative layout shift, before and after: map
+0.414 → 0.002 (1440px) and 0.150 → 0 (390px); simulator 0.086 → 0 and
+0.331 → 0. The strip is a fixed grid; the simulator's containers reserve their
+height while `:empty`. A translated locale still shifts by up to 0.07 when its
+strings replace the English ones; closing that would mean hiding the page
+until the locale loads, which trades a small shift for a blank screen.
+
+### Hub declarations
+
+`SystemState`'s 18,880 callers were re-sorted on every interaction and the
+call graph was indexed in one task. With the ordering memoized and the index
+built in slices (see `docs/CODEBASE_MAP.md`), opening a caller module went
+from 179 ms to 76 ms on a desktop and 767 ms to 257 ms at 4× CPU throttle, and
+the longest task of a `SystemState` deep link from 163 ms to 95 ms. Growing the
+snapshot by 40% costs 12–13%; nothing in the path is quadratic.
+
+### Contrast and forced colours
+
+Contrast is fixed at the token: light theme's muted text, accent, green and
+yellow were between 3.7 and 4.4 to 1 on the surfaces they are drawn on, and
+dark theme's text on the accent fill was 2.7. De-emphasis by `opacity` is gone
+from text (a dimmed card read 2.5 to 1 in light theme); a quieter state is a
+muted ink and a dashed border. `theme-contrast.test.mjs` computes the pairs.
+Each stylesheet ends in a `forced-colors: active` block that restores, with
+system colours, the states the palette override erases (current step, selected
+tab and row, a failing invariant).
+

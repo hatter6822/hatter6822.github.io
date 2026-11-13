@@ -228,17 +228,20 @@ test('the API Surface table lists every syscall the snapshot counts, once each',
   // The table stopped at ID 34 while the lead above it said "All 41":
   // `syscalls` is counted from `SyscallId`, the rows were typed by hand. The
   // rows are still hand-written (each names its implementing file), so this
-  // holds them to the counted surface: IDs 0 … syscalls-1, no gaps, no repeats.
+  // holds them to the numbered surface: every `SyscallId.toNat` the snapshot
+  // records, once each. It was `0 … syscalls-1` until the kernel retired
+  // `lifecycleRetype` (ID 8) without renumbering: 47 syscalls, IDs 0–47.
   const html = await readFile(new URL('../../index.html', import.meta.url), 'utf8');
   const data = JSON.parse(await readFile(new URL('../../data/site-data.json', import.meta.url), 'utf8'));
 
   const table = /<table class="data-table api-table">([^]*?)<\/table>/.exec(html);
   assert.ok(table, 'index.html has the API Surface table');
   const ids = [...table[1].matchAll(/\(ID (\d+)\)/g)].map((match) => Number(match[1]));
-  const expected = Array.from({ length: data.syscalls }, (_, id) => id);
+  const expected = data.syscallNumbers;
 
+  assert.equal(expected.length, data.syscalls, 'the snapshot numbers every syscall it counts');
   assert.deepEqual([...ids].sort((a, b) => a - b), expected,
-    `the API table must list syscall IDs 0–${data.syscalls - 1} exactly once each (data/site-data.json#syscalls)`);
+    'the API table must list every syscall number exactly once (data/site-data.json#syscallNumbers)');
 });
 
 test('stamps the commit and the visible date of the footer', () => {

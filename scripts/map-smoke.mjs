@@ -82,13 +82,28 @@ function check(condition, message) {
   if (!condition) failures += 1;
 }
 
-async function open(width, height, { theme = 'dark', query = '', locale = 'en', holdLocaleMs = 0 } = {}) {
+async function open(width, height, { theme = 'dark', query = '', locale = 'en', holdLocaleMs = 0, intercept = null } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, locale });
   await context.addInitScript(([t, l]) => {
     try { localStorage.setItem('sele4n-theme', t); } catch (e) {}
     try { localStorage.setItem('sele4n-locale-v1', l); } catch (e) {}
   }, [theme, locale]);
+  /* What the browser itself reports while the page loads: layout shifts not
+     caused by input, and anything the Content-Security-Policy refused. */
+  await context.addInitScript(() => {
+    window.__layoutShift = 0;
+    window.__cspViolations = [];
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.__layoutShift += entry.value;
+      }).observe({ type: 'layout-shift', buffered: true });
+    } catch (e) {}
+    document.addEventListener('securitypolicyviolation', (event) => {
+      window.__cspViolations.push(`${event.violatedDirective} ${event.blockedURI}`);
+    });
+  });
   const page = await context.newPage();
+  if (intercept) await page.route(intercept[0], intercept[1]);
   // Hold the locale JSON back so it lands after the snapshot has painted.
   if (holdLocaleMs) {
     await page.route(/\/locales\/[a-z-]+\.json(\?.*)?$/i, async (route) => {
@@ -414,6 +429,42 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   const m = await metrics(page);
   check(m.search === 'SeLe4n.Kernel.API', 'default module (light)');
   check(chartAtScale(m), 'flow chart at 1:1 (light)');
+  // Colours painted for the dark canvas, read on the light one. Lane labels
+  // carry their lane's colour as a fill attribute (mint, orange, pale blue:
+  // 1.3-1.7:1 on this background) and each sidebar row ends in a kind label
+  // tinted with the kind's pastel; both were unreadable in this theme. A
+  // canvas resolves whatever colour syntax the browser computed.
+  const ink = await page.evaluate(() => {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 1;
+    const cx = cv.getContext('2d', { willReadFrequently: true });
+    const rgb = (colour) => { cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = colour; cx.fillRect(0, 0, 1, 1); return [...cx.getImageData(0, 0, 1, 1).data]; };
+    const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+    const ratio = (a, b) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+    const over = (top, under) => { const a = top[3] / 255; return [0, 1, 2].map((i) => top[i] * a + under[i] * (1 - a)).concat(255); };
+    const backdrop = (el) => {
+      const layers = [];
+      for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+        const c = rgb(getComputedStyle(n).backgroundColor);
+        if (c[3] > 0) layers.push(c);
+        if (c[3] === 255) break;
+      }
+      return layers.reverse().reduce((under, top) => over(top, under), [255, 255, 255, 255]);
+    };
+    const wrap = document.getElementById('flowchart-wrap');
+    const labels = [...document.querySelectorAll('.flow-lane-label')].map((label) => {
+      const cs = getComputedStyle(label);
+      const dim = Number((/brightness\(([\d.]+)\)/.exec(cs.filter) || [])[1] || 1);
+      const fill = rgb(cs.fill).map((v, i) => (i < 3 ? v * dim : v));
+      return [label.textContent.slice(0, 24), ratio(fill, backdrop(wrap))];
+    });
+    const rows = [...document.querySelectorAll('.interior-menu-item')].slice(0, 40).map((row) =>
+      [row.getAttribute('data-kind-label'), ratio(rgb(getComputedStyle(row, '::after').color), backdrop(row))]);
+    return { labels, rows };
+  });
+  const faint = [...ink.labels, ...ink.rows].filter(([, r]) => r < 4.5);
+  check(ink.labels.length >= 2 && ink.rows.length > 5 && faint.length === 0,
+    `lane labels and the sidebar's kind labels are at least 4.5:1 on the light canvas (${ink.labels.length} + ${ink.rows.length} read${faint.length ? `; ${faint.slice(0, 4).map(([t, r]) => `${t} ${r.toFixed(2)}`).join(', ')}` : ''})`);
   check(errors.length === 0, 'no console errors (light)');
   await shot(page, 'desktop-light');
   await context.close();
@@ -564,6 +615,96 @@ for (const [width, height, beside] of [[1920, 900, true], [1536, 864, true], [14
   const lateStatus = await page.textContent('#map-status');
   check(/^Mapa listo\./.test(lateStatus) && lateStatus.includes(MAP_DATA.commitSha.slice(0, 7)), `the status line repainted into the late locale (${JSON.stringify(lateStatus)})`);
   check(errors.length === 0, 'no console errors (late locale)');
+  await context.close();
+}
+
+for (const [width, height, locale, bound] of [[1440, 900, 'en', 0.02], [1200, 800, 'en', 0.02], [390, 844, 'en', 0.02], [1440, 900, 'es', 0.1], [390, 844, 'uk', 0.1]]) {
+  console.log(`\n[first paint ${width}x${height}, ${locale}]`);
+  // Nothing moves once it has been drawn. The header figures are "-" until
+  // the snapshot lands and the labels change with the locale; as a wrapping
+  // flex row the strip re-wrapped on both and pushed the workspace down 33px
+  // (a shift of 0.41 at 1440px, 0.45 in Spanish). A translated page is held
+  // to the looser "good" bound, 0.1: the English text is painted before the
+  // locale replaces it, and text of another length wraps differently. That
+  // swap is what is left (0.05 in Spanish), and it is not zero.
+  const { context, page, errors } = await open(width, height, { locale });
+  await page.waitForTimeout(600);
+  const shift = await page.evaluate(() => window.__layoutShift);
+  check(shift < bound, `cumulative layout shift while loading is ${shift.toFixed(4)} (< ${bound})`);
+  const strip = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('.map-stats .stat-card')];
+    const tops = [...new Set(cards.map((c) => Math.round(c.getBoundingClientRect().top)))];
+    const box = document.querySelector('.map-stats').getBoundingClientRect();
+    return {
+      cards: cards.length, rows: tops.length,
+      past: cards.filter((c) => c.getBoundingClientRect().right > box.right + 0.5 || c.scrollWidth > c.clientWidth + 1).length,
+      empty: cards.filter((c) => !/\d/.test(c.querySelector('dd').textContent)).length
+    };
+  });
+  check(strip.cards === 8 && strip.rows === (width > 1024 ? 2 : 4) && strip.past === 0 && strip.empty === 0,
+    `the eight figures sit in ${width > 1024 ? 'four' : 'two'} columns, filled and inside the strip (${JSON.stringify(strip)})`);
+  const violations = await page.evaluate(() => window.__cspViolations);
+  check(violations.length === 0, `the policy refused nothing${violations.length ? ` — ${violations.join(' | ')}` : ''}`);
+  check(errors.length === 0, `no console errors ${JSON.stringify(errors)}`);
+  await context.close();
+}
+
+{
+  console.log('\n[the snapshot cannot be loaded]');
+  // Every way a bundle can fail to arrive ends in the status line saying so,
+  // with no chart drawn from nothing and no exception.
+  for (const [label, handler] of [
+    ['missing', (route) => route.fulfill({ status: 404, body: 'not found' })],
+    ['not JSON', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>x</title>' })],
+    ['an empty object', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })],
+    ['truncated', async (route) => {
+      const response = await route.fetch();
+      const text = await response.text();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: text.slice(0, text.length >> 1) });
+    }]
+  ]) {
+    const { context, page, errors } = await open(1440, 900, { intercept: [/\/data\/map-data\.json(\?.*)?$/, handler] });
+    const status = await page.$eval('#map-status', (el) => [el.classList.contains('error'), el.textContent]);
+    const drawn = await page.$$eval('.flowchart-svg', (els) => els.length);
+    const thrown = errors.filter((e) => /^pageerror/.test(e));
+    check(status[0] && status[1].startsWith('Unable to load the codebase map snapshot.') && drawn === 0 && thrown.length === 0,
+      `${label}: the status line says so and nothing is drawn (${JSON.stringify(status[1].slice(0, 70))}${thrown.length ? `, ${thrown[0]}` : ''})`);
+    await context.close();
+  }
+
+  const { context, page, errors } = await open(1440, 900, {
+    query: '?module=SeLe4n.Model.State&decl=SystemState',
+    intercept: [/\/data\/map-callgraph\.json(\?.*)?$/, (route) => route.fulfill({ status: 404, body: 'not found' })]
+  });
+  await page.waitForFunction(() => /could not be loaded/.test(document.querySelector('.flowchart-svg')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
+  const chart = await page.$eval('.flowchart-svg', (svg) => svg.textContent);
+  check(/The declaration call graph could not be loaded\./.test(chart) && !/no detected internal call/.test(chart),
+    'a call graph that fails to load is reported as that, not as a declaration with no calls');
+  check(errors.filter((e) => /^pageerror/.test(e)).length === 0, 'and nothing throws');
+  await context.close();
+}
+
+{
+  // Forced colours replace every fill with the user's palette, so a state the
+  // page shows only by a fill has to be given the system's selection colours
+  // or it cannot be told from its neighbours.
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, forcedColors: 'active' });
+  const page = await context.newPage();
+  await page.goto(`${BASE}/map.html`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+  console.log('\n[forced colours]');
+  const states = await page.evaluate((pairs) => pairs.map(([on, off]) => {
+    const a = document.querySelector(on);
+    const b = document.querySelector(off);
+    if (!a || !b) return [on, 'missing'];
+    return [on, getComputedStyle(a).backgroundColor !== getComputedStyle(b).backgroundColor ? 'distinct' : 'same'];
+  }), [
+    ['.map-scope-option.is-active', '.map-scope-option:not(.is-active)'],
+    ['.interior-menu-tab[aria-selected="true"]', '.interior-menu-tab[aria-selected="false"]'],
+    ['.nav-links a[aria-current]', '.nav-links a:not([aria-current]):not(.nav-cta)']
+  ]);
+  const lost = states.filter(([, verdict]) => verdict !== 'distinct');
+  check(lost.length === 0, `the chosen scope, the open sidebar tab and the current page still stand out${lost.length ? ` — ${lost.map(([sel, v]) => `${sel}: ${v}`).join(', ')}` : ''}`);
   await context.close();
 }
 

@@ -84,6 +84,7 @@ import {
   inductiveConstructors,
   stripLeanComments
 } from './lean-analysis.mjs';
+import { syscallNumberTable } from './trace-anchors.mjs';
 
 const ALL_INTERIOR_KINDS = Object.freeze([
   ...INTERIOR_KIND_GROUPS.object,
@@ -580,6 +581,39 @@ export function syscallSurfaceSize(codebaseMap, sourceText) {
 }
 
 /**
+ * The numbers the syscall surface travels under: `SyscallId.toNat` of every
+ * constructor, ascending.
+ *
+ * The count alone does not say which IDs exist. The landing page's API table
+ * was held to `0 … syscalls-1` until the kernel retired `lifecycleRetype`
+ * (ID 8) and kept every other number where it was: 47 syscalls, numbered 0–47
+ * with a gap. A retired number is never reused, so the table is checked
+ * against this list rather than against a range. Returns `undefined` when the
+ * encoder cannot be read or does not number every constructor, and the sync
+ * fails.
+ */
+export function syscallSurfaceNumbers(codebaseMap, sourceText) {
+  if (typeof sourceText !== 'function') return undefined;
+  for (const moduleInfo of productionModules(codebaseMap)) {
+    const declarations = Array.isArray(moduleInfo.declarations) ? moduleInfo.declarations : [];
+    const declaresSyscallId = declarations.some(
+      (declaration) => declaration?.name === 'SyscallId' && declaration?.kind === 'inductive'
+    );
+    if (!declaresSyscallId) continue;
+    let source;
+    try { source = sourceText(moduleInfo.path); } catch { return undefined; }
+    const constructors = inductiveConstructors(source, 'SyscallId');
+    const table = syscallNumberTable(source);
+    if (!constructors?.length || !table) return undefined;
+    const numbers = constructors.map((name) => table[name]);
+    if (numbers.some((number) => !Number.isInteger(number))) return undefined;
+    if (new Set(numbers).size !== numbers.length) return undefined;
+    return numbers.sort((a, b) => a - b);
+  }
+  return undefined;
+}
+
+/**
  * The Lean side of the foreign-function bridge: `@[extern …]` declarations
  * across the production sources. The artifact records declarations but not
  * their attributes, so this is counted over the same verified sources `lines`
@@ -768,6 +802,8 @@ export function siteMetricsFromCodebaseMap(codebaseMap, options = {}) {
   if (sourceText) {
     const syscalls = syscallSurfaceSize(map, sourceText);
     if (syscalls !== undefined) metrics.syscalls = syscalls;
+    const syscallNumbers = syscallSurfaceNumbers(map, sourceText);
+    if (syscallNumbers !== undefined) metrics.syscallNumbers = syscallNumbers;
     const externs = externBridgeSize(map, sourceText);
     if (externs !== undefined) metrics.externs = externs;
 
@@ -957,4 +993,36 @@ export function canonicalCrossChecks(codebaseMap, options = {}) {
   }
 
   return notes;
+}
+
+/**
+ * A path inside the upstream checkout, or a thrown refusal.
+ *
+ * The sync reads files by paths it is handed: the artifact's
+ * `modules[].path`, a trace's cited `module`, a deep link's path on the page.
+ * Each is joined to the checkout directory and read, and what is read is
+ * published. `../../etc/passwd` joined to a directory is a file outside it, so
+ * a path is held to the shape a git tree can contain — relative, forward
+ * slashes, no empty, `.` or `..` segment — before it is joined to anything.
+ * (The checkout is made with `core.symlinks=false`, so a path of this shape
+ * cannot leave the directory through a link either.)
+ */
+export function checkoutRelativePath(path) {
+  const refuse = () => { throw new Error(`refusing to read ${JSON.stringify(path)}: not a path inside the checkout`); };
+  if (typeof path !== 'string' || path === '' || path.length > 1024) refuse();
+  if (/[\u0000-\u001f\u007f\\]/.test(path) || /^[A-Za-z]:/.test(path) || path.startsWith('/')) refuse();
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.' || segment === '..' || segment === '.git') refuse();
+  }
+  return path;
+}
+
+/**
+ * A branch or tag name safe to hand git as an argument: it cannot start with
+ * `-` (an option), and carries none of the characters git's own ref format
+ * forbids. A 40-hex commit passes too; the caller tells the two apart.
+ */
+export function isSafeGitRef(ref) {
+  return typeof ref === 'string' && ref.length <= 200 &&
+    /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref) && !ref.includes('..') && !ref.endsWith('/') && !ref.endsWith('.lock');
 }

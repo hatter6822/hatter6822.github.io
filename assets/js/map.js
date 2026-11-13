@@ -1284,6 +1284,39 @@
     return declarationCallerRefsShared(declName, moduleName).slice();
   }
 
+  /* Lane order: the reference module's own declarations first, then by name.
+     The lowercased key is computed once per entry rather than twice per
+     comparison (18,880 callers are ~270,000 comparisons), and the two groups
+     are sorted apart, which a stable sort on (group, key) is equal to. */
+  function sortRefsByModuleRelevance(refs, referenceModule) {
+    var same = [];
+    var other = [];
+    for (var i = 0; i < refs.length; i++) {
+      var keyed = { ref: refs[i], key: String(refs[i].name).toLowerCase() };
+      if (refs[i].module === referenceModule) same.push(keyed);
+      else other.push(keyed);
+    }
+    function byKey(a, b) { return compareText(a.key, b.key); }
+    same.sort(byKey);
+    other.sort(byKey);
+    var out = [];
+    for (var s = 0; s < same.length; s++) out.push(same[s].ref);
+    for (var o = 0; o < other.length; o++) out.push(other[o].ref);
+    return out;
+  }
+
+  /* The callers in lane order. Kept in the same memo as the list it orders,
+     under the same dependencies: the declaration chart is redrawn for every
+     group opened, page turned and filter keystroke, and re-sorting a hub's
+     callers each time was a third of that redraw. */
+  function declarationCallerRefsSorted(declName, moduleName) {
+    var refs = declarationCallerRefsShared(declName, moduleName);
+    var key = declName + "\u0000" + (moduleName || "") + "\u0000sorted";
+    var memo = callerRefsMemo;
+    if (!memo.entries[key]) memo.entries[key] = sortRefsByModuleRelevance(refs, moduleName);
+    return memo.entries[key].slice();
+  }
+
   function declarationCallerCount(declName, moduleName) {
     return declarationCallerRefsShared(declName, moduleName).length;
   }
@@ -2029,7 +2062,7 @@
     var prevInput = document.getElementById("interior-symbol-filter");
     var hadFocus = Boolean(prevInput && document.activeElement === prevInput);
     var savedCaret = hadFocus ? normalizeCaretRange(prevInput.value, prevInput.selectionStart, prevInput.selectionEnd) : null;
-    menu.innerHTML = "";
+    menu.textContent = "";
     if (!selected) {
       menu.textContent = t("map.select_module") || "Select a module to inspect interior declarations.";
       return;
@@ -2217,7 +2250,7 @@
     var emptyNote = null;
 
     function showEmptyNote(message) {
-      list.innerHTML = "";
+      list.textContent = "";
       if (list.parentNode) list.parentNode.removeChild(list);
       if (!emptyNote) {
         emptyNote = document.createElement("p");
@@ -2233,7 +2266,7 @@
     }
 
     function repaintList() {
-      list.innerHTML = "";
+      list.textContent = "";
       var activeKind = select.value;
       var items = interiorItemsForSelection(interior, group.kinds, activeKind, query);
       if (!items.length) {
@@ -2809,7 +2842,7 @@
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
     var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
     var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
-    wrap.innerHTML = "";
+    wrap.textContent = "";
     flowClipIdCounter = 0;
 
     var selected = state.selectedModule;
@@ -3446,7 +3479,7 @@
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
     var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
     var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
-    wrap.innerHTML = "";
+    wrap.textContent = "";
     flowClipIdCounter = 0;
 
     var selected = state.selectedModule;
@@ -3728,7 +3761,7 @@
     var shouldPreserveScroll = !prefersCompactViewport() && !state.flowScrollTarget;
     var previousScrollLeft = shouldPreserveScroll ? flowFrameValue(wrap, "scrollLeft") : 0;
     var previousScrollTop = shouldPreserveScroll ? flowFrameValue(wrap, "scrollTop") : 0;
-    wrap.innerHTML = "";
+    wrap.textContent = "";
     flowClipIdCounter = 0;
 
     var declName = state.selectedDeclaration;
@@ -3837,19 +3870,10 @@
       return raw;
     }
 
-    function sortByModuleRelevance(arr, referenceModule) {
-      return arr.slice().sort(function (a, b) {
-        var sameA = a.module === referenceModule ? 0 : 1;
-        var sameB = b.module === referenceModule ? 0 : 1;
-        if (sameA !== sameB) return sameA - sameB;
-        return compareText(a.name.toLowerCase(), b.name.toLowerCase());
-      });
-    }
-
     /* Dense lanes: see buildDeclarationLane. Past the flat limit the lanes are
        ordered by module relevance, which is also the order a filter keeps. */
-    var sortedCalls = calls.length > DECL_LANE_FLAT_LIMIT ? sortByModuleRelevance(calls, moduleName) : calls;
-    var sortedCallers = calledBy.length > DECL_LANE_FLAT_LIMIT ? sortByModuleRelevance(calledBy, moduleName) : calledBy;
+    var sortedCalls = calls.length > DECL_LANE_FLAT_LIMIT ? sortRefsByModuleRelevance(calls, moduleName) : calls;
+    var sortedCallers = calledBy.length > DECL_LANE_FLAT_LIMIT ? declarationCallerRefsSorted(declName, moduleName) : calledBy;
     var laneFilter = state.declarationLaneFilter;
     var callLane = buildDeclarationLane(sortedCalls, state.declarationLaneOpen.calls, moduleName, laneFilter);
     var callerLane = buildDeclarationLane(sortedCallers, state.declarationLaneOpen.callers, moduleName, laneFilter);
@@ -5105,42 +5129,85 @@
      (`declarationReverseTargets`, "" for a bare target, which is placed from
      the caller's module on lookup), so the callers of one module's `leaves`
      can be told apart from the callers of another's. */
-  function buildCallGraphIndexes(moduleMeta, moduleNames) {
-    var graph = Object.create(null);
-    var reverse = Object.create(null);
-    var reverseModules = Object.create(null);
-    var reverseTargets = Object.create(null);
-    for (var m = 0; m < moduleNames.length; m++) {
-      var moduleName = moduleNames[m];
-      var meta = moduleMeta[moduleName];
-      var callGraph = meta && meta.symbols && meta.symbols.callGraph;
-      if (!callGraph) continue;
-      for (var caller in callGraph) {
-        if (!Object.prototype.hasOwnProperty.call(callGraph, caller)) continue;
-        var calls = callGraph[caller];
-        if (!Array.isArray(calls)) continue;
-        graph[caller] = { module: moduleName, calls: calls };
-        for (var c = 0; c < calls.length; c++) {
-          var text = String(calls[c] || "");
-          var hash = text.indexOf("#");
-          var target = hash > 0 ? text.slice(hash + 1) : text;
-          if (!reverse[target]) {
-            reverse[target] = [];
-            reverseModules[target] = [];
-            reverseTargets[target] = [];
-          }
-          reverse[target].push(caller);
-          reverseModules[target].push(moduleName);
-          reverseTargets[target].push(hash > 0 ? text.slice(0, hash) : "");
+  function emptyCallGraphIndexes() {
+    return {
+      declarationGraph: Object.create(null),
+      declarationReverseGraph: Object.create(null),
+      declarationReverseModules: Object.create(null),
+      declarationReverseTargets: Object.create(null)
+    };
+  }
+
+  /* One module's share of the indexes. The only writer of them, so the build
+     done in one pass and the build done in slices cannot come out different. */
+  function indexModuleCallGraph(indexes, moduleName, callGraph) {
+    if (!callGraph || typeof callGraph !== "object") return;
+    var graph = indexes.declarationGraph;
+    var reverse = indexes.declarationReverseGraph;
+    var reverseModules = indexes.declarationReverseModules;
+    var reverseTargets = indexes.declarationReverseTargets;
+    for (var caller in callGraph) {
+      if (!Object.prototype.hasOwnProperty.call(callGraph, caller)) continue;
+      var calls = callGraph[caller];
+      if (!Array.isArray(calls)) continue;
+      graph[caller] = { module: moduleName, calls: calls };
+      for (var c = 0; c < calls.length; c++) {
+        var text = String(calls[c] || "");
+        var hash = text.indexOf("#");
+        var target = hash > 0 ? text.slice(hash + 1) : text;
+        if (!reverse[target]) {
+          reverse[target] = [];
+          reverseModules[target] = [];
+          reverseTargets[target] = [];
         }
+        reverse[target].push(caller);
+        reverseModules[target].push(moduleName);
+        reverseTargets[target].push(hash > 0 ? text.slice(0, hash) : "");
       }
     }
-    return {
-      declarationGraph: graph,
-      declarationReverseGraph: reverse,
-      declarationReverseModules: reverseModules,
-      declarationReverseTargets: reverseTargets
-    };
+  }
+
+  function buildCallGraphIndexes(moduleMeta, moduleNames) {
+    var indexes = emptyCallGraphIndexes();
+    for (var m = 0; m < moduleNames.length; m++) {
+      var meta = moduleMeta[moduleNames[m]];
+      indexModuleCallGraph(indexes, moduleNames[m], meta && meta.symbols && meta.symbols.callGraph);
+    }
+    return indexes;
+  }
+
+  /* The same indexes, built a slice at a time with the browser given a turn
+     between slices. The call graph is ~31,000 callers and ~290,000 edges;
+     indexed in one go, straight after the 7 MB parse and in the same task, it
+     held the main thread for 980 ms at 4x CPU while a deep link was loading.
+     `graphOf(moduleName)` supplies each module's graph, so nothing is written
+     to the live state until the whole index exists. A hidden tab has no frame
+     to keep and its timers are throttled to one a second, so it builds in one
+     pass. */
+  var CALL_GRAPH_SLICE_MS = 32;
+  function buildCallGraphIndexesInSlices(moduleNames, graphOf) {
+    return new Promise(function (resolve, reject) {
+      var indexes = emptyCallGraphIndexes();
+      var next = 0;
+      var now = typeof performance !== "undefined" && performance && typeof performance.now === "function"
+        ? function () { return performance.now(); }
+        : function () { return Date.now(); };
+      function slice() {
+        try {
+          var unsliced = typeof document !== "undefined" && document && document.hidden;
+          var until = now() + CALL_GRAPH_SLICE_MS;
+          while (next < moduleNames.length && (unsliced || now() < until)) {
+            indexModuleCallGraph(indexes, moduleNames[next], graphOf(moduleNames[next]));
+            next++;
+          }
+          if (next < moduleNames.length) window.setTimeout(slice, 0);
+          else resolve(indexes);
+        } catch (error) {
+          reject(error);
+        }
+      }
+      slice();
+    });
   }
 
   function normalizeMapData(data, options) {
@@ -5419,25 +5486,66 @@
      declaration view reads. Returns an error message, or "" when applied. A
      graph from another commit is refused: its names would be matched against
      declarations it was not computed from. */
-  function applyCallGraphPayload(payload) {
+  function callGraphPayloadProblem(payload) {
     if (!payload || typeof payload !== "object" || !payload.callGraph || typeof payload.callGraph !== "object") return "call graph has no callGraph";
     if (!state.commitSha || payload.commitSha !== state.commitSha) {
       return "call graph is from commit " + String(payload.commitSha || "?").slice(0, 7) + ", the snapshot from " + String(state.commitSha || "?").slice(0, 7);
     }
+    return "";
+  }
+
+  /* A module's graph out of the payload: an own key holding a plain object,
+     or nothing. */
+  function payloadModuleGraph(payload, name) {
+    var graph = Object.prototype.hasOwnProperty.call(payload.callGraph, name) ? payload.callGraph[name] : null;
+    return graph && typeof graph === "object" && !Array.isArray(graph) ? graph : null;
+  }
+
+  /* The one place a loaded call graph becomes the page's: every module's
+     graph and the four indexes over them are replaced together, in one
+     synchronous step, so no render sees callees without their callers. */
+  function commitCallGraph(payload, indexes) {
     for (var i = 0; i < state.modules.length; i++) {
       var name = state.modules[i];
       var meta = state.moduleMeta[name];
       if (!meta) continue;
       if (!meta.symbols) meta.symbols = makeEmptyInteriorSymbols();
-      var graph = payload.callGraph[name];
-      meta.symbols.callGraph = graph && typeof graph === "object" && !Array.isArray(graph) ? graph : Object.create(null);
+      meta.symbols.callGraph = payloadModuleGraph(payload, name) || Object.create(null);
     }
-    var indexes = buildCallGraphIndexes(state.moduleMeta, state.modules);
     state.declarationGraph = indexes.declarationGraph;
     state.declarationReverseGraph = indexes.declarationReverseGraph;
     state.declarationReverseModules = indexes.declarationReverseModules;
     state.declarationReverseTargets = indexes.declarationReverseTargets;
+  }
+
+  function applyCallGraphPayload(payload) {
+    var problem = callGraphPayloadProblem(payload);
+    if (problem) return problem;
+    var indexes = emptyCallGraphIndexes();
+    for (var i = 0; i < state.modules.length; i++) {
+      if (state.moduleMeta[state.modules[i]]) indexModuleCallGraph(indexes, state.modules[i], payloadModuleGraph(payload, state.modules[i]));
+    }
+    commitCallGraph(payload, indexes);
     return "";
+  }
+
+  /* applyCallGraphPayload, in slices (see buildCallGraphIndexesInSlices).
+     Resolves once the graph is committed and rejects with the reason it was
+     refused. The snapshot it was indexed against must still be the page's
+     when the last slice lands. */
+  function applyCallGraphPayloadInSlices(payload) {
+    var problem = callGraphPayloadProblem(payload);
+    if (problem) return Promise.reject(new Error(problem));
+    var modules = state.modules;
+    var moduleMeta = state.moduleMeta;
+    return yieldToBrowser().then(function () {
+      return buildCallGraphIndexesInSlices(modules, function (name) {
+        return moduleMeta[name] ? payloadModuleGraph(payload, name) : null;
+      });
+    }).then(function (indexes) {
+      if (state.modules !== modules || state.moduleMeta !== moduleMeta) throw new Error("snapshot changed while the call graph loaded");
+      commitCallGraph(payload, indexes);
+    });
   }
 
   /* Starts loading the call graph if nothing has, and repaints the
@@ -5445,9 +5553,7 @@
   function ensureCallGraph() {
     if (state.callGraphStatus !== "idle") return;
     state.callGraphStatus = "loading";
-    fetchCallGraph().then(function (payload) {
-      var problem = applyCallGraphPayload(payload);
-      if (problem) throw new Error(problem);
+    fetchCallGraph().then(applyCallGraphPayloadInSlices).then(function () {
       state.callGraphStatus = "ready";
     }).catch(function (error) {
       state.callGraphStatus = "failed";
@@ -5841,7 +5947,7 @@
     var options = DOM.moduleSearchOptions || document.getElementById("module-search-options");
     if (!options) return;
     options.hidden = true;
-    options.innerHTML = "";
+    options.textContent = "";
     state.searchVisibleOptions = [];
     state.searchActiveOption = -1;
     state.searchDeclSuggestions = [];
@@ -5859,7 +5965,7 @@
       return;
     }
 
-    options.innerHTML = "";
+    options.textContent = "";
     var declSuggestionMap = Object.create(null);
     for (var ds = 0; ds < (state.searchDeclSuggestions || []).length; ds++) {
       declSuggestionMap[state.searchDeclSuggestions[ds].hint] = state.searchDeclSuggestions[ds];
@@ -6555,6 +6661,8 @@
       buildDeclarationLane: buildDeclarationLane,
       filterDeclarationRefs: filterDeclarationRefs,
       declarationCallerCount: declarationCallerCount,
+      declarationCallerRefsSorted: declarationCallerRefsSorted,
+      sortRefsByModuleRelevance: sortRefsByModuleRelevance,
       declarationLaneState: function () { return { open: state.declarationLaneOpen, filter: state.declarationLaneFilter }; },
       objectDeclarationCount: objectDeclarationCount,
       extensionDeclarationCount: extensionDeclarationCount,

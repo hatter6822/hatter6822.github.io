@@ -4,7 +4,7 @@ Static site for **seLe4n**, including a marketing homepage and an interactive ar
 
 ## Current website release
 
-- Website version: `0.32.0`
+- Website version: `0.35.0`
 - Lean toolchain target: `4.28.0`
 
 ## Repository layout
@@ -113,6 +113,8 @@ node scripts/lib/static-values.test.mjs
 node scripts/lib/source-anchors.test.mjs
 node scripts/lib/i18n-locales.test.mjs
 node scripts/lib/i18n-runtime.test.mjs
+node scripts/lib/workflows.test.mjs
+node scripts/lib/theme-contrast.test.mjs
 ```
 
 `./scripts/check.sh` runs steps 2 and 3 plus `node --check` on every
@@ -252,33 +254,37 @@ The code map interior panel supports declaration-first navigation:
 
 `run.html` shows **what the kernel does, how it checks, and why it is safe**. You
 step through a scenario, and for every step the page shows the state change, the
-checked syscall path that allowed or refused it (entry → decode → lookup → rights →
-flow → operation, with the refusing stage and the `KernelError` it returned), and the
+checked syscall path that allowed or refused it (entry → decode → lookup → type →
+rights, then the arm's own argument decode and flow gate, then the operation, with the
+refusing stage and the `KernelError` it returned), and the
 security properties and invariants the step relies on — each linked to the Lean
 declaration that states or proves it.
 
-It offers six switchable **scenes**, each drawn from the kernel's own structures:
-**Kernel path** (the registers the kernel decodes, the capability pointer walked through
-guard and radix bits to its slot, the six-gate pipeline, and every scheduling decision
-with the candidates it weighed), **IPC** (endpoint send and receive queues, notification
-words bit by bit, reply objects, and messages travelling sender → object → receiver),
-**Scheduler** (one box per core: priority buckets with the next pick, budget meters and
-scheduling contexts with their EDF deadlines), **CSpace** (CNode slot strips with their
-guard/radix geometry and the derivation tree arched over them), **Memory** (untyped
-regions to scale with their watermark, a refused retype drawn where it would have gone,
-and address spaces with W^X and TLB state) and **Information flow** (the label lattice,
+It offers seven switchable **scenes**, each drawn from the kernel's own structures and
+each readable as the state the step found or the state it left:
+**Kernel path** (the registers the kernel decodes with x1 split bit by bit, the
+capability pointer walked through guard and radix bits to its slot, every gate in the
+order the kernel runs it, and for a tick, a reschedule or an interrupt that entry's own
+mechanism), **IPC** (endpoint send and receive queues, notification words, reply
+objects, the message and any capability a rendezvous moved, and each thread's state
+transition), **Scheduler** (the kernel clock, per-core priority buckets with eligibility
+and the next pick, release queues, and scheduling contexts with their head and pending
+refills), **CSpace** (CNode slots and the derivation tree, with what a delete or revoke
+removed), **Memory** (untyped regions to scale with aligned carves and each untyped
+capability's free index, and address spaces with W^X and TLB state), **Information
+flow** (the label lattice with every flow the policy admits,
 each flow check recomputed from the labels, and the declassification audit log — a
 declassification is an audited release, never an edit to the policy). Beside the stage, an inspector explains
-the step; below it, a **security guarantees** band (nine properties, each with its
+the step; below it, a **security guarantees** band (eleven properties, each with its
 statement, scope caveat and theorems, the step's own highlighted) and a **kernel
-invariants** catalogue (seventeen invariants, each with its predicate, preservation
-theorems and — labelled as a test, not a proof — the harness's runtime check). An
+invariants** catalogue (eighteen invariants, each with its predicate, the preservation
+theorems that cover the current transition and — labelled as a test, not a proof — the harness's runtime check). An
 opt-in, clearly-labeled **sandbox** offers eight perturbations of the state (a thread
 queued twice, W+X mapping, a stale TLB entry, an overspent budget, overlapping objects,
 …) and shows which invariant each one breaks — illustrating exactly what the Lean proofs
 forbid.
 
-The ten scenarios in `data/execution-traces.json` (trace schema v3) are written by
+The twelve scenarios in `data/execution-traces.json` (trace schema v4) are written by
 hand: the kernel does not export traces yet, so they illustrate behaviour rather than
 replay a run, and the page says so. What is the kernel's own is every name they cite.
 `scripts/sync-upstream.mjs` resolves each function, theorem and predicate in the pinned
@@ -287,8 +293,12 @@ seLe4n checkout and stamps its file and line, checks every syscall, required rig
 anything is missing; `scripts/validate-traces.mjs` cross-checks every stamped line
 against the code map's snapshot of the same commit. The validator also recomputes what
 the kernel decides — which thread the scheduler picks, where a capability pointer
-resolves, whether the right is held, whether a flow is allowed — with the same engine
-the page runs (`assets/js/trace-engine.js`), and rejects a step that disagrees. A refused step changes nothing,
+resolves, whether the capability is of the syscall's type and carries its right, whether
+a flow is allowed, what a timer tick charges and releases, where a retype carves, what
+an interrupt signals — with the same engine the page runs
+(`assets/js/trace-engine.js`), and rejects a step that disagrees. Each preservation
+theorem is cited only for the transitions it is about, and that claim is checked
+against the kernel's call graph at the same commit. A refused step changes nothing,
 because a kernel transition that returns an error returns no state — the validator
 enforces that too. `node scripts/run-smoke.mjs` walks every scene of every step in
 headless Chromium (each drawn at 1:1, nothing past its edge, keyboard tabs, the sandbox,

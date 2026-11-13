@@ -1,5 +1,5 @@
 /**
- * Trace schema v3: the shared engine (assets/js/trace-engine.js), the
+ * Trace schema v4: the shared engine (assets/js/trace-engine.js), the
  * validator that re-runs every gate a step claims, and the grounding helpers.
  *
  * Most validator tests start from the bundled document and break one thing,
@@ -17,12 +17,19 @@ import {
   applyOp,
   cloneState,
   engine,
+  checkProofCoverage,
+  transitionRoots,
   SCENES
 } from './trace-analysis.mjs';
 import {
   anchorTraceRefs,
+  checkEngineTables,
   checkTraceKernelFacts,
   collectTraceRefs,
+  definitionBody,
+  dispatchArms,
+  matchArmTable,
+  POLICY_GATED_OPERATIONS,
   requiredRightTable,
   syscallNumberTable
 } from './trace-anchors.mjs';
@@ -39,9 +46,9 @@ const hasError = (data, fragment) => {
 
 /* ── The bundled document ───────────────────────────────────── */
 
-test('the bundled traces are schema v3, valid, grounded and fold cleanly', () => {
-  assert.equal(BUNDLED.schemaVersion, 3);
-  assert.equal(engine.SCHEMA_VERSION, 3);
+test('the bundled traces are schema v4, valid, grounded and fold cleanly', () => {
+  assert.equal(BUNDLED.schemaVersion, 4);
+  assert.equal(engine.SCHEMA_VERSION, 4);
   assert.deepEqual(errorsOf(bundled()), []);
   assert.match(BUNDLED.sourceRef, /^[0-9a-f]{40}$/);
   for (const sc of BUNDLED.scenarios) {
@@ -63,9 +70,9 @@ test('every syscall step carries the registers the kernel decodes', () => {
 
 test('the validator rejects another schema version and an unknown source', () => {
   const data = bundled();
-  data.schemaVersion = 2;
+  data.schemaVersion = 3;
   data.source = 'live';
-  hasError(data, 'schemaVersion must be 3');
+  hasError(data, 'schemaVersion must be 4');
   hasError(data, 'source must be one of kernel, fixture');
 });
 
@@ -79,7 +86,7 @@ test('step indices are sequential and the first step is the boot state', () => {
 });
 
 test('ops the kernel has no path for are rejected by name', () => {
-  for (const retired of ['untypedRevoke', 'ifPolicyAdd', 'ifPolicyRemove', 'servicePatch', 'cdtRevoke']) {
+  for (const retired of ['untypedRevoke', 'ifPolicyAdd', 'ifPolicyRemove', 'servicePatch', 'cdtRevoke', 'scPatch']) {
     const data = bundled();
     step(data, 'ipc-call-reply', 1).delta.ops.push({ op: retired });
     hasError(data, `.op must be one of`);
@@ -89,12 +96,98 @@ test('ops the kernel has no path for are rejected by name', () => {
 test('catalogue references must resolve', () => {
   const data = bundled();
   step(data, 'ipc-call-reply', 1).guarantees.push('no-such-property');
-  step(data, 'ipc-call-reply', 1).invariants.preserved.push('noSuchInvariant');
   hasError(data, 'references unknown property no-such-property');
-  hasError(data, 'references unknown invariant noSuchInvariant');
-  const failed = bundled();
-  step(failed, 'ipc-call-reply', 1).invariants.failed = ['runQueueUnique'];
-  hasError(failed, 'a kernel trace never records a failing invariant');
+});
+
+/* ── Which proofs cover which transition ────────────────────── */
+
+const invariant = (data, id) => data.invariantCatalog.find((i) => i.id === id);
+
+test('a step no longer lists its invariants, and a reference no longer carries its path', () => {
+  const data = bundled();
+  step(data, 'ipc-call-reply', 1).invariants = { preserved: ['runQueueUnique'] };
+  hasError(data, '.invariants was a v3 field');
+  const withPath = bundled();
+  withPath.propertyCatalog[0].theorems[0].path = 'SeLe4n/Kernel/API.lean';
+  hasError(withPath, '.path was a v3 field');
+});
+
+test('modulePath derives a file from a module name and refuses anything else', () => {
+  assert.equal(engine.modulePath('SeLe4n.Kernel.API'), 'SeLe4n/Kernel/API.lean');
+  assert.equal(engine.modulePath('Main'), 'Main.lean');
+  for (const bad of ['', 'SeLe4n..API', '../etc/passwd', 'SeLe4n/Kernel', 'a b', null, 7]) assert.equal(engine.modulePath(bad), '', String(bad));
+});
+
+test('transitionKey and proofsCovering: a syscall by id, any other step by kind, nothing for a boot or a refusal', () => {
+  const call = step(BUNDLED, 'ipc-call-reply', 1);
+  assert.equal(engine.transitionKey(call), call.syscall.id);
+  const tick = BUNDLED.scenarios.flatMap((s) => s.steps).find((s) => s.kind === 'timer');
+  assert.equal(engine.transitionKey(tick), 'timer');
+  const inv = {
+    preservedBy: [
+      { name: 'a', covers: ['call'] }, { name: 'b', covers: [engine.ANY_SYSCALL] },
+      { name: 'c', covers: ['timer'] }, { name: 'd', covers: [] }
+    ]
+  };
+  assert.deepEqual(engine.proofsCovering(inv, call).map((p) => p.name), call.syscall.id === 'call' ? ['a', 'b'] : ['b']);
+  assert.deepEqual(engine.proofsCovering(inv, tick).map((p) => p.name), ['c']);
+  assert.deepEqual(engine.proofsCovering(inv, step(BUNDLED, 'ipc-call-reply', 0)), []);
+  const refused = step(BUNDLED, 'capability-gate', 1);
+  assert.equal(refused.outcome.status, 'error');
+  assert.deepEqual(engine.proofsCovering(inv, refused), [], 'a refused step changed nothing, so nothing was preserved by a proof');
+});
+
+test('a proof entry names its subject and the transitions it covers; an uncovered invariant says so', () => {
+  const noSubject = bundled();
+  delete invariant(noSubject, 'runQueueUnique').preservedBy[0].subject;
+  assert.ok(errorsOf(noSubject).some((m) => m.includes('preservedBy[0].subject')));
+  const noCovers = bundled();
+  delete invariant(noCovers, 'runQueueUnique').preservedBy[0].covers;
+  hasError(noCovers, '.covers must list the transitions');
+  const twice = bundled();
+  invariant(twice, 'runQueueUnique').preservedBy[0].covers = ['timer', 'timer'];
+  hasError(twice, '.covers repeats a transition');
+  const unmade = bundled();
+  invariant(unmade, 'runQueueUnique').preservedBy[0].covers = ['timer', 'hypercall'];
+  hasError(unmade, 'names "hypercall", a transition no step makes');
+  const silent = bundled();
+  const reference = invariant(silent, 'blockedNotRunnable');
+  assert.deepEqual(reference.preservedBy.map((p) => p.covers.length), [0], 'the fixture has a reference-only entry to test with');
+  delete reference.scope;
+  hasError(silent, '.scope must say what its proofs do not cover');
+});
+
+const CALL_GRAPH = JSON.parse(readFileSync(new URL('../../data/map-callgraph.json', import.meta.url), 'utf8')).callGraph;
+
+test('checkProofCoverage accepts the bundle, and reads its roots off the steps', () => {
+  assert.deepEqual(checkProofCoverage(BUNDLED, CALL_GRAPH), []);
+  assert.deepEqual(checkProofCoverage(BUNDLED, null), ['the call graph is missing']);
+  const roots = transitionRoots(BUNDLED);
+  assert.ok(roots.get('timer').some((r) => r.name === 'timerTickOnCore'));
+  assert.ok(roots.get('call').length >= 1 && !roots.has('boot'));
+});
+
+test('checkProofCoverage rejects a theorem cited for a transition its subject is not on', () => {
+  // The timer-tick theorem is about timerTickOnCore; no syscall arm runs it.
+  const wrongTransition = bundled();
+  invariant(wrongTransition, 'runQueueUnique').preservedBy[0].covers = ['timer', 'call'];
+  assert.ok(checkProofCoverage(wrongTransition, CALL_GRAPH).some((m) => m.includes('timerTickOnCore_preserves_runQueueUniqueOnCore') && m.includes('call arm')));
+
+  // A theorem that never mentions the function it is said to be about.
+  const wrongSubject = bundled();
+  const proof = invariant(wrongSubject, 'runQueueUnique').preservedBy[0];
+  proof.subject = { ...invariant(wrongSubject, 'cdtAcyclic').preservedBy[0].subject };
+  assert.ok(checkProofCoverage(wrongSubject, CALL_GRAPH).some((m) => m.includes('does not refer to')));
+
+  // A theorem about a bundle is not a theorem about a predicate outside it.
+  const wrongPredicate = bundled();
+  invariant(wrongPredicate, 'runQueueUnique').predicate = { ...invariant(wrongPredicate, 'cdtAcyclic').predicate };
+  assert.ok(checkProofCoverage(wrongPredicate, CALL_GRAPH).some((m) => m.includes('does not refer to')));
+
+  // "Reference only" is a claim too: it fails for a function a step runs.
+  const hidden = bundled();
+  invariant(hidden, 'runQueueUnique').preservedBy[0].covers = [];
+  assert.ok(checkProofCoverage(hidden, CALL_GRAPH).some((m) => m.includes('say so in covers')));
 });
 
 /* ── Refusals ───────────────────────────────────────────────── */
@@ -151,6 +244,59 @@ test('a flow check that disagrees with the lattice is caught', () => {
   const fc = st.delta.ops.find((o) => o.op === 'flowCheck');
   fc.allowed = !fc.allowed;
   hasError(data, 'securityFlowsTo');
+});
+
+test('the arm decides whether a flow gate runs: a gated arm shows it, an ungated one records no check', () => {
+  assert.ok(['send', 'receive', 'call', 'reply', 'cspaceMint', 'cspaceCopy', 'notificationSignal', 'notificationWait'].every(engine.flowGated));
+  assert.ok(!['cspaceDelete', 'cspaceRevoke', 'untypedRetype', 'vspaceMap', 'irqHandlerAck', 'tcbSetAffinity', 'declassify', 'yield'].some(engine.flowGated));
+  // The reply arm checks replier → caller, and a denial reads as an unlinked reply.
+  assert.equal(engine.flowDeniedError('reply'), 'replyCapInvalid');
+  assert.equal(engine.flowDeniedError('send'), 'flowDenied');
+  const noGate = bundled();
+  const reply = step(noGate, 'ipc-call-reply', 5);
+  assert.equal(reply.syscall.id, 'reply');
+  reply.path = reply.path.filter((s) => s.stage !== 'flow');
+  hasError(noGate, 'must have a flow stage: the reply arm gates the flow');
+  // A queued waiter was gated when it waited; the signal asks about the signaller alone.
+  const twice = bundled();
+  const signal = step(twice, 'notification-signal', 1);
+  signal.delta.ops.unshift({ op: 'flowCheck', from: 'n.alarm', to: 'handler', allowed: true });
+  hasError(twice, 'asks the policy 1 time(s), the step records 2 flow checks');
+  const ungated = bundled();
+  const del = step(ungated, 'capability-derivation', 6);
+  assert.equal(del.syscall.id, 'cspaceDelete');
+  del.delta.ops.unshift({ op: 'flowCheck', from: 'cn.sup', to: 'cn.sup', allowed: true });
+  hasError(ungated, 'the cspaceDelete arm asks the policy 0 time(s)');
+  // A declassification is the inverse: it needs the lattice to deny the flow.
+  const allowed = bundled();
+  const declass = scenario(allowed, 'information-flow').steps.find((s) => s.syscall && s.syscall.id === 'declassify');
+  declass.delta.ops = declass.delta.ops.filter((o) => o.op !== 'flowCheck');
+  hasError(allowed, 'proceeds only where the lattice denies the flow');
+});
+
+test('a yield is recomputed: the slice is reset, the caller goes to the back of its band, the core re-selects', () => {
+  const s = schedState([{ thread: 'b', prio: 50 }], [
+    { id: 'a', priority: 50, timeSlice: 2, ipc: { state: 'ready' } },
+    { id: 'b', priority: 50, timeSlice: 5, ipc: { state: 'ready' } }
+  ]);
+  s.cores[0].current = 'a';
+  assert.deepEqual(engine.yieldOps(s, 0), [
+    { op: 'threadPatch', id: 'a', set: { timeSlice: engine.DEFAULT_TIME_SLICE } },
+    { op: 'enqueue', thread: 'a', core: 0, prio: 50 },
+    { op: 'dispatch', core: 0, thread: 'b' }
+  ]);
+  // Alone at its priority, the caller is its own best candidate and runs again.
+  const alone = schedState([], [{ id: 'a', priority: 50, timeSlice: 2, ipc: { state: 'ready' } }]);
+  alone.cores[0].current = 'a';
+  assert.equal(engine.yieldOps(alone, 0)[2].thread, 'a');
+  // Bound to a scheduling context, a yield forfeits the head refill: not modelled, and said so.
+  const bound = schedState([], [{ id: 'a', priority: 50, sc: 'sc.a', ipc: { state: 'ready' } }], [{ id: 'sc.a', budget: 2, period: 6, remaining: 2, refills: [] }]);
+  bound.cores[0].current = 'a';
+  assert.equal(engine.yieldOps(bound, 0), null);
+  const data = bundled();
+  const y = scenario(data, 'information-flow').steps.find((x) => x.syscall && x.syscall.id === 'yield');
+  y.delta.ops = y.delta.ops.filter((o) => o.op !== 'threadPatch');
+  hasError(data, 'yieldOnCore on core 0 writes');
 });
 
 test('a derived capability may not gain a right its parent lacks (capAttenuates)', () => {
@@ -222,8 +368,11 @@ test('checkState catches overlapping children and a child above the watermark', 
   const ch = u.children[0];
   u.children.push({ id: 'dup', kind: 'frame', offset: ch.offset, size: ch.size });
   assert.ok(violations(s).includes('untypedNonOverlap'));
-  u.watermark = 0;
+  // The free index is the capability's: with it at 0, every child is above it.
+  s.cnodes[0].slots['1'].freeIndex = 0;
   assert.ok(violations(s).includes('untypedWatermark'));
+  s.cnodes[0].slots['1'].freeIndex = u.size + 1;
+  assert.ok(engine.checkState(s).some((v) => v.id === 'untypedWatermark' && /past/.test(v.message)));
 });
 
 test('checkState catches a derivation link to an empty slot and a cycle', () => {
@@ -238,7 +387,7 @@ test('checkState catches a derivation link to an empty slot and a cycle', () => 
 test('every check checkState can report has a catalogue entry', () => {
   const ids = new Set(BUNDLED.invariantCatalog.map((i) => i.id));
   const reported = ['runQueueUnique', 'currentThreadValid', 'queueCurrentConsistent', 'blockedNotRunnable', 'dualQueue', 'queueNoDup',
-    'notificationWaiters', 'replyWaiters', 'budgetWithinBounds', 'cdtLinksAgree', 'cdtAcyclic', 'untypedWatermark', 'untypedNonOverlap',
+    'notificationWaiters', 'replyWaiters', 'budgetWithinBounds', 'refillsSound', 'cdtLinksAgree', 'cdtAcyclic', 'untypedWatermark', 'untypedNonOverlap',
     'vspaceAsidUnique', 'wxExclusive', 'tlbConsistent'];
   const source = readFileSync(new URL('../../assets/js/trace-engine.js', import.meta.url), 'utf8');
   const named = [...source.slice(source.indexOf('function checkState')).matchAll(/fail\("([A-Za-z]+)"/g)].map((m) => m[1]);
@@ -290,17 +439,43 @@ test('resolveCap walks guard then radix bits and names why a lookup fails', () =
   assert.equal(engine.resolveCap(s, actor, 0x0f).reason, 'empty');
 });
 
-test('securityFlowsTo: confidentiality only rises, integrity only falls', () => {
+test('securityFlowsTo: confidentiality only rises, and only a destination at least as trusted is reached', () => {
+  // The kernel's own theorems, `InformationFlow/Policy.lean`: public →
+  // kernelTrusted is allowed, kernelTrusted → public is not, and lowTrusted →
+  // highUntrusted is denied on integrity alone. The engine had the integrity
+  // order backwards (Biba's), which the fixture never noticed because every
+  // label it used was untrusted.
   const L = (conf, integ) => ({ conf, integ });
-  assert.equal(engine.flowsTo(L('low', 'trusted'), L('high', 'untrusted')), true);
+  assert.equal(engine.flowsTo(L('low', 'untrusted'), L('high', 'trusted')), true);
+  assert.equal(engine.flowsTo(L('low', 'untrusted'), L('low', 'trusted')), true);
+  assert.equal(engine.flowsTo(L('low', 'trusted'), L('high', 'untrusted')), false);
+  assert.equal(engine.flowsTo(L('high', 'trusted'), L('low', 'untrusted')), false);
   assert.equal(engine.flowsTo(L('high', 'trusted'), L('low', 'trusted')), false);
-  assert.equal(engine.flowsTo(L('low', 'untrusted'), L('low', 'trusted')), false);
   assert.equal(engine.flowsTo(L('high', 'untrusted'), L('high', 'untrusted')), true);
 });
 
-test('msgInfoWord packs length | extraCaps << 7 | label << 9', () => {
-  assert.equal(engine.msgInfoWord({ length: 2, extraCaps: 1, label: 7 }), 2 + 128 + 7 * 512);
+test('msgInfoWord packs length | extraCaps << 7 | capsUnwrapped << 9 | label << 12', () => {
+  assert.equal(engine.msgInfoWord({ length: 2, extraCaps: 1, label: 7 }), 2 + 128 + 7 * 4096);
+  assert.equal(engine.msgInfoWord({ length: 1, capsUnwrapped: 5 }), 1 + 5 * 512);
   assert.equal(engine.msgInfoWord({}), 0);
+  assert.equal(engine.MSG_LIMITS.label, 2 ** 41 - 1);
+});
+
+test('a missing right is an invalid capability on the IPC syscalls and illegal authority elsewhere', () => {
+  for (const id of ['send', 'call', 'receive', 'replyRecv', 'notificationSignal', 'notificationWait', 'declassifySignal']) {
+    assert.equal(engine.missingRightError(id), 'invalidCapability', id);
+  }
+  for (const id of ['cspaceMint', 'untypedRetype', 'vspaceMap', 'tcbSetAffinity', 'reply']) {
+    assert.equal(engine.missingRightError(id), 'illegalAuthority', id);
+  }
+  // The validator holds a step to it: the fixture's refused send says so.
+  const refused = step(BUNDLED, 'capability-gate', 1);
+  assert.equal(refused.outcome.error, 'invalidCapability');
+  const mutated = structuredClone(BUNDLED);
+  const bad = scenario(mutated, 'capability-gate').steps[1];
+  bad.outcome.error = 'illegalAuthority';
+  bad.path.find((p) => p.stage === 'rights').error = 'illegalAuthority';
+  assert.ok(validateTraceDataObject(mutated).some((e) => /syscallMissingRightError/.test(e)));
 });
 
 test('capDelete splices children up to the parent; capRevoke keeps the capability and empties its subtree', () => {
@@ -310,7 +485,9 @@ test('capDelete splices children up to the parent; capRevoke keeps the capabilit
   applyOp(s, { op: 'capInsert', slot: 'cn.sup/5', parent: 'cn.sup/4', cap: cap(['write']) });
   applyOp(s, { op: 'capInsert', slot: 'cn.sup/6', parent: 'cn.sup/4', cap: cap(['write']) });
   applyOp(s, { op: 'capDelete', slot: 'cn.sup/4' });
-  assert.deepEqual([...engine.cdtChildren(s, 'cn.sup/1')].sort(), ['cn.sup/5', 'cn.sup/6']);
+  // The children take the deleted slot's place in their own order
+  // (`linkSpliceNode`): 6 was linked last, so it is first.
+  assert.deepEqual(engine.cdtChildren(s, 'cn.sup/1'), ['cn.sup/6', 'cn.sup/5']);
   assert.deepEqual(engine.revokeOrder(s, 'cn.sup/1').length, 2);
   applyOp(s, { op: 'capRevoke', slot: 'cn.sup/1' });
   assert.ok(engine.capAt(s, 'cn.sup/1'), 'the revoked capability stays');
@@ -319,16 +496,34 @@ test('capDelete splices children up to the parent; capRevoke keeps the capabilit
   assert.throws(() => applyOp(s, { op: 'capInsert', slot: 'cn.sup/1', cap: cap([]) }), /occupied/);
 });
 
-test('untypedCarve allocates at the watermark and refuses an overrun; untypedReset reclaims', () => {
+test('untypedCarve carves at the capability\'s free index, aligned; a reset waits for the revoke', () => {
   const s = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
   const u = s.untyped[0];
-  applyOp(s, { op: 'untypedCarve', untyped: u.id, child: { id: 'k1', kind: 'frame', size: 4096 } });
+  const via = 'cn.mgr/1';
+  const frameCap = (target) => ({ kind: 'frame', target, rights: ['read', 'write', 'grant'], derivation: 'retype' });
+  // The carve and the reset are invoked through a capability, and the free
+  // index is that capability's: an op that names no slot is not a kernel step.
+  assert.throws(() => applyOp(s, { op: 'untypedCarve', untyped: u.id, child: { id: 'k0', kind: 'frame', size: 4096 } }), /holds no capability/);
+  applyOp(s, { op: 'untypedCarve', untyped: u.id, slot: via, child: { id: 'k1', kind: 'frame', size: 4096 } });
+  applyOp(s, { op: 'capInsert', slot: 'cn.mgr/2', parent: via, cap: frameCap('k1') });
+  const cap = s.cnodes[0].slots['1'];
   assert.equal(u.children[0].offset, 0);
-  assert.equal(u.watermark, 4096);
-  assert.throws(() => applyOp(s, { op: 'untypedCarve', untyped: u.id, child: { id: 'big', kind: 'untyped', size: u.size } }), /untypedRegionExhausted/);
-  applyOp(s, { op: 'untypedReset', untyped: u.id });
-  assert.equal(u.watermark, 0);
+  assert.equal(cap.freeIndex, 4096);
+  // `alignedCarveIndex`: an 8 KiB untyped starts on a multiple of 8 KiB.
+  applyOp(s, { op: 'untypedCarve', untyped: u.id, slot: via, child: { id: 'k2', kind: 'untyped', size: 8192 } });
+  applyOp(s, { op: 'capInsert', slot: 'cn.mgr/3', parent: via, cap: { kind: 'untyped', target: 'k2', rights: ['retype'], derivation: 'retype' } });
+  assert.equal(u.children[0].offset, 8192);
+  assert.equal(cap.freeIndex, 16384);
+  assert.throws(() => applyOp(s, { op: 'untypedCarve', untyped: u.id, slot: via, child: { id: 'big', kind: 'frame', size: 4096 } }), /untypedRegionExhausted/);
+  // `untypedResetSlot` refuses while the slot has a derivation child.
+  assert.throws(() => applyOp(s, { op: 'untypedReset', untyped: u.id, slot: via }), /revocationRequired/);
+  // Revoking deletes the last capability to each carved object, which retires
+  // it (`retireCarvedObject`); only then is the reset one write.
+  applyOp(s, { op: 'capRevoke', slot: via });
   assert.deepEqual(u.children, []);
+  assert.equal(cap.freeIndex, 16384, 'the revoke does not move the free index');
+  applyOp(s, { op: 'untypedReset', untyped: u.id, slot: via });
+  assert.equal(cap.freeIndex, 0);
 });
 
 test('vspaceMap caches when asked; vspaceUnmap shoots the entry down; vspaceReject is an event', () => {
@@ -367,7 +562,7 @@ const ref = (name, module = 'SeLe4n.Kernel.Demo') => ({ name, module });
 function anchorDoc() {
   return {
     propertyCatalog: [{ id: 'p1', theorems: [ref('p1_thm')] }],
-    invariantCatalog: [{ id: 'inv1', predicate: ref('inv1'), preservedBy: [ref('send_preserves_inv1')] }],
+    invariantCatalog: [{ id: 'inv1', predicate: ref('inv1'), preservedBy: [{ ...ref('send_preserves_inv1'), subject: ref('send'), covers: ['send'], within: [ref('bundle1')] }] }],
     scenarios: [{
       id: 'demo',
       steps: [
@@ -394,6 +589,7 @@ const DEMO_SOURCES = {
     'def inv1 : Prop := True',
     'theorem send_preserves_inv1 : True := trivial',
     'def send : Nat := 2',
+    'def bundle1 : Prop := inv1',
     'end Demo'
   ].join('\n'),
   'SeLe4n/Model/Object/Types.lean': [
@@ -407,16 +603,19 @@ const readDemo = (path) => DEMO_SOURCES[path];
 
 test('collectTraceRefs finds every reference: catalogue theorems, predicates, step refs and path stages', () => {
   const names = collectTraceRefs(anchorDoc()).map(({ ref: r }) => r.name).sort();
-  assert.deepEqual(names, ['entry', 'inv1', 'lookup', 'p1_thm', 'send', 'send', 'send_preserves_inv1'].sort());
+  assert.deepEqual(names, ['bundle1', 'entry', 'inv1', 'lookup', 'p1_thm', 'send', 'send', 'send', 'send_preserves_inv1'].sort());
   assert.ok(collectTraceRefs(BUNDLED).length > 100, 'the bundle cites its declarations');
 });
 
-test('anchorTraceRefs stamps path and line, skips comments, and reports what it cannot place', () => {
+test('anchorTraceRefs stamps the line, skips comments, and reports what it cannot place', () => {
   const data = anchorDoc();
+  data.scenarios[0].steps[1].sourceRefs[0].path = 'SeLe4n/Stale.lean';
   assert.deepEqual(anchorTraceRefs(data, readDemo), []);
   const send = data.scenarios[0].steps[1].sourceRefs[0];
-  assert.equal(send.path, 'SeLe4n/Kernel/Demo.lean');
+  assert.equal(send.path, undefined, 'the file is the module\'s; a stored copy is removed');
   assert.equal(send.line, 9);
+  const proof = data.invariantCatalog[0].preservedBy[0];
+  assert.deepEqual([proof.line, proof.subject.line, proof.within[0].line], [8, 9, 10]);
   assert.equal(data.propertyCatalog[0].theorems[0].line, 6);
 
   const missing = anchorDoc();
@@ -447,4 +646,436 @@ test('checkTraceKernelFacts rejects an unknown syscall, a wrong x7, a wrong righ
   assert.ok(issues.some((m) => m.includes('"declassifyStore" is not a SyscallId constructor')));
   assert.ok(issues.some((m) => m.includes('"noSuchError" is not a KernelError constructor')));
   assert.ok(checkTraceKernelFacts(anchorDoc(), () => undefined).length >= 3);
+});
+
+test('matchArmTable reads multi-pattern arms that run over lines, and a wildcard', () => {
+  const src = [
+    '/-- | .fake => 9 -/',
+    'def truncationMinimum : SyscallId → Nat',
+    '  | .untypedRetype | .vspaceMap => 4',
+    '  | .cspaceDelete | .cspaceRevoke',
+    '  | .tcbSetAffinity => 1',
+    '  | _ => 0',
+    '',
+    'def kind? : SyscallId → Option K',
+    '  | .send | .receive => some .endpoint',
+    '  | .yield => none'
+  ].join('\n');
+  assert.deepEqual(matchArmTable(src, 'truncationMinimum'), { untypedRetype: '4', vspaceMap: '4', cspaceDelete: '1', cspaceRevoke: '1', tcbSetAffinity: '1', _: '0' });
+  assert.deepEqual(matchArmTable(src, 'kind?'), { send: 'endpoint', receive: 'endpoint', yield: 'none' });
+  assert.equal(matchArmTable(src, 'kind'), undefined, 'a name is matched whole');
+  assert.equal(matchArmTable(src, 'absent'), undefined);
+});
+
+test('checkEngineTables compares the engine\'s gate tables with the kernel\'s, entry for entry', () => {
+  const read = (path) => ({
+    'SeLe4n/Model/Object/Types.lean': 'inductive SyscallId where\n  | send\n  | cspaceMint\n  | reply\n  | yield\n  deriving Repr\n',
+    'SeLe4n/Kernel/API.lean': [
+      'def syscallObjectKind? : SyscallId → Option KernelObjectType',
+      '  | .send => some .endpoint', '  | .cspaceMint => some .cnode', '  | .reply | .yield => none', '',
+      'def syscallTargetAccepted (sid : SyscallId) (cap : Capability) : Bool :=',
+      '  match cap.target with', '  | .object id =>', '      match syscallObjectKind? sid with',
+      '      | some kind => objectKindIs st id kind', '      | none => sid == .declassify',
+      '  | .replyCap _ => sid == .reply', '  | .irqControl _ => sid == .irqControlGet',
+      '  | .irqHandler _ =>', '      sid == .irqHandlerAck || sid == .irqHandlerSetNotification || sid == .irqHandlerClear',
+      '  | .cnodeSlotWord word => false', '',
+      'def syscallMissingRightError : SyscallId → KernelError',
+      '  | .send => .invalidCapability', '  | .cspaceMint | .reply | .yield => .illegalAuthority', '',
+      '/-- The checked tier: `ctx` in a comment is not a read of it. -/',
+      'def dispatchCapabilityOnlyChecked (ctx : LabelingContext) (sid : SyscallId) (k : Kernel Unit) : Kernel Unit :=',
+      '  match sid with', '  | _ => k', '',
+      'def dispatchWithCapChecked (ctx : LabelingContext) (decoded : D) : Kernel Unit :=',
+      '  match decoded.syscallId with',
+      '  | .send =>', '    match cap.target with', '    | .object epId => endpointSendChecked ctx epId', '    | _ => fun _ => .error .invalidCapability',
+      '  | .reply => fun st => if securityFlowsTo (ctx.threadLabelOf a) (ctx.threadLabelOf b) then k st else .error .replyCapInvalid',
+      '  | .cspaceMint => cspaceMintChecked ctx src dst',
+      '  -- the yield names ctx only here, in a comment',
+      '  | .yield => fun _ => .error .illegalState', '',
+      'theorem after (ctx : LabelingContext) : True := trivial', ''
+    ].join('\n'),
+    'SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean': [
+      'def enforcementBoundary : List EnforcementClass :=',
+      '  [ ' + Object.values(POLICY_GATED_OPERATIONS).map((name) => `.policyGated "${name}"`).join('\n  , '),
+      '  -- .policyGated "commentedOut"',
+      '  , .capabilityOnly "cspaceRevoke"', '  ]', ''
+    ].join('\n'),
+    'SeLe4n/Kernel/Architecture/SyscallArgDecode.lean': 'def truncationMinimum : SyscallId → Nat\n  | .cspaceMint => 5\n  | _ => 0\n',
+    'SeLe4n/Kernel/Architecture/RegisterDecode.lean': 'def syscallReadsOverflow : SyscallId → Bool\n  | .send | .reply | .cspaceMint => true\n  | .yield => false\n'
+  })[path];
+  assert.deepEqual(checkEngineTables(engine, read), []);
+  const drifted = { ...engine, truncationMinimum: (id) => (id === 'send' ? 1 : engine.truncationMinimum(id)), SYSCALL_OBJECT_KIND: { ...engine.SYSCALL_OBJECT_KIND, send: 'notification' } };
+  const issues = checkEngineTables(drifted, read);
+  assert.ok(issues.some((m) => m.includes('truncationMinimum .send is 0')));
+  assert.ok(issues.some((m) => m.includes('syscallObjectKind? .send is endpoint')));
+  assert.ok(checkEngineTables(engine, () => undefined).length >= 1);
+
+  // The flow table is held to the dispatcher and to the kernel's own table.
+  const ungated = { ...engine, FLOW_GATED: engine.FLOW_GATED.filter((id) => id !== 'cspaceMint') };
+  const lost = checkEngineTables(ungated, read);
+  assert.ok(lost.some((m) => m.includes('hands the labeling context to the .cspaceMint arm')), lost.join('\n'));
+  assert.ok(lost.some((m) => m.includes('lists cspaceMintChecked as policy-gated')), lost.join('\n'));
+  const invented = { ...engine, FLOW_GATED: engine.FLOW_GATED.concat('yield') };
+  const extra = checkEngineTables(invented, read);
+  assert.ok(extra.some((m) => m.includes('.yield arm does not read the labeling context')), extra.join('\n'));
+  assert.ok(extra.some((m) => m.includes('no operation recorded for yield')), extra.join('\n'));
+  const noTier = (path) => (path === 'SeLe4n/Kernel/API.lean' ? read(path).replace('def dispatchWithCapChecked', 'def renamedDispatch') : read(path));
+  assert.ok(checkEngineTables(engine, noTier).some((m) => m.includes('dispatchWithCapChecked not found')));
+});
+
+test('dispatchArms reads the outermost arms of a dispatcher, nested matches and all', () => {
+  const body = definitionBody([
+    'def other := 1', '',
+    '@[inline] def tier (ctx : C) : K :=', '  match sid with',
+    '  | .a | .b =>', '    match t with', '    | .object x => run ctx x', '    | _ => k',
+    '  | .c => k', '',
+    'def next := 2'
+  ].join('\n'), 'tier');
+  assert.ok(body && !body.includes('next'));
+  const arms = dispatchArms(body);
+  assert.deepEqual(Object.keys(arms).sort(), ['a', 'b', 'c']);
+  assert.ok(/run ctx x/.test(arms.a) && arms.a === arms.b && !/ctx/.test(arms.c));
+  assert.equal(definitionBody('def tierX := 1', 'tier'), undefined, 'a name is matched whole');
+});
+
+/* ── Schema v4: the type gate, the arm's stages, whole entries ── */
+
+test('the type gate is recomputed: a capability of the wrong type is refused before any right', () => {
+  const refused = step(BUNDLED, 'irq-delivery', 11);
+  assert.equal(refused.path.find((s) => s.stage === 'type').result, 'fail');
+  assert.equal(refused.outcome.error, 'invalidCapability');
+  const data = bundled();
+  const st = step(data, 'irq-delivery', 11);
+  st.path.find((s) => s.stage === 'type').result = 'pass';
+  hasError(data, 'does not invoke (syscallTargetAccepted)');
+  const ok = bundled();
+  step(ok, 'ipc-call-reply', 1).path.find((s) => s.stage === 'type').result = 'fail';
+  hasError(ok, 'but the type stage says fail');
+  assert.equal(engine.targetAccepted('send', { kind: 'endpoint' }), true);
+  assert.equal(engine.targetAccepted('send', { kind: 'notification' }), false);
+  assert.equal(engine.targetAccepted('declassify', { kind: 'cnode' }), true);
+  assert.equal(engine.targetAccepted('reply', { kind: 'reply' }), true);
+  assert.equal(engine.targetAccepted('reply', { kind: 'endpoint' }), false);
+  assert.equal(engine.targetAccepted('irqHandlerAck', { kind: 'irqHandler' }), true);
+  assert.equal(engine.targetAccepted('yield', { kind: 'endpoint' }), false);
+});
+
+test('every syscall but the yield runs lookup, type and rights, and ends at the operation', () => {
+  for (const sc of BUNDLED.scenarios) for (const st of sc.steps) {
+    if (st.kind !== 'syscall') continue;
+    const stages = st.path.map((s) => s.stage);
+    if (st.syscall.id === 'yield') assert.deepEqual(stages, ['entry', 'decode', 'operation']);
+    else assert.deepEqual(stages.slice(0, 5), ['entry', 'decode', 'lookup', 'type', 'rights'], `${sc.id} step ${st.index}`);
+    assert.equal(stages[stages.length - 1], 'operation');
+  }
+  const data = bundled();
+  const path = step(data, 'ipc-call-reply', 1).path;
+  path.splice(path.findIndex((s) => s.stage === 'type'), 1);
+  hasError(data, 'must have a type stage');
+});
+
+test('the arm\'s stages may come in the arm\'s order, but not before the rights or twice', () => {
+  const data = bundled();
+  const path = step(data, 'capability-derivation', 1).path; // … rights, args, flow, operation
+  const a = path.findIndex((s) => s.stage === 'args');
+  [path[a], path[a + 1]] = [path[a + 1], path[a]];
+  assert.deepEqual(errorsOf(data).filter((m) => m.includes('out of order')), []);
+  const early = bundled();
+  const p2 = step(early, 'capability-derivation', 1).path;
+  const r = p2.findIndex((s) => s.stage === 'rights');
+  [p2[r], p2[r + 1]] = [p2[r + 1], p2[r]];
+  hasError(early, 'is out of order');
+});
+
+test('a message shorter than the arm\'s minimum is refused as truncated, and only then', () => {
+  const data = bundled();
+  const st = step(data, 'untyped-retype', 1);
+  st.syscall.msgInfo.length = 3;
+  st.syscall.args.pop();
+  hasError(data, 'is refused with truncatedMessage at the args stage');
+  assert.equal(engine.truncationMinimum('untypedRetype'), 4);
+  assert.equal(engine.truncationMinimum('send'), 0);
+});
+
+test('message words past x5 come from the IPC buffer, for the syscalls that read it', () => {
+  const mint = step(BUNDLED, 'capability-derivation', 1);
+  assert.equal(mint.syscall.msgInfo.length, 5);
+  assert.equal(mint.syscall.args.length, 4);
+  assert.equal(mint.syscall.ipcBuffer.length, 1);
+  const data = bundled();
+  delete step(data, 'capability-derivation', 1).syscall.ipcBuffer;
+  hasError(data, 'reads 1 word(s) from the IPC buffer');
+  const copy = bundled();
+  step(copy, 'capability-derivation', 4).syscall.ipcBuffer = [{ name: 'x', value: 1 }];
+  hasError(copy, 'reads no message word past x5');
+});
+
+test('a timer tick is recomputed whole: the clock, the releases, the charge, the scheduling point', () => {
+  const sc = scenario(BUNDLED, 'budget-edf');
+  let state = cloneState(sc.initialState);
+  for (const st of sc.steps) {
+    if (st.kind === 'timer') assert.deepEqual(st.delta.ops, engine.timerTickOps(state, st.core), `step ${st.index}`);
+    for (const op of st.delta.ops) applyOp(state, op);
+  }
+  const data = bundled();
+  step(data, 'budget-edf', 1).delta.ops.pop(); // drop the dispatch
+  hasError(data, 'perCoreTimerTickStep on core 0 writes');
+  const lie = bundled();
+  const ops = step(lie, 'budget-edf', 5).delta.ops; // the release that preempts
+  ops[ops.length - 1].thread = 'gamma';
+  hasError(lie, 'perCoreTimerTickStep on core 0 writes');
+});
+
+test('the refill algebra: charge, merge, exhaust, release and the deadline rule', () => {
+  const sc = { id: 's', budget: 3, period: 20, deadline: 20, remaining: 3, periodStart: 0, refills: [] };
+  // Three consecutive ticks from t = 10: each tick returns one period after
+  // the head it came from was released, and consecutive ticks merge.
+  const t1 = engine.scChargeBudget(sc, 10, 1, 11);
+  assert.deepEqual([t1.remaining, t1.periodStart, t1.refills], [2, 11, [{ amount: 1, at: 30 }]]);
+  const t2 = engine.scChargeBudget(t1, 11, 1, 12);
+  assert.deepEqual([t2.remaining, t2.periodStart, t2.refills], [1, 12, [{ amount: 2, at: 30 }]]);
+  assert.equal(engine.scTickExhausts(t1, 11), false);
+  assert.equal(engine.scTickExhausts(t2, 12), true);
+  const t3 = engine.scChargeBudget(t2, 12, 1, 13);
+  assert.deepEqual([t3.remaining, t3.refills], [0, [{ amount: 3, at: 30 }]]);
+  assert.equal(engine.scReleaseKey(t3), 30);
+  assert.equal(engine.scReleaseKey(t2), null, 'a context with budget has no place on a release queue');
+  // Not due: nothing changes. Due: the refill becomes the head, released then.
+  assert.deepEqual(engine.scReleaseReadyHead(t3, 29).remaining, 0);
+  const back = engine.cbsUpdateDeadline(engine.scReleaseReadyHead(t3, 30), 30, true);
+  assert.deepEqual([back.remaining, back.periodStart, back.refills, back.deadline], [3, 30, [], 50]);
+  // A gap splits the refills: one tick, a pause, then another.
+  const g1 = engine.scChargeBudget(sc, 0, 1, 1);
+  const g2 = engine.scChargeBudget(g1, 5, 1, 6);
+  assert.deepEqual(g2.refills, [{ amount: 1, at: 20 }, { amount: 1, at: 25 }]);
+  // A pending refill that would merge into the head keeps the tick from exhausting it.
+  assert.equal(engine.scTickExhausts({ ...sc, remaining: 1, periodStart: 0, refills: [{ amount: 2, at: 4 }] }, 5), false);
+  assert.equal(sc.remaining, 3, 'the functions return new contexts');
+});
+
+test('scCharge and scRelease do the arithmetic themselves; a release must be due and at the head', () => {
+  const s = cloneState(scenario(BUNDLED, 'budget-edf').initialState);
+  applyOp(s, { op: 'clockTick' });
+  assert.equal(s.time, 3);
+  applyOp(s, { op: 'scCharge', sc: 'sc.alpha', core: 0 });
+  const alpha = s.schedContexts.find((c) => c.id === 'sc.alpha');
+  assert.deepEqual([alpha.remaining, alpha.refills], [0, [{ amount: 2, at: 7 }]]);
+  assert.deepEqual(s.releaseQueues['0'], ['sc.alpha']);
+  assert.throws(() => applyOp(s, { op: 'scCharge', sc: 'sc.beta', core: 0 }), /not running a thread bound to sc.beta/);
+  assert.throws(() => applyOp(s, { op: 'scRelease', sc: 'sc.alpha', core: 0 }), /not released until 7/);
+  assert.throws(() => applyOp(s, { op: 'scRelease', sc: 'sc.beta', core: 0 }), /not the head/);
+  s.time = 7;
+  applyOp(s, { op: 'scRelease', sc: 'sc.alpha', core: 0 });
+  const again = s.schedContexts.find((c) => c.id === 'sc.alpha');
+  assert.deepEqual([again.remaining, again.periodStart, again.deadline, s.releaseQueues['0']], [2, 7, 13, []]);
+});
+
+test('checkState catches a stranded refill, a lost tick and a release queue out of order', () => {
+  const s = reconstructState(scenario(BUNDLED, 'budget-edf'), 4); // three contexts queued
+  assert.deepEqual(violations(s), []);
+  const stranded = cloneState(s);
+  stranded.releaseQueues['0'] = stranded.releaseQueues['0'].filter((id) => id !== 'sc.alpha');
+  assert.ok(violations(stranded).includes('refillsSound'));
+  const lost = cloneState(s);
+  lost.schedContexts[0].refills[0].amount -= 1;
+  assert.ok(violations(lost).includes('refillsSound'));
+  const order = cloneState(s);
+  order.releaseQueues['0'].reverse();
+  assert.ok(violations(order).includes('refillsSound'));
+  const wide = cloneState(s);
+  wide.schedContexts[0].budget = wide.schedContexts[0].period + 1;
+  assert.ok(violations(wide).includes('budgetWithinBounds'));
+});
+
+test('a reschedule switches only for a candidate that outranks the running thread', () => {
+  const threads = [{ id: 'run', priority: 50 }, { id: 'same', priority: 50 }, { id: 'hi', priority: 60 }];
+  const equal = schedState([{ thread: 'same', prio: 50 }], threads);
+  equal.cores[0].current = 'run';
+  assert.deepEqual(engine.rescheduleOps(equal, 0), [], 'an equal-priority arrival does not preempt');
+  const higher = schedState([{ thread: 'same', prio: 50 }, { thread: 'hi', prio: 60 }], threads);
+  higher.cores[0].current = 'run';
+  assert.deepEqual(engine.rescheduleOps(higher, 0), [{ op: 'enqueue', thread: 'run', core: 0, prio: 50 }, { op: 'dispatch', core: 0, thread: 'hi' }]);
+  const idle = schedState([], threads);
+  assert.deepEqual(engine.rescheduleOps(idle, 0), [{ op: 'dispatch', core: 0, thread: null }]);
+  const data = bundled();
+  step(data, 'irq-delivery', 8).delta.ops = [];
+  hasError(data, 'handleRescheduleOnCoreState on core 0 writes');
+});
+
+test('an interrupt signals what the line\'s node names, or masks an unbound line and reaches no one', () => {
+  const sc = scenario(BUNDLED, 'irq-delivery');
+  const boot = cloneState(sc.initialState);
+  assert.equal(engine.irqBinding(boot, 33), null);
+  assert.deepEqual(engine.interruptOps(boot, 33), [{ op: 'irqPatch', line: 33, set: { masked: true } }]);
+  const bound = reconstructState(sc, 6);
+  assert.deepEqual(engine.irqBinding(bound, 33), { notification: 'n.uart', badge: 4, slot: 'irqnode.33/0' });
+  const ops = engine.interruptOps(bound, 33);
+  assert.deepEqual(ops.map((o) => o.op), ['ntfnPopHead', 'threadPatch', 'enqueue', 'irqPatch']);
+  assert.equal(ops[1].set.msg.badge, 4);
+  // No waiter: the badge is OR-ed into the pending word.
+  const pending = reconstructState(sc, 4);
+  pending.notifications[0].pending = 1;
+  assert.deepEqual(engine.interruptOps(pending, 33)[0], { op: 'ntfnPatch', id: 'n.uart', set: { pending: 5 } });
+  // A capability without the send right binds nothing.
+  bound.cnodes.find((c) => c.irqNode === 33).slots['0'].rights = ['read'];
+  assert.equal(engine.irqBinding(bound, 33), null);
+  const data = bundled();
+  step(data, 'irq-delivery', 7).delta.ops.pop(); // forget to mask
+  hasError(data, 'handleInterruptOnCore on core 0 writes');
+  const masked = bundled();
+  scenario(masked, 'irq-delivery').steps.splice(4, 1); // drop the acknowledge that unmasks
+  scenario(masked, 'irq-delivery').steps.forEach((st, i) => { st.index = i; });
+  hasError(masked, 'is masked at the controller, so it raises no interrupt');
+});
+
+test('the interrupt syscalls write what the kernel writes, and a claimed line is refused', () => {
+  const data = bundled();
+  step(data, 'irq-delivery', 2).delta.ops[1].cap.rights.push('read');
+  hasError(data, 'installs a write-only handler capability for line 33');
+  const twice = bundled();
+  const again = step(twice, 'irq-delivery', 10);
+  assert.equal(again.outcome.error, 'revocationRequired');
+  again.outcome.error = 'invalidIrq';
+  again.path.find((s) => s.result === 'fail').error = 'invalidIrq';
+  hasError(twice, 'is refused with revocationRequired (irqControlLineRefusal)');
+  const bind = bundled();
+  step(bind, 'irq-delivery', 3).delta.ops[0].cap.badge = 9;
+  hasError(bind, 'copies cn.drv/2 whole into irqnode.33/0');
+  const ack = bundled();
+  step(ack, 'irq-delivery', 4).delta.ops.push({ op: 'irqPatch', line: 33, set: { active: false } });
+  hasError(ack, 'irqHandlerAck unmasks line 33 and writes nothing else');
+  const stray = bundled();
+  step(stray, 'ipc-call-reply', 1).delta.ops.push({ op: 'irqPatch', line: 33, set: { masked: true } });
+  hasError(stray, 'receive writes no interrupt line');
+});
+
+test('a capability crosses an endpoint only with the grant right, into the receive slot, under its source', () => {
+  const sc = scenario(BUNDLED, 'cap-transfer');
+  const pre = cloneState(sc.initialState);
+  const noGrant = engine.transferPlan(pre, 'client', pre.cnodes[0].slots['2'], 'ep.svc', [3], 'server');
+  assert.deepEqual([noGrant.granted, noGrant.results, noGrant.resolved], [false, [], []]);
+  const granted = engine.transferPlan(pre, 'client', pre.cnodes[0].slots['1'], 'ep.svc', [3], 'server');
+  assert.deepEqual(granted.results.map((r) => [r.kind, r.from, r.to]), [['installed', 'cn.cli/3', 'cn.srv/4']]);
+  // A capability to the endpoint itself is unwrapped to its badge; the next one takes the slot.
+  const both = engine.transferPlan(pre, 'client', pre.cnodes[0].slots['1'], 'ep.svc', [2, 3], 'server');
+  assert.deepEqual(both.results.map((r) => r.kind), ['unwrapped', 'installed']);
+  // One receive slot: a second capability to install stops the loop.
+  pre.cnodes[0].slots['5'] = { kind: 'frame', target: 'fr.other', rights: ['read'] };
+  assert.deepEqual(engine.transferPlan(pre, 'client', pre.cnodes[0].slots['1'], 'ep.svc', [3, 5], 'server').results.length, 1);
+  // An address that does not resolve clears the whole list.
+  assert.deepEqual(engine.transferPlan(pre, 'client', pre.cnodes[0].slots['1'], 'ep.svc', [3, 49], 'server').results, []);
+  // The trace cannot install a capability the plan does not, nor omit one it does.
+  const sneak = bundled();
+  step(sneak, 'cap-transfer', 1).delta.ops.push({ op: 'capInsert', slot: 'cn.srv/4', parent: 'cn.cli/3', cap: { kind: 'frame', target: 'fr.buf', rights: ['read', 'write'], derivation: 'ipcTransfer' } });
+  hasError(sneak, 'the rendezvous installs (nothing)');
+  const dropped = bundled();
+  step(dropped, 'cap-transfer', 5).delta.ops.pop();
+  hasError(dropped, 'the step records (nothing)');
+  const widened = bundled();
+  const ins = step(widened, 'cap-transfer', 5).delta.ops;
+  ins[ins.length - 1].cap.rights.push('grant');
+  hasError(widened, 'the rendezvous installs');
+  // Revoking the source reaches the copy in the other CSpace.
+  const end = reconstructState(sc, sc.steps.length - 1);
+  assert.equal(engine.capAt(end, 'cn.srv/4'), null);
+  assert.ok(engine.capAt(end, 'cn.cli/3'));
+});
+
+test('carvePlacement says where a retype lands and why', () => {
+  const s = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
+  const first = engine.carvePlacement(s, 'cn.mgr/1', { kind: 'frame', size: 4096 });
+  assert.deepEqual([first.from, first.reset, first.at, first.end], [0, true, 0, 4096]);
+  applyOp(s, { op: 'untypedCarve', untyped: 'ut.pool', slot: 'cn.mgr/1', child: { id: 'f', kind: 'frame', size: 4096 } });
+  applyOp(s, { op: 'capInsert', slot: 'cn.mgr/2', parent: 'cn.mgr/1', cap: { kind: 'frame', target: 'f', rights: ['read'], derivation: 'retype' } });
+  const second = engine.carvePlacement(s, 'cn.mgr/1', { kind: 'untyped', size: 8192 });
+  assert.deepEqual([second.from, second.reset, second.at, second.skipped], [4096, false, 8192, 4096]);
+  assert.equal(engine.carvePlacement(s, 'cn.mgr/1', { kind: 'frame', size: 16384 }).error, 'untypedRegionExhausted');
+  assert.equal(engine.carvePlacement(s, 'cn.mgr/2', { kind: 'frame', size: 4096 }).error, 'untypedTypeMismatch');
+});
+
+test('deriving an untyped capability follows seL4: refused over a child, the copy takes the index, the source is set full', () => {
+  const s = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
+  const size = engine.byId(s.untyped, 'ut.pool').size;
+  // untypedSourceSetFull (Capability/Operations.lean): a mint, a copy or an
+  // IPC transfer of an untyped capability leaves the source unable to carve.
+  s.cnodes[0].slots['1'].freeIndex = 4096;
+  applyOp(s, { op: 'capInsert', slot: 'cn.mgr/5', parent: 'cn.mgr/1', cap: { kind: 'untyped', target: 'ut.pool', rights: ['read', 'retype'], derivation: 'copy' } });
+  assert.equal(engine.capAt(s, 'cn.mgr/5').freeIndex, 4096, 'the derived capability takes the source\'s free index');
+  assert.equal(engine.capAt(s, 'cn.mgr/1').freeIndex, size, 'the source is set full');
+  assert.deepEqual(engine.checkState(s), []);
+  // untypedDeriveRefused: a source slot with a derivation child is not derived from again.
+  assert.throws(() => applyOp(s, { op: 'capInsert', slot: 'cn.mgr/6', parent: 'cn.mgr/1', cap: { kind: 'untyped', target: 'ut.pool', rights: ['read'], derivation: 'mint' } }), /revocationRequired/);
+  // A retype's child names another object: the carve's own free-index write stands.
+  const t = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
+  applyOp(t, { op: 'untypedCarve', untyped: 'ut.pool', slot: 'cn.mgr/1', child: { id: 'ut.kid', kind: 'untyped', size: 4096 } });
+  applyOp(t, { op: 'capInsert', slot: 'cn.mgr/2', parent: 'cn.mgr/1', cap: { kind: 'untyped', target: 'ut.kid', rights: ['read', 'retype'], derivation: 'retype' } });
+  assert.equal(engine.capAt(t, 'cn.mgr/1').freeIndex, 4096);
+  // retypeFromUntyped: a child id that already names an object is a collision.
+  assert.throws(() => applyOp(t, { op: 'untypedCarve', untyped: 'ut.pool', slot: 'cn.mgr/1', child: { id: 'ut.kid', kind: 'frame', size: 4096 } }), /childIdCollision/);
+  assert.throws(() => applyOp(t, { op: 'untypedCarve', untyped: 'ut.pool', slot: 'cn.mgr/1', child: { id: 'ut.pool', kind: 'frame', size: 4096 } }), /childIdCollision/);
+});
+
+test('an issuing invocation installs where its arguments say, through the caller\'s own CSpace', () => {
+  const pre = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
+  assert.deepEqual(engine.issuingDestination(pre, 'mgr', 0, 2), { slot: 'cn.mgr/2', via: 'cn.mgr/0' });
+  assert.equal(engine.issuingDestination(pre, 'mgr', 1, 2).error, 'invalidCapability', 'slot 1 holds the untyped capability, not a CNode');
+  const elsewhere = bundled();
+  step(elsewhere, 'untyped-retype', 1).syscall.args[3].value = 7;
+  hasError(elsewhere, 'installs its capability in cn.mgr/7');
+  const irq = bundled();
+  step(irq, 'irq-delivery', 2).syscall.args[2].value = 6;
+  hasError(irq, 'installs its capability in cn.drv/6');
+});
+
+test('irqHandlerClear empties the node slot and writes no line state; an off-board line is not acknowledged', () => {
+  const data = bundled();
+  const ack = step(data, 'irq-delivery', 9);
+  const pre = reconstructState(scenario(data, 'irq-delivery'), 8);
+  assert.ok(engine.capAt(pre, 'irqnode.33/0'), 'the line is bound before the step');
+  ack.syscall.id = 'irqHandlerClear';
+  const errors = errorsOf(data).filter((m) => m.includes('irqHandlerClear'));
+  assert.ok(errors.some((m) => m.includes('empties the line\'s node slot, not its state')), errors.join('\n'));
+  assert.ok(errors.some((m) => m.includes('irqHandlerClear deletes irqnode.33/0')), errors.join('\n'));
+});
+
+test('the type gate and the flow table agree with the checked dispatch on the service arms', () => {
+  // dispatchCapabilityOnlyChecked (API.lean): the query and the revoke are the
+  // two capability-only arms that run a flow gate.
+  assert.ok(engine.flowGated('serviceQuery') && engine.flowGated('serviceRevoke') && engine.flowGated('serviceRegister'));
+  assert.equal(engine.FLOW_GATED.length, 13);
+  assert.ok(engine.CONTEXT_ARMS_UNGATED.every((id) => !engine.flowGated(id)));
+});
+
+test('checkState keys its maps without a prototype: an object may be named like an Object method', () => {
+  const s = cloneState(scenario(BUNDLED, 'ipc-call-reply').initialState);
+  const first = s.threads[0].id;
+  const rename = (v) => JSON.parse(JSON.stringify(v).split(JSON.stringify(first)).join('"constructor"'));
+  const renamed = rename(s);
+  assert.deepEqual(engine.checkState(renamed), engine.checkState(s));
+  assert.ok(!('constructor' in engine.touched([])), 'touched() answers only for what the ops name');
+});
+
+test('msgInfoFields places each field of x1 where MessageInfo.encode does', () => {
+  const mi = { length: 5, extraCaps: 1, label: 3 };
+  const fields = engine.msgInfoFields(mi);
+  assert.deepEqual(fields.map((f) => [f.name, f.lo, f.width]), [['length', 0, 7], ['extraCaps', 7, 2], ['capsUnwrapped', 9, 3], ['label', 12, 52]]);
+  let word = 0;
+  for (const f of fields) word += f.value * 2 ** f.lo;
+  assert.equal(word, engine.msgInfoWord(mi));
+});
+
+test('retypeRequest decodes x2 as decodeUntypedRetypeArgs does, and a carve must be what x2 asked for', () => {
+  // type tag = x2 % 256 (KernelObjectType.ofNat?), sizeBits = x2 / 256.
+  assert.deepEqual(engine.retypeRequest(8), { tag: 8, sizeBits: 0, kind: 'frame', size: engine.PAGE_BYTES });
+  assert.deepEqual(engine.retypeRequest(5 + 13 * 256), { tag: 5, sizeBits: 13, kind: 'untyped', size: 8192 });
+  // A kind the engine does not model is decoded but not sized: nothing is guessed.
+  const tcb = engine.retypeRequest(0);
+  assert.deepEqual([tcb.tag, tcb.kind, tcb.size], [0, null, null]);
+  assert.equal(engine.retypeRequest(5).kind, null, 'an untyped needs a size exponent');
+  assert.deepEqual(errorsOf(bundled()), []);
+  const wrongSize = bundled();
+  step(wrongSize, 'untyped-retype', 2).syscall.args[0].value = 5 + 12 * 256;
+  hasError(wrongSize, 'x2 asks for a untyped of 4096 bytes');
+  const wrongKind = bundled();
+  step(wrongKind, 'untyped-retype', 1).syscall.args[0].value = 5 + 12 * 256;
+  hasError(wrongKind, 'the step carves a frame of 4096');
 });

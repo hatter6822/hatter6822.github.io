@@ -11,8 +11,8 @@
  *
  * So a name is not prose. The sync resolves every `{ name, module }` reference
  * in the trace against the pinned checkout — the same digest-verified tree the
- * code map is generated from — and stamps the file and line it is declared on,
- * with the commit as `sourceRef`. A reference it cannot place fails the sync,
+ * code map is generated from — and stamps the line it is declared on in its
+ * module's file, with the commit as `sourceRef`. A reference it cannot place fails the sync,
  * naming it: a declaration that left its module is an editorial decision (the
  * step may need rewriting, not repointing), the same rule the landing page's
  * deep links follow (`source-anchors.mjs`).
@@ -56,6 +56,13 @@ export function collectTraceRefs(data) {
   (data?.invariantCatalog ?? []).forEach((inv) => {
     note(inv.predicate, `invariant "${inv.id}".predicate`);
     noteAll(inv.preservedBy, `invariant "${inv.id}".preservedBy`);
+    // A proof names the function it is about and, when it proves a bundle,
+    // the bundles the predicate sits in: each is a declaration too.
+    (Array.isArray(inv.preservedBy) ? inv.preservedBy : []).forEach((proof, i) => {
+      if (!isRef(proof)) return;
+      note(proof.subject, `invariant "${inv.id}".preservedBy[${i}].subject`);
+      noteAll(proof.within, `invariant "${inv.id}".preservedBy[${i}].within`);
+    });
     note(inv.runtimeCheck, `invariant "${inv.id}".runtimeCheck`);
   });
   (data?.scenarios ?? []).forEach((sc) => (sc.steps ?? []).forEach((step, i) => {
@@ -81,10 +88,11 @@ export function refLine(text, name, path) {
 }
 
 /**
- * Stamp `path` and `line` on every reference; return the ones that did not resolve.
+ * Stamp `line` on every reference; return the ones that did not resolve.
  *
- * `readSource(path)` returns a file's text, or undefined when the checkout has
- * no such file.
+ * A reference's file is its module's (`modulePath`), so no path is stored: a
+ * second copy of it could only disagree. `readSource(path)` returns a file's
+ * text, or undefined when the checkout has no such file.
  */
 export function anchorTraceRefs(data, readSource) {
   const unresolved = [];
@@ -100,7 +108,7 @@ export function anchorTraceRefs(data, readSource) {
       delete ref.line;
       continue;
     }
-    ref.path = path;
+    delete ref.path;
     ref.line = line;
   }
   return unresolved;
@@ -196,12 +204,239 @@ export function checkTraceKernelFacts(data, readSource) {
 }
 
 /**
+ * A `def name : SyscallId → …` written as match arms, read into
+ * `{ constructor: value }`. An arm may list several constructors and run over
+ * several lines (`| .a | .b` … `| .c => v`); the value is the text after `=>`
+ * with a leading `some` and a leading dot dropped. A wildcard arm is returned
+ * under `_`. `undefined` when the definition is not there.
+ */
+export function matchArmTable(sourceText, name) {
+  const source = stripLeanComments(String(sourceText ?? ''));
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const header = new RegExp(`^[^\\S\\n]*(?:@\\[[^\\]]*\\][^\\S\\n]*)?def[^\\S\\n]+${escaped}(?![A-Za-z0-9_?!'])[^\\n]*$`, 'm').exec(source);
+  if (!header) return undefined;
+  const table = {};
+  let pending = [];
+  for (const line of source.slice(header.index + header[0].length).split('\n').slice(1)) {
+    const trimmed = line.trim();
+    if (!trimmed) { if (Object.keys(table).length || pending.length) break; continue; }
+    if (!trimmed.startsWith('|')) break;
+    const at = trimmed.indexOf('=>');
+    const patterns = (at === -1 ? trimmed : trimmed.slice(0, at)).split('|').map((p) => p.trim()).filter(Boolean);
+    for (const p of patterns) {
+      const m = /^\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(p) || /^(_)$/.exec(p);
+      if (!m) return undefined;
+      pending.push(m[1]);
+    }
+    if (at !== -1) {
+      const value = trimmed.slice(at + 2).trim().replace(/^some\s+/, '').replace(/^\./, '');
+      for (const ctor of pending) table[ctor] = value;
+      pending = [];
+    }
+  }
+  return Object.keys(table).length && !pending.length ? table : undefined;
+}
+
+/** Where the kernel writes the tables the trace engine restates. */
+export const ENGINE_TABLE_SOURCES = Object.freeze({
+  objectKind: { path: 'SeLe4n/Kernel/API.lean', table: 'syscallObjectKind?' },
+  missingRight: { path: 'SeLe4n/Kernel/API.lean', table: 'syscallMissingRightError' },
+  truncation: { path: 'SeLe4n/Kernel/Architecture/SyscallArgDecode.lean', table: 'truncationMinimum' },
+  overflow: { path: 'SeLe4n/Kernel/Architecture/RegisterDecode.lean', table: 'syscallReadsOverflow' },
+  targetAccepted: { path: 'SeLe4n/Kernel/API.lean', table: 'syscallTargetAccepted' },
+  // The two tiers of the checked dispatch: the arms that are handed the
+  // labeling context are the only ones that can ask the policy anything.
+  checkedTiers: { path: 'SeLe4n/Kernel/API.lean', tables: ['dispatchWithCapChecked', 'dispatchCapabilityOnlyChecked'] },
+  // The kernel's own classification of its operations, whose entry count a
+  // theorem pins (`enforcementBoundaryExtended_count`).
+  enforcement: { path: 'SeLe4n/Kernel/InformationFlow/Enforcement/Wrappers.lean', table: 'enforcementBoundary' }
+});
+
+/**
+ * The operation `enforcementBoundary` lists as `.policyGated` for each syscall
+ * whose arm a policy decides: the thirteen the engine calls flow-gated, and
+ * the two declassifications, which the same table lists because their policy
+ * decides them too (they proceed only where the lattice denies). The names are
+ * the kernel's; one that is renamed, added or dropped there fails the sync
+ * until this says so too.
+ */
+export const POLICY_GATED_OPERATIONS = Object.freeze({
+  declassify: 'declassifyObjectFromCore',
+  declassifySignal: 'notificationSignalDeclassifiedCrossCoreDispatch',
+  send: 'endpointSendDualChecked',
+  receive: 'endpointReceiveDualChecked',
+  call: 'endpointCallChecked',
+  reply: 'endpointReplyChecked',
+  replyRecv: 'endpointReplyRecvChecked',
+  cspaceMint: 'cspaceMintChecked',
+  cspaceCopy: 'cspaceCopyChecked',
+  cspaceMove: 'cspaceMoveChecked',
+  serviceRegister: 'registerServiceChecked',
+  serviceQuery: 'lookupServiceChecked',
+  serviceRevoke: 'revokeServiceChecked',
+  notificationSignal: 'notificationSignalChecked',
+  notificationWait: 'notificationWaitChecked'
+});
+
+/**
+ * The text of `def name`, comments stripped: from its header to the next line
+ * that starts in column 0. `undefined` when the definition is not there.
+ */
+export function definitionBody(sourceText, name) {
+  const source = stripLeanComments(String(sourceText ?? ''));
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const header = new RegExp(`^(?:@\\[[^\\]]*\\][^\\S\\n]*)?def[^\\S\\n]+${escaped}(?![A-Za-z0-9_?!'])`, 'm').exec(source);
+  if (!header) return undefined;
+  const rest = source.slice(header.index + header[0].length);
+  const end = /\n(?=\S)/.exec(rest);
+  return end ? rest.slice(0, end.index) : rest;
+}
+
+/**
+ * The outermost `| .ctor [| .ctor…] =>` arms of a dispatcher, as
+ * `{ ctor: armText }`. Outermost means the least-indented arms of the body;
+ * the matches nested inside an arm belong to that arm's text.
+ */
+export function dispatchArms(body) {
+  const lines = String(body ?? '').split('\n');
+  const head = /^(\s*)\|((?:\s*\.[A-Za-z_][A-Za-z0-9_]*\s*\|?)+)\s*=>/;
+  let indent = Infinity;
+  for (const line of lines) {
+    const m = head.exec(line);
+    if (m && m[1].length < indent) indent = m[1].length;
+  }
+  const arms = {};
+  let open = null;
+  for (const line of lines) {
+    const m = head.exec(line);
+    if (m && m[1].length === indent) {
+      open = { names: [...m[2].matchAll(/\.([A-Za-z_][A-Za-z0-9_]*)/g)].map((x) => x[1]), text: [line.slice(m[0].length)] };
+      for (const ctor of open.names) arms[ctor] = open;
+    } else if (open) open.text.push(line);
+  }
+  return Object.fromEntries(Object.entries(arms).map(([ctor, arm]) => [ctor, arm.text.join('\n')]));
+}
+
+/** The engine's capability kind for a kernel `KernelObjectType`. */
+const OBJECT_KIND_NAMES = { vspaceRoot: 'vspace' };
+/** The engine's capability kind for a non-object `CapTarget` constructor. */
+const TARGET_KIND_NAMES = { replyCap: 'reply', irqControl: 'irqControl', irqHandler: 'irqHandler' };
+
+/**
+ * The trace engine decides the type gate, the missing-right answer, the
+ * truncation minimum and which syscalls read the IPC buffer from tables it
+ * restates. They are the kernel's tables, so they are compared with the
+ * kernel's, entry for entry, for every syscall, at the revision the trace is
+ * grounded in. A table that has moved fails the sync: a gate the page
+ * recomputes from a stale table is a decision the kernel no longer makes.
+ */
+export function checkEngineTables(engine, readSource) {
+  const issues = [];
+  const src = ENGINE_TABLE_SOURCES;
+  const read = (entry) => matchArmTable(readSource(entry.path) ?? '', entry.table);
+  const syscalls = inductiveConstructors(readSource(KERNEL_FACT_SOURCES.syscalls.path) ?? '', KERNEL_FACT_SOURCES.syscalls.inductive) ?? [];
+  if (!syscalls.length) return [`${KERNEL_FACT_SOURCES.syscalls.inductive} not found in ${KERNEL_FACT_SOURCES.syscalls.path}`];
+
+  const kinds = read(src.objectKind);
+  if (!kinds) issues.push(`${src.objectKind.table} not found in ${src.objectKind.path}`);
+  else for (const id of syscalls) {
+    const lean = kinds[id] === undefined ? kinds._ : kinds[id];
+    const want = lean === undefined || lean === 'none' ? undefined : (OBJECT_KIND_NAMES[lean] ?? lean);
+    const got = engine.SYSCALL_OBJECT_KIND[id];
+    if (want !== got) issues.push(`${src.objectKind.table} .${id} is ${lean ?? 'unstated'}, the engine's SYSCALL_OBJECT_KIND says ${got ?? 'none'}`);
+  }
+
+  const missing = read(src.missingRight);
+  if (!missing) issues.push(`${src.missingRight.table} not found in ${src.missingRight.path}`);
+  else for (const id of syscalls) {
+    const lean = missing[id] === undefined ? missing._ : missing[id];
+    if (lean !== engine.missingRightError(id)) issues.push(`${src.missingRight.table} .${id} is ${lean ?? 'unstated'}, the engine answers ${engine.missingRightError(id)}`);
+  }
+
+  const mins = read(src.truncation);
+  if (!mins) issues.push(`${src.truncation.table} not found in ${src.truncation.path}`);
+  else for (const id of syscalls) {
+    const lean = Number(mins[id] === undefined ? mins._ : mins[id]);
+    if (lean !== engine.truncationMinimum(id)) issues.push(`${src.truncation.table} .${id} is ${lean}, the engine's TRUNCATION_MIN says ${engine.truncationMinimum(id)}`);
+  }
+
+  const overflow = read(src.overflow);
+  if (!overflow) issues.push(`${src.overflow.table} not found in ${src.overflow.path}`);
+  else for (const id of syscalls) {
+    const lean = (overflow[id] === undefined ? overflow._ : overflow[id]) === 'true';
+    if (lean !== engine.readsOverflow(id)) issues.push(`${src.overflow.table} .${id} is ${lean}, the engine's READS_OVERFLOW says ${engine.readsOverflow(id)}`);
+  }
+
+  // `syscallTargetAccepted`'s non-object arms: `| .replyCap _ => sid == .reply`.
+  const accepted = stripLeanComments(readSource(src.targetAccepted.path) ?? '');
+  const at = accepted.search(new RegExp(`def[^\\S\\n]+${src.targetAccepted.table}\\b`));
+  if (at === -1) issues.push(`${src.targetAccepted.table} not found in ${src.targetAccepted.path}`);
+  else {
+    const body = accepted.slice(at).split(/\n[^\S\n]*\n/)[0];
+    for (const [ctor, kind] of Object.entries(TARGET_KIND_NAMES)) {
+      const arm = new RegExp(`\\|\\s*\\.${ctor}\\s+_\\s*=>([\\s\\S]*?)(?=\\n\\s*\\|\\s*\\.|$)`).exec(body);
+      const lean = arm ? [...arm[1].matchAll(/sid\s*==\s*\.([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]).sort() : null;
+      const got = Object.keys(engine.SYSCALL_TARGET_KIND).filter((id) => engine.SYSCALL_TARGET_KIND[id] === kind).sort();
+      if (!lean) issues.push(`${src.targetAccepted.table} has no .${ctor} arm`);
+      else if (lean.join(',') !== got.join(',')) issues.push(`${src.targetAccepted.table} accepts a .${ctor} capability for ${lean.join(', ')}; the engine's SYSCALL_TARGET_KIND says ${got.join(', ') || 'none'}`);
+    }
+    if (!/\|\s*none\s*=>\s*sid\s*==\s*\.declassify\b/.test(body)) issues.push(`${src.targetAccepted.table} no longer accepts any object capability for exactly .declassify`);
+  }
+
+  /* Which arms gate the information flow. Two readings of the checkout, and
+     the engine's table has to agree with both.
+
+     The dispatcher: an arm can ask the policy something only if it is handed
+     the labeling context, so the arms of the checked tiers that name `ctx`
+     must be exactly the engine's gated arms plus the ones it says read the
+     context for another reason (declassification, the audit pair). A gate
+     that lands on a new arm, or leaves one, changes that set.
+
+     The kernel's own table: the `.policyGated` entries of
+     `enforcementBoundary` must be exactly the operations of the engine's
+     gated arms and of the two declassifications. What neither reading can see
+     is an arm that swapped a lattice gate for another use of the context
+     while keeping its operation's name. */
+  const tierSource = readSource(src.checkedTiers.path) ?? '';
+  const reads = new Set();
+  let tiersFound = true;
+  for (const table of src.checkedTiers.tables) {
+    const body = definitionBody(tierSource, table);
+    if (body === undefined) { issues.push(`${table} not found in ${src.checkedTiers.path}`); tiersFound = false; continue; }
+    for (const [ctor, text] of Object.entries(dispatchArms(body))) if (/\bctx\b/.test(text)) reads.add(ctor);
+  }
+  const gated = Array.isArray(engine.FLOW_GATED) ? engine.FLOW_GATED : [];
+  const otherwise = Array.isArray(engine.CONTEXT_ARMS_UNGATED) ? engine.CONTEXT_ARMS_UNGATED : [];
+  if (tiersFound) for (const id of syscalls) {
+    const expected = gated.includes(id) || otherwise.includes(id);
+    if (reads.has(id) && !expected) issues.push(`the checked dispatch hands the labeling context to the .${id} arm; the engine's FLOW_GATED says it runs no flow gate`);
+    if (!reads.has(id) && expected) issues.push(`the checked dispatch's .${id} arm does not read the labeling context; the engine's ${gated.includes(id) ? 'FLOW_GATED says it gates the flow' : 'CONTEXT_ARMS_UNGATED says it reads it'}`);
+  }
+  for (const id of gated) if (otherwise.includes(id)) issues.push(`the engine lists .${id} as both flow-gated and not`);
+
+  const boundary = definitionBody(readSource(src.enforcement.path) ?? '', src.enforcement.table);
+  if (boundary === undefined) issues.push(`${src.enforcement.table} not found in ${src.enforcement.path}`);
+  else {
+    const policyGated = [...boundary.matchAll(/\.policyGated\s+"([^"]+)"/g)].map((m) => m[1]).sort();
+    const wrappers = [
+      ...gated.map((id) => POLICY_GATED_OPERATIONS[id] ?? `(no operation recorded for ${id})`),
+      ...otherwise.filter((id) => POLICY_GATED_OPERATIONS[id]).map((id) => POLICY_GATED_OPERATIONS[id])
+    ].sort();
+    for (const name of policyGated) if (!wrappers.includes(name)) issues.push(`${src.enforcement.table} lists ${name} as policy-gated; no arm in the engine's FLOW_GATED or CONTEXT_ARMS_UNGATED stands for it`);
+    for (const name of wrappers) if (!policyGated.includes(name)) issues.push(`the engine expects a policy-gated ${name}; ${src.enforcement.table} lists none`);
+  }
+  return issues;
+}
+
+/**
  * Ground a whole trace document at one revision: anchor every reference, check
  * every restated interface fact, and record the revision the lines belong to.
+ * With `engine`, the tables the trace engine restates are checked too.
  * Returns the issues; the caller must refuse to publish when there are any.
  */
-export function groundTrace(data, { readSource, commitSha, version }) {
+export function groundTrace(data, { readSource, commitSha, version, engine }) {
   const issues = [...anchorTraceRefs(data, readSource), ...checkTraceKernelFacts(data, readSource)];
+  if (engine) issues.push(...checkEngineTables(engine, readSource));
   data.sourceRef = commitSha;
   data.kernelCommit = String(commitSha).slice(0, 7);
   if (version) data.kernelVersion = version;

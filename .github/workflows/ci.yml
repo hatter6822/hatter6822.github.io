@@ -7,12 +7,22 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same ref supersedes the run in flight.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      # Actions are pinned to a commit, not a movable tag.
+      # Actions are pinned to a commit, not a movable tag. Nothing here talks
+      # to the repository again, so the token is not left in .git/config for
+      # the steps that follow.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -32,7 +42,7 @@ jobs:
       # edge, and the tabs, sandbox and a translated locale work.
       # playwright-core is a test-time download, not a repository dependency.
       - name: Install playwright-core
-        run: npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.56.1
+        run: npm install --ignore-scripts --no-save --no-package-lock --no-audit --no-fund playwright-core@1.56.1
 
       - name: Code map smoke probe (headless Chrome)
         run: |

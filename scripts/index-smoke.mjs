@@ -90,13 +90,40 @@ function expected(key) {
   return typeof value === 'number' ? group(value) : String(value);
 }
 
-async function open(width, height, { theme = 'dark', query = '', locale = 'en', holdLocaleMs = 0 } = {}) {
+async function open(width, height, { theme = 'dark', query = '', locale = 'en', holdLocaleMs = 0, poison = null } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, locale });
   await context.addInitScript(([t, l]) => {
     try { localStorage.setItem('sele4n-theme', t); } catch (e) {}
     try { localStorage.setItem('sele4n-locale-v1', l); } catch (e) {}
   }, [theme, locale]);
+  await context.addInitScript(() => {
+    window.__cspViolations = [];
+    window.__layoutShift = 0;
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) if (!entry.hadRecentInput) window.__layoutShift += entry.value;
+      }).observe({ type: 'layout-shift', buffered: true });
+    } catch (e) {}
+    document.addEventListener('securitypolicyviolation', (event) => {
+      window.__cspViolations.push(`${event.violatedDirective} ${event.blockedURI}`);
+    });
+  });
   const page = await context.newPage();
+  if (poison) {
+    // Serve the real locale with some of its strings replaced, as a tampered
+    // or mistranslated bundle would arrive.
+    await page.route(/\/locales\/[a-z-]+\.json(\?.*)?$/i, async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      for (const [key, value] of Object.entries(poison)) {
+        const parts = key.split('.');
+        let at = body;
+        for (const part of parts.slice(0, -1)) at = at[part];
+        at[parts[parts.length - 1]] = value;
+      }
+      await route.fulfill({ response, json: body });
+    });
+  }
   if (holdLocaleMs) {
     await page.route(/\/locales\/[a-z-]+\.json(\?.*)?$/i, async (route) => {
       await new Promise((resolve) => setTimeout(resolve, holdLocaleMs));
@@ -180,6 +207,12 @@ for (const [width, height, label] of [
   check(overflow <= 0, `no sideways overflow (${overflow}px)`);
   const cards = await cardGridDefects(page);
   check(cards.length === 0, `card grids have even columns inside the viewport${cards.length ? ` — ${cards.slice(0, 4).join(' | ')}` : ''}`);
+  // The figures are stamped into the markup from the same snapshot the page
+  // then fetches, so hydration has nothing to move.
+  const shift = await page.evaluate(() => window.__layoutShift);
+  check(shift < 0.02, `cumulative layout shift while loading is ${shift.toFixed(4)} (< 0.02)`);
+  const violations = await page.evaluate(() => window.__cspViolations);
+  check(violations.length === 0, `the policy refused nothing${violations.length ? ` — ${violations.join(' | ')}` : ''}`);
   check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
   await context.close();
 }
@@ -233,6 +266,96 @@ for (const [width, height, label] of [
   const overflow = await sideways(page);
   check(overflow <= 0, `no sideways overflow in light theme (${overflow}px)`);
   check(errors.length === 0, `clean console${errors.length ? ` — ${errors.slice(0, 3).join(' | ')}` : ''}`);
+  await context.close();
+}
+
+{
+  // The locale sanitizer against markup it must not let through. A locale is
+  // same-origin and reviewed, so this is defence in depth — but it is the one
+  // place the site turns a string into markup, and the pieces below are the
+  // ones that break sanitizers: a parse that differs the second time round
+  // (the nodes are adopted, never re-parsed), names that are allowed in HTML
+  // and mean something else in SVG or MathML, and URLs the parser rewrites.
+  const battery = [
+    '<img src=x onerror="window.__pwned=1">',
+    '<svg onload="window.__pwned=2"><a href="javascript:window.__pwned=3">svg-a</a><style><a title="</style><img src=x onerror=window.__pwned=4>"></style></svg>',
+    '<math><mtext><table><mglyph><style><!--</style><img title="--&gt;&lt;img src=x onerror=window.__pwned=5&gt;">',
+    '<noscript><p title="</noscript><img src=x onerror=window.__pwned=6>"></noscript>',
+    '<form><math><mtext></form><form><mglyph><style></math><img src onerror=window.__pwned=7>',
+    '<a href="javascript:window.__pwned=8" onclick="window.__pwned=9" id="x" title="t" tabindex="0">js</a>',
+    '<a href="/\t/evil.example/">tab</a><a href="//evil.example/">rel</a><a href="/\\evil.example/">back</a>',
+    '<a href=" javascript:window.__pwned=10">lead</a><a href="data:text/html,<script>window.__pwned=11</script>">data</a>',
+    '<script>window.__pwned=12</script><iframe srcdoc="<script>parent.__pwned=13</script>"></iframe>',
+    '<template><img src=x onerror=window.__pwned=14></template><base href="https://evil.example/">',
+    '<object data="https://evil.example/x"></object><embed src="https://evil.example/x"><link rel=stylesheet href="https://evil.example/x.css">',
+    '<!-- comment --><span id="kept-id" class="kept-class" data-live="modules">0</span>',
+    '<a href="/map.html" target="_blank" rel="opener">kept</a> <strong>strong</strong> <code>code</code>'
+  ].join(' ');
+  // No style="…" in the battery: the parser reports a style attribute to the
+  // policy as it parses, inert document or not, so one would be refused (and
+  // logged) by style-src before the sanitizer removes it. Everything above is
+  // stopped by the sanitizer alone; see the violation check for the one
+  // report a browser may still make of it.
+  const { context, page, errors } = await open(1440, 900, { poison: { 'security.ifc_text': battery } });
+  console.log('\n[a poisoned locale string through the sanitizer]');
+
+  const report = await page.$eval('[data-i18n-html="security.ifc_text"]', (el) => {
+    const allowed = new Set(['a', 'br', 'code', 'em', 'span', 'strong', 'wbr']);
+    const all = [...el.querySelectorAll('*')];
+    return {
+      strangers: all.filter((node) => node.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !allowed.has(node.localName))
+        .map((node) => node.localName),
+      attributes: [...new Set(all.flatMap((node) => [...node.attributes].map((attr) => attr.name)))].sort(),
+      hrefs: all.filter((node) => node.localName === 'a').map((node) => node.getAttribute('href')),
+      offOrigin: all.filter((node) => node.localName === 'a' && node.hasAttribute('href') && node.origin !== location.origin)
+        .map((node) => node.href),
+      rels: [...new Set(all.filter((node) => node.localName === 'a').map((node) => node.getAttribute('rel')))],
+      comments: document.createTreeWalker(el, NodeFilter.SHOW_COMMENT).nextNode() !== null,
+      live: el.querySelector('span.kept-class[data-live="modules"]')?.textContent,
+      text: el.textContent,
+      pwned: window.__pwned,
+      violations: window.__cspViolations,
+      bases: document.querySelectorAll('base').length
+    };
+  });
+  check(report.pwned === undefined, `no payload ran (window.__pwned = ${report.pwned})`);
+  check(report.strangers.length === 0, `only allowlisted HTML elements reached the page${report.strangers.length ? ` — ${report.strangers.join(', ')}` : ''}`);
+  check(report.attributes.every((name) => ['class', 'data-i18n', 'data-live', 'href', 'rel', 'target'].includes(name)),
+    `only allowlisted attributes survive (${report.attributes.join(', ')})`);
+  check(report.hrefs.filter(Boolean).join(' ') === '/map.html', `one href survives, the same-origin one (${JSON.stringify(report.hrefs)})`);
+  check(report.offOrigin.length === 0, `no link resolves off the origin${report.offOrigin.length ? ` — ${report.offOrigin.join(', ')}` : ''}`);
+  check(report.rels.length === 1 && report.rels[0] === 'noopener noreferrer', `every link is rel="noopener noreferrer" (${report.rels.join(' | ')})`);
+  check(!report.comments && report.bases === 0, 'no comment and no <base> came through');
+  check(report.text.includes('strong') && report.text.includes('kept'), 'allowed content is kept');
+  check(report.live === group(SITE_DATA.modules), `a data-live span in a locale string is hydrated from the snapshot (${report.live})`);
+  // A handler attribute is the one thing the browser may report on its own:
+  // some Chrome builds ask the policy about on*="…" as the parser sets it,
+  // inert <template> document or not (as every build does for style="…"),
+  // and others only when a handler would be compiled, which here is never.
+  // That report is the policy seeing the attribute during the parse, before
+  // the sanitizer's walk removes it; nothing ran either way, which the
+  // __pwned check above establishes. Any other directive is a failure: no
+  // element, image, frame or stylesheet of the battery may get far enough to
+  // be refused.
+  const parseTime = (entry) => /^script-src-attr\b/.test(entry);
+  const stopped = report.violations.filter((entry) => !parseTime(entry));
+  const handlerNoise = (line) => /inline event handler/i.test(line);
+  const loud = errors.filter((line) => !handlerNoise(line));
+  check(stopped.length === 0, `the policy refused nothing beyond handler attributes seen by the parser${stopped.length ? ` — ${stopped.join(' | ')}` : ''}`);
+  check(loud.length === 0, `clean console${loud.length ? ` — ${loud.slice(0, 3).join(' | ')}` : ''}`);
+
+  // And the policy underneath: a string cannot reach an HTML sink at all, and
+  // page code cannot mint itself a policy to get round that.
+  const enforced = await page.evaluate(() => {
+    const out = {};
+    try { document.createElement('div').innerHTML = '<b>x</b>'; out.sink = 'accepted'; } catch (e) { out.sink = e.name; }
+    try { window.trustedTypes.createPolicy('other', { createHTML: (x) => x }); out.policy = 'created'; } catch (e) { out.policy = e.name; }
+    try { window.trustedTypes.createPolicy('sele4n-i18n', { createHTML: (x) => x }); out.duplicate = 'created'; } catch (e) { out.duplicate = e.name; }
+    return out;
+  });
+  check(enforced.sink === 'TypeError', `Trusted Types refuses a string at an HTML sink (${enforced.sink})`);
+  check(enforced.policy === 'TypeError' && enforced.duplicate === 'TypeError',
+    `and refuses a second policy, by a new name or the sanitizer's own (${enforced.policy}, ${enforced.duplicate})`);
   await context.close();
 }
 

@@ -1,12 +1,16 @@
 /**
- * Headless runtime test for the Simulator (assets/js/run.js).
+ * Headless runtime test for the Simulator (assets/js/run.js and the scenes it
+ * draws with, assets/js/run-scenes.js).
  *
- * There is no browser (and no jsdom dependency) in this repo's tooling, so this
- * test stands up a minimal DOM shim and executes the real run.js IIFE inside a
- * `vm` context. It is a regression guard for the end-to-end pipeline:
- *   data load → the six SVG scenes → kernel path, guarantees and invariants →
- *   transport stepping → sandbox perturbations judged by the engine's
- *   executable mirrors → strict adoption of the bundled document.
+ * There is no jsdom dependency in this repo's tooling, so this test stands up
+ * a minimal DOM shim and executes the real trace-engine.js, run-scenes.js and
+ * run.js inside a `vm` context. It is a regression guard for the end-to-end
+ * pipeline:
+ *   data load → the seven SVG scenes, for every step, before and after →
+ *   kernel path, guarantees and invariants → transport stepping → sandbox
+ *   perturbations judged by the engine's executable mirrors → strict adoption
+ *   of the bundled document.
+ * Geometry (1:1, nothing past an edge) is scripts/run-smoke.mjs's, in a browser.
  *
  * Assertions are intentionally about stable contracts (counts > 0, the step
  * label, the presence of a violated rail item) rather than brittle geometry, so
@@ -117,6 +121,8 @@ async function bootRunJs(search, mutate) {
   // run.html loads the shared engine first; the runtime is written against it.
   const engine = await readFile(new URL('../../assets/js/trace-engine.js', import.meta.url), 'utf8');
   vm.runInContext(engine, ctx, { filename: 'trace-engine.js' });
+  const scenes = await readFile(new URL('../../assets/js/run-scenes.js', import.meta.url), 'utf8');
+  vm.runInContext(scenes, ctx, { filename: 'run-scenes.js' });
   const code = await readFile(new URL('../../assets/js/run.js', import.meta.url), 'utf8');
   vm.runInContext(code, ctx, { filename: 'run.js' });
   await new Promise((r) => setTimeout(r, 30)); // let fetch().then chains resolve
@@ -136,7 +142,10 @@ test('run.js renders the stage, inspector, guarantees, invariants and log after 
   const subsystems = new Set(TRACES.invariantCatalog.map((i) => i.subsystem || 'other'));
   assert.equal(countClass(byId['invariant-list'], 'inv-group'), subsystems.size, 'one group per subsystem');
   assert.equal(byId['theater-log'].childNodes.length, sc('ipc-call-reply').steps.length, 'the log lists every step');
-  assert.ok(byId['theater-inspector'].childNodes.length > 0, 'the inspector is populated');
+  assert.equal(countClass(byId['theater-log'], 'step-chip'), sc('ipc-call-reply').steps.length, 'each step is a button in the strip');
+  assert.equal(withAttr(byId['theater-log'], 'aria-current', 'step').length, 1, 'exactly one step is current');
+  assert.equal(countClass(byId['theater-inspector'], 'insp-boot'), 1, 'the inspector says what to do at the initial state');
+  assert.equal(countClass(byId['theater-step-head'], 'step-title'), 1, 'the step is titled above the stage');
   assert.equal(countClass(byId['scenario-properties'], 'scenario-prop'), sc('ipc-call-reply').properties.length);
   assert.ok(byId['theater-legend'].childNodes.length > 0, 'the legend describes the scene on show');
 });
@@ -144,11 +153,17 @@ test('run.js renders the stage, inspector, guarantees, invariants and log after 
 test('run.js highlights exactly the guarantees and invariants the current step names', async () => {
   const { byId } = await bootRunJs('?scenario=vspace-wx&step=1');
   const step = sc('vspace-wx').steps[1];
-  assert.ok(step.guarantees.length > 0 && step.invariants.preserved.length > 0);
+  // Which invariants a step preserves by proof follows from the catalogue: a
+  // theorem covers a syscall step by its syscall id or by the "syscall" wildcard.
+  assert.equal(step.outcome.status, 'ok');
+  const covered = TRACES.invariantCatalog.filter((inv) => inv.preservedBy.some((p) => p.covers.includes(step.syscall.id) || p.covers.includes('syscall')));
+  assert.ok(step.guarantees.length > 0 && covered.length > 0 && covered.length < TRACES.invariantCatalog.length);
   const active = [];
   (function walk(n) { if (klass(n).split(/\s+/).includes('prop-card') && n.dataset.active === 'true') active.push(n.attrs.id); (n.childNodes || []).forEach(walk); })(byId['guarantee-grid']);
   assert.deepEqual(active.sort(), step.guarantees.map((id) => 'property-' + id).sort());
-  assert.equal(countStatus(byId['invariant-list'], 'preserved'), step.invariants.preserved.length);
+  assert.equal(countStatus(byId['invariant-list'], 'preserved'), covered.length);
+  const refused = await bootRunJs('?scenario=capability-gate&step=1');
+  assert.equal(countStatus(refused.byId['invariant-list'], 'preserved'), 0, 'a refused step changed nothing: no proof is cited for it');
 });
 
 test('run.js lists the checked path in the inspector and names the stage that refused', async () => {
@@ -208,13 +223,13 @@ test('run.js inspector shows a state diff for a transition step but not for boot
 
 function expectedScenes(s) {
   const st = s.initialState;
-  const out = [];
-  if (s.steps.some((x) => x.kind === 'syscall' || x.delta.ops.some((o) => o.op === 'dispatch'))) out.push('path');
-  if ((st.endpoints || []).length || (st.notifications || []).length) out.push('ipc');
-  out.push('scheduler');
+  const out = ['path']; // every step has a path: a trap, a tick, a reschedule or an interrupt
+  if ((st.endpoints || []).length || (st.notifications || []).length || (st.replies || []).length) out.push('ipc');
+  if ((st.cores || []).length) out.push('scheduler');
   if ((st.cnodes || []).length) out.push('cspace');
   if ((st.untyped || []).length || (st.vspaces || []).length) out.push('memory');
   if ((st.labels || []).length >= 2) out.push('infoflow');
+  if ((st.irqs || []).length) out.push('irq');
   return out;
 }
 
@@ -225,10 +240,46 @@ test('run.js offers exactly the scenes a scenario has something to show in, and 
     assert.deepEqual(tabs.map((t) => t.dataset.scene), expectedScenes(s), s.id);
     const opening = s.focus && expectedScenes(s).includes(s.focus) ? s.focus : expectedScenes(s)[0];
     assert.equal(stageSvg(byId).attrs['data-scene'], opening, `${s.id} opens on its focus scene`);
+    assert.equal(tabs.filter((t) => t.attrs['aria-selected'] === 'true').length, 1, 'one tab is selected');
+    assert.equal(tabs.filter((t) => t.attrs.tabindex === '0').length, 1, 'and it alone is in the tab order');
     const last = tabs[tabs.length - 1];
     last._fire('click');
     assert.equal(stageSvg(byId).attrs['data-scene'], last.dataset.scene, 'a tab switches the scene');
   }
+});
+
+test('every scene of every step of every scenario draws, and is described in words', async () => {
+  for (const s of TRACES.scenarios) {
+    for (const scene of expectedScenes(s)) {
+      for (let i = 0; i < s.steps.length; i++) {
+        for (const view of i === 0 ? ['after'] : ['after', 'before']) {
+          const { byId } = await bootRunJs(`?scenario=${s.id}&step=${i}&scene=${scene}${view === 'before' ? '&view=before' : ''}`);
+          const where = `${s.id} step ${i} ${scene} ${view}`;
+          const svg = stageSvg(byId);
+          assert.equal(svg && svg.tagName, 'SVG', where);
+          assert.equal(svg.attrs['data-scene'], scene, where);
+          assert.equal(countClass(byId['theater-stage'], 'stage-fallback'), 0, `${where}: the scene did not throw`);
+          assert.equal(svg.attrs['aria-describedby'], 'theater-alt', `${where}: the SVG points at its text alternative`);
+          assert.ok((byId['theater-alt'].textContent || '').includes(s.steps[i].title), `${where}: the alternative names the step`);
+        }
+      }
+    }
+  }
+});
+
+test('the before/after toggle shows the state a step found, and the URL carries it', async () => {
+  const s = sc('ipc-call-reply');
+  const i = s.steps.findIndex((x) => x.syscall && x.syscall.id === 'call');
+  const caller = s.steps[i].actor;
+  const status = (byId) => withAttr(stageSvg(byId), 'data-object', caller)
+    .flatMap((g) => g.childNodes).map((n) => n.attrs['data-status']).filter(Boolean)[0];
+  const after = await bootRunJs(`?scenario=ipc-call-reply&step=${i}&scene=ipc`);
+  assert.equal(status(after.byId), 'blocked', 'after a call the caller is blocked on the reply');
+  const before = await bootRunJs(`?scenario=ipc-call-reply&step=${i}&scene=ipc&view=before`);
+  assert.equal(status(before.byId), 'running', 'before it, the caller was running');
+  // The radios themselves are static markup; run-smoke.mjs drives them in a browser.
+  const html = await readFile(new URL('../../run.html', import.meta.url), 'utf8');
+  assert.deepEqual([...html.matchAll(/role="radio"[^>]*data-view="([a-z]+)"/g)].map((m) => m[1]), ['before', 'after']);
 });
 
 test('the path scene draws the registers, the CPtr walk, every gate and the Except result', async () => {
@@ -236,76 +287,150 @@ test('the path scene draws the registers, the CPtr walk, every gate and the Exce
   const { byId } = await bootRunJs('?scenario=capability-gate&step=1&scene=path');
   const svg = stageSvg(byId);
   const cn = sc('capability-gate').initialState.cnodes[0];
-  assert.equal(countClass(svg, 'reg-box'), 7, 'x0, x1, x2–x5 and x7');
-  assert.equal(countClass(svg, 'bit-cell'), cn.depth, 'one cell per CPtr bit the CNode consumes');
-  assert.equal(withAttr(svg, 'data-role', 'guard').length, cn.guardWidth);
+  const all = texts(svg);
+  for (const reg of ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x7']) assert.ok(all.some((t) => t === reg || t.startsWith(reg + ' ')), `${reg} is drawn`);
+  assert.equal(withAttr(svg, 'data-role', 'guard').length, cn.guardWidth, 'one cell per guard bit');
+  assert.equal(withAttr(svg, 'data-role', 'radix').length, cn.radixWidth, 'one cell per radix bit');
+  assert.ok(withAttr(svg, 'data-role', 'f-length').length > 0, 'the MessageInfo length field is drawn bit by bit');
   assert.equal(countClass(svg, 'right-pill'), 5, 'every right, held or not');
   assert.equal(withAttr(svg, 'data-need', 'missing').length, 1, 'the missing right is marked');
-  assert.equal(countClass(svg, 'pill-rect'), step.path.length, 'one pill per stage');
-  assert.equal(withAttr(svg, 'data-outcome', 'error').length >= 1, true, 'the result is Except.error');
-  assert.ok(texts(svg).some((t) => t.includes(step.outcome.error)));
+  const gates = [];
+  (function walk(n) { if (klass(n).split(/\s+/).includes('gate')) gates.push(n.attrs['data-result']); (n.childNodes || []).forEach(walk); })(svg);
+  assert.deepEqual(gates, step.path.map((p) => p.result), 'one gate per stage, in the kernel\'s order, each with its result');
+  assert.ok(all.some((t) => t.includes(step.outcome.error)), 'the refusal names the KernelError');
 });
 
 test('the path scene shows the selection a dispatch made, with every candidate\'s verdict', async () => {
   const s = sc('scheduler-buckets');
   const i = s.steps.findIndex((x) => x.delta.ops.some((o) => o.op === 'dispatch' && o.thread));
   const { byId } = await bootRunJs(`?scenario=scheduler-buckets&step=${i}&scene=path`);
-  const chosen = withAttr(stageSvg(byId), 'data-mark', 'chosen');
-  assert.equal(chosen.length, 1, 'one candidate is chosen');
-  assert.ok(countClass(stageSvg(byId), 'sel-why') >= 1, 'each candidate carries its reason');
+  const svg = stageSvg(byId);
+  assert.equal(withAttr(svg, 'data-pick', 'true').length, 1, 'one candidate is chosen');
+  assert.ok(countClass(svg, 'sel-row') >= 2, 'every candidate the core weighed is listed, not only the winner');
+  const picked = withAttr(svg, 'data-pick', 'true')[0];
+  const dispatched = s.steps[i].delta.ops.find((o) => o.op === 'dispatch').thread;
+  const name = s.initialState.threads.find((t) => t.id === dispatched).name;
+  assert.ok(texts(picked).includes(name), 'and the chosen row is the thread the step dispatched');
+  // A context that ran dry is listed with the reason it was passed over.
+  const edf = sc('budget-edf');
+  const j = edf.steps.findIndex((x, k) => k > 0 && x.delta.ops.some((o) => o.op === 'dispatch') && x.delta.ops.some((o) => o.op === 'scCharge'));
+  const dry = await bootRunJs(`?scenario=budget-edf&step=${j}&scene=path`);
+  assert.equal(withAttr(stageSvg(dry.byId), 'data-pick', 'true').length, 1);
+  assert.ok(withAttr(stageSvg(dry.byId), 'data-role', 'budget').length + withAttr(stageSvg(dry.byId), 'data-role', 'spent').length > 0, 'the charge is drawn tick by tick');
+});
+
+test('the path scene walks an interrupt through its delivery, bound or not', async () => {
+  const s = sc('irq-delivery');
+  const fires = s.steps.map((x, i) => (x.kind === 'interrupt' ? i : -1)).filter((i) => i >= 0);
+  assert.ok(fires.length >= 2, 'the scenario fires the line both unbound and bound');
+  for (const i of fires) {
+    const { byId } = await bootRunJs(`?scenario=irq-delivery&step=${i}&scene=path`);
+    assert.ok(countClass(stageSvg(byId), 'step-dot') >= 3, `step ${i}: the delivery is drawn as ordered steps`);
+    const irq = await bootRunJs(`?scenario=irq-delivery&step=${i}&scene=irq`);
+    assert.ok(withAttr(stageSvg(irq.byId), 'data-object', 'irq:' + s.steps[i].irq.line).length >= 1, 'the interrupt scene draws the line that fired');
+  }
 });
 
 test('the IPC scene draws queues, the notification word and the message a step delivered', async () => {
   const call = sc('ipc-call-reply').steps.findIndex((x) => x.syscall && x.syscall.id === 'call');
   const ipc = await bootRunJs(`?scenario=ipc-call-reply&step=${call}&scene=ipc`);
-  assert.ok(countClass(stageSvg(ipc.byId), 'msg-path') >= 1, 'the delivered message is drawn');
-  assert.ok(countClass(stageSvg(ipc.byId), 'wait-edge') >= 1, 'a blocked caller points at what it waits on');
+  assert.equal(countClass(stageSvg(ipc.byId), 'payload'), 1, 'the delivered message is drawn');
+  assert.ok(withAttr(stageSvg(ipc.byId), 'data-weight', 'heavy').length >= 1, 'with the edge it travelled');
+  const step = sc('ipc-call-reply').steps[call];
+  const words = step.delta.ops.find((o) => o.op === 'message').words;
+  assert.ok(words.length > 0 && texts(stageSvg(ipc.byId)).some((t) => words.every((w) => t.includes(String(w)))), 'and its words are the ones the trace records');
+  const boot = await bootRunJs('?scenario=ipc-call-reply&step=0&scene=ipc');
+  assert.equal(countClass(stageSvg(boot.byId), 'payload'), 0, 'no message is drawn where none moved');
   const ntfn = await bootRunJs('?scenario=notification-signal&step=2&scene=ipc');
-  assert.equal(countClass(stageSvg(ntfn.byId), 'badge-bit'), 8 * sc('notification-signal').initialState.notifications.length);
-  assert.ok(withAttr(stageSvg(ntfn.byId), 'data-on', 'true').length >= 1, 'the pending badge shows its bits');
+  const cells = withAttr(stageSvg(ntfn.byId), 'data-role', 'f-extra').length + withAttr(stageSvg(ntfn.byId), 'data-role', 'spent').length;
+  assert.equal(cells, 8 * sc('notification-signal').initialState.notifications.length, 'the pending word is drawn bit by bit');
+  assert.ok(withAttr(stageSvg(ntfn.byId), 'data-role', 'f-extra').length >= 1, 'the latched badge shows its set bits');
+  // A capability travels only when the endpoint capability carries grant.
+  const xfer = sc('cap-transfer');
+  const sends = xfer.steps.map((x, i) => (x.syscall && x.syscall.id === 'send' ? i : -1)).filter((i) => i >= 0);
+  const moved = sends.filter((i) => xfer.steps[i].delta.ops.some((o) => o.op === 'capInsert'));
+  assert.ok(moved.length >= 1 && moved.length < sends.length, 'the scenario has a send that moves a capability and one that does not');
 });
 
 test('the scheduler scene draws one box per core and the scheduling contexts', async () => {
   const smp = await bootRunJs('?scenario=smp-affinity&step=1&scene=scheduler');
-  assert.equal(withAttr(stageSvg(smp.byId), 'data-accent', 'core').filter((n) => klass(n).includes('box-frame')).length, sc('smp-affinity').initialState.cores.length);
+  assert.equal(countClass(stageSvg(smp.byId), 'cpu'), sc('smp-affinity').initialState.cores.length, 'one CPU per core');
+  const state = scenarioStates(sc('smp-affinity'))[1];
+  const buckets = Object.values(state.runQueues).reduce((n, q) => n + new Set(q.map((e) => e.prio)).size, 0);
+  assert.equal(countClass(stageSvg(smp.byId), 'bucket'), buckets, 'one row per priority bucket that holds a thread');
+  assert.ok(withAttr(stageSvg(smp.byId), 'data-mark', 'next').length >= 1, 'the thread each core would pick next is marked');
   const edf = await bootRunJs('?scenario=budget-edf&step=1&scene=scheduler');
-  assert.equal(countClass(stageSvg(edf.byId), 'sc-row'), sc('budget-edf').initialState.schedContexts.length);
+  for (const ctx of sc('budget-edf').initialState.schedContexts) {
+    assert.ok(withAttr(stageSvg(edf.byId), 'data-object', ctx.id).length >= 1, `${ctx.id} is drawn`);
+  }
+  assert.ok(withAttr(stageSvg(edf.byId), 'data-object', 'clock').length === 1, 'the kernel clock is drawn');
+  assert.ok(withAttr(stageSvg(edf.byId), 'data-role', 'budget').length >= 1, 'budgets are drawn tick by tick');
 });
 
 test('the CSpace scene draws every slot and one arc per derivation link', async () => {
   const s = sc('capability-derivation');
   const i = s.steps.length - 2;
   const { byId } = await bootRunJs(`?scenario=capability-derivation&step=${i}&scene=cspace`);
-  const slots = s.initialState.cnodes.reduce((n, cn) => n + 2 ** cn.radixWidth, 0);
-  assert.equal(countClass(stageSvg(byId), 'slot-rect'), slots);
   const state = scenarioStates(s)[i];
-  const links = Object.values(state.cdt || {}).reduce((n, kids) => n + kids.length, 0);
-  assert.equal(countClass(stageSvg(byId), 'cdt-edge'), links);
+  for (const cn of state.cnodes) {
+    for (const slot of Object.keys(cn.slots || {})) {
+      assert.ok(withAttr(stageSvg(byId), 'data-object', `${cn.id}/${slot}`).length >= 1, `${cn.id}/${slot} is drawn`);
+    }
+  }
+  const inTree = new Set();
+  for (const [parent, kids] of Object.entries(state.cdt || {})) { if (kids.length) { inTree.add(parent); kids.forEach((k) => inTree.add(k)); } }
+  assert.equal(countClass(stageSvg(byId), 'tree-node'), inTree.size, 'the derivation tree has one node per slot in it');
+  const del = s.steps.findIndex((x) => x.syscall && x.syscall.id === 'cspaceDelete');
+  const gone = await bootRunJs(`?scenario=capability-derivation&step=${del}&scene=cspace`);
+  const deleted = s.steps[del].delta.ops.find((o) => o.op === 'capDelete').slot;
+  const ghost = withAttr(stageSvg(gone.byId), 'data-object', deleted).flatMap((g) => g.childNodes).filter((n) => n.attrs['data-ghost'] === 'true');
+  assert.equal(ghost.length, 1, 'the capability a delete removed is shown where it was');
 });
 
 test('the memory scene draws a refused retype where it would have gone, and a refused W+X mapping', async () => {
   const ut = sc('untyped-retype').steps.findIndex((x) => x.syscall && x.syscall.id === 'untypedRetype' && x.outcome.status === 'error');
   const a = await bootRunJs(`?scenario=untyped-retype&step=${ut}&scene=memory`);
-  assert.equal(countClass(stageSvg(a.byId), 'mem-request'), 1);
+  const request = [];
+  (function walk(n) { if (klass(n).split(/\s+/).includes('request')) request.push(n); (n.childNodes || []).forEach(walk); })(stageSvg(a.byId));
+  assert.equal(request.length, 1, 'the request is drawn');
+  assert.equal(request[0].attrs['data-ghost'], 'true', 'as a ghost: it was refused');
+  const kids = scenarioStates(sc('untyped-retype'))[ut].untyped[0].children.length;
+  assert.equal(countClass(stageSvg(a.byId), 'carved'), kids, 'one carved extent per object the region holds');
+  assert.equal(countClass(stageSvg(a.byId), 'region'), sc('untyped-retype').initialState.untyped.length);
+  const ok = await bootRunJs('?scenario=untyped-retype&step=1&scene=memory');
+  const granted = [];
+  (function walk(n) { if (klass(n).split(/\s+/).includes('request')) granted.push(n); (n.childNodes || []).forEach(walk); })(stageSvg(ok.byId));
+  assert.equal(granted.length, 1);
+  assert.notEqual(granted[0].attrs['data-ghost'], 'true', 'a granted request is not a ghost');
   const wx = sc('vspace-wx').steps.findIndex((x) => x.outcome.status === 'error');
   const b = await bootRunJs(`?scenario=vspace-wx&step=${wx}&scene=memory`);
-  assert.equal(withAttr(stageSvg(b.byId), 'data-kind', 'rejected').length, 1);
+  const refused = sc('vspace-wx').steps[wx].delta.ops.find((o) => o.op === 'vspaceReject');
+  assert.ok(refused, 'the refusal is recorded as an event');
+  assert.equal(withAttr(stageSvg(b.byId), 'data-ghost', 'true').length, 1, 'the refused mapping is drawn as a ghost row');
+  assert.ok(texts(stageSvg(b.byId)).some((t) => t.includes('W^X')), 'and says why');
   const unmap = sc('vspace-wx').steps.findIndex((x) => x.syscall && x.syscall.id === 'vspaceUnmap');
   const c = await bootRunJs(`?scenario=vspace-wx&step=${unmap}&scene=memory`);
-  assert.equal(withAttr(stageSvg(c.byId), 'data-kind', 'gone').length, 1, 'the unmapped page is shown shot down');
+  assert.equal(withAttr(stageSvg(c.byId), 'data-ghost', 'true').length, 1, 'the unmapped page is shown where it was');
+  const mapped = scenarioStates(sc('vspace-wx'))[unmap].vspaces[0].mappings.length;
+  assert.ok(texts(stageSvg(c.byId)).filter((t) => /^0x[0-9a-f]+$/.test(t)).length >= mapped + 1, 'beside every page still mapped');
 });
 
 test('the information-flow scene draws the lattice, the denied flow and the audit entry', async () => {
   const s = sc('information-flow');
   const denied = s.steps.findIndex((x) => x.outcome.status === 'error');
   const a = await bootRunJs(`?scenario=information-flow&step=${denied}&scene=infoflow`);
-  assert.equal(countClass(stageSvg(a.byId), 'if-rect'), 4, 'the whole 2×2 lattice');
-  assert.ok(countClass(stageSvg(a.byId), 'if-flow-block') >= 1);
+  assert.equal(countClass(stageSvg(a.byId), 'label-box'), s.initialState.labels.length, 'one box per label');
+  const edges = [];
+  (function walk(n) { if (klass(n).split(/\s+/).includes('ed')) edges.push(n.attrs); (n.childNodes || []).forEach(walk); })(stageSvg(a.byId));
+  assert.ok(edges.some((e) => e['data-tone'] === 'bad' && e['data-dash'] === 'true'), 'the denied flow is drawn dashed, in the refusal colour');
+  assert.ok(edges.some((e) => e['data-tone'] !== 'bad'), 'beside the flows the policy admits');
   const declass = s.steps.findIndex((x) => x.delta.ops.some((o) => o.op === 'auditAppend'));
+  const before = await bootRunJs(`?scenario=information-flow&step=${declass}&scene=infoflow&view=before`);
   const b = await bootRunJs(`?scenario=information-flow&step=${declass}&scene=infoflow`);
-  assert.equal(countClass(stageSvg(b.byId), 'audit-rect'), 1);
+  const auditTexts = (r) => withAttr(stageSvg(r.byId), 'data-object', 'audit').flatMap((g) => texts(g)).length;
+  assert.ok(auditTexts(b) > auditTexts(before), 'the declassification adds a row to the audit log');
+  assert.equal(withAttr(stageSvg(b.byId), 'data-object', 'audit')[0].attrs['data-changed'], 'true');
 });
-
 /* ── Sandbox ────────────────────────────────────────────────── */
 
 const PERTURBATIONS = [
@@ -379,11 +504,30 @@ test('run.js is bundle-only: it fetches the bundled snapshot and nothing else', 
 
 test('every label run.js looks up exists in the English locale', async () => {
   const code = await readFile(new URL('../../assets/js/run.js', import.meta.url), 'utf8');
+  const scenes = await readFile(new URL('../../assets/js/run-scenes.js', import.meta.url), 'utf8');
+  const html = await readFile(new URL('../../run.html', import.meta.url), 'utf8');
   const en = JSON.parse(await readFile(new URL('../../locales/en.json', import.meta.url), 'utf8')).run;
   const keys = new Set([...code.matchAll(/"run\.([a-z0-9_]+)"/g)].map((m) => m[1]).filter((k) => !k.endsWith('_')));
-  for (const [prefix, values] of [['ntfn_', ['idle', 'active', 'waiting']], ['conf_', ['low', 'high']], ['integ_', ['trusted', 'untrusted']]]) {
-    for (const v of values) keys.add(prefix + v);
-  }
-  const missing = [...keys].filter((k) => !(k in en));
+  // The scenes look their labels up as L("key", "fallback"), or name them in a
+  // ["key", "fallback"] table that a lookup walks.
+  for (const m of scenes.matchAll(/\bL\(\s*"([a-z0-9_]+)"\s*,/g)) if (!m[1].endsWith('_')) keys.add(m[1]);
+  for (const m of scenes.matchAll(/\["([a-z][a-z0-9_]+)",\s*"(?:[^"\\]|\\.)*"\]/g)) keys.add(m[1]);
+  for (const m of html.matchAll(/data-i18n(?:-[a-z-]+)?="run\.([a-z0-9_]+)"/g)) keys.add(m[1]);
+  // Keys built from a value: one per path stage the schema allows.
+  for (const stage of ['entry', 'decode', 'lookup', 'type', 'rights', 'args', 'flow', 'operation']) keys.add('stage_' + stage);
+  assert.ok(keys.size > 300, 'the scan found the labels');
+  const has = (k) => k in en || `${k}_other` in en; // a plural family is looked up by its base
+  const missing = [...keys].filter((k) => !has(k));
   assert.deepEqual(missing, []);
+  const base = (k) => k.replace(/_(one|few|many|other)$/, '');
+  const unused = Object.keys(en).filter((k) => !keys.has(k) && !keys.has(base(k)));
+  assert.deepEqual(unused, [], 'and the locale carries no label the page no longer uses');
+});
+
+test('the scenes decide nothing: every kernel decision they draw is asked of the engine', async () => {
+  const scenes = await readFile(new URL('../../assets/js/run-scenes.js', import.meta.url), 'utf8');
+  for (const fn of ['selectOnCore', 'resolveCap', 'carvePlacement', 'retypeRequest', 'flowsTo', 'irqBinding', 'transferPlan', 'msgInfoFields']) {
+    assert.match(scenes, new RegExp(`\\bE\\.${fn}\\(`), `the scenes ask the engine for ${fn}`);
+  }
+  assert.ok(!/\bfetch\(|localStorage|XMLHttpRequest/.test(scenes), 'and they load and store nothing');
 });

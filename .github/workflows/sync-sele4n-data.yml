@@ -13,15 +13,28 @@ on:
 # Nothing by default; the one job that pushes asks for write access itself.
 permissions: {}
 
+# One sync at a time: two runs racing would each commit a snapshot and the
+# second push would be refused. A queued run waits for the one in flight.
+concurrency:
+  group: sync-sele4n-data
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
       # Pinned to a commit, not a movable tag: this job can push to the
-      # publishing branch.
+      # publishing branch. The write token is NOT left in .git/config: the
+      # steps between here and the push clone another repository, run this
+      # repository's scripts over its contents and install an npm package,
+      # and none of them needs to be able to push. The last step is handed
+      # the token by name.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -49,7 +62,7 @@ jobs:
         run: ./scripts/check.sh
 
       - name: Install playwright-core
-        run: npm install --no-save --no-package-lock --no-audit --no-fund playwright-core@1.56.1
+        run: npm install --ignore-scripts --no-save --no-package-lock --no-audit --no-fund playwright-core@1.56.1
 
       - name: Browser probes (headless Chrome)
         run: |
@@ -61,6 +74,8 @@ jobs:
           RUN_SMOKE_BASE=http://127.0.0.1:4173 RUN_SMOKE_CHANNEL=chrome node scripts/run-smoke.mjs
 
       - name: Check for changes and commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if git diff --quiet index.html sitemap.xml data/ locales/; then
@@ -87,4 +102,9 @@ jobs:
           Projected from docs/codebase_map.json at ${METRICS_SHA}.
           Theorems: ${THEOREMS}
           Modules: ${MODULES}"
-          git push
+          # The token travels in a header for this one command and is written
+          # nowhere; the runner masks it in the log.
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::${AUTH}"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH}" \
+            push origin "HEAD:${GITHUB_REF_NAME}"

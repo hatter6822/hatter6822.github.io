@@ -19,6 +19,8 @@ import {
   canonicalMetricsIssues,
   canonicalSourceDigest,
   canonicalSourcePaths,
+  checkoutRelativePath,
+  isSafeGitRef,
   compareCanonicalPaths,
   crossCoreNonInterferenceCount,
   declarationIndexFromModules,
@@ -35,6 +37,7 @@ import {
   subsystemNamespaces,
   symbolsFromDeclarations,
   splitCallGraph,
+  syscallSurfaceNumbers,
   theoremDeclarationCount,
 } from './canonical-map.mjs';
 
@@ -603,4 +606,51 @@ test('splitCallGraph moves the call graph into a payload with the snapshot prove
   assert.equal(graph.metricsSource, mapData.metricsSource);
   assert.equal(graph.generatedAt, mapData.generatedAt);
   assert.ok(!('callGraph' in mapData.moduleMeta.A.symbols) && !('callGraph' in mapData.moduleMeta.B.symbols), 'the snapshot keeps no copy');
+});
+
+test('syscallSurfaceNumbers reads the number of every syscall, gaps included', () => {
+  // The kernel retired `lifecycleRetype` (ID 8) and renumbered nothing, so
+  // the surface is not a range and the count alone cannot describe it.
+  const map = {
+    modules: [{ name: 'SeLe4n.Model.Object.Types', path: 'SeLe4n/Model/Object/Types.lean',
+      declarations: [{ kind: 'inductive', name: 'SyscallId', line: 1 }] }]
+  };
+  const source = [
+    'inductive SyscallId where',
+    '  | send',
+    '  | receive',
+    '  | yield',
+    '  deriving Repr',
+    '',
+    'namespace SyscallId',
+    'def toNat : SyscallId → Nat',
+    '  | .send => 0',
+    '  | .receive => 1',
+    '  | .yield => 41',
+    'end SyscallId'
+  ].join('\n');
+  assert.deepEqual(syscallSurfaceNumbers(map, () => source), [0, 1, 41]);
+
+  // A constructor the encoder does not number, or two sharing one number, is
+  // not a surface anyone can list: report it instead of publishing a guess.
+  assert.equal(syscallSurfaceNumbers(map, () => source.replace("  | .yield => 41\n", '')), undefined);
+  assert.equal(syscallSurfaceNumbers(map, () => source.replace('=> 41', '=> 1')), undefined);
+  assert.equal(syscallSurfaceNumbers(map, null), undefined);
+});
+
+test('checkoutRelativePath admits a git-tree path and refuses anything that could leave the checkout', () => {
+  for (const ok of ['lakefile.toml', 'SeLe4n/Kernel/API.lean', 'rust/sele4n-abi/src/lib.rs', 'docs/codebase_map.json', 'a..b/c.lean']) {
+    assert.equal(checkoutRelativePath(ok), ok);
+  }
+  for (const bad of ['', '/etc/passwd', '../x', 'a/../../x', 'a//b', './a', 'a/./b', 'a\\..\\b', 'C:/x', 'a\u0000b', 'a\nb',
+    '.git/config', 'x/.git/config', 'a/', undefined, null, 7, ['a'], 'x'.repeat(2000)]) {
+    assert.throws(() => checkoutRelativePath(bad), /not a path inside the checkout/, JSON.stringify(bad));
+  }
+});
+
+test('isSafeGitRef refuses anything git would read as an option or a ref expression', () => {
+  for (const ok of ['main', 'v0.37.19', 'release/1.0', 'e93b82bbf7c844489f0e614db3b05db355218a14']) assert.ok(isSafeGitRef(ok), ok);
+  for (const bad of ['', '-b', '--upload-pack=x', 'a b', 'a..b', 'a~1', 'a^', 'a:b', 'a\nb', 'x/', 'x.lock', '@{u}', undefined, 'x'.repeat(300)]) {
+    assert.ok(!isSafeGitRef(bad), JSON.stringify(bad));
+  }
 });
