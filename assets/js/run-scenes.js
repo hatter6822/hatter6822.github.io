@@ -225,7 +225,8 @@
       endpoint: ["kind_endpoint", "endpoint"], notification: ["kind_notification", "notification"], cnode: ["kind_cnode", "CNode"],
       untyped: ["kind_untyped", "untyped"], frame: ["kind_frame", "frame"], vspace: ["kind_vspace", "address space"],
       pageTable: ["kind_page_table", "page table"], reply: ["kind_reply", "reply"], tcb: ["kind_tcb", "thread"],
-      schedContext: ["kind_sched_context", "scheduling context"], irqControl: ["kind_irq_control", "interrupt control"], irqHandler: ["kind_irq_handler", "interrupt handler"]
+      schedContext: ["kind_sched_context", "scheduling context"], irqControl: ["kind_irq_control", "interrupt control"], irqHandler: ["kind_irq_handler", "interrupt handler"],
+      auditTrail: ["kind_audit_trail", "audit trail"], serviceRegistry: ["kind_service_registry", "service registry"], schedControl: ["kind_sched_control", "scheduling control"]
     };
     function kindName(kind) { var k = KIND_KEYS[kind]; return k ? L(k[0], k[1]) : String(kind || ""); }
     function capTarget(s, cap) {
@@ -362,7 +363,7 @@
       c.box(M, y, W, 62, null, null, g);
       c.text(M + 10, y + 17, after.name || after.id, "tx-title", { parent: g, max: 170 });
       c.text(M + 10, y + 34, L("sc_params", "budget {{b}} per period {{p}}", { b: after.budget, p: after.period }), "tx-small", { parent: g, max: 170 });
-      c.text(M + 10, y + 50, before.deadline === after.deadline ? L("deadline_short", "deadline {{d}}", { d: after.deadline }) : L("deadline_moves", "deadline {{a}} → {{b}}", { a: before.deadline, b: after.deadline }), "tx-small", { parent: g, max: 170, tone: before.deadline === after.deadline ? null : "accent" });
+      c.text(M + 10, y + 50, L("sc_refill_limit", "at most {{n}} refills", { n: E.scRefillLimit(after) }), "tx-small", { parent: g, max: 170 });
       c.text(M + 196, y + 22, L("view_before", "Before"), "tx-small", { parent: g, max: 60 });
       drawRefills(c, before, M + 262, y + 8, now, g);
       c.text(M + 196, y + 46, L("view_after", "After"), "tx-small", { parent: g, max: 60 });
@@ -531,36 +532,67 @@
 
       var r = hasCap ? E.resolveCapSlot(pre, step.actor, call.capPtr) : null;
       if (r) {
-        y = c.section(y, n++, L("sec_walk", "x0 is walked through {{thread}}'s CSpace", { thread: nameOf(pre, step.actor) }), "resolveCapAddress");
+        y = c.section(y, n++, L("sec_walk", "x0 is walked through {{thread}}'s CSpace", { thread: nameOf(pre, step.actor) }), "resolveAddressBits");
         var depth = r.levels.length ? r.levels[0].bits : 0;
-        var bvals = [], broles = [];
-        for (var b = depth - 1; b >= 0; b--) {
-          bvals.push(String(E.bitsAt(call.capPtr, b, 1)));
+        /* The walk resolves all 64 bits of x0 (`resolveAddressBits`). A guard
+           wider than GUARD_RUN bits (the root capability's 60-bit guard) is
+           drawn as one block that names its width and value, so the slot
+           index bits stay legible beside it; a narrower guard keeps a cell
+           per bit. */
+        var roleOf = function (bit) {
           var br = "rest";
           r.levels.forEach(function (lv) {
-            if (b >= lv.shift && b < lv.shift + lv.radixWidth) br = "radix";
-            else if (b >= lv.shift + lv.radixWidth && b < lv.shift + lv.radixWidth + lv.guardWidth) br = lv.guardOk ? "guard" : "guard-bad";
+            if (bit >= lv.shift && bit < lv.shift + lv.radixWidth) br = "radix";
+            else if (bit >= lv.shift + lv.radixWidth && bit < lv.shift + lv.radixWidth + lv.guardWidth) br = lv.guardOk ? "guard" : "guard-bad";
           });
-          broles.push(br);
+          return br;
+        };
+        var GUARD_RUN = 8, BLOCK = 5 * CELL;
+        var segs = [], xAt = {}, cx0 = M;
+        for (var b = depth - 1; b >= 0;) {
+          var role = roleOf(b), hi = b, lo = b;
+          if (role === "guard" || role === "guard-bad") while (lo - 1 >= 0 && roleOf(lo - 1) === role) lo--;
+          var width = hi - lo + 1;
+          if ((role === "guard" || role === "guard-bad") && width > GUARD_RUN) {
+            segs.push({ x: cx0, w: BLOCK, role: role, bits: width, text: L("walk_guard_block", "{{n}} bits = {{v}}", { n: width, v: E.bitsAt(call.capPtr, lo, width) }) });
+            for (var k = lo; k <= hi; k++) xAt[k] = { x: cx0, w: BLOCK };
+            cx0 += BLOCK;
+            b = lo - 1;
+          } else {
+            segs.push({ x: cx0, w: CELL, role: role, bits: 1, text: String(E.bitsAt(call.capPtr, b, 1)) });
+            xAt[b] = { x: cx0, w: CELL };
+            cx0 += CELL;
+            b--;
+          }
         }
-        cells(c, M, y, bvals, CELL, function (i) { return { "data-role": broles[i] }; });
+        segs.forEach(function (sg) {
+          c.body.appendChild(svg("rect", { x: sg.x, y: y, width: sg.w - 2, height: 20, rx: 3, "class": "cell", "data-role": sg.role, "data-bits": String(sg.bits) }));
+          c.text(sg.x + (sg.w - 2) / 2, y + 14, sg.text, "cell-text", { anchor: "middle", max: sg.w - 6 });
+        });
+        c.extend(cx0, y + 20);
+        var span = function (top, width) {
+          if (!width) return null;
+          var left = xAt[top], right = xAt[top - width + 1];
+          return left && right ? { x: left.x, w: right.x + right.w - left.x } : null;
+        };
         var ly = y + 34;
         r.levels.forEach(function (lv) {
-          var gx = M + (depth - (lv.shift + lv.radixWidth + lv.guardWidth)) * CELL;
-          var rx = M + (depth - (lv.shift + lv.radixWidth)) * CELL;
-          if (lv.guardWidth) c.text(gx + lv.guardWidth * CELL / 2, ly, lv.guardOk ? L("walk_guard_ok", "guard {{g}} = {{v}}", { g: lv.guard, v: lv.guardValue }) : L("walk_guard_bad", "guard {{g}} ≠ {{v}}", { g: lv.guard, v: lv.guardValue }), "tx-small", { anchor: "middle", tone: lv.guardOk ? "ok" : "bad" });
-          if (lv.radixWidth && lv.guardOk) c.text(rx + lv.radixWidth * CELL / 2, ly, L("walk_slot", "slot {{n}}", { n: lv.slot }), "tx-small", { anchor: "middle", tone: "accent" });
+          var gs = span(lv.shift + lv.radixWidth + lv.guardWidth - 1, lv.guardWidth);
+          var rs = span(lv.shift + lv.radixWidth - 1, lv.radixWidth);
+          if (gs) c.text(gs.x + gs.w / 2, ly, lv.guardOk ? L("walk_guard_ok", "guard {{g}} = {{v}}", { g: lv.guard, v: lv.guardValue }) : L("walk_guard_bad", "guard {{g}} ≠ {{v}}", { g: lv.guard, v: lv.guardValue }), "tx-small", { anchor: "middle", tone: lv.guardOk ? "ok" : "bad" });
+          if (rs && lv.guardOk) c.text(rs.x + rs.w / 2, ly, L("walk_slot", "slot {{n}}", { n: lv.slot }), "tx-small", { anchor: "middle", tone: "accent" });
           ly += 14;
         });
+        var bitsWidth = cx0 - M;
         var last = r.levels[r.levels.length - 1];
-        var nx = M + Math.max(depth * CELL, 176) + 44;
+        var nx = M + Math.max(bitsWidth, 176) + 44;
         if (last) {
           var cn = E.byId(pre.cnodes, last.cnode);
-          c.line("M" + (M + depth * CELL + 4) + "," + (y + 10) + " L" + (nx - 4) + "," + (y + 10), last.guardOk ? "accent" : "bad");
+          c.line("M" + (M + bitsWidth + 4) + "," + (y + 10) + " L" + (nx - 4) + "," + (y + 10), last.guardOk ? "accent" : "bad");
           c.box(nx, y - 6, 220, 62, last.guardOk ? null : "bad");
           c.text(nx + 9, y + 10, kindName("cnode"), "tx-label", { max: 200 });
           c.text(nx + 9, y + 27, cn ? (cn.name || cn.id) : last.cnode, "tx-title", { max: 200 });
-          c.text(nx + 9, y + 45, L("cnode_shape", "{{g}} guard bits · {{r}} radix bits · {{n}} slots", { g: last.guardWidth, r: last.radixWidth, n: cn ? E.slotCount(cn) : 0 }), "tx-small", { max: 204 });
+          c.text(nx + 9, y + 45, L("cnode_shape", "{{r}} radix bits · {{n}} slots", { r: last.radixWidth, n: cn ? E.slotCount(cn) : 0 }), "tx-small", { max: 204 });
           var kx = nx + 220 + 40;
           if (r.cap) {
             c.line("M" + (nx + 220) + "," + (y + 25) + " L" + (kx - 4) + "," + (y + 25), "accent");
@@ -569,7 +601,11 @@
           } else {
             c.line("M" + (nx + 220) + "," + (y + 25) + " L" + (kx - 4) + "," + (y + 25), "bad", { dash: true });
             c.box(kx, y - 6, W + M - kx, 62, "bad", { "data-ghost": "true" });
-            var why = r.reason === "guard" ? L("walk_fail_guard", "the guard bits do not match: the walk stops") : r.slot ? L("walk_fail_empty", "slot {{slot}} is empty", { slot: r.slot }) : L("walk_fail_other", "the address does not resolve");
+            var why = r.reason === "guardMismatch" ? L("walk_fail_guard", "the guard bits do not match: the walk stops")
+              : r.reason === "depthMismatch" ? L("walk_fail_depth", "the bits run out inside a CNode: the walk stops")
+              : r.reason === "missingCapability" ? L("walk_fail_missing", "bits remain, but the slot holds no CNode capability")
+              : r.reason === "invalidRoot" ? L("walk_fail_root", "the thread's CSpace root is no CNode capability")
+              : r.slot ? L("walk_fail_empty", "slot {{slot}} is empty", { slot: r.slot }) : L("walk_fail_other", "the address does not resolve");
             c.text(kx + 10, y + 20, why, "tx-note", { max: W + M - kx - 20, tone: "bad" });
             c.text(kx + 10, y + 40, r.error || "invalidCapability", "tx-mono", { max: W + M - kx - 20, tone: "bad" });
           }
@@ -894,7 +930,7 @@
 
     function schedSub(s, th) {
       var sc = th.sc ? E.byId(s.schedContexts, th.sc) : null;
-      if (sc) return L("sched_sc_sub", "budget {{r}}/{{b}} · deadline {{d}}", { r: sc.remaining, b: sc.budget, d: sc.deadline });
+      if (sc) return L("sched_sc_sub", "budget {{r}}/{{b}}", { r: sc.remaining, b: sc.budget });
       return L("sched_slice_sub", "time slice {{n}}/{{d}}", { n: th.timeSlice === undefined ? E.DEFAULT_TIME_SLICE : th.timeSlice, d: E.DEFAULT_TIME_SLICE });
     }
 
@@ -975,7 +1011,7 @@
           var g = c.object(sc.id, sc.name || sc.id, ch[sc.id]);
           c.box(M, y, W, 44, sc.remaining > 0 ? null : "warn", null, g);
           c.text(M + 10, y + 17, sc.name || sc.id, "tx-title", { parent: g, max: 180 });
-          c.text(M + 10, y + 34, L("sc_params", "budget {{b}} per period {{p}}", { b: sc.budget, p: sc.period }) + " · " + L("deadline_short", "deadline {{d}}", { d: sc.deadline }), "tx-small", { parent: g, max: 250 });
+          c.text(M + 10, y + 34, L("sc_params", "budget {{b}} per period {{p}}", { b: sc.budget, p: sc.period }) + " · " + L("sc_refill_limit", "at most {{n}} refills", { n: E.scRefillLimit(sc) }), "tx-small", { parent: g, max: 250 });
           var end = drawRefills(c, sc, M + 276, y + 12, s.time || 0, g);
           c.text(M + W - 10, y + 27, sc.remaining > 0 ? (bound ? L("sc_bound", "runs {{thread}}", { thread: bound.name || bound.id }) : "") : L("sc_exhausted", "exhausted: its thread is ineligible"), "tx-small", { anchor: "end", parent: g, max: Math.max(60, M + W - 20 - end), tone: sc.remaining > 0 ? null : "warn" });
           y += 50;
@@ -1008,7 +1044,7 @@
       var y = M, n = 1;
       (s.cnodes || []).forEach(function (cn) {
         var shape = cn.irqNode !== undefined ? L("cnode_irq_node", "the kernel's node for interrupt line {{n}}: no capability names it", { n: cn.irqNode })
-          : L("cnode_shape_full", "guard {{g}} bits = {{v}} · radix {{r}} bits · {{n}} slots", { g: cn.guardWidth, v: cn.guardValue, r: cn.radixWidth, n: E.slotCount(cn) });
+          : L("cnode_shape_full", "radix {{r}} bits · {{n}} slots: the guard is the capability's", { r: cn.radixWidth, n: E.slotCount(cn) });
         y = c.section(y, n++, cn.name || cn.id, shape);
         var was = other ? E.byId(other.cnodes, cn.id) : null;
         var nums = slotNumbers(cn);
@@ -1083,7 +1119,7 @@
         var req = null, place = null;
         if (res && res.cap && res.cap.kind === "untyped" && res.cap.target === ut.id) {
           var ci = opIndex(step, "untypedCarve");
-          req = ci !== -1 ? stepOps(step)[ci].child : E.retypeRequest(call.args && call.args[0] ? call.args[0].value : 0);
+          req = ci !== -1 ? stepOps(step)[ci].child : E.retypeRequest(call.args && call.args[0] ? call.args[0].value : 0, call.args && call.args[1] ? call.args[1].value : 0);
           if (req && req.kind) place = E.carvePlacement(pre, res.slot, { kind: req.kind, size: req.size });
         }
         if (place && place.at !== undefined) {

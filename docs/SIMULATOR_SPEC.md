@@ -128,10 +128,10 @@ on the same folded state and the same step. `assets/js/run-scenes.js` draws them
 
 | Scene | Offered when | What it draws |
 |-------|--------------|---------------|
-| **Kernel path** (`path`) | the scenario has a syscall, a tick, a reschedule or an interrupt | For a syscall: the trap; the register file as the kernel decodes it (x0 CPtr, x1 `MessageInfo`, x2–x5 message words, x7 the syscall number, words past x5 from the IPC buffer); x1 bit by bit at the positions `MessageInfo.encode` uses (length 0–6, extraCaps 7–8, capsUnwrapped 9–11, label 12–63); x0 walked through the caller's CSpace, guard bits then radix bits, to the capability it lands on with its rights; **every gate in the order the kernel runs it** (`entry → decode → lookup → type → rights`, then the arm's own `args` and `flow` in the arm's order, then `operation`), each passed, failed with its `KernelError`, or not reached; the outcome. For a tick, a reschedule or an interrupt: that entry's own mechanism, as the engine computes it. |
+| **Kernel path** (`path`) | the scenario has a syscall, a tick, a reschedule or an interrupt | For a syscall: the trap; the register file as the kernel decodes it (x0 CPtr, x1 `MessageInfo`, x2–x5 message words, x7 the syscall number, words past x5 from the IPC buffer); x1 bit by bit at the positions `MessageInfo.encode` uses (length 0–6, extraCaps 7–8, capsUnwrapped 9–11, label 12–63); x0 walked through all 64 bits from the caller's CSpace root capability (`resolveAddressBits`), each level's guard read from the capability that names the CNode and then its radix bits, to the capability it lands on with its rights, or to the lookup fault that stops the walk (a guard of more than eight bits is drawn as one block naming its width and value); the extra capabilities the IPC buffer names, which the kernel looks up before the invocation decodes; **every gate in the order the kernel runs it** (`entry → decode → lookup → type → rights`, then the arm's own `args` and `flow` in the arm's order, then `operation`), each passed, failed with its `KernelError`, or not reached; the outcome. For a tick, a reschedule or an interrupt: that entry's own mechanism, as the engine computes it. |
 | **IPC** (`ipc`) | the state has an endpoint or a notification | Threads with their IPC state; endpoints with their send and receive queues in FIFO order; notifications with the pending badge word and waiters; reply objects and the caller each holds. Below, what this step moved: the message (words, label, badge) from sender through the object to receiver, any capability transferred with it and where it was installed, and each thread's state transition before → after. |
-| **Scheduler** (`scheduler`) | always | The kernel clock. Per core: the thread on the CPU, the run queue as priority buckets (highest first, FIFO within), each entry's eligibility (no budget, wrong domain) and the thread the core would pick now with the rule that picks it; the core's release queue in release order. Then every scheduling context: budget per period, deadline, the head refill as budget cells and each pending refill with its release time. |
-| **CSpace** (`cspace`) | the state has a CNode | Each CNode's occupied slots with kind, target, rights and badge, and its geometry (guard bits, guard value, radix bits). The derivation tree drawn as a tree, each node labelled with how it was derived (minted, copied, retyped, transferred); what a delete or revoke removed is drawn struck through in the "before" reading and marked in "after". |
+| **Scheduler** (`scheduler`) | always | The kernel clock. Per core: the thread on the CPU, the run queue as priority buckets (highest first, FIFO within), each entry's eligibility (no budget, wrong domain) and the thread the core would pick now with the rule that picks it; the core's release queue in release order. Then every scheduling context: budget per period, the most refills it can hold (`refillLimit`), the head refill as budget cells and each pending refill with its release time. A scheduling context carries no priority, deadline or domain, as in seL4-MCS; a thread's own deadline breaks ties within a priority. |
+| **CSpace** (`cspace`) | the state has a CNode | Each CNode's occupied slots with kind, target, rights and badge, and its geometry (radix bits and slot count; the guard belongs to the capability that names the CNode, not to the CNode). The derivation tree drawn as a tree, each node labelled with how it was derived (minted, copied, retyped, transferred); what a delete or revoke removed is drawn struck through in the "before" reading and marked in "after". |
 | **Memory** (`memory`) | the state has an untyped region or an address space | Each untyped region to scale with an address axis; carved children at their offsets; the gap an aligned carve skipped, hatched; the **free index of each untyped capability** (the free index is the capability's, not the region's); the request a refused retype made. Each address space: virtual address → frame, R/W/X, and whether the translation is cached in the TLB; a refused W+X request drawn as a rejected row that is never stored. |
 | **Information flow** (`infoflow`) | the state has at least two labels | The four-point label lattice (confidentiality × integrity) with every flow `securityFlowsTo` admits between the labels present, each label's carriers, the flows this step asked the policy about with the two conjuncts spelled out (confidentiality does not fall; destination at least as trusted), and the declassification audit log. |
 | **Interrupts** (`irq`) | the state declares interrupt lines | Each line (inactive, handler issued, masked) → the capability in its node slot → the notification it signals → the thread waiting on it; the delivery in order for an interrupt step (acknowledge and EOI, signal with the node capability's badge, wake or OR into the pending word, mask until acknowledged); and who holds the control and handler capabilities. |
@@ -284,16 +284,17 @@ rejected as a v3 field.
   "time": 0,                                             // kernel ticks; only the boot core advances it
   "cores": [ { "id", "current", "domain" } ],
   "threads": [ { "id", "name", "priority", "domain", "core", "ipc": { "state", "object"?, "replyTo"? },
-                 "timeSlice"?, "sc"?, "cspace", "label", "recvSlot"?, "msg"?, "pendingReply"?, "replyObject"? } ],
+                 "timeSlice"?, "sc"?, "cspaceRoot", "label", "recvSlot"?, "msg"?, "pendingReply"?, "replyObject"? } ],
   "runQueues": { "<core>": [ { "thread", "prio" } ] },   // insertion order; buckets are derived
   "releaseQueues": { "<core>": [ "<schedContextId>" ] }, // sorted by release time
-  "schedContexts": [ { "id", "name", "budget", "period", "deadline", "remaining",
+  "schedContexts": [ { "id", "name", "budget", "period", "refillMax"?, "remaining",
                        "periodStart", "consumed", "refills": [ { "amount", "at" } ] } ],
   "endpoints": [ { "id", "name", "label", "send": [], "recv": [] } ],
   "notifications": [ { "id", "name", "label", "pending", "waiters": [] } ],
   "replies": [ { "id", "name", "caller" } ],
-  "cnodes": [ { "id", "name", "depth", "guardWidth", "guardValue", "radixWidth", "label", "irqNode"?,
-                "slots": { "<n>": { "kind", "target"?, "rights", "badge"?, "derivation"?, "freeIndex"?, "line"? } } } ],
+  "cnodes": [ { "id", "name", "radixWidth", "label", "irqNode"?,
+                "slots": { "<n>": { "kind", "target"?, "rights", "badge"?, "derivation"?, "freeIndex"?, "line"?,
+                             "guardWidth"?, "guard"? } } } ],   // guard on a CNode capability
   "cdt": { "<cnode>/<slot>": [ "<cnode>/<slot>" ] },      // slot → child slots, newest first
   "untyped": [ { "id", "name", "base", "size", "children": [ { "id", "kind", "offset", "size" } ] } ],
   "vspaces": [ { "id", "name", "asid", "mappings": [ { "vaddr", "frame", "perms" } ], "tlb": [] } ],
@@ -365,7 +366,9 @@ and third on the bundle and cross-checks every stamped line against `map-data.js
 | Decision | Engine function | Lean |
 |----------|-----------------|------|
 | the caller is current on its core | — | `dispatchSyscallChecked` (`illegalState` otherwise) |
-| where x0 resolves | `resolveCap` | `resolveCapAddress` |
+| where x0 resolves, or the lookup fault that stops it | `resolveCapSlot`, `resolveAddressBits` | `lookupSlot`, `resolveAddressBits` |
+| an empty slot is `invalidCapability`, after the extra capabilities | `resolveCap` | `syscallResolveCap`, `syscallInvokeTyped` |
+| the extra capabilities an invocation names | `lookupExtraCaps`, `receivesOnCap` | `lookupExtraCaps`, `syscallReceivesOnCap` |
 | the type gate | `targetAccepted` | `syscallTargetAccepted` |
 | the right, and the error without it | `capHasRight`, `missingRightError` | `syscallRequiredRight`, `syscallMissingRightError` |
 | a short message | `truncationMinimum` | `requireMessageLength` |
@@ -377,10 +380,13 @@ and third on the bundle and cross-checks every stamped line against `map-data.js
 | a timer tick, whole | `timerTickOps` | `timerTickOnCore` and the refill algebra in `SchedContext/Budget.lean` |
 | a yield, whole | `yieldOps` | `yieldOnCore`, `sliceExpireOnCore` |
 | an interrupt, whole | `interruptOps` | `handleInterruptOnCore` |
-| where a retype carves, and what x2 asked for | `carvePlacement`, `retypeRequest` | `retypeFreeIndex`, `alignedCarveIndex`, `decodeUntypedRetypeArgs` |
+| where a retype carves, and what MR0 and MR1 asked for | `carvePlacement`, `retypeRequest` | `retypeFreeIndex`, `alignedCarveIndex`, `decodeUntypedRetypeArgs` |
+| the window a retype installs into | `retypeDestination` | `retypeDestinationCNode`, `retypeWindowRefusal` |
+| a mint's or copy's source and destination; no rebadge | `lookupSlotForCNodeOp` | `lookupSlotForCNodeOp`, `mintDerivedCap_rebadge_refused` |
+| a Page_Map's rights, attributes and W^X | — | `decodePageMapArgs`, `vspaceMapArgsOfWords`, `frameMappingAdmissible` |
 | capabilities an IPC rendezvous transfers | `transferPlan` | `resolveExtraCaps`, `ipcUnwrapCaps` |
 | the interrupt syscalls' writes | `irqLine`, `irqNodeSlot` | `irqControlLineRefusal`, `irqNotificationCapAdmitted` |
-| the slot a kernel-issued capability lands in | `issuingDestination` | `resolveIssuingSlots` |
+| the slot `irqControlGet` issues into | `lookupTargetSlot` | `resolveIssuingSlotsAt`, `lookupSlotForCNodeOp` |
 | a mint or copy attenuates | — | `capAttenuates` |
 
 Four decisions were added or corrected when the engine was re-derived against the
@@ -402,6 +408,30 @@ kernel at `e93b82b` (0.35.0):
   records to the slot `issuingDestination` resolves them to; an `irqHandlerAck` on a
   line the board does not declare must be refused with `invalidIrq`, and
   `irqHandlerClear` deletes the node slot's capability and nothing else.
+
+The kernel's seL4 ABI work (WS-SX, through `80f1eb0`, 0.37.32) moved the engine again:
+
+- **The guard is the capability's.** A CNode keeps its radix; the guard and its width
+  sit on the CNode capability, and a thread names its CSpace by a root capability
+  (`cspaceRoot`). The walk resolves all 64 bits of x0 and fails with one of seL4's four
+  lookup faults (`invalidRoot`, `missingCapability`, `depthMismatch`, `guardMismatch`),
+  answered `failedLookup`; the entry raises a failed walk as a capability fault, which
+  changes the caller's state, so the refusal fixtures show no failed walk.
+- **Capability arguments are extra capabilities.** Every syscall except the three that
+  receive on their capability looks up the addresses its IPC buffer names before it
+  decodes (`lookupExtraCaps`): the source root of a mint or copy, the destination root of
+  a retype and of `irqControlGet`, the notification of `irqHandlerSetNotification`, the
+  address space of a Page_Map, the object a declassification names, the endpoint a
+  service call names.
+- **The words are seL4's.** A retype reads type, size bits, node index, node depth, node
+  offset, count and the first child id, and installs into a window of up to 26 slots; a
+  mint or copy reads destination index and depth, source index and depth, rights and
+  (mint) badge, and never rebadges a badged capability (`illegalState`); a Page_Map is an
+  invocation of the frame capability with the vaddr, the rights and the attributes, and
+  writable-and-executable is refused `policyDenied` at the decode.
+- **New capability kinds.** Declassification is invoked on an audit-trail capability and
+  the service calls on a service-registry capability; the type gate accepts each only on
+  its own kind.
 
 A flow gate is held to the arm that runs it: a committed step on a gated arm must show
 its `flow` stage, an ungated arm may record no check, a gated arm records exactly one,

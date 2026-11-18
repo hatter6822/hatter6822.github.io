@@ -160,18 +160,28 @@ function validateStateShape(state, path, errors) {
   }
   (state.cnodes || []).forEach((cn, i) => {
     if (!isObject(cn)) return;
-    for (const f of ['depth', 'guardWidth', 'guardValue', 'radixWidth']) if (!isNonNegInt(cn[f])) errors.push(`${path}.cnodes[${i}].${f} must be a non-negative integer`);
+    if (!isNonNegInt(cn.radixWidth) || (cn.radixWidth === 0 && cn.irqNode === undefined)) errors.push(`${path}.cnodes[${i}].radixWidth must be a positive integer (KernelObject.wellFormed); only an interrupt node is a single slot`);
     if (cn.radixWidth > 8) errors.push(`${path}.cnodes[${i}].radixWidth above 8 would not draw`);
-    if (cn.guardValue >= 2 ** cn.guardWidth) errors.push(`${path}.cnodes[${i}].guardValue does not fit its guard (guardBounded)`);
+    for (const f of ['depth', 'guardWidth', 'guardValue']) if (cn[f] !== undefined) errors.push(`${path}.cnodes[${i}].${f}: a CNode holds only its radix; the guard is the capability's (cnodeGuard, cnodeGuardSize)`);
     if (!isObject(cn.slots)) errors.push(`${path}.cnodes[${i}].slots must be an object`);
-    else Object.entries(cn.slots).forEach(([slot, cap]) => checkCap(cap, `${path}.cnodes[${i}].slots.${slot}`, errors));
+    else Object.entries(cn.slots).forEach(([slot, cap]) => checkCap(cap, `${path}.cnodes[${i}].slots.${slot}`, errors, state));
+  });
+  (state.threads || []).forEach((t, i) => {
+    if (!isObject(t)) return;
+    if (t.cspace !== undefined) errors.push(`${path}.threads[${i}].cspace: a thread names its CSpace by its root capability (cspaceRoot), which carries the guard`);
+    if (t.cspaceRoot !== undefined) {
+      checkCap(t.cspaceRoot, `${path}.threads[${i}].cspaceRoot`, errors, state);
+      if (isObject(t.cspaceRoot) && t.cspaceRoot.kind !== 'cnode') errors.push(`${path}.threads[${i}].cspaceRoot must be a CNode capability`);
+    }
   });
   if (state.cdt !== undefined && !isObject(state.cdt)) errors.push(`${path}.cdt must be an object of parent → children`);
   if (state.time !== undefined && !isNonNegInt(state.time)) errors.push(`${path}.time must be the timer's tick count`);
   const scIds = (state.schedContexts || []).filter(isObject).map((sc) => sc.id);
   (state.schedContexts || []).forEach((sc, i) => {
     if (!isObject(sc)) return;
-    for (const f of ['budget', 'period', 'remaining', 'deadline', 'periodStart']) if (!isNonNegInt(sc[f])) errors.push(`${path}.schedContexts[${i}].${f} must be a non-negative integer`);
+    for (const f of ['budget', 'period', 'remaining', 'periodStart']) if (!isNonNegInt(sc[f])) errors.push(`${path}.schedContexts[${i}].${f} must be a non-negative integer`);
+    if (sc.deadline !== undefined) errors.push(`${path}.schedContexts[${i}].deadline: a scheduling context carries no deadline (seL4-MCS's sched_context_t); a thread's deadline is its own`);
+    if (sc.refillMax !== undefined && !(Number.isInteger(sc.refillMax) && sc.refillMax >= 0)) errors.push(`${path}.schedContexts[${i}].refillMax must be a non-negative integer`);
     if (!(sc.period > 0)) errors.push(`${path}.schedContexts[${i}].period must be positive`);
     if (!Array.isArray(sc.refills)) errors.push(`${path}.schedContexts[${i}].refills must be an array of { amount, at }`);
     else sc.refills.forEach((r, j) => {
@@ -224,8 +234,18 @@ function checkIdListNumeric(list, path, errors) {
   return ids;
 }
 
-function checkCap(cap, path, errors) {
+function checkCap(cap, path, errors, state) {
   if (!isObject(cap)) { errors.push(`${path} must be a capability object`); return; }
+  if (cap.guardWidth !== undefined || cap.guard !== undefined) {
+    if (cap.kind !== 'cnode') errors.push(`${path}: only a CNode capability carries a guard`);
+    else if (!isNonNegInt(cap.guardWidth ?? 0) || !isNonNegInt(cap.guard ?? 0)) errors.push(`${path}.guardWidth and .guard must be non-negative integers`);
+    else {
+      const width = cap.guardWidth ?? 0;
+      const cn = state && Array.isArray(state.cnodes) ? state.cnodes.find((c) => isObject(c) && c.id === cap.target) : null;
+      if (cn && width + (Number(cn.radixWidth) || 0) > 64) errors.push(`${path}: a ${width}-bit guard beside ${cn.id}'s ${cn.radixWidth}-bit radix passes 64 bits (cnodeCapGeometry)`);
+      if ((cap.guard ?? 0) >= 2 ** width) errors.push(`${path}.guard does not fit its ${width} bits (cnodeCapGeometry)`);
+    }
+  }
   if (CAP_KINDS.indexOf(cap.kind) === -1) errors.push(`${path}.kind must be one of ${CAP_KINDS.join(', ')}`);
   if (!isString(cap.target) || !cap.target) errors.push(`${path}.target must name an object`);
   if (!Array.isArray(cap.rights) || cap.rights.some((r) => RIGHTS.indexOf(r) === -1)) errors.push(`${path}.rights must be a list of ${RIGHTS.join(', ')}`);
@@ -267,8 +287,8 @@ function validateSyscallShape(step, stp, errors) {
     if (engine.readsOverflow(call.id) ? listed !== overflow : listed !== 0) errors.push(`${stp}.syscall.ipcBuffer: a ${call.id} of length ${mi.length} reads ${engine.readsOverflow(call.id) ? overflow : 0} word(s) from the IPC buffer, the step lists ${listed}`);
   }
   if (call.extraCaps !== undefined) {
-    if (!Array.isArray(call.extraCaps) || call.extraCaps.some((c) => !isNonNegInt(c))) errors.push(`${stp}.syscall.extraCaps must list the capability addresses the sender names`);
-    else if (['send', 'call', 'reply', 'replyRecv'].indexOf(call.id) === -1) errors.push(`${stp}.syscall.extraCaps: ${call.id} transfers no capability`);
+    if (!Array.isArray(call.extraCaps) || call.extraCaps.some((c) => !isNonNegInt(c))) errors.push(`${stp}.syscall.extraCaps must list the capability addresses the caller names`);
+    else if (call.extraCaps.length && (engine.receivesOnCap(call.id) || call.id === 'yield')) errors.push(`${stp}.syscall.extraCaps: ${call.id} looks no extra capability up (syscallExtraCapCount)`);
   }
   if (isObject(mi) && (Array.isArray(call.extraCaps) ? call.extraCaps.length : 0) !== mi.extraCaps) errors.push(`${stp}.syscall.extraCaps must list msgInfo.extraCaps (${mi.extraCaps}) addresses`);
   if (call.requiredRight !== undefined && RIGHTS.indexOf(call.requiredRight) === -1) errors.push(`${stp}.syscall.requiredRight must be one of ${RIGHTS.join(', ')}`);
@@ -313,13 +333,22 @@ function checkSyscallGates(step, pre, stp, errors) {
   }
   const lookup = stageOf(step, 'lookup');
   if (!lookup || lookup.result === 'skip') return;
-  const r = engine.resolveCap(pre, step.actor, call.capPtr);
-  if (r.error) {
-    if (lookup.result !== 'fail') errors.push(`${stp}: x0 = ${call.capPtr} does not resolve in ${step.actor}'s CSpace (${r.error}, ${r.reason || 'lookup'}), but the lookup stage says ${lookup.result}`);
-    else if (step.outcome && step.outcome.error !== r.error) errors.push(`${stp}: the lookup refuses with ${r.error}, not ${step.outcome.error}`);
+  /* `syscallInvokeTyped`, in seL4's order: resolve x0 (`lookupCapAndSlot`),
+     look the extra capabilities up (`lookupExtraCaps`), and only then refuse
+     an empty slot. A failed walk is `failedLookup`, whichever lookup it was. */
+  const walk = engine.resolveCapSlot(pre, step.actor, call.capPtr);
+  const extra = walk.error ? null : engine.lookupExtraCaps(pre, step.actor, call.id, call.extraCaps);
+  let refusal = null;
+  if (walk.error) refusal = { error: walk.error, why: `x0 = ${call.capPtr} does not resolve in ${step.actor}'s CSpace (${walk.reason || walk.error})` };
+  else if (extra.error) refusal = { error: extra.error, why: `extra capability ${extra.index} at ${extra.cptr} does not resolve (${extra.fault ? extra.fault.type : extra.error})` };
+  else if (!walk.cap) refusal = { error: 'invalidCapability', why: `x0 = ${call.capPtr} names ${walk.slot}, which is empty` };
+  if (refusal) {
+    if (lookup.result !== 'fail') errors.push(`${stp}: ${refusal.why}, but the lookup stage says ${lookup.result}`);
+    else if (step.outcome && step.outcome.error !== refusal.error) errors.push(`${stp}: the lookup refuses with ${refusal.error}, not ${step.outcome.error}`);
     return;
   }
-  if (lookup.result === 'fail') { errors.push(`${stp}: x0 = ${call.capPtr} resolves to ${r.slot}, but the lookup stage says fail`); return; }
+  const r = { slot: walk.slot, cap: walk.cap, levels: walk.levels, extraCaps: extra.caps };
+  if (lookup.result === 'fail') { errors.push(`${stp}: x0 = ${call.capPtr} resolves to ${r.slot} and every extra capability resolves, but the lookup stage says fail`); return; }
   // `syscallTargetAccepted`: the capability's type, before any right.
   const type = stageOf(step, 'type');
   if (!type || type.result === 'skip') return;
@@ -337,8 +366,8 @@ function checkSyscallGates(step, pre, stp, errors) {
   if (!has && rights.result !== 'fail') errors.push(`${stp}: the capability in ${r.slot} lacks ${call.requiredRight}, but the rights stage says ${rights.result}`);
   // `syscallMissingRightError`: an IPC syscall answers a missing right as an
   // invalid capability, every other syscall as illegal authority.
-  const refusal = engine.missingRightError(call.id);
-  if (!has && step.outcome && step.outcome.error !== refusal) errors.push(`${stp}: ${call.id} without ${call.requiredRight} is refused with ${refusal} (syscallMissingRightError), not ${step.outcome.error}`);
+  const missing = engine.missingRightError(call.id);
+  if (!has && step.outcome && step.outcome.error !== missing) errors.push(`${stp}: ${call.id} without ${call.requiredRight} is refused with ${missing} (syscallMissingRightError), not ${step.outcome.error}`);
   if (!has) return;
   // `requireMessageLength`: the arm's decode refuses a short message before
   // it reads a word of it.
@@ -376,24 +405,79 @@ function checkArmEffects(step, pre, r, stp, errors) {
     errors.push(`${stp}: ${call.id} transfers no capability, but the step records an ipcTransfer install`);
   }
 
-  /* A retype carves the object x2 asks for: its type tag and size exponent
-     (`decodeUntypedRetypeArgs`), where the engine models the kind. */
+  /* A retype carves the object MR0 and MR1 ask for (`decodeUntypedRetypeArgs`),
+     where the engine models the kind, into the window MR2–MR5 name under the
+     destination root, extra capability 0 (`retypeDestinationCNode`,
+     `retypeWindowRefusal`). Object `i` takes id `childId + i` (MR6) and slot
+     `offset + i`, each a derivation child of the invoked untyped capability's
+     slot. */
   if (call.id === 'untypedRetype' && ok) {
-    const req = engine.retypeRequest(call.args && call.args[0] ? call.args[0].value : 0);
-    const carve = ops.find((o) => o.op === 'untypedCarve');
-    if (!carve || !isObject(carve.child)) errors.push(`${stp}: a successful untypedRetype carves an object`);
-    else if (req.kind && (carve.child.kind !== req.kind || carve.child.size !== req.size)) {
-      errors.push(`${stp}: x2 asks for a ${req.kind} of ${req.size} bytes (decodeUntypedRetypeArgs), the step carves a ${carve.child.kind} of ${carve.child.size}`);
+    const word = (i) => (i < 4 ? (call.args && call.args[i] ? call.args[i].value : 0) : (call.ipcBuffer && call.ipcBuffer[i - 4] ? call.ipcBuffer[i - 4].value : 0));
+    const req = engine.retypeRequest(word(0), word(1));
+    const carves = ops.filter((o) => o.op === 'untypedCarve');
+    const inserts = ops.filter((o) => o.op === 'capInsert');
+    const root = r.extraCaps && r.extraCaps[0] ? r.extraCaps[0].cptr : null;
+    const dst = root === null ? { error: 'failedLookup' } : engine.retypeDestination(pre, step.actor, root, word(2), word(3), word(4), word(5));
+    if (dst.error) errors.push(`${stp}: the destination window does not resolve (${dst.error}${dst.fault ? ', ' + dst.fault.type : ''}), so untypedRetype is refused before it carves`);
+    else {
+      if (carves.length !== dst.slots.length) errors.push(`${stp}: a window of ${dst.slots.length} object(s) carves ${dst.slots.length}, the step carves ${carves.length}`);
+      carves.forEach((carve, i) => {
+        if (!isObject(carve.child)) return;
+        if (req.kind && (carve.child.kind !== req.kind || carve.child.size !== req.size)) errors.push(`${stp}: MR0 and MR1 ask for a ${req.kind} of ${req.size} bytes (decodeUntypedRetypeArgs), the step carves a ${carve.child.kind} of ${carve.child.size}`);
+      });
+      const got = inserts.map((o) => `${o.slot}<${o.parent}`).join(', ');
+      const want = dst.slots.map((slot) => `${slot}<${r.slot}`).join(', ');
+      if (got !== want) errors.push(`${stp}: untypedRetype installs its capabilities in ${want} (slot < parent); the step records ${got || 'none'}`);
     }
-    // `resolveIssuingSlots`: the new capability goes into slot x5 of the CNode
-    // x4 names, as a derivation child of the invoked untyped capability's slot.
-    checkIssuedInto(step, pre, r, 2, 3, ops.find((o) => o.op === 'capInsert'), stp, errors);
+  }
+
+  /* Page_Map is an invocation of the frame capability; the address space is
+     extra capability 0, and the words are seL4's (`decodePageMapArgs`): MR0
+     the address, MR1 the rights (bit 1 read, bit 0 write), MR2 the attributes
+     (bit 2 execute-never, bit 0 cacheable). Writable and executable is
+     refused `policyDenied` at the decode (`vspaceMapArgsOfWords`); a writable
+     mapping needs the write right on the frame (`frameMappingAdmissible`). */
+  if (call.id === 'vspaceMap') {
+    const word = (i) => (call.args && call.args[i] ? call.args[i].value : 0);
+    const rights = word(1), attr = word(2);
+    const perms = ((rights & 2) ? 'r' : '-') + ((rights & 1) ? 'w' : '-') + ((attr & 4) ? '-' : 'x');
+    const wx = perms.indexOf('w') !== -1 && perms.indexOf('x') !== -1;
+    const argsStage = stageOf(step, 'args');
+    if (wx && !(argsStage && argsStage.result === 'fail' && step.outcome && step.outcome.error === 'policyDenied')) errors.push(`${stp}: rights ${rights} and attributes ${attr} ask for ${perms}, which W^X refuses as policyDenied at the decode (vspaceMapArgsOfWords)`);
+    if (ok) {
+      const map = ops.find((o) => o.op === 'vspaceMap');
+      const space = r.extraCaps && r.extraCaps[0] ? r.extraCaps[0].cap : null;
+      if (!space || space.kind !== 'vspace') errors.push(`${stp}: Page_Map names its address space as extra capability 0, a VSpace root capability`);
+      else if (!map || map.vspace !== space.target || !isObject(map.mapping) || map.mapping.frame !== r.cap.target || map.mapping.perms !== perms) {
+        errors.push(`${stp}: Page_Map maps ${r.cap.target} into ${space.target} as ${perms}; the step records ${map ? `${map.mapping && map.mapping.frame} into ${map.vspace} as ${map.mapping && map.mapping.perms}` : 'no mapping'}`);
+      }
+      if (perms.indexOf('w') !== -1 && !engine.capHasRight(r.cap, 'write')) errors.push(`${stp}: a writable mapping needs the write right on the frame capability (frameMappingAdmissible), refused illegalAuthority`);
+    }
+  }
+
+  /* `updateCapData` (seL4's Mint): a badged endpoint or notification is never
+     rebadged, whatever the badge word, zero included; it is refused
+     `illegalState` (`mintDerivedCap_rebadge_refused`). The source is slot
+     MR2 at depth MR3 under extra capability 0 (`lookupSlotForCNodeOp`). */
+  if (call.id === 'cspaceMint' || call.id === 'cspaceCopy') {
+    const word = (i) => (call.args && call.args[i] ? call.args[i].value : 0);
+    const root = r.extraCaps && r.extraCaps[0] ? r.extraCaps[0].cap : null;
+    const src = root ? engine.lookupSlotForCNodeOp(pre, root, word(2), word(3)) : { error: 'failedLookup' };
+    const dst = engine.lookupSlotForCNodeOp(pre, r.cap, word(0), word(1));
+    const insert = ops.find((o) => o.op === 'capInsert');
+    if (src.error && ok) errors.push(`${stp}: the source slot does not resolve under extra capability 0 (${src.error}${src.fault ? ', ' + src.fault.type : ''})`);
+    if (dst.error && ok) errors.push(`${stp}: the destination slot does not resolve under the invoked CNode capability (${dst.error}${dst.fault ? ', ' + dst.fault.type : ''})`);
+    if (!src.error && !dst.error && ok && insert && (insert.slot !== dst.slot || insert.parent !== src.slot)) errors.push(`${stp}: ${call.id} installs into ${dst.slot} as a derivation child of ${src.slot}; the step records ${insert.slot} under ${insert.parent}`);
+    const rebadge = call.id === 'cspaceMint' && !src.error && src.cap && (src.cap.kind === 'endpoint' || src.cap.kind === 'notification') && Number(src.cap.badge) > 0;
+    if (rebadge && (ok || step.outcome.error !== 'illegalState')) errors.push(`${stp}: ${src.slot} already carries badge ${src.cap.badge}, so the mint is refused illegalState (updateCapData never rebadges)`);
   }
 
   const irqOps = ops.filter((o) => o.op === 'irqPatch');
   if (call.id === 'irqControlGet') {
     const lineNo = call.args && call.args[0] ? call.args[0].value : null;
     const line = engine.irqLine(pre, lineNo);
+    /* seL4's `decodeIRQControlInvocation`: MR0 the line, MR1 and MR2 the
+       destination's index and depth under extra capability 0. */
     const refusal = !line ? 'invalidIrq' : line.active ? 'revocationRequired' : null;
     if (refusal && (ok || step.outcome.error !== refusal)) errors.push(`${stp}: irqControlGet of line ${lineNo} is refused with ${refusal} (irqControlLineRefusal)`);
     if (ok && !refusal) {
@@ -403,8 +487,11 @@ function checkArmEffects(step, pre, r, stp, errors) {
       if (!insert || insert.parent !== r.slot || !insert.cap || insert.cap.kind !== 'irqHandler' || insert.cap.line !== lineNo || !sameOps((insert.cap.rights || []).slice().sort(), ['write'])) {
         errors.push(`${stp}: irqControlGet installs a write-only handler capability for line ${lineNo} as a derivation child of ${r.slot}`);
       }
-      // MR1 names the destination CNode and MR2 its slot (`resolveIssuingSlots`).
-      checkIssuedInto(step, pre, r, 1, 2, insert, stp, errors);
+      const args = Array.isArray(call.args) ? call.args : [];
+      const root = r.extraCaps && r.extraCaps[0] ? r.extraCaps[0].cptr : null;
+      const dst = root === null || !isObject(args[1]) || !isObject(args[2]) ? { error: 'failedLookup' } : engine.lookupTargetSlot(pre, step.actor, root, args[1].value, args[2].value);
+      if (dst.error) errors.push(`${stp}: the destination does not resolve under extra capability 0 (${dst.error}), so irqControlGet is refused before it installs anything`);
+      else if (insert && insert.slot !== dst.slot) errors.push(`${stp}: irqControlGet installs its capability in ${dst.slot} (lookupTargetSlot); the step records ${insert.slot}`);
     }
   } else if (call.id === 'irqHandlerAck') {
     // `irqHandlerAck` refuses a line the board does not have before it writes.
@@ -424,9 +511,9 @@ function checkArmEffects(step, pre, r, stp, errors) {
     if (irqOps.length) errors.push(`${stp}: irqHandlerSetNotification writes the line's node slot, not its state`);
     if (ok) {
       const node = engine.irqNodeSlot(pre, r.cap.line);
-      const src = call.args && call.args[0] ? engine.resolveCap(pre, step.actor, call.args[0].value) : { error: 'invalidCapability' };
+      const src = r.extraCaps && r.extraCaps[0] && r.extraCaps[0].cap ? r.extraCaps[0] : { error: 'truncatedMessage' };
       const insert = ops.find((o) => o.op === 'capInsert');
-      if (src.error || src.cap.kind !== 'notification' || !engine.capHasRight(src.cap, 'write')) errors.push(`${stp}: x2 must name a notification capability with the send right (irqNotificationCapAdmitted)`);
+      if (src.error || src.cap.kind !== 'notification' || !engine.capHasRight(src.cap, 'write')) errors.push(`${stp}: extra capability 0 must be a notification capability with the send right (irqNotificationCapAdmitted)`);
       else if (!insert || insert.slot !== node || insert.parent !== src.slot || !insert.cap || insert.cap.target !== src.cap.target || !sameOps((insert.cap.rights || []).slice().sort(), (src.cap.rights || []).slice().sort()) || (insert.cap.badge || 0) !== (src.cap.badge || 0)) {
         errors.push(`${stp}: irqHandlerSetNotification copies ${src.slot} whole into ${node}, as its derivation child`);
       }
@@ -434,19 +521,6 @@ function checkArmEffects(step, pre, r, stp, errors) {
   } else if (irqOps.length) {
     errors.push(`${stp}: ${call.id} writes no interrupt line`);
   }
-}
-
-/**
- * Where an issuing invocation puts its new capability: the slot the arguments
- * name through the caller's own CSpace (`resolveIssuingSlots`), as a
- * derivation child of the slot the invoked capability was resolved from.
- */
-function checkIssuedInto(step, pre, r, cnodeArg, slotArg, insert, stp, errors) {
-  const args = Array.isArray(step.syscall.args) ? step.syscall.args : [];
-  if (!insert || !isObject(args[cnodeArg]) || !isObject(args[slotArg])) return;
-  const dst = engine.issuingDestination(pre, step.actor, args[cnodeArg].value, args[slotArg].value);
-  if (dst.error) errors.push(`${stp}: the destination CNode at ${args[cnodeArg].value} does not resolve to a writable CNode capability (${dst.error}), so ${step.syscall.id} is refused before it installs anything`);
-  else if (insert.slot !== dst.slot || insert.parent !== r.slot) errors.push(`${stp}: ${step.syscall.id} installs its capability in ${dst.slot} as a derivation child of ${r.slot} (resolveIssuingSlots); the step records ${insert.slot} under ${insert.parent}`);
 }
 
 /**

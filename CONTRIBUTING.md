@@ -2,7 +2,7 @@
 
 Thanks for improving the seLe4n website.
 
-> Current release target: **0.35.0**
+> Current release target: **0.36.0**
 
 ## Repository principles
 

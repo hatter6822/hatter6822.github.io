@@ -78,15 +78,15 @@ exact shape is `docs/SIMULATOR_SPEC.md` §4.6.
 | Website field | Source in `SeLe4n.Model.State.SystemState` |
 |---------------|--------------------------------------------|
 | `cores[]` | per core: `current` thread (or `null`) and the active `domain` |
-| `threads[]` | each `TCB` in `objects` (`priority`, `domain`, affinity `core`, `ipc` = the `ThreadIpcState` constructor with its `object` and `replyTo`, `timeSlice`, the CSpace root `cspace`, the security `label`, the scheduling context `sc`) |
+| `threads[]` | each `TCB` in `objects` (`priority`, `domain`, affinity `core`, `ipc` = the `ThreadIpcState` constructor with its `object` and `replyTo`, `timeSlice`, the CSpace root capability `cspaceRoot` (a CNode capability carrying its `guardWidth` and `guard`), the security `label`, the scheduling context `sc`) |
 | `runQueues` | `scheduler.runQueue` per core, as `{ thread, prio }` in insertion order |
 | `endpoints[]` | each `Endpoint` (`send`/`recv` thread ids from the intrusive dual queue, and its `label`) |
 | `notifications[]` | each `Notification` (`pending` badge word or `null`, `waiters`, `label`) |
 | `replies[]` | each reply object and the `caller` waiting on it |
-| `schedContexts[]` | each scheduling context: `budget`, `period`, `deadline`, `periodStart`, `consumed`, `remaining` (the head refill's amount) and `refills[]` (`{ amount, at }`, the pending refills with their release times). v3's `refillIn` is gone: the release time is the refill's own |
+| `schedContexts[]` | each scheduling context: `budget`, `period`, `refillMax` (optional; absent means the capacity), `periodStart`, `consumed`, `remaining` (the head refill's amount) and `refills[]` (`{ amount, at }`, the pending refills with their release times). v3's `refillIn` is gone: the release time is the refill's own |
 | `time`, `releaseQueues` | the kernel clock in ticks, and each core's release queue (scheduling-context ids in release order) |
 | `irqs[]` | each declared interrupt line (`line`, `name`, `active`, `masked`); the IRQ node is a CNode marked `irqNode` whose slot per line holds the notification capability the line signals |
-| `cnodes[]` | each `CNode` (`depth`, `guardWidth`, `guardValue`, `radixWidth`, and occupied `slots` → `{ kind, target, rights, badge, derivation }`) |
+| `cnodes[]` | each `CNode` (`radixWidth`, and occupied `slots` → `{ kind, target, rights, badge, derivation }`, a CNode capability adding its `guardWidth` and `guard`; the CNode itself has no guard since WS-SX SX2) |
 | `cdt` | `cdt : CapDerivationTree` as parent slot → child slots, slots written `"<cnode>/<index>"` |
 | `untyped[]` | each `UntypedObject` (`base`, `size`, `children` with `offset` and `size`) . The free index is **not** here: it is `freeIndex` on the untyped capability's slot in `cnodes[].slots` (`Capability.freeIndex`; the object itself holds none, and v3's `watermark` is rejected) |
 | `vspaces[]` | each address space (`asid`; `mappings` = `vaddr` → `frame`/`perms` from the page tables; `tlb` = the virtual addresses this core has cached) |

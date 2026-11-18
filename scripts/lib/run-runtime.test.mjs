@@ -289,7 +289,9 @@ test('the path scene draws the registers, the CPtr walk, every gate and the Exce
   const cn = sc('capability-gate').initialState.cnodes[0];
   const all = texts(svg);
   for (const reg of ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x7']) assert.ok(all.some((t) => t === reg || t.startsWith(reg + ' ')), `${reg} is drawn`);
-  assert.equal(withAttr(svg, 'data-role', 'guard').length, cn.guardWidth, 'one cell per guard bit');
+  const root = sc('capability-gate').initialState.threads[0].cspaceRoot;
+  const guard = withAttr(svg, 'data-role', 'guard');
+  assert.deepEqual(guard.map((g) => g.attrs['data-bits']), [String(root.guardWidth)], 'the root capability\'s guard is one block naming its width');
   assert.equal(withAttr(svg, 'data-role', 'radix').length, cn.radixWidth, 'one cell per radix bit');
   assert.ok(withAttr(svg, 'data-role', 'f-length').length > 0, 'the MessageInfo length field is drawn bit by bit');
   assert.equal(countClass(svg, 'right-pill'), 5, 'every right, held or not');

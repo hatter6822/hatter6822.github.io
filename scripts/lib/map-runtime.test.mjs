@@ -2724,7 +2724,7 @@ test('the declaration sidebar serves Rust with its own groups and a test bucket'
     'listed items minus impl blocks is exactly what the snapshot counts');
   assert.ok(hooks.rustNodeSummary('sele4n-types::error').startsWith(`${errorFile.productionItems} items`),
     'the summary quotes the snapshot\'s declaration count, never the sidebar\'s listing count');
-  assert.deepEqual(Array.from(interior.byKind['enum'], (item) => item.name), ['KernelError']);
+  assert.deepEqual(Array.from(interior.byKind['enum'], (item) => item.name), ['KernelError', 'LookupFault', 'SyscallError']);
   assert.equal(interior.byKind.fn.length, 0, 'test fns never leak into the production bucket');
   assert.equal(interior.byKind['test:fn'].length, items.filter((i) => i.test && i.kind === 'fn').length,
     'test items bucket under a test: prefix, not their bare kind');

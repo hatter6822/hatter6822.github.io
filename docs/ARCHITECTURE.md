@@ -1,6 +1,6 @@
 # Website Architecture Audit and Growth Plan
 
-> Documentation baseline: website release **0.35.0**.
+> Documentation baseline: website release **0.36.0**.
 
 ## Audit summary
 
@@ -426,7 +426,7 @@ New testing modules: `Testing/InvariantChecks.lean`, `Testing/MainTraceHarness.l
 
 ## Rust syscall wrapper layer
 
-The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.37.19 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (47 syscalls at 0.37.19, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
+The upstream seLe4n repository includes a `rust/` workspace (its version tracks the kernel's `lakefile.toml` — 0.37.32 at the current snapshot — Rust 2021 edition, GPL-3.0-or-later) providing safe, `no_std` user-space bindings for the kernel's whole syscall ABI (46 syscalls at 0.37.32, every one wrapped in `sele4n-sys`; the sync fails if a `SyscallId` constructor has no wrapper — `assertSyscallWrapperCoverage`). The page states the count from `data/site-data.json#syscalls`, never by hand. The website documents these crates in the architecture diagram, feature grid, comparison table, project structure tree, getting started guide, and roadmap.
 
 The crate descriptions below were written at 0.2x (30 syscalls, a 55-variant `KernelError`, eight `sele4n-sys` modules) and are kept as history; at 0.36.41 `SyscallId` had 41 variants and `KernelError` 59; at 0.37.19 `SyscallId` has 47 (numbered 0–47: `lifecycleRetype`, ID 8, is retired and its number is not reused), `KernelError` 61 (60 mirroring Lean plus a Rust-only sentinel), and `sele4n-sys` adds `audit.rs`, `declassify.rs` and `irq.rs` plus `sched_context_consumed`/`sched_context_yield_to`, `cspace_revoke`, `mint_reply_cap`, `untyped_retype`/`untyped_reset`, `page_table_map`/`unmap`, `tcb_set_space`, `tcb_set_fault_handler` and the notification bind/unbind wrappers.
 
@@ -874,7 +874,7 @@ wholesale. Those copies said `546` build jobs while `index.html` said `574`.
   lead that said "All 41". The list is `SyscallId.toNat` of each constructor,
   read from the same source as the count (`syscallSurfaceNumbers`); the test
   expected the range `0 … syscalls-1` until 0.37.19 retired `lifecycleRetype`
-  (ID 8) without renumbering, leaving 47 syscalls numbered 0–47.
+  (ID 8) without renumbering, leaving 47 syscalls numbered 0–47; 0.37.32 retired `tcbSetFaultHandler` (ID 34) the same way, leaving 46.
 - **The footer and the sitemap are stamped as well.** The no-JS footer read
   "Commit main · Updated live from repository" on a page whose CSP forbids
   contacting the repository; `apply-static-values.mjs` now writes the
@@ -2164,3 +2164,50 @@ Each stylesheet ends in a `forced-colors: active` block that restores, with
 system colours, the states the palette override erases (current step, selected
 tab and row, a failing invariant).
 
+
+## The simulator follows seL4's ABI (0.36.0)
+
+The weekly sync had published nothing since seLe4n 0.37.19: the kernel's seL4
+ABI work (WS-SX) moved names the trace cites and decisions the engine mirrors,
+and the sync refuses to write traces it cannot ground. Rather than pin the site
+to an old revision, which would split the landing page and the code map from
+the simulator, the engine was brought up to the kernel at `80f1eb0` (0.37.32)
+and every snapshot regenerated from that one checkout.
+
+- **Capability addressing.** The guard left the CNode for the capability that
+  names it, and a thread holds its CSpace as a root capability (`cspaceRoot`).
+  `resolveAddressBits` walks all 64 bits and returns seL4's four lookup faults;
+  `resolveCapSlot` answers a failed walk as `failedLookup` and `resolveCap`
+  an empty slot as `invalidCapability`, after the extra capabilities. The
+  validator refuses the old CNode geometry fields by name.
+- **Extra capabilities.** `lookupExtraCaps` resolves the addresses an
+  invocation names before it decodes, for every syscall except the three that
+  receive on their capability. Mint, copy, retype, `irqControlGet`,
+  `irqHandlerSetNotification`, Page_Map, the declassifications and the service
+  calls read their objects from there, and the validator recomputes each:
+  `lookupSlotForCNodeOp` for a mint's or copy's slots (a badged capability is
+  never rebadged), `retypeDestination` for a retype's window of up to 26
+  slots, `lookupTargetSlot` for an issued interrupt handler, and Page_Map's
+  rights and attributes words with W^X refused at the decode.
+- **Scheduling contexts.** They lost their priority, deadline and domain, as in
+  seL4-MCS; `refillMax` bounds the refills (`scRefillLimit`). The EDF scenario
+  became "Budgets and refills" and its ticks were regenerated from the engine.
+- **The surface.** `tcbSetFaultHandler` (ID 34) is retired, leaving 46
+  syscalls, and the audit-trail, service-registry and scheduling-control
+  capability kinds join the type gate.
+
+Two scenario steps went: a guard mismatch is now a capability fault, which
+changes the caller's state and so cannot be shown as a refusal, and a
+retype-window preservation claim was narrowed to reference only, because no
+theorem yet states that the live window preserves `untypedMemoryInvariant`.
+The path scene draws a guard wider than eight bits as one block that names its
+width and value, so a 60-bit root guard does not push the slot bits off the
+stage.
+
+The landing page was re-read against the kernel at the same commit: the status
+and roadmap now name WS-RB, WS-UC, WS-SX and WS-CB; the API lead no longer
+describes the retired unchecked entry; the `KernelError` counts, the boot
+board and an invariant bundle's name were corrected; the object-model card had
+lost its list of object types in three locales and has it back; and the audit
+trail and refusal ledger, which have no seL4 counterpart, have a card of their
+own and a comparison row beside W^X and capability addressing.
