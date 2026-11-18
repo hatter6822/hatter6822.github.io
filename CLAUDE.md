@@ -12,7 +12,7 @@ This repository is the static website for **seLe4n**, a formally verified microk
 
 **Stack:** Pure HTML5 + CSS3 + Vanilla JavaScript ES6+ (no frameworks, no bundler). Node.js for offline tooling only.
 
-**Website version:** `0.35.0`
+**Website version:** `0.36.0`
 **Lean toolchain target:** `4.28.0`
 
 ## Build and Validation Commands
@@ -219,9 +219,9 @@ the kernel generates it, and seLe4n's own README table is rendered from its
 - **The syscall surface is a list of numbers, not a range.** `syscallNumbers`
   records `SyscallId.toNat` of every constructor (`syscallSurfaceNumbers`),
   and `static-values.test.mjs` holds the API table's IDs to that list. The
-  test once expected `0 … syscalls-1`; at 0.37.19 the kernel has 47 syscalls
-  numbered 0–47, because `lifecycleRetype` (ID 8) was retired and a retired
-  number is never reused. The sync fails if any constructor has no number.
+  test once expected `0 … syscalls-1`; at 0.37.32 the kernel has 46 syscalls
+  numbered 0–47, because `lifecycleRetype` (ID 8) and `tcbSetFaultHandler`
+  (ID 34) were retired and a retired number is never reused. The sync fails if any constructor has no number.
 - `niSteps` is published **only while the claim it supports is still true**. The
   page says every kernel step has its own non-interference proof, so
   `nonInterferenceCoverage()` checks the correspondence rather than comparing
@@ -728,7 +728,9 @@ specification; this section is the set of rules a change must not break.
   `args`, x7 `number`; a word past x5, such as a mint's badge, comes from the
   IPC buffer), and the validator checks, rather than believes, each decision
   the kernel makes from the state: the caller is current on its core, where x0
-  resolves (`resolveCap`), the type gate (`targetAccepted`), the right and the
+  resolves over all 64 bits from the caller's root capability, guard read from
+  each CNode capability (`resolveAddressBits`, `resolveCap`), the extra
+  capabilities the invocation names (`lookupExtraCaps`), the type gate (`targetAccepted`), the right and the
   error without it (`missingRightError`), message truncation, whether the arm
   gates the flow and what a denial answers (`flowGated`, `flowDeniedError`), a
   flow check's answer (`flowsTo`), every dispatch (`selectOnCore`), and a
@@ -736,8 +738,8 @@ specification; this section is the set of rules a change must not break.
   (`rescheduleOps`, `timerTickOps`, `yieldOps`, `interruptOps`: the step's ops
   must equal what the engine derives). Where a retype carves
   (`carvePlacement`), what an IPC rendezvous transfers (`transferPlan`) and
-  where a kernel-issued capability lands (`issuingDestination`) are
-  recomputed too. `docs/SIMULATOR_SPEC.md` §4.8 maps each to its Lean.
+  where a kernel-issued capability lands (`retypeDestination`,
+  `lookupTargetSlot`, `lookupSlotForCNodeOp`) are recomputed too. `docs/SIMULATOR_SPEC.md` §4.8 maps each to its Lean.
   `checkState`'s seventeen executable mirrors run after the initial state and
   every step, and each must have a catalogue entry (the catalogue has
   eighteen: `auditLogBounded` has no mirror). A scenario that needs the kernel
