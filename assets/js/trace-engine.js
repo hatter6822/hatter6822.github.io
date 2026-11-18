@@ -17,15 +17,16 @@
  *       `selectOnCore`   the scheduler's choice (`chooseBestInBucketEffective`:
  *                        highest bucket first, EDF within a priority, FIFO on a
  *                        tie, domain and budget eligibility, full-scan fallback)
- *       `resolveCap`     a CPtr walked through guard and radix bits
- *                        (`resolveCapAddress`), one level per CNode
+ *       `resolveCap`     a CPtr walked from the thread's CSpace root
+ *                        capability through each CNode capability's guard
+ *                        and the CNode's radix (`resolveAddressBits`)
  *       `flowsTo`        `securityFlowsTo` over (confidentiality, integrity)
  *       `msgInfoWord`    the x1 encoding (`MessageInfo.encode`)
  *       `targetAccepted` the type gate (`syscallTargetAccepted`)
  *       `scTickExhausts`, `scChargeBudget`, `scReleaseReadyHead` the sporadic
  *                        refill algebra a tick and a release run
  *                        (`SchedContext.tickExhausts`, `.chargeBudget`,
- *                        `.releaseReadyHead`, `cbsUpdateDeadline`)
+ *                        `.releaseReadyHead`)
  *       `carvePlacement` where a retype carves (`retypeFreeIndex`,
  *                        `alignedCarveIndex`)
  *       `irqBinding`     what an interrupt line signals (`irqBinding?`)
@@ -100,9 +101,10 @@
 
   /* `syscallMissingRightError`: the answer to a capability of the syscall's
      type that lacks its right. seL4 refuses an endpoint or notification
-     capability without `CanSend` or `CanReceive` as an invalid capability, and
-     so does the kernel; every other missing right is `illegalAuthority`. */
-  var MISSING_RIGHT_INVALID = ["send", "call", "notificationSignal", "declassifySignal", "receive", "notificationWait", "replyRecv"];
+     capability without `CanSend` or `CanReceive` as an invalid capability
+     (`InvalidCapability`, capability 0), and so does the kernel; every other
+     missing right is an seLe4n extension, answered `illegalAuthority`. */
+  var MISSING_RIGHT_INVALID = ["send", "call", "notificationSignal", "receive", "notificationWait", "replyRecv"];
   function missingRightError(syscallId) {
     return MISSING_RIGHT_INVALID.indexOf(syscallId) !== -1 ? "invalidCapability" : "illegalAuthority";
   }
@@ -113,47 +115,60 @@
   var PAGE_BYTES = 4096;
   var PAGE_ALIGNED_KINDS = ["frame", "vspace", "pageTable"];
 
-  var CAP_KINDS = ["endpoint", "notification", "cnode", "untyped", "frame", "vspace", "pageTable", "reply", "tcb", "schedContext", "irqControl", "irqHandler"];
+  var CAP_KINDS = ["endpoint", "notification", "cnode", "untyped", "frame", "vspace", "pageTable", "reply", "tcb", "schedContext",
+    "irqControl", "irqHandler", "auditTrail", "serviceRegistry", "schedControl"];
 
   /* `syscallObjectKind?`: the kind of object a syscall's `.object` capability
      must name, by the engine's capability kinds (`vspace` is the kernel's
      `vspaceRoot`). A syscall absent from this table and from
-     `SYSCALL_TARGET_KIND` invokes no object capability. */
+     `SYSCALL_TARGET_KIND` invokes no object capability. Page_Map is an
+     invocation of the frame capability, its address space extra capability 0
+     (seL4's `seL4_ARM_Page_Map`). */
   var SYSCALL_OBJECT_KIND = {
     send: "endpoint", receive: "endpoint", call: "endpoint", replyRecv: "endpoint",
-    serviceRegister: "endpoint", serviceRevoke: "endpoint", serviceQuery: "endpoint",
-    notificationSignal: "notification", notificationWait: "notification", declassifySignal: "notification",
+    notificationSignal: "notification", notificationWait: "notification",
     cspaceMint: "cnode", cspaceCopy: "cnode", cspaceMove: "cnode", cspaceDelete: "cnode", cspaceRevoke: "cnode", mintReplyCap: "cnode",
     untypedRetype: "untyped", untypedReset: "untyped",
-    vspaceMap: "vspace", vspaceUnmap: "vspace", vspaceUnifyInstruction: "vspace",
+    vspaceMap: "frame", vspaceUnmap: "vspace", vspaceUnifyInstruction: "vspace",
     schedContextBind: "schedContext", schedContextUnbind: "schedContext", schedContextConsumed: "schedContext", schedContextYieldTo: "schedContext",
     tcbSuspend: "tcb", tcbResume: "tcb", tcbSetPriority: "tcb", tcbSetMCPriority: "tcb", tcbSetIPCBuffer: "tcb",
-    tcbSetAffinity: "tcb", tcbBindNotification: "tcb", tcbUnbindNotification: "tcb", tcbSetSpace: "tcb", tcbSetFaultHandler: "tcb",
+    tcbSetAffinity: "tcb", tcbBindNotification: "tcb", tcbUnbindNotification: "tcb", tcbSetSpace: "tcb",
     pageTableMap: "pageTable", pageTableUnmap: "pageTable"
   };
   /* The non-object arms of `syscallTargetAccepted`: a capability whose
-     `CapTarget` is not `.object` is accepted by exactly these syscalls. */
+     `CapTarget` is not `.object` is accepted by exactly these syscalls. The
+     declassifications are invocations of the audit-trail capability, the
+     service calls of the service-registry capability, each naming its object
+     as extra capability 0. */
   var SYSCALL_TARGET_KIND = {
     reply: "reply",
+    auditRead: "auditTrail", auditDrain: "auditTrail", declassify: "auditTrail", declassifySignal: "auditTrail",
+    schedContextConfigure: "schedControl",
     irqControlGet: "irqControl",
+    serviceRegister: "serviceRegistry", serviceRevoke: "serviceRegistry", serviceQuery: "serviceRegistry",
     irqHandlerAck: "irqHandler", irqHandlerSetNotification: "irqHandler", irqHandlerClear: "irqHandler"
   };
-  var NON_OBJECT_KINDS = ["reply", "irqControl", "irqHandler"];
+  var NON_OBJECT_KINDS = ["reply", "irqControl", "irqHandler", "auditTrail", "serviceRegistry", "schedControl"];
+
+  /* `syscallReceivesOnCap`: the syscalls that receive on the invoked
+     capability (seL4's `handleRecv`) and so look no extra capability up. */
+  var RECEIVES_ON_CAP = ["receive", "notificationWait", "replyRecv"];
 
   /* `truncationMinimum`: the message length below which the arm's decode
      answers `truncatedMessage` (`requireMessageLength`). Unlisted: 0. */
   var TRUNCATION_MIN = {
-    untypedRetype: 4, vspaceMap: 4, cspaceCopy: 4, cspaceMove: 4,
-    irqControlGet: 3, auditRead: 3,
-    mintReplyCap: 2, vspaceUnmap: 2, vspaceUnifyInstruction: 2, tcbSetSpace: 2, pageTableMap: 2,
-    cspaceDelete: 1, cspaceRevoke: 1, schedContextBind: 1, tcbBindNotification: 1, tcbSetPriority: 1,
-    tcbSetMCPriority: 1, tcbSetIPCBuffer: 1, tcbSetAffinity: 1, tcbSetFaultHandler: 1,
-    irqHandlerSetNotification: 1, auditDrain: 1,
-    schedContextConfigure: 5, serviceRegister: 5, cspaceMint: 5
+    untypedRetype: 7,
+    cspaceMint: 6,
+    schedContextConfigure: 5, serviceRegister: 5, cspaceCopy: 5,
+    cspaceMove: 4,
+    vspaceMap: 3, irqControlGet: 3, auditRead: 3,
+    mintReplyCap: 2, vspaceUnmap: 2, vspaceUnifyInstruction: 2, pageTableMap: 2, tcbSetSpace: 2,
+    cspaceDelete: 1, cspaceRevoke: 1, tcbSetPriority: 1, tcbSetMCPriority: 1, tcbSetIPCBuffer: 1, tcbSetAffinity: 1,
+    auditDrain: 1
   };
   /* `syscallReadsOverflow`: the syscalls whose message words past x5 are read
      from the caller's IPC buffer. */
-  var READS_OVERFLOW = ["send", "call", "reply", "replyRecv", "schedContextConfigure", "serviceRegister", "cspaceMint"];
+  var READS_OVERFLOW = ["send", "call", "reply", "replyRecv", "schedContextConfigure", "serviceRegister", "cspaceMint", "cspaceCopy", "untypedRetype"];
 
   /* `maxReplenishments`: the pending refills a scheduling context holds. */
   var MAX_REFILLS = 8;
@@ -507,8 +522,8 @@
       case "scCharge": {
         /* `timerTickBudgetOnCore` on a bound thread: one tick, run from
            `now - 1` to `now`. A tick that uses the head up takes the spend's
-           arm (`spendBudgetOnCore`: the charge, the deadline rule, the context
-           placed on the core's release queue); any other tick is the charge
+           arm (`spendBudgetOnCore`: the charge, then the context placed on
+           the core's release queue); any other tick is the charge
            alone. Which arm is the state's to say (`tickExhausts`). */
         var cs = schedContext(s, op.sc);
         if (!cs) throw new Error("scCharge: unknown scheduling context " + op.sc);
@@ -520,7 +535,6 @@
         if (nowC < 1) throw new Error("scCharge: no tick has elapsed");
         var exhausted = scTickExhausts(cs, nowC - 1);
         var charged = scChargeBudget(cs, nowC - 1, 1, nowC);
-        if (exhausted) charged = cbsUpdateDeadline(charged, nowC, true);
         replaceSc(s, charged);
         if (exhausted) releasePlace(s, op.core, op.sc);
         return s;
@@ -536,7 +550,7 @@
         var nowR = Number(s.time) || 0;
         var key = scReleaseKey(rs);
         if (key === null || key > nowR) throw new Error("scRelease: " + op.sc + " is not released until " + key + " (now " + nowR + ")");
-        replaceSc(s, cbsUpdateDeadline(scReleaseReadyHead(rs, nowR), nowR, true));
+        replaceSc(s, scReleaseReadyHead(rs, nowR));
         releasePlace(s, op.core, op.sc);
         return s;
       }
@@ -595,11 +609,15 @@
     return chalDl < incDl;
   }
 
+  /* `resolveEffectivePrioDeadline`: the thread's own priority and its own
+     deadline at every binding. A scheduling context carries budget, period
+     and refills, no priority, deadline or domain (seL4-MCS's
+     `sched_context_t`); it decides only whether the thread is eligible. */
   function effectiveParams(s, th) {
     var sc = th.sc ? schedContext(s, th.sc) : null;
     return {
       prio: Number(th.priority) || 0,
-      deadline: sc ? (Number(sc.deadline) || 0) : (Number(th.deadline) || 0),
+      deadline: Number(th.deadline) || 0,
       budgetOk: sc ? (Number(sc.remaining) || 0) > 0 : true
     };
   }
@@ -644,43 +662,94 @@
     return { thread: full.best ? full.best.thread : null, maxPrio: maxPrio, fallback: rq.length > bucket.length, candidates: first.seen.concat(full.seen.filter(function (r) { return r.bucket !== maxPrio; })) };
   }
 
-  /* `resolveCapAddress` + the slot lookup of `syscallResolveCap`. Each level
-     takes guard and radix bits off the top of what remains; the leaf is the
-     slot the last level names. */
+  /* `resolveAddressBits` (seL4's `cspace.c`): resolve the top `nBits` bits of
+     `cptr` from the CNode capability `nodeCap`. The guard is the capability's
+     (`cnodeGuardSize`, `cnodeGuard`), the radix the CNode's. At each level the
+     guard is checked first (`guardMismatch`), then the level's width
+     (`depthMismatch`); a level that consumes the last bits answers its slot;
+     otherwise a CNode capability in the slot is the next level and anything
+     else, an empty slot included, stops the walk there with bits left. A
+     failure is `{ fault: { type, … } }`, seL4's `lookup_fault`. */
+  var WORD_BITS = 64;
+  function capGuardWidth(cap) { return Number(cap && cap.guardWidth) || 0; }
+  function capGuard(cap) { return Number(cap && cap.guard) || 0; }
+  function isCNodeCap(s, cap) { return !!(cap && cap.kind === "cnode" && cnode(s, cap.target)); }
+  function resolveAddressBits(s, nodeCap, cptr, nBits) {
+    var levels = [];
+    var addr = Number(cptr) || 0;
+    if (!isCNodeCap(s, nodeCap)) return { fault: { type: "invalidRoot" }, levels: levels };
+    for (var fuel = 0; fuel <= WORD_BITS; fuel++) {
+      var cn = cnode(s, nodeCap.target);
+      var gs = capGuardWidth(nodeCap), radix = Number(cn.radixWidth) || 0;
+      var found = gs <= nBits ? bitsAt(addr, nBits - gs, gs) : null;
+      var level = { cnode: cn.id, bits: nBits, shift: Math.max(0, nBits - gs - radix), guardWidth: gs, radixWidth: radix, guard: found, guardValue: capGuard(nodeCap), slot: null, guardOk: found !== null && found === capGuard(nodeCap) };
+      levels.push(level);
+      if (!level.guardOk) return { fault: { type: "guardMismatch", bitsLeft: nBits, guardFound: capGuard(nodeCap), bitsFound: gs }, levels: levels };
+      if (gs + radix > nBits || gs + radix === 0) return { fault: { type: "depthMismatch", bitsLeft: nBits, bitsFound: gs + radix }, levels: levels };
+      level.slot = bitsAt(addr, nBits - gs - radix, radix);
+      var key = slotKey(cn.id, level.slot);
+      var left = nBits - gs - radix;
+      if (left === 0) return { slot: key, bitsLeft: 0, levels: levels };
+      var cap = capAt(s, key);
+      if (!isCNodeCap(s, cap)) return { slot: key, bitsLeft: left, levels: levels };
+      nodeCap = cap;
+      nBits = left;
+    }
+    return { fault: { type: "depthMismatch", bitsLeft: nBits, bitsFound: 0 }, levels: levels };
+  }
+  /* `lookupSlot`: the slot a thread's address names, resolved at the word's
+     64 bits from its CSpace root capability (`tcbCTable`); a walk that stops
+     early answers the slot it stopped at, as seL4's does. A failed walk is
+     `failedLookup` with its fault (`syscallResolveCap`). */
+  function resolveCapSlot(s, threadId, cptr) {
+    var th = thread(s, threadId);
+    if (!th) return { error: "objectNotFound", levels: [] };
+    if (!th.cspaceRoot) return { error: "failedLookup", reason: "invalidRoot", fault: { type: "invalidRoot" }, levels: [] };
+    var r = resolveAddressBits(s, th.cspaceRoot, cptr, WORD_BITS);
+    if (r.fault) return { error: "failedLookup", reason: r.fault.type, fault: r.fault, levels: r.levels };
+    return { slot: r.slot, cap: capAt(s, r.slot), levels: r.levels };
+  }
+  /* `syscallResolveCap`: the capability the address names; an empty slot is
+     no lookup failure but seL4's `InvalidCapability`, refused after the
+     extra capabilities are looked up (`syscallInvokeTyped`). */
   function resolveCap(s, threadId, cptr) {
     var r = resolveCapSlot(s, threadId, cptr);
     if (r.error) return r;
     if (!r.cap) return { error: "invalidCapability", reason: "empty", slot: r.slot, levels: r.levels };
     return r;
   }
-  /* `resolveCapAddress` alone: the slot an address names, occupied or not. */
-  function resolveCapSlot(s, threadId, cptr) {
-    var th = thread(s, threadId);
-    var levels = [];
-    if (!th || !th.cspace) return { error: "objectNotFound", levels: levels };
-    var cn = cnode(s, th.cspace);
-    if (!cn) return { error: "objectNotFound", levels: levels };
-    var bits = Number(cn.depth) || 0;
-    var addr = Number(cptr) || 0;
-    for (var guardFuel = 0; guardFuel < 16; guardFuel++) {
-      var consumed = (Number(cn.guardWidth) || 0) + (Number(cn.radixWidth) || 0);
-      if (bits === 0 || consumed === 0 || bits < consumed) return { error: "illegalState", levels: levels };
-      var shift = bits - consumed;
-      var slot = bitsAt(addr, shift, Number(cn.radixWidth) || 0);
-      var guard = bitsAt(addr, shift + (Number(cn.radixWidth) || 0), Number(cn.guardWidth) || 0);
-      var level = { cnode: cn.id, bits: bits, shift: shift, guardWidth: cn.guardWidth, radixWidth: cn.radixWidth, guard: guard, guardValue: cn.guardValue, slot: slot, guardOk: guard === (Number(cn.guardValue) || 0) };
-      levels.push(level);
-      if (!level.guardOk) return { error: "invalidCapability", reason: "guard", levels: levels };
-      var key = slotKey(cn.id, slot);
-      var cap = capAt(s, key);
-      if (shift === 0) return { slot: key, cap: cap, levels: levels };
-      if (!cap || cap.kind !== "cnode") return { error: "invalidCapability", reason: cap ? "notCNode" : "empty", slot: key, levels: levels };
-      cn = cnode(s, cap.target);
-      if (!cn) return { error: "objectNotFound", levels: levels };
-      bits = shift;
-    }
-    return { error: "illegalState", levels: levels };
+  /* `lookupSlotForCNodeOp`: the slot a CNode operation names by an index and
+     a depth from the CNode capability `root`, in seL4's order: a root that is
+     no CNode capability is `invalidRoot`, a depth outside 1..64 a
+     `rangeError`, the walk's own fault its own, and a walk that stops with
+     bits left `depthMismatch`. */
+  function lookupSlotForCNodeOp(s, root, index, depth) {
+    if (!isCNodeCap(s, root)) return { error: "failedLookup", fault: { type: "invalidRoot" } };
+    depth = Number(depth) || 0;
+    if (depth < 1 || depth > WORD_BITS) return { error: "rangeError" };
+    var r = resolveAddressBits(s, root, index, depth);
+    if (r.fault) return { error: "failedLookup", fault: r.fault, levels: r.levels };
+    if (r.bitsLeft !== 0) return { error: "failedLookup", fault: { type: "depthMismatch", bitsLeft: r.bitsLeft, bitsFound: 0 }, levels: r.levels };
+    return { slot: r.slot, cap: capAt(s, r.slot), levels: r.levels };
   }
+  /* `lookupExtraCaps` (seL4's `handleInvocation` prologue): each address the
+     message's extra-capability count names is looked up in the caller's
+     CSpace, after the invoked capability and before its decode; the first
+     failed walk refuses the call as `failedLookup`. A syscall that receives on
+     its capability looks none up (`syscallExtraCapCount`). An empty slot is
+     no failure: it yields the null capability, which the arm refuses. */
+  function lookupExtraCaps(s, threadId, syscallId, cptrs) {
+    var out = [];
+    if (RECEIVES_ON_CAP.indexOf(syscallId) !== -1) return { caps: out };
+    var list = cptrs || [];
+    for (var i = 0; i < list.length; i++) {
+      var r = resolveCapSlot(s, threadId, list[i]);
+      if (r.error) return { error: r.error, fault: r.fault, index: i, cptr: list[i], caps: out };
+      out.push({ cptr: list[i], slot: r.slot, cap: r.cap || null });
+    }
+    return { caps: out };
+  }
+  function receivesOnCap(syscallId) { return RECEIVES_ON_CAP.indexOf(syscallId) !== -1; }
 
   function capHasRight(cap, right) { return !!(cap && Array.isArray(cap.rights) && cap.rights.indexOf(right) !== -1); }
   function rightsMask(rights) {
@@ -716,13 +785,13 @@
 
   /* A capability is of the syscall's type when its target constructor is the
      one the syscall invokes and, for an object capability, the object is of
-     the syscall's kind. `declassify` releases into any object. The yield
-     invokes no capability and accepts none. */
+     the syscall's kind. A syscall that invokes no object (`syscallObjectKind?`
+     is `none`) accepts no object capability. The yield invokes no capability
+     and accepts none. */
   function targetAccepted(syscallId, cap) {
     if (!cap) return false;
     if (NON_OBJECT_KINDS.indexOf(cap.kind) !== -1) return SYSCALL_TARGET_KIND[syscallId] === cap.kind;
-    if (hasOwn(SYSCALL_OBJECT_KIND, syscallId)) return SYSCALL_OBJECT_KIND[syscallId] === cap.kind;
-    return syscallId === "declassify";
+    return hasOwn(SYSCALL_OBJECT_KIND, syscallId) && SYSCALL_OBJECT_KIND[syscallId] === cap.kind;
   }
   function expectedKind(syscallId) {
     if (hasOwn(SYSCALL_OBJECT_KIND, syscallId)) return SYSCALL_OBJECT_KIND[syscallId];
@@ -787,29 +856,61 @@
     return out;
   }
 
-  /* `resolveIssuingSlots`: where an issuing invocation (a retype, an interrupt
-     handler issue) installs its new capability. The destination CNode is the
-     one a capability in the caller's CSpace names, looked up with the write
-     right; the slot is taken verbatim. */
-  function issuingDestination(s, threadId, cnodeCPtr, slot) {
-    var r = resolveCap(s, threadId, cnodeCPtr);
+  /* `lookupTargetSlot` (`resolveIssuingSlotsAt`): where an interrupt handler
+     issue installs its new capability. The destination root is the CNode
+     capability the caller names as extra capability 0, and the slot is the
+     one `lookupSlotForCNodeOp` finds under it by index and depth. No right is
+     asked of the root: seL4's lookup checks none. */
+  function lookupTargetSlot(s, threadId, rootCPtr, index, depth) {
+    var root = resolveCapSlot(s, threadId, rootCPtr);
+    if (root.error) return root;
+    if (!root.cap) return { error: "failedLookup", fault: { type: "invalidRoot" } };
+    var r = lookupSlotForCNodeOp(s, root.cap, index, depth);
     if (r.error) return r;
-    if (!capHasRight(r.cap, "write")) return { error: "illegalAuthority", slot: r.slot };
-    if (r.cap.kind !== "cnode" || !cnode(s, r.cap.target)) return { error: "invalidCapability", slot: r.slot };
-    return { slot: slotKey(r.cap.target, Number(slot) || 0), via: r.slot };
+    return { slot: r.slot, via: root.slot };
   }
 
-  /* What x2 of an `untypedRetype` asks for (`decodeUntypedRetypeArgs`): the
-     object type tag in the low byte (`KernelObjectType.ofNat?`) and the size
-     exponent above it. `carveRequestOf` gives the two kinds the scenarios
+  /* `retypeDestinationCNode`: the CNode a retype carves into. At depth 0 it
+     is the root capability's own (extra capability 0); past it, the CNode
+     capability `lookupSlotForCNodeOp` finds under the root at the index. A
+     destination that is no CNode capability is `failedLookup`
+     (`missingCapability`). The window's slots are `offset .. offset + count`
+     of that CNode (`retypeWindowRefusal` bounds them). */
+  function retypeDestination(s, threadId, rootCPtr, index, depth, offset, count) {
+    var root = resolveCapSlot(s, threadId, rootCPtr);
+    if (root.error) return root;
+    var nodeCap = root.cap;
+    if (Number(depth) !== 0) {
+      if (!root.cap) return { error: "failedLookup", fault: { type: "invalidRoot" } };
+      var r = lookupSlotForCNodeOp(s, root.cap, index, depth);
+      if (r.error) return r;
+      nodeCap = r.cap;
+    }
+    if (!isCNodeCap(s, nodeCap)) return { error: "failedLookup", fault: { type: "missingCapability", bitsLeft: Number(depth) || 0 } };
+    var size = slotCount(cnode(s, nodeCap.target));
+    offset = Number(offset) || 0;
+    count = Number(count) || 0;
+    if (offset > size - 1) return { error: "rangeError" };
+    if (count < 1 || count > RETYPE_FAN_OUT_LIMIT) return { error: "rangeError" };
+    if (size - offset < count) return { error: "rangeError" };
+    var slots = [];
+    for (var i = 0; i < count; i++) slots.push(slotKey(nodeCap.target, offset + i));
+    return { cnode: nodeCap.target, slots: slots, via: root.slot };
+  }
+  /* `retypeFanOutLimit`: seL4's `CONFIG_RETYPE_FAN_OUT_LIMIT`, derived from
+     the lock ceiling (`maxLockSetSize - retypeBaseLocks = 32 - 6`). */
+  var RETYPE_FAN_OUT_LIMIT = 26;
+
+  /* What x2 and x3 of an `untypedRetype` ask for (`decodeUntypedRetypeArgs`):
+     the object type tag (`KernelObjectType.ofNat?`) and the size exponent,
+     seL4's MR0 and MR1. `carveRequestOf` gives the two kinds the scenarios
      carve a size: a frame is one page and takes sizeBits 0; an untyped is
      2^sizeBits bytes. `kind` is null for a tag this projection does not
      model, and for a size the kernel would refuse. */
   var RETYPE_TAG_FRAME = 8;
   var RETYPE_TAG_UNTYPED = 5;
-  function retypeRequest(word) {
-    var w = Number(word) || 0;
-    var out = { tag: w % 256, sizeBits: Math.floor(w / 256), kind: null, size: null };
+  function retypeRequest(typeWord, sizeBitsWord) {
+    var out = { tag: Number(typeWord) || 0, sizeBits: Number(sizeBitsWord) || 0, kind: null, size: null };
     if (out.tag === RETYPE_TAG_FRAME && out.sizeBits === 0) { out.kind = "frame"; out.size = PAGE_BYTES; }
     else if (out.tag === RETYPE_TAG_UNTYPED && out.sizeBits > 0) { out.kind = "untyped"; out.size = pow2(out.sizeBits); }
     return out;
@@ -827,15 +928,28 @@
     c.refills = Array.isArray(c.refills) ? c.refills : [];
     return c;
   }
+  /* `refillLimit`: the context's `refillMax` held between `MIN_REFILLS` and
+     the capacity (`maxReplenishments`); a context that states none was
+     configured at the capacity. `refillFull`: the head (while it holds budget)
+     and the pending refills reach it (seL4's `refill_full`). */
+  var MIN_REFILLS = 2;
+  function scRefillLimit(sc) {
+    var m = sc.refillMax === undefined ? MAX_REFILLS : Number(sc.refillMax) || 0;
+    return Math.min(Math.max(m, MIN_REFILLS), MAX_REFILLS);
+  }
+  function scRefillFull(sc) {
+    return scRefillLimit(sc) <= (sc.remaining > 0 ? 1 : 0) + sc.refills.length;
+  }
   /* `scheduleUsed`: the amount used returns one period after the head it came
      from was released. It joins the last pending refill when the two touch,
-     is forced into it when the list is full, and is a new refill otherwise. */
+     is forced into it when the refills are full, and is a new refill
+     otherwise. */
   function scScheduleUsed(sc, amount, at) {
     var n = sc.refills.length;
     if (n) {
       var last = sc.refills[n - 1];
       if (at <= last.at + last.amount) last.amount += amount;
-      else if (n >= MAX_REFILLS) { var la = last.amount; last.amount = la + amount; last.at = at - la; }
+      else if (scRefillFull(sc)) { var la = last.amount; last.amount = la + amount; last.at = at - la; }
       else sc.refills.push({ amount: amount, at: at });
     } else sc.refills.push({ amount: amount, at: at });
     return sc;
@@ -883,13 +997,6 @@
     var merges = c.remaining > 0 && c.periodStart <= start && c.refills.length > 0 &&
       c.refills[0].at <= start + c.remaining && c.refills[0].amount > 0;
     return c.remaining <= 1 && !merges;
-  }
-  /* `cbsUpdateDeadline`: a context that was exhausted and holds budget again
-     gets a new deadline one period from now. */
-  function cbsUpdateDeadline(sc, now, wasExhausted) {
-    var out = scCopy(sc);
-    if (wasExhausted && out.remaining > 0) out.deadline = now + (Number(out.period) || 0);
-    return out;
   }
   /* `releaseKey?`: a context's place on a release queue — its first pending
      refill's release time while its head is used up. */
@@ -1406,6 +1513,7 @@
     READS_OVERFLOW: READS_OVERFLOW,
     MISSING_RIGHT_INVALID: MISSING_RIGHT_INVALID,
     MAX_REFILLS: MAX_REFILLS,
+    scRefillLimit: scRefillLimit,
     PAGE_BYTES: PAGE_BYTES,
     PATH_RESULTS: PATH_RESULTS,
     RIGHTS: RIGHTS,
@@ -1434,6 +1542,16 @@
     selectOnCore: selectOnCore,
     resolveCap: resolveCap,
     resolveCapSlot: resolveCapSlot,
+    resolveAddressBits: resolveAddressBits,
+    lookupSlotForCNodeOp: lookupSlotForCNodeOp,
+    lookupExtraCaps: lookupExtraCaps,
+    receivesOnCap: receivesOnCap,
+    isCNodeCap: isCNodeCap,
+    capGuardWidth: capGuardWidth,
+    capGuard: capGuard,
+    WORD_BITS: WORD_BITS,
+    RECEIVES_ON_CAP: RECEIVES_ON_CAP,
+    NON_OBJECT_KINDS: NON_OBJECT_KINDS,
     targetAccepted: targetAccepted,
     expectedKind: expectedKind,
     truncationMinimum: truncationMinimum,
@@ -1441,14 +1559,15 @@
     msgInfoFields: msgInfoFields,
     bitsAt: bitsAt,
     carvePlacement: carvePlacement,
-    issuingDestination: issuingDestination,
+    lookupTargetSlot: lookupTargetSlot,
+    retypeDestination: retypeDestination,
+    RETYPE_FAN_OUT_LIMIT: RETYPE_FAN_OUT_LIMIT,
     objectExists: objectExists,
     retypeRequest: retypeRequest,
     scTickExhausts: scTickExhausts,
     scChargeBudget: scChargeBudget,
     scReleaseReadyHead: scReleaseReadyHead,
     scReleaseKey: scReleaseKey,
-    cbsUpdateDeadline: cbsUpdateDeadline,
     releaseCoreOf: releaseCoreOf,
     effectiveParams: effectiveParams,
     irqLine: irqLine,

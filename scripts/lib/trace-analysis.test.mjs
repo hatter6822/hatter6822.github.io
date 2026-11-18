@@ -224,9 +224,9 @@ test('a rights stage that disagrees with the capability is caught', () => {
 
 test('a lookup the CSpace would refuse is caught (guard bits)', () => {
   const data = bundled();
-  // 0x81 sets a guard bit the CNode's guard 0000 does not have.
+  // 0x81 sets a bit of the root capability's 60-bit guard, which is 0.
   step(data, 'ipc-call-reply', 3).syscall.capPtr = 0x81;
-  hasError(data, 'does not resolve in client\'s CSpace (invalidCapability, guard)');
+  hasError(data, 'does not resolve in client\'s CSpace (guardMismatch), but the lookup stage says pass');
 });
 
 test('a dispatch the selection rule would not make is caught', () => {
@@ -429,14 +429,40 @@ test('selectOnCore: a thread without budget or in another domain is ineligible; 
   assert.deepEqual(pick.candidates.slice(0, 2).map((r) => r.reason), ['budget', 'domain']);
 });
 
-test('resolveCap walks guard then radix bits and names why a lookup fails', () => {
+test('resolveCap walks the 64-bit word from the root capability: its guard, then the radix', () => {
   const s = cloneState(scenario(BUNDLED, 'capability-gate').initialState);
   const actor = step(BUNDLED, 'capability-gate', 1).actor;
   const ok = engine.resolveCap(s, actor, 1);
   assert.equal(ok.slot.endsWith('/1'), true);
   assert.equal(ok.levels[0].guardOk, true);
-  assert.equal(engine.resolveCap(s, actor, 0x80 | 1).reason, 'guard');
+  assert.equal(ok.levels[0].bits, 64, 'a thread\'s lookup resolves the whole word (lookupSlot)');
+  assert.equal(ok.levels[0].guardWidth + ok.levels[0].radixWidth, 64, 'the root\'s guard takes what its radix leaves');
+  const bad = engine.resolveCap(s, actor, 0x80 | 1);
+  assert.equal(bad.error, 'failedLookup');
+  assert.deepEqual(bad.fault, { type: 'guardMismatch', bitsLeft: 64, guardFound: 0, bitsFound: 60 });
   assert.equal(engine.resolveCap(s, actor, 0x0f).reason, 'empty');
+  assert.equal(engine.resolveCap(s, actor, 0x0f).error, 'invalidCapability', 'an empty slot is no lookup failure (syscallResolveCap)');
+});
+
+test('resolveAddressBits descends through a CNode capability with its own guard, and stops at anything else', () => {
+  const s = {
+    threads: [{ id: 't', cspaceRoot: { kind: 'cnode', target: 'cn.a', rights: ['read'], guardWidth: 56, guard: 0 } }],
+    cnodes: [
+      { id: 'cn.a', radixWidth: 4, slots: { 2: { kind: 'cnode', target: 'cn.b', rights: ['read'], guardWidth: 2, guard: 1 }, 3: { kind: 'endpoint', target: 'ep', rights: ['read'] } } },
+      { id: 'cn.b', radixWidth: 2, slots: { 1: { kind: 'endpoint', target: 'ep', rights: ['write'] } } }
+    ]
+  };
+  // 0x2 | 0b01 guard | slot 1: [56 guard bits = 0][radix 4 = 2][guard 2 = 01][radix 2 = 01]
+  const two = engine.resolveCapSlot(s, 't', (2 << 4) | (1 << 2) | 1);
+  assert.equal(two.slot, 'cn.b/1');
+  assert.equal(two.levels.length, 2);
+  // A slot holding no CNode capability stops the walk with the bits still left.
+  const stop = engine.resolveAddressBits(s, s.threads[0].cspaceRoot, 3 << 4, 64);
+  assert.deepEqual([stop.slot, stop.bitsLeft], ['cn.a/3', 4]);
+  assert.equal(engine.resolveAddressBits(s, s.threads[0].cspaceRoot, (2 << 4) | (2 << 2), 64).fault.type, 'guardMismatch');
+  assert.equal(engine.lookupSlotForCNodeOp(s, s.threads[0].cspaceRoot, 3 << 2, 62).fault.type, 'depthMismatch', 'a CNode operation resolves exactly its depth');
+  assert.equal(engine.lookupSlotForCNodeOp(s, { kind: 'endpoint', target: 'ep' }, 0, 4).fault.type, 'invalidRoot');
+  assert.equal(engine.lookupSlotForCNodeOp(s, s.threads[0].cspaceRoot, 0, 65).error, 'rangeError');
 });
 
 test('securityFlowsTo: confidentiality only rises, and only a destination at least as trusted is reached', () => {
@@ -462,10 +488,10 @@ test('msgInfoWord packs length | extraCaps << 7 | capsUnwrapped << 9 | label << 
 });
 
 test('a missing right is an invalid capability on the IPC syscalls and illegal authority elsewhere', () => {
-  for (const id of ['send', 'call', 'receive', 'replyRecv', 'notificationSignal', 'notificationWait', 'declassifySignal']) {
+  for (const id of ['send', 'call', 'receive', 'replyRecv', 'notificationSignal', 'notificationWait']) {
     assert.equal(engine.missingRightError(id), 'invalidCapability', id);
   }
-  for (const id of ['cspaceMint', 'untypedRetype', 'vspaceMap', 'tcbSetAffinity', 'reply']) {
+  for (const id of ['cspaceMint', 'untypedRetype', 'vspaceMap', 'tcbSetAffinity', 'reply', 'declassifySignal']) {
     assert.equal(engine.missingRightError(id), 'illegalAuthority', id);
   }
   // The validator holds a step to it: the fixture's refused send says so.
@@ -675,12 +701,15 @@ test('checkEngineTables compares the engine\'s gate tables with the kernel\'s, e
       '  | .send => some .endpoint', '  | .cspaceMint => some .cnode', '  | .reply | .yield => none', '',
       'def syscallTargetAccepted (sid : SyscallId) (cap : Capability) : Bool :=',
       '  match cap.target with', '  | .object id =>', '      match syscallObjectKind? sid with',
-      '      | some kind => objectKindIs st id kind', '      | none => sid == .declassify',
-      '  | .replyCap _ => sid == .reply', '  | .irqControl _ => sid == .irqControlGet',
+      '      | some kind => objectKindIs st id kind', '      | none => false',
+      '  | .replyCap _ => sid == .reply',
+      '  | .auditTrail _ =>', '      sid == .auditRead || sid == .auditDrain || sid == .declassify || sid == .declassifySignal',
+      '  | .schedControl _ => sid == .schedContextConfigure', '  | .irqControl _ => sid == .irqControlGet',
+      '  | .serviceRegistry _ =>', '      sid == .serviceRegister || sid == .serviceRevoke || sid == .serviceQuery',
       '  | .irqHandler _ =>', '      sid == .irqHandlerAck || sid == .irqHandlerSetNotification || sid == .irqHandlerClear',
       '  | .cnodeSlotWord word => false', '',
       'def syscallMissingRightError : SyscallId → KernelError',
-      '  | .send => .invalidCapability', '  | .cspaceMint | .reply | .yield => .illegalAuthority', '',
+      '  | .send => (.invalidCapability 0)', '  | .cspaceMint | .reply | .yield => .illegalAuthority', '',
       '/-- The checked tier: `ctx` in a comment is not a read of it. -/',
       'def dispatchCapabilityOnlyChecked (ctx : LabelingContext) (sid : SyscallId) (k : Kernel Unit) : Kernel Unit :=',
       '  match sid with', '  | _ => k', '',
@@ -699,7 +728,7 @@ test('checkEngineTables compares the engine\'s gate tables with the kernel\'s, e
       '  -- .policyGated "commentedOut"',
       '  , .capabilityOnly "cspaceRevoke"', '  ]', ''
     ].join('\n'),
-    'SeLe4n/Kernel/Architecture/SyscallArgDecode.lean': 'def truncationMinimum : SyscallId → Nat\n  | .cspaceMint => 5\n  | _ => 0\n',
+    'SeLe4n/Kernel/Architecture/SyscallArgDecode.lean': 'def truncationMinimum : SyscallId → Nat\n  | .cspaceMint => 6\n  | _ => 0\n',
     'SeLe4n/Kernel/Architecture/RegisterDecode.lean': 'def syscallReadsOverflow : SyscallId → Bool\n  | .send | .reply | .cspaceMint => true\n  | .yield => false\n'
   })[path];
   assert.deepEqual(checkEngineTables(engine, read), []);
@@ -752,7 +781,12 @@ test('the type gate is recomputed: a capability of the wrong type is refused bef
   hasError(ok, 'but the type stage says fail');
   assert.equal(engine.targetAccepted('send', { kind: 'endpoint' }), true);
   assert.equal(engine.targetAccepted('send', { kind: 'notification' }), false);
-  assert.equal(engine.targetAccepted('declassify', { kind: 'cnode' }), true);
+  assert.equal(engine.targetAccepted('declassify', { kind: 'cnode' }), false, 'a declassification invokes the audit trail, its object is extra capability 0');
+  assert.equal(engine.targetAccepted('declassify', { kind: 'auditTrail' }), true);
+  assert.equal(engine.targetAccepted('serviceQuery', { kind: 'endpoint' }), false);
+  assert.equal(engine.targetAccepted('serviceQuery', { kind: 'serviceRegistry' }), true);
+  assert.equal(engine.targetAccepted('vspaceMap', { kind: 'frame' }), true, 'Page_Map is invoked on the frame');
+  assert.equal(engine.targetAccepted('vspaceMap', { kind: 'vspace' }), false);
   assert.equal(engine.targetAccepted('reply', { kind: 'reply' }), true);
   assert.equal(engine.targetAccepted('reply', { kind: 'endpoint' }), false);
   assert.equal(engine.targetAccepted('irqHandlerAck', { kind: 'irqHandler' }), true);
@@ -789,24 +823,24 @@ test('the arm\'s stages may come in the arm\'s order, but not before the rights 
 test('a message shorter than the arm\'s minimum is refused as truncated, and only then', () => {
   const data = bundled();
   const st = step(data, 'untyped-retype', 1);
-  st.syscall.msgInfo.length = 3;
-  st.syscall.args.pop();
+  st.syscall.msgInfo.length = 6;
+  st.syscall.ipcBuffer.pop();
   hasError(data, 'is refused with truncatedMessage at the args stage');
-  assert.equal(engine.truncationMinimum('untypedRetype'), 4);
+  assert.equal(engine.truncationMinimum('untypedRetype'), 7, "seL4's six words and the model's object id");
   assert.equal(engine.truncationMinimum('send'), 0);
 });
 
 test('message words past x5 come from the IPC buffer, for the syscalls that read it', () => {
   const mint = step(BUNDLED, 'capability-derivation', 1);
-  assert.equal(mint.syscall.msgInfo.length, 5);
+  assert.equal(mint.syscall.msgInfo.length, 6);
   assert.equal(mint.syscall.args.length, 4);
-  assert.equal(mint.syscall.ipcBuffer.length, 1);
+  assert.equal(mint.syscall.ipcBuffer.length, 2, 'the rights and the badge');
   const data = bundled();
   delete step(data, 'capability-derivation', 1).syscall.ipcBuffer;
-  hasError(data, 'reads 1 word(s) from the IPC buffer');
-  const copy = bundled();
-  step(copy, 'capability-derivation', 4).syscall.ipcBuffer = [{ name: 'x', value: 1 }];
-  hasError(copy, 'reads no message word past x5');
+  hasError(data, 'reads 2 word(s) from the IPC buffer');
+  const del = bundled();
+  step(del, 'capability-derivation', 6).syscall.ipcBuffer = [{ name: 'x', value: 1 }];
+  hasError(del, 'reads no message word past x5');
 });
 
 test('a timer tick is recomputed whole: the clock, the releases, the charge, the scheduling point', () => {
@@ -825,8 +859,8 @@ test('a timer tick is recomputed whole: the clock, the releases, the charge, the
   hasError(lie, 'perCoreTimerTickStep on core 0 writes');
 });
 
-test('the refill algebra: charge, merge, exhaust, release and the deadline rule', () => {
-  const sc = { id: 's', budget: 3, period: 20, deadline: 20, remaining: 3, periodStart: 0, refills: [] };
+test('the refill algebra: charge, merge, exhaust and release', () => {
+  const sc = { id: 's', budget: 3, period: 20, remaining: 3, periodStart: 0, refills: [] };
   // Three consecutive ticks from t = 10: each tick returns one period after
   // the head it came from was released, and consecutive ticks merge.
   const t1 = engine.scChargeBudget(sc, 10, 1, 11);
@@ -841,8 +875,9 @@ test('the refill algebra: charge, merge, exhaust, release and the deadline rule'
   assert.equal(engine.scReleaseKey(t2), null, 'a context with budget has no place on a release queue');
   // Not due: nothing changes. Due: the refill becomes the head, released then.
   assert.deepEqual(engine.scReleaseReadyHead(t3, 29).remaining, 0);
-  const back = engine.cbsUpdateDeadline(engine.scReleaseReadyHead(t3, 30), 30, true);
-  assert.deepEqual([back.remaining, back.periodStart, back.refills, back.deadline], [3, 30, [], 50]);
+  const back = engine.scReleaseReadyHead(t3, 30);
+  assert.deepEqual([back.remaining, back.periodStart, back.refills], [3, 30, []]);
+  assert.equal(back.deadline, undefined, 'a scheduling context carries no deadline');
   // A gap splits the refills: one tick, a pause, then another.
   const g1 = engine.scChargeBudget(sc, 0, 1, 1);
   const g2 = engine.scChargeBudget(g1, 5, 1, 6);
@@ -866,7 +901,7 @@ test('scCharge and scRelease do the arithmetic themselves; a release must be due
   s.time = 7;
   applyOp(s, { op: 'scRelease', sc: 'sc.alpha', core: 0 });
   const again = s.schedContexts.find((c) => c.id === 'sc.alpha');
-  assert.deepEqual([again.remaining, again.periodStart, again.deadline, s.releaseQueues['0']], [2, 7, 13, []]);
+  assert.deepEqual([again.remaining, again.periodStart, s.releaseQueues['0']], [2, 7, []]);
 });
 
 test('checkState catches a stranded refill, a lost tick and a release queue out of order', () => {
@@ -1014,15 +1049,24 @@ test('deriving an untyped capability follows seL4: refused over a child, the cop
   assert.throws(() => applyOp(t, { op: 'untypedCarve', untyped: 'ut.pool', slot: 'cn.mgr/1', child: { id: 'ut.pool', kind: 'frame', size: 4096 } }), /childIdCollision/);
 });
 
-test('an issuing invocation installs where its arguments say, through the caller\'s own CSpace', () => {
+test('an issuing invocation installs where its arguments say, under the root named as extra capability 0', () => {
   const pre = cloneState(scenario(BUNDLED, 'untyped-retype').initialState);
-  assert.deepEqual(engine.issuingDestination(pre, 'mgr', 0, 2), { slot: 'cn.mgr/2', via: 'cn.mgr/0' });
-  assert.equal(engine.issuingDestination(pre, 'mgr', 1, 2).error, 'invalidCapability', 'slot 1 holds the untyped capability, not a CNode');
+  // retypeDestinationCNode: depth 0 is the root capability's own CNode.
+  const win = engine.retypeDestination(pre, 'mgr', 0, 0, 0, 2, 1);
+  assert.deepEqual([win.cnode, win.slots, win.via], ['cn.mgr', ['cn.mgr/2'], 'cn.mgr/0']);
+  // retypeWindowRefusal: the window stays inside the CNode and inside the fan-out limit.
+  assert.equal(engine.retypeDestination(pre, 'mgr', 0, 0, 0, 2, 0).error, 'rangeError');
+  assert.equal(engine.retypeDestination(pre, 'mgr', 0, 0, 0, 2, engine.RETYPE_FAN_OUT_LIMIT + 1).error, 'rangeError');
+  // Slot 1 holds the untyped capability, which is no CNode capability.
+  assert.equal(engine.retypeDestination(pre, 'mgr', 1, 0, 0, 2, 1).error, 'failedLookup');
   const elsewhere = bundled();
-  step(elsewhere, 'untyped-retype', 1).syscall.args[3].value = 7;
-  hasError(elsewhere, 'installs its capability in cn.mgr/7');
+  step(elsewhere, 'untyped-retype', 1).syscall.ipcBuffer[0].value = 7;
+  hasError(elsewhere, 'installs its capabilities in cn.mgr/7');
+  const irqPre = reconstructState(scenario(BUNDLED, 'irq-delivery'), 1);
+  const at = engine.lookupTargetSlot(irqPre, 'drv', 0, 3, 4);
+  assert.deepEqual(at, { slot: 'cn.drv/3', via: 'cn.drv/0' });
   const irq = bundled();
-  step(irq, 'irq-delivery', 2).syscall.args[2].value = 6;
+  step(irq, 'irq-delivery', 2).syscall.args[1].value = 6;
   hasError(irq, 'installs its capability in cn.drv/6');
 });
 
@@ -1063,19 +1107,21 @@ test('msgInfoFields places each field of x1 where MessageInfo.encode does', () =
   assert.equal(word, engine.msgInfoWord(mi));
 });
 
-test('retypeRequest decodes x2 as decodeUntypedRetypeArgs does, and a carve must be what x2 asked for', () => {
-  // type tag = x2 % 256 (KernelObjectType.ofNat?), sizeBits = x2 / 256.
-  assert.deepEqual(engine.retypeRequest(8), { tag: 8, sizeBits: 0, kind: 'frame', size: engine.PAGE_BYTES });
-  assert.deepEqual(engine.retypeRequest(5 + 13 * 256), { tag: 5, sizeBits: 13, kind: 'untyped', size: 8192 });
+test('retypeRequest decodes MR0 and MR1 as decodeUntypedRetypeArgs does, and a carve must be what they asked for', () => {
+  // MR0 is the type tag (KernelObjectType.ofNat?), MR1 the size exponent.
+  assert.deepEqual(engine.retypeRequest(8, 0), { tag: 8, sizeBits: 0, kind: 'frame', size: engine.PAGE_BYTES });
+  assert.deepEqual(engine.retypeRequest(5, 13), { tag: 5, sizeBits: 13, kind: 'untyped', size: 8192 });
   // A kind the engine does not model is decoded but not sized: nothing is guessed.
-  const tcb = engine.retypeRequest(0);
+  const tcb = engine.retypeRequest(0, 0);
   assert.deepEqual([tcb.tag, tcb.kind, tcb.size], [0, null, null]);
-  assert.equal(engine.retypeRequest(5).kind, null, 'an untyped needs a size exponent');
+  assert.equal(engine.retypeRequest(5, 0).kind, null, 'an untyped needs a size exponent');
   assert.deepEqual(errorsOf(bundled()), []);
   const wrongSize = bundled();
-  step(wrongSize, 'untyped-retype', 2).syscall.args[0].value = 5 + 12 * 256;
-  hasError(wrongSize, 'x2 asks for a untyped of 4096 bytes');
+  step(wrongSize, 'untyped-retype', 2).syscall.args[1].value = 12;
+  hasError(wrongSize, 'ask for a untyped of 4096 bytes');
   const wrongKind = bundled();
-  step(wrongKind, 'untyped-retype', 1).syscall.args[0].value = 5 + 12 * 256;
+  const first = step(wrongKind, 'untyped-retype', 1).syscall;
+  first.args[0].value = 5;
+  first.args[1].value = 12;
   hasError(wrongKind, 'the step carves a frame of 4096');
 });

@@ -320,7 +320,7 @@ export function dispatchArms(body) {
 /** The engine's capability kind for a kernel `KernelObjectType`. */
 const OBJECT_KIND_NAMES = { vspaceRoot: 'vspace' };
 /** The engine's capability kind for a non-object `CapTarget` constructor. */
-const TARGET_KIND_NAMES = { replyCap: 'reply', irqControl: 'irqControl', irqHandler: 'irqHandler' };
+const TARGET_KIND_NAMES = { replyCap: 'reply', auditTrail: 'auditTrail', schedControl: 'schedControl', irqControl: 'irqControl', serviceRegistry: 'serviceRegistry', irqHandler: 'irqHandler' };
 
 /**
  * The trace engine decides the type gate, the missing-right answer, the
@@ -349,7 +349,11 @@ export function checkEngineTables(engine, readSource) {
   const missing = read(src.missingRight);
   if (!missing) issues.push(`${src.missingRight.table} not found in ${src.missingRight.path}`);
   else for (const id of syscalls) {
-    const lean = missing[id] === undefined ? missing._ : missing[id];
+    // An error constructor with its payload (`(.invalidCapability 0)`, seL4's
+    // invalid capability number) is compared by its constructor: the engine
+    // names the error, the payload is the kernel's encoding of it.
+    const raw = missing[id] === undefined ? missing._ : missing[id];
+    const lean = raw === undefined ? undefined : String(raw).replace(/^\(\s*\.?/, '').replace(/\)\s*$/, '').split(/\s+/)[0];
     if (lean !== engine.missingRightError(id)) issues.push(`${src.missingRight.table} .${id} is ${lean ?? 'unstated'}, the engine answers ${engine.missingRightError(id)}`);
   }
 
@@ -380,7 +384,9 @@ export function checkEngineTables(engine, readSource) {
       if (!lean) issues.push(`${src.targetAccepted.table} has no .${ctor} arm`);
       else if (lean.join(',') !== got.join(',')) issues.push(`${src.targetAccepted.table} accepts a .${ctor} capability for ${lean.join(', ')}; the engine's SYSCALL_TARGET_KIND says ${got.join(', ') || 'none'}`);
     }
-    if (!/\|\s*none\s*=>\s*sid\s*==\s*\.declassify\b/.test(body)) issues.push(`${src.targetAccepted.table} no longer accepts any object capability for exactly .declassify`);
+    // An `.object` capability is accepted only by its kind (`syscallObjectKind?`):
+    // a syscall that invokes no object accepts none.
+    if (!/\|\s*none\s*=>\s*false\b/.test(body)) issues.push(`${src.targetAccepted.table} no longer refuses every object capability for a syscall that invokes no object`);
   }
 
   /* Which arms gate the information flow. Two readings of the checkout, and
